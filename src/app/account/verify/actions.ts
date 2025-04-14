@@ -6,13 +6,13 @@ import { redirect } from 'next/navigation'
 /**
  * Verify a user's email with the provided OTP code
  */
-export async function verifyEmail(code: string) {
+export async function verifyEmail(token_hash: string) {
   try {
     const supabase = await createClient()
 
     const { error } = await supabase.auth.verifyOtp({
       type: 'email',
-      token_hash: code,
+      token_hash
     })
 
     if (error) {
@@ -31,7 +31,7 @@ export async function verifyEmail(code: string) {
 /**
  * Sign in user with email (passwordless)
  */
-export async function signInWithEmail(email: string, redirectTo: string = '/auth/verify') {
+export async function signInWithEmail(email: string, redirectTo: string = '/account/verify') {
   try {
     const supabase = await createClient()
 
@@ -53,14 +53,4 @@ export async function signInWithEmail(email: string, redirectTo: string = '/auth
       error: error.message || 'Failed to send verification email'
     }
   }
-}
-
-/**
- * Sign out the current user
- */
-export async function signOut() {
-  const supabase =  await createClient()
-  
-  await supabase.auth.signOut()
-  redirect('/auth/signin')
 }

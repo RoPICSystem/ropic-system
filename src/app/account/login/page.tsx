@@ -46,6 +46,8 @@ export default function LoginPage() {
   const [isVisiblePassword, setIsVisiblePassword] = useState(false);
   const toggleVisibilityPassword = () => setIsVisiblePassword(!isVisiblePassword);
 
+  const inputStyle = { inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200" }
+
 
   const updateHeroUITheme = () => {
     setTimeout(() => {
@@ -85,7 +87,7 @@ export default function LoginPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="w-auto h-full 2xl:absolute fixed inset-0 overflow-hidden md:min-h-[55rem] top-0 z-2">
+      <div className="w-auto h-full 2xl:absolute fixed inset-0 overflow-hidden min-h-[55rem] top-0 z-2">
         <div className="absolute w-full max-w-[30rem] top-[calc(50%-20rem)] left-[calc(50%+5rem)] hidden xl:block select-none z-1">
           {/* Ground element - positioned at bottom */}
           <Image
@@ -103,8 +105,8 @@ export default function LoginPage() {
         />
       </div>
 
-      <div className="w-full z-3 xl:pr-[25rem] pb-12 pt-4">
-        <div className="flex flex-col items-center justify-between relative">
+      <div className="w-full z-3 xl:pr-[25rem] pb-12 pt-4 min-h-[55rem] h-full flex flex-col justify-center">
+          <div className="flex flex-col items-center justify-between relative">
           {/* Left side - Login form */}
           <div className="max-w-[200rem] flex sm:flex-col flex-row space-x-4 items-center justify-center sm:mb-[-6rem] mb-4">
             <Image src="/logo.png" alt="Logo" className="sm:h-48 h-20" />
@@ -145,7 +147,7 @@ export default function LoginPage() {
                       <div className="space-y-4 w-full sm:px-6 px-4 sm:pt-6 pt-4">
                         <div>
                           <Input
-                            variant='faded'
+                            classNames={inputStyle}
                             id="email"
                             name="email"
                             label="Email"
@@ -157,7 +159,7 @@ export default function LoginPage() {
 
                         <div>
                           <Input
-                            variant='faded'
+                            classNames={inputStyle}
                             id="password"
                             name="password"
                             endContent={
@@ -260,13 +262,6 @@ export default function LoginPage() {
         </div>
 
       </div>
-
-
-      {/* Right side - Operator image */}
-
-
-
-
     </div>
   )
 }

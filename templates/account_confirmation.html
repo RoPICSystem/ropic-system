@@ -1,0 +1,54 @@
+<div
+  style="margin: 0; padding: 2rem; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f8f5f2; color: #5f5448; line-height: 1.6;">
+  <div
+    style="max-width: 600px; margin: 20px auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); border: 1px solid #e4d9ce;">
+
+    <div style="background-color: #d7ac82; padding: 30px 20px; text-align: center;">
+      <!-- Company Logo -->
+      <img src="https://github.com/RoPICSystem/ropic-system/blob/main/public/icon.png?raw=true" alt="RoPIC System Logo"
+        style="height: 120px; width: auto;">
+      <span style="font-size: 18px; font-weight: 500; color: #413427; width: 100%; text-align: center;">
+        <div style="font-size: 38px; font-weight: 700; font-family: 'Times New Roman', Times, serif;">
+          REORDER POINT
+        </div>
+        <div style="font-size: 14px; font-weight: 500; margin-top:-8px;letter-spacing: 1px;">
+          INVENTORY MANAGEMENT SYSTEM
+        </div>
+      </span>
+    </div>
+
+    <div style="padding: 40px 30px;">
+      <h2 style="color: #8c7055; font-size: 24px; margin-top: 0; margin-bottom: 20px;">Confirm your signup</h2>
+
+      <p style="margin-bottom: 20px; font-size: 16px; color: #5f5448;">Thank you for creating your account! We're
+        excited to have you join us.</p>
+
+      <p style="margin-bottom: 20px; font-size: 16px; color: #5f5448;">To get started, please confirm your email address
+        by clicking the button below:</p>
+
+      <div style="text-align: center; margin: 30px 0;">
+        <a href="{{ .RedirectTo }}?email={{ .Email }}&token_hash={{ .TokenHash }}"
+          style="display: inline-block; background-color: #d7ac82; color: #413427; text-decoration: none; padding: 14px 30px; border-radius: 6px; font-weight: 600; font-size: 16px; transition: background-color 0.3s; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">Confirm
+          your email</a>
+      </div>
+
+      <p style="margin-bottom: 20px; font-size: 16px; color: #5f5448; text-align: center;">If the button doesn't work,
+        you can use this verification code:</p>
+
+      <div style="text-align: center; margin: 30px auto;">
+        <div
+          style="display: inline-block; background-color: #faf5ef; border: 1px dashed #d7ac82; border-radius: 8px; padding: 15px 40px; max-width: 80%;">
+          <span
+            style="font-family: 'Courier New', monospace; letter-spacing: 2px; font-size: 24px; font-weight: 600; color: #8c7055;">{{
+            .Token }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="background-color: #eee7e0; padding: 20px; text-align: center; font-size: 14px; color: #817263;">
+      <p style="margin: 5px 0;">This email was sent to you as part of the registration process.</p>
+      <p style="margin: 5px 0;">If you didn't sign up for our service, please disregard this email.</p>
+      <p style="margin-top: 15px; font-weight: 600;">© 2025 RoPIC System. All rights reserved.</p>
+    </div>
+  </div>
+</div>

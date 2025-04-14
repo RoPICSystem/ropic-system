@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useTheme } from "next-themes";
+import { today, getLocalTimeZone } from '@internationalized/date';
 import { hslToRgb } from '@/utils/colors';
 
 import {
@@ -297,51 +298,45 @@ export default function RegisterPage() {
       selectedCityMunicipality,
       selectedBarangay,
     )
-    console.log(regions)
-    if (selectedRegion && selectedProvince && selectedCityMunicipality &&
-      selectedBarangay && inputStreetAddress && inputPostalCode) {
+    const regionName = regions.find(r => `${r.regCode}` === selectedRegion)?.regDesc || '';
+    const provinceName = provinces.find(p => `${p.provCode}` === selectedProvince)?.provDesc || '';
+    const cityMunName = cityMunicipalities.find(c => `${c.citymunCode}` === selectedCityMunicipality)?.citymunDesc || '';
+    const barangayName = barangays.find(b => `${b.brgyCode}` === selectedBarangay)?.brgyDesc || '';
 
-      const regionName = regions.find(r => `${r.regCode}` === selectedRegion)?.regDesc || '';
-      const provinceName = provinces.find(p => `${p.provCode}` === selectedProvince)?.provDesc || '';
-      const cityMunName = cityMunicipalities.find(c => `${c.citymunCode}` === selectedCityMunicipality)?.citymunDesc || '';
-      const barangayName = barangays.find(b => `${b.brgyCode}` === selectedBarangay)?.brgyDesc || '';
+    setFullAddress(
+      generateFullAddress(
+        inputStreetAddress,
+        barangayName,
+        cityMunName,
+        provinceName,
+        regionName,
+        'PHILIPPINES',
+        inputPostalCode?.toString()
+      )
+    );
 
-      setFullAddress(
-        generateFullAddress(
-          inputStreetAddress,
-          barangayName,
-          cityMunName,
-          provinceName,
-          regionName,
-          'PHILIPPINES',
-          inputPostalCode?.toString()
-        )
-      );
-    }
   }, [selectedRegion, selectedProvince, selectedCityMunicipality,
     selectedBarangay, inputStreetAddress, inputPostalCode,
     regions, provinces, cityMunicipalities]);
 
   // Similar logic for company address
   useEffect(() => {
-    if (selectedCompanyRegion && selectedCompanyProvince && selectedCompanyCityMunicipality) {
-      const regionName = regions.find(r => `${r.regCode}` === selectedCompanyRegion)?.regDesc || '';
-      const provinceName = companyProvinces.find(p => `${p.provCode}` === selectedCompanyProvince)?.provDesc || '';
-      const cityMunName = companyCityMunicipalities.find(c => `${c.citymunCode}` === selectedCompanyCityMunicipality)?.citymunDesc || '';
-      const barangayName = companyBarangays.find(b => `${b.brgyCode}` === selectedCompanyBarangay)?.brgyDesc || '';
+    const regionName = regions.find(r => `${r.regCode}` === selectedCompanyRegion)?.regDesc || '';
+    const provinceName = companyProvinces.find(p => `${p.provCode}` === selectedCompanyProvince)?.provDesc || '';
+    const cityMunName = companyCityMunicipalities.find(c => `${c.citymunCode}` === selectedCompanyCityMunicipality)?.citymunDesc || '';
+    const barangayName = companyBarangays.find(b => `${b.brgyCode}` === selectedCompanyBarangay)?.brgyDesc || '';
 
-      setFullCompanyAddress(
-        generateFullAddress(
-          inputCompanyStreetAddress,
-          barangayName,
-          cityMunName,
-          provinceName,
-          regionName,
-          'PHILIPPINES',
-          inputCompanyPostalCode?.toString()
-        )
-      );
-    }
+    setFullCompanyAddress(
+      generateFullAddress(
+        inputCompanyStreetAddress,
+        barangayName,
+        cityMunName,
+        provinceName,
+        regionName,
+        'PHILIPPINES',
+        inputCompanyPostalCode?.toString()
+      )
+    );
   }, [selectedCompanyRegion, selectedCompanyProvince, selectedCompanyCityMunicipality,
     selectedCompanyBarangay, inputCompanyStreetAddress, inputCompanyPostalCode,
     regions, companyProvinces, companyCityMunicipalities]);
@@ -350,7 +345,7 @@ export default function RegisterPage() {
   return (
 
     <div className="h-full overflow-auto">
-      <div className="w-auto h-full 2xl:absolute fixed inset-0 overflow-hidden md:min-h-[55rem] top-0 ">
+      <div className="w-auto h-full 2xl:absolute fixed inset-0 overflow-hidden top-0 ">
         <div className="absolute w-full max-w-[30rem] top-[calc(50%-20rem)] left-[calc(50%+8rem)] hidden xl:block select-none">
           {/* Ground element - positioned at bottom */}
           <Image
@@ -507,9 +502,11 @@ export default function RegisterPage() {
                           <AutocompleteItem key="prefer_not_to_say">Prefer not to say</AutocompleteItem>
                         </Autocomplete>
                         <DatePicker
-                          id="birthday"
                           name="birthday"
                           label="Birthday"
+                          defaultValue={today(getLocalTimeZone()).subtract({ years: 18 })}
+                          minValue={today(getLocalTimeZone()).subtract({ years: 100 })}
+                          maxValue={today(getLocalTimeZone()).subtract({ years: 18 })}
                           isRequired
                           classNames={{
                             base: "w-full",
@@ -940,12 +937,12 @@ export default function RegisterPage() {
                               }}
                               className='w-full'
                             >
-                              <Alert 
-                              color='danger' 
-                              variant='solid' 
-                              title={`Error`} 
-                              onClose={() => {router.replace('/account/register')}}
-                              description={error} />
+                              <Alert
+                                color='danger'
+                                variant='solid'
+                                title={`Error`}
+                                onClose={() => { router.replace('/account/register') }}
+                                description={error} />
                             </motion.div>
                           )}
                         </AnimatePresence>

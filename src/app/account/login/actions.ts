@@ -14,7 +14,7 @@ export async function login(formData: FormData) {
   // Attempt to sign in
   const { error } = await supabase.auth.signInWithPassword({
     email,
-    password,
+    password
   })
 
   if (error) {
@@ -26,5 +26,5 @@ export async function login(formData: FormData) {
   revalidatePath('/', 'layout')
   
   // Redirect to dashboard or home page
-  redirect('/')
+  redirect('/home')
 }

@@ -4,6 +4,8 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/utils/supabase/server'
 import sharp from 'sharp'
+import { baseURL } from '@/utils/tools'
+
 
 export async function getRegions() {
   const supabase = await createClient()
@@ -19,18 +21,6 @@ export async function getRegions() {
   }
   
   return data
-}
-
-const baseURL = () => {
-  const env = process.env.NODE_ENV
-  console.log(`env: ${env}`)
-
-  if (env == "development") {
-    return 'http://0.0.0.0:3000'
-  }
-  else if (env == "production") {
-    return 'https://ropic-system.vercel.app/'
-  }
 }
 
 export async function getProvinces(regCode: string) {
@@ -249,7 +239,7 @@ export async function register(formData: FormData) {
     email,
     password,
     options: {
-      emailRedirectTo: `${baseURL()}/account/verification-requested`,
+      emailRedirectTo: `${baseURL()}/account/verification`,
       data: {
         isAdmin: isAdmin,
         name: {
@@ -306,7 +296,7 @@ export async function register(formData: FormData) {
     console.error('Error creating profile:', error)
     // Continue with the flow even if profile creation fails
   }
-
+  
   revalidatePath('/', 'layout')
-  redirect('/account/verification-requested')
+  redirect(`/account/verification?email=${encodeURIComponent(email)}`)
 }

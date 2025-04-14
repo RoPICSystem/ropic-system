@@ -33,12 +33,11 @@ export async function updateSession(request: NextRequest) {
   return supabaseResponse
 }
 
+
 export async function middleware(request: NextRequest) {
   // Create a response and supabase client
-  let response = NextResponse.next({
-    request: {
-      headers: request.headers,
-    },
+  let supabaseResponse = NextResponse.next({
+    request,
   })
 
   const supabase = createServerClient(
@@ -46,40 +45,17 @@ export async function middleware(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name: string) {
-          return request.cookies.get(name)?.value
+        getAll() {
+          return request.cookies.getAll()
         },
-        set(name: string, value: string, options: any) {
-          request.cookies.set({
-            name,
-            value,
-            ...options,
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value))
+          supabaseResponse = NextResponse.next({
+            request,
           })
-          response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
-          })
-          response.cookies.set({
-            name,
-            value,
-            ...options,
-          })
-        },
-        remove(name: string, options: any) {
-          request.cookies.delete({
-            name,
-            ...options,
-          })
-          response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
-          })
-          response.cookies.delete({
-            name,
-            ...options,
-          })
+          cookiesToSet.forEach(({ name, value, options }) =>
+            supabaseResponse.cookies.set(name, value, options)
+          )
         },
       },
     }
@@ -89,14 +65,15 @@ export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname
   
   // Define public and protected paths
-  const isPublicPath = ['/account', '/login', '/register'].includes(path)
+  const isPublicPath = ['/account'].includes(path)
   const isProtectedPath = path.startsWith('/home') || 
-                          path.startsWith('/dashboard') || 
                           path === '/'
   
   // Check user authentication status
   const { data: { user } } = await supabase.auth.getUser()
   const isAuthenticated = !!user
+
+  console.log('User authentication status:', isAuthenticated)
 
   // Redirect logic
   if (isAuthenticated && isPublicPath) {
@@ -110,7 +87,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Update the session
-  return response
+  return supabaseResponse
 }
 
 // Configure which routes this middleware applies to
@@ -119,10 +96,7 @@ export const config = {
     '/',
     '/home',
     '/home/:path*',
-    '/account',
-    '/login',
-    '/register', 
-    '/dashboard/:path*',
-    '/profile/:path*'
+    '/account/:path*',
+    '/account'
   ]
 }

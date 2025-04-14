@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { signInWithEmail } from '../verify/actions'
+import { signInWithEmail } from '../../account/verify/actions'
 
 export async function GET(request: NextRequest) {
   // Get the email from the URL query parameters
   const searchParams = request.nextUrl.searchParams
   const email = searchParams.get('email')
-  const redirectTo = searchParams.get('redirectTo') || '/auth/verify'
+  const redirectTo = searchParams.get('redirectTo') || '/account/verify'
 
   if (!email) {
     return NextResponse.json(
