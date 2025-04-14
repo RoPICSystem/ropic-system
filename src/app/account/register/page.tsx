@@ -109,6 +109,7 @@ export default function RegisterPage() {
   const inputStyle = { inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200" }
   const autoCompleteStyle = { classNames: inputStyle }
 
+
   const generateFullAddress = (
     streetAddress: string,
     barangay: string,

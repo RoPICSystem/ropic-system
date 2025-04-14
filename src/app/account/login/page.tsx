@@ -84,7 +84,6 @@ export default function LoginPage() {
 
 
   return (
-
     <div className="h-full overflow-auto">
       <div className="w-auto h-full 2xl:absolute fixed inset-0 overflow-hidden md:min-h-[55rem] top-0 z-2">
         <div className="absolute w-full max-w-[30rem] top-[calc(50%-20rem)] left-[calc(50%+5rem)] hidden xl:block select-none z-1">
@@ -264,7 +263,5 @@ export default function LoginPage() {
 
 
     </div>
-
-
   )
 }
