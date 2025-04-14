@@ -21,6 +21,18 @@ export async function getRegions() {
   return data
 }
 
+const baseURL = () => {
+  const env = process.env.NODE_ENV
+  console.log(`env: ${env}`)
+
+  if (env == "development") {
+    return 'http://0.0.0.0:3000'
+  }
+  else if (env == "production") {
+    return 'https://ropic-system.vercel.app/'
+  }
+}
+
 export async function getProvinces(regCode: string) {
   const supabase = await createClient()
   
@@ -237,6 +249,7 @@ export async function register(formData: FormData) {
     email,
     password,
     options: {
+      emailRedirectTo: `${baseURL()}/account/verification-requested`,
       data: {
         isAdmin: isAdmin,
         name: {

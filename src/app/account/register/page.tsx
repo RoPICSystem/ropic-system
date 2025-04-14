@@ -108,6 +108,8 @@ export default function RegisterPage() {
 
   const inputStyle = { inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200" }
   const autoCompleteStyle = { classNames: inputStyle }
+  const router = useRouter();
+
 
 
   const generateFullAddress = (
@@ -647,6 +649,7 @@ export default function RegisterPage() {
                                 name="address.streetAddress"
                                 label="Street Address"
                                 type="text"
+                                classNames={inputStyle}
                                 value={inputStreetAddress}
                                 onValueChange={(value) => setInputStreetAddress(value.toUpperCase())}
                                 isRequired
@@ -660,6 +663,7 @@ export default function RegisterPage() {
                                 name="address.postalCode"
                                 label="Postal Code"
                                 className="md:w-[10rem]"
+                                classNames={inputStyle}
                                 onValueChange={setInputPostalCode}
                                 formatOptions={{ useGrouping: false }}
                                 hideStepper
@@ -784,6 +788,7 @@ export default function RegisterPage() {
                                 label="Postal Code"
                                 type="text"
                                 className="sm:w-[10rem]"
+                                classNames={inputStyle}
                                 onValueChange={setInputCompanyPostalCode}
                                 formatOptions={{ useGrouping: false }}
                                 hideStepper
@@ -935,7 +940,12 @@ export default function RegisterPage() {
                               }}
                               className='w-full'
                             >
-                              <Alert color='danger' variant='solid' title={`Error`} description={error} />
+                              <Alert 
+                              color='danger' 
+                              variant='solid' 
+                              title={`Error`} 
+                              onClose={() => {router.replace('/account/register')}}
+                              description={error} />
                             </motion.div>
                           )}
                         </AnimatePresence>

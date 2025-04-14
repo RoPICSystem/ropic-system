@@ -3,8 +3,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { type User } from '@supabase/supabase-js'
 
-// ...
-
 export default function AccountInfo({ user }: { user: User | null }) {
   const supabase = createClient()
   const [loading, setLoading] = useState(true)
@@ -77,9 +75,6 @@ export default function AccountInfo({ user }: { user: User | null }) {
 
   return (
     <div className="form-widget">
-
-      {/* ... */}
-
       <div>
         <label htmlFor="email">Email</label>
         <input id="email" type="text" value={user?.email} disabled />
@@ -93,7 +88,7 @@ export default function AccountInfo({ user }: { user: User | null }) {
           onChange={(e) => setFullname(e.target.value)}
         />
       </div>
-      <div>
+      <div>User
         <label htmlFor="username">Username</label>
         <input
           id="username"

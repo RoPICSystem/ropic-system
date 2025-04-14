@@ -217,7 +217,12 @@ export default function LoginPage() {
                               }}
                               className='w-full'
                             >
-                              <Alert color='danger' variant='solid' title={`Error Logging In`} description={error} />
+                              <Alert
+                                color='danger'
+                                variant='solid'
+                                onClose={() => { router.replace('/account/login') }}
+                                title={`Error Logging In`}
+                                description={error} />
                             </motion.div>
                           )}
                         </AnimatePresence>
