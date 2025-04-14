@@ -2,165 +2,115 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { createClient } from '@/utils/supabase/server'
+import { createClient, createAdminClient } from '@/utils/supabase/server'
 import sharp from 'sharp'
 import { baseURL } from '@/utils/tools'
+import {
+  getLocalTimeZone,
+  parseDate
+} from "@internationalized/date";
+import { User } from '@supabase/supabase-js'
 
-
-export async function getRegions() {
-  const supabase = await createClient()
-  
-  const { data, error } = await supabase
-    .from('address_region')
-    .select('regCode, regDesc')
-    .order('regDesc')
-  
-  if (error) {
-    console.error('Error fetching regions:', error)
-    return []
-  }
-  
-  return data
-}
-
-export async function getProvinces(regCode: string) {
-  const supabase = await createClient()
-  
-  const { data, error } = await supabase
-    .from('address_province')
-    .select('provCode, provDesc')
-    .eq('regCode', regCode)
-    .order('provDesc')
-  
-  if (error) {
-    console.error('Error fetching provinces:', error)
-    return []
-  }
-  
-  return data
-}
-
-export async function getCityMunicipalities(provCode: string) {
-  const supabase = await createClient()
-  
-  const { data, error } = await supabase
-    .from('address_citymun')
-    .select('citymunCode, citymunDesc')
-    .eq('provCode', provCode)
-    .order('citymunDesc')
-  
-  if (error) {
-    console.error('Error fetching cities/municipalities:', error)
-    return []
-  }
-  
-  return data
-}
-
-export async function getBarangays(citymunCode: string) {
-  const supabase = await createClient()
-  
-  const { data: rawData, error } = await supabase
-    .from('address_brgy')
-    .select('brgyCode, brgyDesc')
-    .eq('citymunCode', citymunCode)
-    .order('brgyDesc')
-    
-  // Transform brgyDesc to uppercase
-  const data = rawData?.map(item => ({
-    ...item,
-    brgyDesc: item.brgyDesc.toUpperCase()
-  })) || []
-  
-  if (error) {
-    console.error('Error fetching barangays:', error)
-    return []
-  }
-  
-  return data
-}
 
 export async function register(formData: FormData) {
   const supabase = await createClient()
+
+  const returnError = (message: string) => {
+    console.error(message)
+    redirect(`/account/register?error=${encodeURIComponent(message)}`)
+  }
 
   // Extract basic form data
   const email = formData.get('email') as string
   const password = formData.get('password') as string
   const confirmPassword = formData.get('confirmPassword') as string
-  
-  // Extract user metadata
-  const firstName = formData.get('firstName') as string
-  const lastName = formData.get('lastName') as string
-  const middleName = formData.get('middleName') as string || null
-  const suffix = formData.get('suffix') as string || null
-  const profileImage = formData.get('profileImage') as File || null
-  
-  // Additional user metadata
-  const isAdmin = formData.get('isAdmin') as string === 'true'
-  const gender = formData.get('gender') as string || null
-  const birthday = formData.get('birthday') as string || null
-  const phoneNumber = formData.get('phoneNumber') as string || null
-  
-  // Address data
-  const address = {
-    country: formData.get('address.country') as string || null,
-    region: formData.get('address.region') as string || null,
-    province: formData.get('address.province') as string || null,
-    municipality: formData.get('address.municipality') as string || null,
-    barangay: formData.get('address.barangay') as string || null,
-    streetAddress: formData.get('address.streetAddress') as string || null,
-    postalCode: formData.get('address.postalCode') as string || null,
-    fullAddress: formData.get('address.fullAddress') as string || null
-  }
-  
-  // Company address data
-  const companyAddress = {
-    country: formData.get('companyAddress.country') as string || null,
-    region: formData.get('companyAddress.region') as string || null,
-    province: formData.get('companyAddress.province') as string || null,
-    municipality: formData.get('companyAddress.municipality') as string || null,
-    barangay: formData.get('companyAddress.barangay') as string || null,
-    streetAddress: formData.get('companyAddress.streetAddress') as string || null,
-    postalCode: formData.get('companyAddress.postalCode') as string || null,
-    fullAddress: formData.get('companyAddress.fullAddress') as string || null
-  }
-  
-  // Generate full addresses if components are available
-  if (address.streetAddress) {
-    const addressParts = [
-      address.streetAddress,
-      address.barangay,
-      address.municipality,
-      address.province,
-      address.region,
-      address.country,
-      address.postalCode
-    ].filter(Boolean);
-    
-    address.fullAddress = addressParts.join(', ');
-  }
-  
-  if (companyAddress.streetAddress) {
-    const companyAddressParts = [
-      companyAddress.streetAddress,
-      companyAddress.barangay,
-      companyAddress.municipality,
-      companyAddress.province,
-      companyAddress.region,
-      companyAddress.country,
-      companyAddress.postalCode
-    ].filter(Boolean);
-    
-    companyAddress.fullAddress = companyAddressParts.join(', ');
-  }
 
   // Basic validation
   if (password !== confirmPassword) {
-    redirect('/account/register?error=passwords-do-not-match')
+    returnError('Passwords do not match')
+  }
+  
+  const profileImage = formData.get('profileImage') as File || null
+
+  const birthdayString = formData.get('birthday') as string | null;
+  let birthday: string | null = null;
+  if (birthdayString) {
+    try {
+      birthday = parseDate(birthdayString).toDate(getLocalTimeZone()).toISOString();
+    } catch (error) {
+      returnError('Invalid date format for birthday')
+    }
   }
 
-  let profileImageUrl = null
-  let profileImageThumbUrl = null
+  const name = {
+    first_name: formData.get('firstName') as string,
+    last_name: formData.get('lastName') as string,
+    middle_name: formData.get('middleName') as string || null,
+    suffix: formData.get('suffix') as string || null,
+  }
+
+
+
+  const metadata = {
+    is_admin: formData.get('isAdmin') as string === 'true',
+    name,
+    full_name: `${name.first_name} ${name.middle_name ? name.middle_name + ' ' : ''}${name.last_name}${name.suffix ? ' ' + name.suffix : ''}`,
+    profile_image: `profiles/${email}/profileImage.webp`,
+    gender: formData.get('gender') as string,
+    birthday: birthday,
+    phone_number: formData.get('phoneNumber') as string,
+    address: {
+      country: {
+        code: formData.get('address.country.code') as string,
+        desc: formData.get('address.country.desc') as string
+      },
+      region: {
+        code: formData.get('address.region.code') as string,
+        desc: formData.get('address.region.desc') as string
+      },
+      province: {
+        code: formData.get('address.province.code') as string,
+        desc: formData.get('address.province.desc') as string
+      },
+      municipality: {
+        code: formData.get('address.municipality.code') as string,
+        desc: formData.get('address.municipality.desc') as string
+      },
+      barangay: {
+        code: formData.get('address.barangay.code') as string,
+        desc: formData.get('address.barangay.desc') as string
+      },
+      streetAddress: formData.get('address.streetAddress') as string,
+      postalCode: formData.get('address.postalCode') as string,
+    },
+    full_address: formData.get('address.fullAddress') as string,
+    company_address: {
+      country: {
+        code: formData.get('companyAddress.country.code') as string,
+        desc: formData.get('companyAddress.country.desc') as string
+      },
+      region: {
+        code: formData.get('companyAddress.region.code') as string,
+        desc: formData.get('companyAddress.region.desc') as string
+      },
+      province: {
+        code: formData.get('companyAddress.province.code') as string,
+        desc: formData.get('companyAddress.province.desc') as string
+      },
+      municipality: {
+        code: formData.get('companyAddress.municipality.code') as string,
+        desc: formData.get('companyAddress.municipality.desc') as string
+      },
+      barangay: {
+        code: formData.get('companyAddress.barangay.code') as string,
+        desc: formData.get('companyAddress.barangay.desc') as string
+      },
+      streetAddress: formData.get('companyAddress.streetAddress') as string,
+      postalCode: formData.get('companyAddress.postalCode') as string,
+    },
+    full_company_address: formData.get('companyAddress.fullAddress') as string,
+    company_name: formData.get('companyName') as string
+  }
 
   // Process and upload profile image if provided
   if (profileImage && profileImage.size > 0) {
@@ -168,7 +118,7 @@ export async function register(formData: FormData) {
       // Convert File to Buffer
       const arrayBuffer = await profileImage.arrayBuffer()
       const buffer = Buffer.from(arrayBuffer)
-      
+
       // Process image with sharp - create full size version (cropped to square)
       const processedImageBuffer = await sharp(buffer)
         .resize({
@@ -179,124 +129,77 @@ export async function register(formData: FormData) {
         })
         .webp({ quality: 80 })
         .toBuffer()
-      
-      // Create thumbnail version
-      const thumbnailBuffer = await sharp(buffer)
-        .resize({
-          width: 120,
-          height: 120,
-          fit: 'cover',
-          position: 'center'
-        })
-        .webp({ quality: 50 })
-        .toBuffer()
-      
-      // Create user directory path
-      const userProfilePath = `profiles/${email}`
-      
+
       // Upload main image
       const { error: uploadError } = await supabase.storage
         .from('profile-images')
-        .upload(`${userProfilePath}/profileImage.webp`, processedImageBuffer, {
+        .upload(metadata.profile_image, processedImageBuffer, {
           contentType: 'image/webp',
           upsert: true
         })
 
       if (uploadError) {
-        console.error('Error uploading main image:', uploadError)
-      } else {
-        // Upload thumbnail
-        const { error: thumbError } = await supabase.storage
-          .from('profile-images')
-          .upload(`${userProfilePath}/profileImageThumb.webp`, thumbnailBuffer, {
-            contentType: 'image/webp',
-            upsert: true
-          })
-          
-        if (thumbError) {
-          console.error('Error uploading thumbnail:', thumbError)
-        }
-        
-        // Get public URLs
-        const { data: urlData } = supabase.storage
-          .from('profile-images')
-          .getPublicUrl(`${userProfilePath}/profileImage.webp`)
-        
-        const { data: thumbUrlData } = supabase.storage
-          .from('profile-images')
-          .getPublicUrl(`${userProfilePath}/profileImageThumb.webp`)
-        
-        profileImageUrl = urlData.publicUrl
-        profileImageThumbUrl = thumbUrlData.publicUrl
-      }
+        returnError('Error uploading profile image')
+      } 
     } catch (error) {
-      console.error('Error processing image:', error)
+      returnError(`Error processing profile image: ${error}`)
     }
   }
 
-  // Create the user account with metadata
-  const { error } = await supabase.auth.signUp({
+  const { error, data: { user } } = await supabase.auth.signUp({
     email,
     password,
     options: {
       emailRedirectTo: `${baseURL()}/account/verification`,
-      data: {
-        isAdmin: isAdmin,
-        name: {
-          full_name: `${firstName} ${middleName ? middleName + ' ' : ''}${lastName}${suffix ? ' ' + suffix : ''}`,
-          first_name: firstName,
-          last_name: lastName,
-          middle_name: middleName,
-          suffix: suffix,
-        },
-        profile_image: {
-          full_url: profileImageUrl,
-          thumb_url: profileImageThumbUrl,
-        },
-        gender: gender,
-        birthday: birthday,
-        phone_number: phoneNumber,
-        address: address,
-        company_address: companyAddress,
-      },
+      data: metadata
     },
   })
 
+  const deleteAccount = async (user: User | null) => {
+    const supabaseAdmin = await createAdminClient()
+
+    if (!user) return
+
+    const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(user.id)
+    if (authError) {
+      console.error('Error deleting user:', authError)
+    }
+
+    const userProfilePath = `profiles/${email}`
+    const { error: deleteError } = await supabaseAdmin.storage
+      .from('profile-images')
+      .remove([`${userProfilePath}/profileImage.webp`, `${userProfilePath}/profileImageThumb.webp`])
+
+    if (deleteError) {
+      console.error('Error deleting main image:', deleteError)
+      returnError('Error deleting main image')
+    }
+  }
+
   if (error) {
-    redirect(`/account/register?error=${error.message}`)
+    deleteAccount(user)
+    returnError(error.message)
   }
 
   // Create a more detailed profile in a separate table
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      await supabase.from('profiles').insert({
-        id: user.id,
+  if (user) {
+    const { error } = await supabase
+      .from('profiles')
+      .insert({
+        ...metadata,
+        user_id: user.id,
         email: email,
-        isAdmin: isAdmin,
-        name: {
-          full_name: `${firstName} ${middleName ? middleName + ' ' : ''}${lastName}${suffix ? ' ' + suffix : ''}`,
-          first_name: firstName,
-          last_name: lastName,
-          middle_name: middleName,
-          suffix: suffix,
-        },
-        profile_image: {
-          full_url: profileImageUrl,
-          thumb_url: profileImageThumbUrl,
-        },
-        gender: gender,
-        birthday: birthday,
-        phone_number: phoneNumber,
-        address: address,
-        company_address: companyAddress,
-      });
+      })
+      .select();
+    if (error) {
+      deleteAccount(user)
+      returnError(`Error creating user table: ${error.message}`)
     }
-  } catch (error) {
-    console.error('Error creating profile:', error)
-    // Continue with the flow even if profile creation fails
+  } else {
+    deleteAccount(user)
+    returnError('User creation failed')
   }
-  
+
   revalidatePath('/', 'layout')
   redirect(`/account/verification?email=${encodeURIComponent(email)}`)
 }

@@ -1,7 +1,16 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { Link, Button, ScrollShadow, Image } from '@heroui/react';
+import {
+  Link,
+  Button,
+  ScrollShadow,
+  Image,
+  Dropdown,
+  DropdownTrigger,
+  DropdownMenu,
+  DropdownItem,
+} from '@heroui/react';
 import { usePathname } from 'next/navigation';
 import {
   XMarkIcon,
@@ -12,7 +21,7 @@ import {
   ShoppingCartIcon,
   BellAlertIcon,
   ChartBarIcon,
-  CogIcon
+  CogIcon,
 } from '@heroicons/react/24/solid';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -90,11 +99,11 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
                   src="/icon.png"
                   alt="Web Inventory Logo"
                 />
-                <div className="text-xl font-bold text-primary-600">RoPIC<p className="text-tiny text-default-600">
-                Reorder Point Inventory Control
-              </p></div>
+                <div className="text-xl font-bold text-primary-600"><span className="font-serif">RoPIC</span><p className="text-tiny text-default-600">
+                  Reorder Point Inventory Control
+                </p></div>
 
-              
+
               </div>
               <Button
                 variant="light"
@@ -136,19 +145,39 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
               </ScrollShadow>
             </div>
 
+
+
             {/* User profile section - fixed at bottom */}
-            <div className="border-t border-default-200 p-4 flex-shrink-0 h-[4.5rem] ">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <div className="h-10 w-10 rounded-full bg-primary-100 flex items-center justify-center text-primary-600 font-semibold">
-                    JD
-                  </div>
-                </div>
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-default-900">John Doe</p>
-                  <p className="text-xs font-medium text-default-700">View profile</p>
-                </div>
-              </div>
+            <div className="border-t border-default-200 p-4 flex-shrink-0 ">
+              <Dropdown>
+                <DropdownTrigger>
+                    <Button variant="light" color='primary' className='flex w-full h-14 p-2 items-center'>
+                    <div className="flex items-center justify-center flex-shrink-0">
+                      <div className="h-10 w-10 rounded-full bg-primary-100 flex items-center justify-center text-primary-600 font-semibold">
+                      JD
+                      </div>
+                    </div>
+                    <div className="flex flex-col ml-3 overflow-hidden text-left">
+                      <p className="text-sm font-medium text-default-900 truncate">John Ddddddddddddddddddddddddddddddddddddddoe</p>
+                      <p className="text-xs font-medium text-default-700">View profile info</p>
+                    </div>
+                  </Button>
+                </DropdownTrigger>
+                <DropdownMenu aria-label="Navigation">
+                  <DropdownItem key="logout" as={Link} href="/auth/logout">
+                    <div className="flex items-center gap-2">
+                      <XMarkIcon className="w-4 h-4" />
+                      Logout
+                    </div>
+                  </DropdownItem>
+                  <DropdownItem key="profile" as={Link} href="/home/profile">
+                    <div className="flex items-center gap-2">
+                      <XMarkIcon className="w-4 h-4" />
+                      Profile
+                    </div>
+                  </DropdownItem>
+                </DropdownMenu>
+              </Dropdown>
             </div>
           </motion.aside>
         </motion.aside>

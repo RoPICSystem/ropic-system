@@ -8,11 +8,15 @@ import { hslToRgb } from '@/utils/colors';
 
 import {
   register,
+} from './actions';
+
+import {
   getRegions,
   getProvinces,
   getCityMunicipalities,
   getBarangays
-} from './actions';
+} from '@/utils/address';
+
 import {
   Card,
   Form,
@@ -107,6 +111,8 @@ export default function RegisterPage() {
   const [inputCompanyPostalCode, setInputCompanyPostalCode] = useState<number>();
   const [fullCompanyAddress, setFullCompanyAddress] = useState<string>('');
 
+  const [password, setPassword] = useState<string>('');
+
   const inputStyle = { inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200" }
   const autoCompleteStyle = { classNames: inputStyle }
   const router = useRouter();
@@ -140,6 +146,19 @@ export default function RegisterPage() {
 
     try {
       const formData = new FormData(event.currentTarget)
+
+      formData.append('address.country.code', '1')
+      formData.append('address.region.code', selectedRegion)
+      formData.append('address.province.code', selectedProvince)
+      formData.append('address.municipality.code', selectedCityMunicipality)
+      formData.append('address.barangay.code', selectedBarangay)
+
+      formData.append('companyAddress.country.code', '1')
+      formData.append('companyAddress.region.code', selectedCompanyRegion)
+      formData.append('companyAddress.province.code', selectedCompanyProvince)
+      formData.append('companyAddress.municipality.code', selectedCompanyCityMunicipality)
+      formData.append('companyAddress.barangay.code', selectedCompanyBarangay)
+
       await register(formData)
     } catch (error) {
       console.error('Registration error:', error)
@@ -264,40 +283,9 @@ export default function RegisterPage() {
     fetchCompanyBarangays();
   }, [selectedCompanyCityMunicipality]);
 
-  // Handle address selection changes
-  const handleRegionChange = (value: string) => {
-    setSelectedRegion(value);
-  };
-
-  const handleProvinceChange = (value: string) => {
-    setSelectedProvince(value);
-  };
-
-  const handleCityMunicipalityChange = (value: string) => {
-    setSelectedCityMunicipality(value);
-  };
-
-  // Company address selection handlers
-  const handleCompanyRegionChange = (value: string) => {
-    setSelectedCompanyRegion(value);
-  };
-
-  const handleCompanyProvinceChange = (value: string) => {
-    setSelectedCompanyProvince(value);
-  };
-
-  const handleCompanyCityMunicipalityChange = (value: string) => {
-    setSelectedCompanyCityMunicipality(value);
-  };
-
   // Update the full address when components change
   useEffect(() => {
-    console.log(
-      selectedRegion,
-      selectedProvince,
-      selectedCityMunicipality,
-      selectedBarangay,
-    )
+
     const regionName = regions.find(r => `${r.regCode}` === selectedRegion)?.regDesc || '';
     const provinceName = provinces.find(p => `${p.provCode}` === selectedProvince)?.provDesc || '';
     const cityMunName = cityMunicipalities.find(c => `${c.citymunCode}` === selectedCityMunicipality)?.citymunDesc || '';
@@ -341,6 +329,25 @@ export default function RegisterPage() {
     selectedCompanyBarangay, inputCompanyStreetAddress, inputCompanyPostalCode,
     regions, companyProvinces, companyCityMunicipalities]);
 
+  const validatePassword = (value: string): string => {
+    if (!value) return "Password is required.";
+    if (value.length < 8) return "Password must be at least 8 characters long.";
+    // Example: Add complexity requirement (at least one number)
+    if (!/\d/.test(value)) return "Password must include at least one number.";
+    // Example: Add uppercase requirement
+    if (!/[A-Z]/.test(value)) return "Password must include at least one uppercase letter.";
+    // Example: Add lowercase requirement
+    if (!/[a-z]/.test(value)) return "Password must include at least one lowercase letter.";
+    // Example: Add special character requirement
+    if (!/[@$!%*?&]/.test(value)) return "Password must include at least one special character (@$!%*?&).";
+    return ""; // No error
+  };
+
+  const validateConfirmPassword = (value: string, pass: string): string => {
+    if (!value) return "Confirm Password is required.";
+    if (value !== pass) return "Passwords do not match.";
+    return ""; // No error
+  };
 
   return (
 
@@ -397,7 +404,6 @@ export default function RegisterPage() {
               </div>
 
               <Form
-                // validationBehavior="aria"
                 className="sm:space-y-4 space-y-2 mt-8"
                 onSubmit={handleSubmit}>
                 {/* Profile Image Section */}
@@ -558,9 +564,8 @@ export default function RegisterPage() {
                           <div className="space-y-4 pb-2">
                             <div className="grid sm:grid-cols-2 gap-4">
                               <Input
-
-                                id="address.country"
-                                name="address.country"
+                                id="address.country.desc"
+                                name="address.country.desc"
                                 label="Country"
                                 defaultValue="PHILIPPINES"
                                 classNames={inputStyle}
@@ -568,14 +573,13 @@ export default function RegisterPage() {
                                 isReadOnly
                               />
                               <Autocomplete
-
-                                id="address.region"
-                                name="address.region"
+                                id="address.region.desc"
+                                name="address.region.desc"
                                 label="Region"
                                 isRequired
                                 inputProps={autoCompleteStyle}
                                 classNames={{ clearButton: "text-default-800" }}
-                                onSelectionChange={(e) => handleRegionChange(`${e}`)}
+                                onSelectionChange={(e) => setSelectedRegion(e as string)}
                               >
                                 {regions.map(region => (
                                   <AutocompleteItem key={region.regCode}>
@@ -588,13 +592,13 @@ export default function RegisterPage() {
                             <div className="grid sm:grid-cols-2 gap-4">
                               <Autocomplete
 
-                                id="address.province"
-                                name="address.province"
+                                id="address.province.desc"
+                                name="address.province.desc"
                                 label="Province"
                                 isRequired
                                 inputProps={autoCompleteStyle}
                                 classNames={{ clearButton: "text-default-800" }}
-                                onSelectionChange={(e) => handleProvinceChange(`${e}`)}
+                                onSelectionChange={(e) => setSelectedProvince(`${e}`)}
                                 isDisabled={!selectedRegion}
                               >
                                 {provinces.map(province => (
@@ -605,13 +609,13 @@ export default function RegisterPage() {
                               </Autocomplete>
                               <Autocomplete
 
-                                id="address.municipality"
-                                name="address.municipality"
+                                id="address.municipality.desc"
+                                name="address.municipality.desc"
                                 label="Municipality/City"
                                 isRequired
                                 inputProps={autoCompleteStyle}
                                 classNames={{ clearButton: "text-default-800" }}
-                                onSelectionChange={(e) => handleCityMunicipalityChange(`${e}`)}
+                                onSelectionChange={(e) => setSelectedCityMunicipality(`${e}`)}
                                 isDisabled={!selectedProvince}
                               >
                                 {cityMunicipalities.map(city => (
@@ -625,8 +629,8 @@ export default function RegisterPage() {
                             <div className="grid sm:grid-cols-2 gap-4">
                               <Autocomplete
 
-                                id="address.barangay"
-                                name="address.barangay"
+                                id="address.barangay.desc"
+                                name="address.barangay.desc"
                                 label="Barangay"
                                 isRequired
                                 inputProps={autoCompleteStyle}
@@ -660,6 +664,7 @@ export default function RegisterPage() {
                                 name="address.postalCode"
                                 label="Postal Code"
                                 className="md:w-[10rem]"
+                                minValue={0}
                                 classNames={inputStyle}
                                 onValueChange={setInputPostalCode}
                                 formatOptions={{ useGrouping: false }}
@@ -682,11 +687,18 @@ export default function RegisterPage() {
                         </AccordionItem>
                         <AccordionItem key="companyAddress" aria-label="Company Address" title="Company Address">
                           <div className="space-y-4 pb-2">
+                            <Input
+                              id="companyName"
+                              name="companyName"
+                              label="Company Name"
+                              type="text"
+                              isRequired
+                            />
                             <div className="grid sm:grid-cols-2 gap-4">
                               <Input
 
-                                id="companyAddress.country"
-                                name="companyAddress.country"
+                                id="companyAddress.country.desc"
+                                name="companyAddress.country.desc"
                                 label="Country"
                                 defaultValue="PHILIPPINES"
                                 classNames={inputStyle}
@@ -695,13 +707,13 @@ export default function RegisterPage() {
                               />
                               <Autocomplete
 
-                                id="companyAddress.region"
-                                name="companyAddress.region"
+                                id="companyAddress.region.desc"
+                                name="companyAddress.region.desc"
                                 label="Region"
                                 isRequired
                                 inputProps={autoCompleteStyle}
                                 classNames={{ clearButton: "text-default-800" }}
-                                onSelectionChange={(e) => handleCompanyRegionChange(`${e}`)}
+                                onSelectionChange={(e) => setSelectedCompanyRegion(`${e}`)}
                               >
                                 {regions.map(region => (
                                   <AutocompleteItem key={region.regCode}>
@@ -714,13 +726,13 @@ export default function RegisterPage() {
                             <div className="grid sm:grid-cols-2 gap-4">
                               <Autocomplete
 
-                                id="companyAddress.province"
-                                name="companyAddress.province"
+                                id="companyAddress.province.desc"
+                                name="companyAddress.province.desc"
                                 label="Province"
                                 isRequired
                                 inputProps={autoCompleteStyle}
                                 classNames={{ clearButton: "text-default-800" }}
-                                onSelectionChange={(e) => handleCompanyProvinceChange(`${e}`)}
+                                onSelectionChange={(e) => setSelectedCompanyProvince(`${e}`)}
                                 isDisabled={!selectedCompanyRegion}
                               >
                                 {companyProvinces.map(province => (
@@ -731,13 +743,13 @@ export default function RegisterPage() {
                               </Autocomplete>
                               <Autocomplete
 
-                                id="companyAddress.municipality"
-                                name="companyAddress.municipality"
+                                id="companyAddress.municipality.desc"
+                                name="companyAddress.municipality.desc"
                                 label="Municipality/City"
                                 isRequired
                                 inputProps={autoCompleteStyle}
                                 classNames={{ clearButton: "text-default-800" }}
-                                onSelectionChange={(e) => handleCompanyCityMunicipalityChange(`${e}`)}
+                                onSelectionChange={(e) => setSelectedCompanyCityMunicipality(`${e}`)}
                                 isDisabled={!selectedCompanyProvince}
                               >
                                 {companyCityMunicipalities.map(city => (
@@ -750,8 +762,8 @@ export default function RegisterPage() {
 
                             <div className="grid sm:grid-cols-2 gap-4">
                               <Autocomplete
-                                id="companyAddress.barangay"
-                                name="companyAddress.barangay"
+                                id="companyAddress.barangay.desc"
+                                name="companyAddress.barangay.desc"
                                 label="Barangay"
                                 isRequired
                                 inputProps={autoCompleteStyle}
@@ -785,6 +797,7 @@ export default function RegisterPage() {
                                 label="Postal Code"
                                 type="text"
                                 className="sm:w-[10rem]"
+                                minValue={0}
                                 classNames={inputStyle}
                                 onValueChange={setInputCompanyPostalCode}
                                 formatOptions={{ useGrouping: false }}
@@ -813,7 +826,6 @@ export default function RegisterPage() {
                       <div className="space-y-4 sm:px-6 px-4 py-2">
 
                         <Input
-
                           id="email"
                           name="email"
                           type="email"
@@ -823,14 +835,13 @@ export default function RegisterPage() {
                           isRequired
                         />
                         <Input
-
                           id="password"
                           name="password"
                           classNames={inputStyle}
                           endContent={
                             <Button
                               aria-label="toggle password visibility"
-                              className="focus:outline-none my-[-0.1rem] mr-[-0.4rem]"
+                              className="focus:outline-none my-[-0.25rem] mr-[-0.4rem]"
                               type="button"
                               variant='light'
                               radius='full'
@@ -844,6 +855,8 @@ export default function RegisterPage() {
                               )}
                             </Button>
                           }
+                          validate={validatePassword}
+                          onValueChange={setPassword}
                           type={isVisiblePassword ? "text" : "password"}
                           label="Password"
                           autoComplete="new-password"
@@ -851,14 +864,13 @@ export default function RegisterPage() {
                           minLength={8}
                         />
                         <Input
-
                           id="confirmPassword"
                           name="confirmPassword"
                           classNames={inputStyle}
                           endContent={
                             <Button
                               aria-label="toggle password visibility"
-                              className="focus:outline-none my-[-0.1rem] mr-[-0.4rem]"
+                              className="focus:outline-none my-[-0.25rem] mr-[-0.4rem]"
                               type="button"
                               variant='light'
                               radius='full'
@@ -872,6 +884,7 @@ export default function RegisterPage() {
                               )}
                             </Button>
                           }
+                          validate={(value) => validateConfirmPassword(value, password)}
                           type={isVisibleConfirmPassword ? "text" : "password"}
                           label="Confirm Password"
                           autoComplete="new-password"

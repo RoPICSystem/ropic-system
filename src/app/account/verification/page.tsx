@@ -101,7 +101,7 @@ export default function VerificationRequestedPage() {
         />
       </div>
 
-      <div className="w-full z-3 xl:pr-[25rem] pb-12 pt-4 min-h-[55rem] h-full flex flex-col justify-center">
+      <div className="w-full z-3 xl:pr-[25rem] sm:pb-12 pt-4 sm:min-h-[55rem] h-full flex flex-col justify-center">
         <div className="flex flex-col items-center justify-between relative">
           {/* Left side - Login form */}
           <div className="max-w-[200rem] flex sm:flex-col flex-row space-x-4 items-center justify-center sm:mb-[-6rem] mb-4">

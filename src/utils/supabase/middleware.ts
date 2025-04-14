@@ -27,66 +27,42 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  // refreshing the auth token
-  await supabase.auth.getUser()
-
-  return supabaseResponse
-}
-
-
-export async function middleware(request: NextRequest) {
-  // Create a response and supabase client
-  let supabaseResponse = NextResponse.next({
-    request,
-  })
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll()
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value))
-          supabaseResponse = NextResponse.next({
-            request,
-          })
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          )
-        },
-      },
-    }
-  )
-
   // Get the current path
   const path = request.nextUrl.pathname
-  
-  // Define public and protected paths
-  const isPublicPath = ['/account'].includes(path)
-  const isProtectedPath = path.startsWith('/home') || 
-                          path === '/'
-  
+
   // Check user authentication status
   const { data: { user } } = await supabase.auth.getUser()
   const isAuthenticated = !!user
 
-  console.log('User authentication status:', isAuthenticated)
+  // Define path checks
+  const isAccountPath = path.startsWith('/account')
+  const isHomePath = path.startsWith('/home')
+  const isRootPath = path === '/'
 
-  // Redirect logic
-  if (isAuthenticated && isPublicPath) {
-    // Authenticated users trying to access public pages get redirected to home
+  // 1. Handle root path '/'
+  if (isRootPath) {
+    if (isAuthenticated) {
+      // If logged in, redirect from / to /home
+      return NextResponse.redirect(new URL('/home', request.url))
+    } else {
+      // If not logged in, redirect from / to /account
+      return NextResponse.redirect(new URL('/account', request.url))
+    }
+  }
+
+  // 2. Handle /account paths
+  if (isAccountPath && isAuthenticated) {
+    // If logged in, redirect away from /account/* to /home
     return NextResponse.redirect(new URL('/home', request.url))
   }
 
-  if (!isAuthenticated && isProtectedPath) {
-    // Unauthenticated users trying to access protected pages get redirected to account
+  // 3. Handle /home paths
+  if (isHomePath && !isAuthenticated) {
+    // If not logged in, redirect away from /home/* to /account
     return NextResponse.redirect(new URL('/account', request.url))
   }
 
-  // Update the session
+  // If no redirection rules matched, proceed with the request
   return supabaseResponse
 }
 

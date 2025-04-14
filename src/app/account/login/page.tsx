@@ -105,7 +105,7 @@ export default function LoginPage() {
         />
       </div>
 
-      <div className="w-full z-3 xl:pr-[25rem] pb-12 pt-4 min-h-[55rem] h-full flex flex-col justify-center">
+      <div className="w-full z-3 xl:pr-[25rem] sm:pb-12 pt-4 sm:min-h-[55rem] h-full flex flex-col justify-center">
           <div className="flex flex-col items-center justify-between relative">
           {/* Left side - Login form */}
           <div className="max-w-[200rem] flex sm:flex-col flex-row space-x-4 items-center justify-center sm:mb-[-6rem] mb-4">
@@ -142,8 +142,7 @@ export default function LoginPage() {
                 <CardBody className="p-0">
                   <div>
                     <Form className="sm:space-y-4 space-y-2"
-                      onSubmit={handleSubmit}
-                      validationBehavior="aria">
+                      onSubmit={handleSubmit}>
                       <div className="space-y-4 w-full sm:px-6 px-4 sm:pt-6 pt-4">
                         <div>
                           <Input
@@ -165,7 +164,7 @@ export default function LoginPage() {
                             endContent={
                               <Button
                                 aria-label="toggle password visibility"
-                                className="focus:outline-none my-[-0.1rem] mr-[-0.4rem]"
+                                className="focus:outline-none my-[-0.25rem] mr-[-0.4rem]"
                                 type="button"
                                 variant='light'
                                 radius='full'
