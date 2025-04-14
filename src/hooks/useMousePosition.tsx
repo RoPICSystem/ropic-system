@@ -1,0 +1,23 @@
+"use client";
+import { useState, useEffect } from 'react';
+
+export const useMousePosition = () => {
+  const [mousePosition, setMousePosition] = useState({
+    x: null as number | null,
+    y: null as number | null
+  });
+  
+  useEffect(() => {
+    const updateMousePosition = (e: MouseEvent) => {
+      setMousePosition({ x: e.clientX, y: e.clientY });
+    };
+    
+    window.addEventListener('mousemove', updateMousePosition);
+    
+    return () => {
+      window.removeEventListener('mousemove', updateMousePosition);
+    };
+  }, []);
+  
+  return mousePosition;
+};
