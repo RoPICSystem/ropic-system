@@ -62,27 +62,6 @@ interface Barangay {
   brgyDesc: string;
 }
 
-export function generateFullAddress(
-  streetAddress: string,
-  barangay: string,
-  municipality: string,
-  province: string,
-  region: string,
-  country: string = 'PHILIPPINES',
-  postalCode?: string
-): string {
-  const addressParts = [
-    streetAddress,
-    barangay,
-    municipality,
-    province,
-    region,
-    country,
-    postalCode
-  ].filter(Boolean);
-
-  return addressParts.join(', ');
-}
 
 export default function RegisterPage() {
   const searchParams = useSearchParams()
@@ -129,6 +108,27 @@ export default function RegisterPage() {
 
   const inputStyle = { inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200" }
   const autoCompleteStyle = { classNames: inputStyle }
+
+  const generateFullAddress = (
+    streetAddress: string,
+    barangay: string,
+    municipality: string,
+    province: string,
+    region: string,
+    country: string = 'PHILIPPINES',
+    postalCode?: string
+  ) => {
+    const addressParts = [
+      streetAddress,
+      barangay,
+      municipality,
+      province,
+      region,
+      country,
+      postalCode
+    ].filter(Boolean);
+    return addressParts.join(', ');
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
