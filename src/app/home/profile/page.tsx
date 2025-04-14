@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { getUserProfile, updateProfile } from './actions'
+import { updateProfile } from './actions'
+import { getUserProfile } from '@/utils/user'
 import {
   Card,
   CardHeader,

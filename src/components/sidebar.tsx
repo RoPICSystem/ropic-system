@@ -10,13 +10,17 @@ import {
   DropdownTrigger,
   DropdownMenu,
   DropdownItem,
+  Skeleton,
+  User,
 } from '@heroui/react';
 import { usePathname } from 'next/navigation';
+import { getUserProfile, getImageUrl } from '@/utils/user'
 import {
   XMarkIcon,
   Bars3Icon,
   HomeIcon,
   UserGroupIcon,
+  UserIcon,
   TruckIcon,
   ShoppingCartIcon,
   BellAlertIcon,
@@ -36,10 +40,39 @@ const navigation = [
 ];
 
 export default function SideBar({ children }: { children: React.ReactNode }) {
+  const [userData, setUserData] = useState<any>(null)
   const [isOpen, setIsOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
-  const [isMounted, setIsMounted] = useState(false);
+  const [isLoading, setIsLoading] = useState(true)
+  const [userProfile, setUserProfile] = useState<any>(null);
+  const [imageIcon, setImageIcon] = useState<string | null>(null)
   const pathname = usePathname();
+
+  useEffect(() => {
+    async function fetchUserData() {
+      try {
+        setIsLoading(true)
+        const { data, error } = await getUserProfile()
+
+        setUserData(data)
+
+        if (error) {
+          console.error('Error fetching user profile:', error)
+          return
+        }
+
+        if (!data?.profile_image.error) {
+          await setImageIcon((await getImageUrl(data.profile_image.data.baseUrl, true)).data?.url || '')
+        }
+      } catch (err) {
+        console.error('Error fetching user profile:', err)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchUserData()
+  }, [])
 
   // Handle window resize
   useEffect(() => {
@@ -63,14 +96,6 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('resize', checkSize);
   }, [isMobile]);
 
-  // Handle mount state
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  if (!isMounted) {
-    return null; // Prevent rendering until mounted
-  }
 
   return (
     <>
@@ -151,16 +176,34 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
             <div className="border-t border-default-200 p-4 flex-shrink-0 ">
               <Dropdown>
                 <DropdownTrigger>
-                    <Button variant="light" color='primary' className='flex w-full h-14 p-2 items-center'>
-                    <div className="flex items-center justify-center flex-shrink-0">
-                      <div className="h-10 w-10 rounded-full bg-primary-100 flex items-center justify-center text-primary-600 font-semibold">
-                      JD
-                      </div>
-                    </div>
-                    <div className="flex flex-col ml-3 overflow-hidden text-left">
-                      <p className="text-sm font-medium text-default-900 truncate">John Ddddddddddddddddddddddddddddddddddddddoe</p>
-                      <p className="text-xs font-medium text-default-700">View profile info</p>
-                    </div>
+                  <Button variant="light" color='primary' className='flex w-full h-14 p-2 items-center'>
+                    {
+                      isLoading ?
+
+
+                        <div className="max-w-[300px] w-full flex items-center gap-3">
+                          <div>
+                            <Skeleton className="flex rounded-full w-10 h-10" />
+                          </div>
+                          <div className="w-full flex flex-col gap-2">
+                            <Skeleton className="h-3 w-4/5 rounded-lg" />
+                            <Skeleton className="h-3 w-3/5 rounded-lg" />
+                          </div>
+                        </div> :
+                        <User
+                          avatarProps={{ src: imageIcon || undefined }}
+                          description="View Profile"
+                          classNames={{
+                            base: 'flex items-start gap-4 justify-start w-full',
+                            name: 'text-sm font-semibold text-default-600',
+
+                          }}
+                          name={userData?.full_name || 'User'}
+                        />
+
+
+                    }
+
                   </Button>
                 </DropdownTrigger>
                 <DropdownMenu aria-label="Navigation">
