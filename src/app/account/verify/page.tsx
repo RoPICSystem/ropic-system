@@ -239,9 +239,9 @@ export default function VerifyPage({
                     color={verificationState.success ? "success" : "primary"}
                     variant="shadow"
                     className="mt-4 w-full max-w-xs"
-                    onPress={() => router.push(verificationState.success ? '/home' : '/account/login')}
+                    onPress={() => router.push(verificationState.success ? '/home' : '/account/signin')}
                   >
-                    {verificationState.success ? `Go to Homepage (${countdown}s)` : "Return to Log-In"}
+                    {verificationState.success ? `Go to Homepage (${countdown}s)` : "Return to Sign-In"}
                   </Button>
                 </CardBody>
               </Card>

@@ -15,7 +15,7 @@ import {
   getProvinces,
   getCityMunicipalities,
   getBarangays
-} from '@/utils/address';
+} from '@/utils/supabase/server/address';
 
 import {
   Card,
@@ -965,9 +965,9 @@ export default function RegisterPage() {
                             as={Link}
                             variant="shadow"
                             className="w-full"
-                            href='/account/login'
+                            href='/account/signin'
                           >
-                            Log-in
+                            Sign-in
                           </Button>
                           <Button
                             type="submit"

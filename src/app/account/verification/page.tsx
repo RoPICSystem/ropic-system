@@ -23,7 +23,7 @@ export default function VerificationRequestedPage() {
   // Redirect if no email was provided
   useEffect(() => {
     if (!email) {
-      router.replace('/account/login')
+      router.replace('/account/signin')
     }
   }, [email, router])
 
@@ -229,8 +229,8 @@ export default function VerificationRequestedPage() {
                         </Button>
                         <p className="sm:mt-6 mt-4 text-sm text-foreground/80 text-center">
                           If you don't see the email, check your spam folder or{" "}
-                          <Link href="/account/login" color="primary" className="text-sm font-semibold">
-                            return to login
+                          <Link href="/account/signin" color="primary" className="text-sm font-semibold">
+                            return to sign-in
                           </Link>
                         </p>
                       </div>

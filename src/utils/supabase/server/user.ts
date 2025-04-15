@@ -54,3 +54,17 @@ export async function getImageUrl(path: string, isThumbnail: boolean = false) {
 
   return { data: { url: data.publicUrl, baseUrl: path }, error: null }
 }
+
+
+export async function signOut() {
+  const supabase = await createClient()
+
+  const { error } = await supabase.auth.signOut()
+
+  if (error) {
+    console.error('Error signing out:', error)
+    return { error: error.message }
+  }
+
+  return { data: 'Signed out successfully', error: null }
+}

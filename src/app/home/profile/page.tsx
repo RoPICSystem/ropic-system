@@ -1,8 +1,9 @@
 'use client'
 
+
 import { useEffect, useState, useRef } from 'react'
 import { updateProfile } from './actions'
-import { getUserProfile } from '@/utils/user'
+import { getUserProfile } from '@/utils/supabase/server/user'
 import {
   Card,
   CardHeader,
@@ -16,6 +17,7 @@ import {
   Image,
   Alert,
   DatePicker,
+  Skeleton,
   CardFooter,
   Divider,
   Avatar,
@@ -23,6 +25,7 @@ import {
 } from "@heroui/react"
 import {
   EyeSlashIcon,
+  ChevronRightIcon,
   EyeIcon,
   UserIcon,
 } from '@heroicons/react/24/solid'
@@ -34,7 +37,7 @@ import {
   getProvinces,
   getCityMunicipalities,
   getBarangays
-} from '@/utils/address'
+} from '@/utils/supabase/server/address'
 import CardList from '@/components/card-list'
 import { AnimatePresence, motion } from 'framer-motion'
 
@@ -67,6 +70,8 @@ export default function ProfilePage() {
   const [success, setSuccess] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [isEditMode, setIsEditMode] = useState(false)
+  const [originalUserData, setOriginalUserData] = useState<any>(null)
 
   // Address form state
   const [regions, setRegions] = useState<Region[]>([])
@@ -113,6 +118,7 @@ export default function ProfilePage() {
         }
 
         setUserData(data)
+        setOriginalUserData(JSON.parse(JSON.stringify(data))) // Create a deep copy for reset
 
         if (!data?.profile_image.error) {
           await setImagePreview(data.profile_image.data.url)
@@ -359,6 +365,31 @@ export default function ProfilePage() {
     }
   }
 
+  // Function to discard changes and reset to original data
+  function handleDiscardChanges() {
+    setUserData(JSON.parse(JSON.stringify(originalUserData)))
+    setSelectedRegion(originalUserData?.address?.region?.code || '')
+    setSelectedProvince(originalUserData?.address?.province?.code || '')
+    setSelectedCityMunicipality(originalUserData?.address?.municipality?.code || '')
+    setSelectedBarangay(originalUserData?.address?.barangay?.code || '')
+    setInputStreetAddress(originalUserData?.address?.streetAddress || '')
+    setInputPostalCode(originalUserData?.address?.postalCode ? Number(originalUserData.address.postalCode) : undefined)
+
+    setSelectedCompanyRegion(originalUserData?.company_address?.region?.code || '')
+    setSelectedCompanyProvince(originalUserData?.company_address?.province?.code || '')
+    setSelectedCompanyCityMunicipality(originalUserData?.company_address?.municipality?.code || '')
+    setSelectedCompanyBarangay(originalUserData?.company_address?.barangay?.code || '')
+    setInputCompanyStreetAddress(originalUserData?.company_address?.streetAddress || '')
+    setInputCompanyPostalCode(originalUserData?.company_address?.postalCode ? Number(originalUserData.company_address.postalCode) : undefined)
+
+    if (originalUserData?.profile_image?.data?.url) {
+      setImagePreview(originalUserData.profile_image.data.url)
+    } else {
+      setImagePreview(null)
+    }
+
+    setIsEditMode(false)
+  }
 
   // Handle region selection change
   function handleRegionChange(value: string) {
@@ -412,7 +443,6 @@ export default function ProfilePage() {
     setSelectedCompanyBarangay(value)
   }
 
-
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setIsSaving(true)
@@ -444,6 +474,12 @@ export default function ProfilePage() {
       } else {
         setSuccess(true)
         setTimeout(() => setSuccess(false), 3000)
+        // Update original data with the new saved data
+        const { data } = await getUserProfile()
+        if (data) {
+          setOriginalUserData(JSON.parse(JSON.stringify(data)))
+        }
+        setIsEditMode(false)
       }
     } catch (error: any) {
       setError('An unexpected error occurred')
@@ -456,10 +492,92 @@ export default function ProfilePage() {
   // Show loading state
   if (isLoading && !userData) {
     return (
-      <div className="flex items-center justify-center h-full w-full">
-        <Spinner size="lg" />
+      <div className='space-y-4 '>
+        {/* Basic Information Skeleton */}
+        <CardList>
+          <div>
+            <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-6" /> {/* Section Title */}
+            <div className="flex flex-col items-center justify-center">
+              <Skeleton className="flex rounded-full w-48 h-48 mb-8" /> {/* Profile Image */}
+            </div>
+            <div className="space-y-6">
+              <div className="grid sm:grid-cols-2 gap-4">
+                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+              </div>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+              </div>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+              </div>
+              <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+            </div>
+          </div>
+        </CardList>
+
+        {/* Address Information Skeleton */}
+        < CardList>
+          <div>
+            <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-6" /> {/* Section Title */}
+            <div className="space-y-6">
+              <div className="grid sm:grid-cols-2 gap-4">
+                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+              </div>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+              </div>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+              </div>
+              <div className="flex sm:flex-row flex-col gap-4">
+                <Skeleton className="h-12 w-full sm:w-[10rem] rounded-lg" /> {/* Postal Code */}
+                <Skeleton className="h-12 w-full rounded-lg" /> {/* Full Address */}
+              </div>
+            </div>
+          </div>
+
+        </CardList >
+        {/* Company Information Skeleton */}
+        < CardList >
+          <div>
+            <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-6" /> {/* Section Title */}
+            <Skeleton className="h-12 rounded-lg mb-4" /> {/* Company Name */}
+            <div className="space-y-6">
+              <div className="grid sm:grid-cols-2 gap-4">
+                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+              </div>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+              </div>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+              </div>
+              <div className="flex sm:flex-row flex-col gap-4">
+                <Skeleton className="h-12 w-full sm:w-[10rem] rounded-lg" /> {/* Postal Code */}
+                <Skeleton className="h-12 w-full rounded-lg" /> {/* Full Address */}
+              </div>
+            </div>
+          </div>
+        </CardList >
+
+        {/* Account Information Skeleton */}
+        < CardList >
+          <div>
+            <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-6" /> {/* Section Title */}
+            <Skeleton className="h-12 rounded-lg" /> {/* Email Field */}
+          </div>
+        </CardList >
       </div>
-    )
+    );
   }
 
   return (
@@ -467,74 +585,69 @@ export default function ProfilePage() {
       <Form className="space-y-4 items-center w-full" onSubmit={handleSubmit}>
         <div className="space-y-4 w-full">
 
-          <AnimatePresence>
-            {error && (
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="mb-4">
-                <Alert color="danger" variant="solid" title="Error" onClose={() => setError(null)}>
-                  {error}
-                </Alert>
-              </motion.div>
-            )}
-
-            {success && (
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="mb-4">
-                <Alert color="success" variant="solid" title="Success" onClose={() => setSuccess(false)}>
-                  Your profile has been updated successfully.
-                </Alert>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
           {/* Profile Image Section */}
-          <CardList>
-            <div className="flex flex-col items-center justify-center w-full p-4">
-              <h2 className="text-xl font-semibold mb-4">Profile Image</h2>
-              <Button
-                variant='faded'
-                className={`flex border-default-200 hover:border-default-400 flex-col space-y-2 items-center justify-center cursor-pointer w-full h-full p-4
+          {isEditMode && (
+            <CardList>
+              <div className="flex flex-col items-center justify-center w-full lg:p-4">
+                <h2 className="text-xl font-semibold mb-4 ">Profile Image</h2>
+                <Button
+                  variant='faded'
+                  className={`flex border-default-200 hover:border-default-400 flex-col space-y-2 items-center justify-center cursor-pointer w-full h-full p-4
                 ${imagePreview ? 'bg-default-100 hover:bg-default-200' : 'bg-danger-50'}
                 `}
-                onPress={() => fileInputRef.current?.click()}>
-                <div className="relative w-32 h-32">
-                  {imagePreview ? (
-                    <Image isBlurred src={imagePreview} radius='full' alt="Profile preview" className="w-32 h-32 object-cover bg-default-200" />
-                  ) : (
-                    <div className="w-full h-full bg-default-300/70 rounded-full flex items-center justify-center">
-                      <UserIcon className="h-16 w-16 text-default-500" />
-                    </div>
-                  )}
-                </div>
+                  isDisabled={!isEditMode}
+                  onPress={() => fileInputRef.current?.click()}>
+                  <div className="relative w-32 h-32">
+                    {imagePreview ? (
+                      <Image isBlurred src={imagePreview} radius='full' alt="Profile preview" className="w-32 h-32 object-cover bg-default-200" />
+                    ) : (
+                      <div className="w-full h-full bg-default-300/70 rounded-full flex items-center justify-center">
+                        <UserIcon className="h-16 w-16 text-default-500" />
+                      </div>
+                    )}
+                  </div>
 
-                <div className="flex flex-col items-center justify-center">
-                  <p className="text-sm text-default-500">Click to update your profile image</p>
-                  <p className="text-xs text-default-400">Max size: 2MB</p>
-                </div>
+                  <div className="flex flex-col items-center justify-center">
+                    {isEditMode ? (
+                      <>
+                        <p className="text-sm text-default-500">Click to update your profile image</p>
+                        <p className="text-xs text-default-400">Max size: 2MB</p>
+                      </>
+                    ) : (
+                      <p className="text-sm text-default-500">Profile image</p>
+                    )}
+                  </div>
 
-                <Input
-                  type="file"
-                  name="profileImage"
-                  className="hidden"
-                  ref={fileInputRef}
-                  accept="image/*"
-                  onChange={handleImageChange}>
-                </Input>
-              </Button>
-            </div>
-          </CardList>
+                  <Input
+                    type="file"
+                    name="profileImage"
+                    className="hidden"
+                    ref={fileInputRef}
+                    accept="image/*"
+                    onChange={handleImageChange}
+                    isDisabled={!isEditMode}>
+                  </Input>
+                </Button>
+              </div>
+            </CardList>
+          )}
 
           {/* Basic Information */}
           <CardList>
-            <div className="p-4">
-              <h2 className="text-xl font-semibold mb-4 w-full text-center">Basic Information</h2>
+            <div>
+              <h2 className="text-xl font-semibold mb-4  w-full text-center">Basic Information</h2>
               <div className="space-y-4">
+                {!isEditMode && (
+                  <div className="relative w-full flex items-center justify-center pb-4">
+                    {imagePreview ? (
+                      <Image isBlurred src={imagePreview} radius='full' alt="Profile preview" className="w-48 h-48 object-cover bg-default-200" />
+                    ) : (
+                      <div className="w-full h-full bg-default-300/70 rounded-full flex items-center justify-center">
+                        <UserIcon className="h-16 w-16 text-default-500" />
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="grid sm:grid-cols-2 gap-4">
                   <Input
                     id="firstName"
@@ -544,6 +657,7 @@ export default function ProfilePage() {
                     classNames={inputStyle}
                     defaultValue={userData?.name?.first_name || ''}
                     isRequired
+                    isReadOnly={!isEditMode}
                   />
                   <Input
                     id="middleName"
@@ -552,6 +666,7 @@ export default function ProfilePage() {
                     type="text"
                     classNames={inputStyle}
                     defaultValue={userData?.name?.middle_name || ''}
+                    isReadOnly={!isEditMode}
                   />
                 </div>
 
@@ -564,6 +679,7 @@ export default function ProfilePage() {
                     classNames={inputStyle}
                     defaultValue={userData?.name?.last_name || ''}
                     isRequired
+                    isReadOnly={!isEditMode}
                   />
                   <Input
                     id="suffix"
@@ -572,6 +688,7 @@ export default function ProfilePage() {
                     type="text"
                     classNames={inputStyle}
                     defaultValue={userData?.name?.suffix || ''}
+                    isReadOnly={!isEditMode}
                   />
                 </div>
 
@@ -584,6 +701,8 @@ export default function ProfilePage() {
                     classNames={{ clearButton: "text-default-800" }}
                     defaultSelectedKey={userData?.gender || ''}
                     isRequired
+                    isReadOnly={!isEditMode}
+                    {...(isEditMode ? {} : { selectorIcon: null, popoverProps: { className: "hidden" } })}
                   >
                     <AutocompleteItem key="male">Male</AutocompleteItem>
                     <AutocompleteItem key="female">Female</AutocompleteItem>
@@ -599,6 +718,7 @@ export default function ProfilePage() {
                     minValue={today(getLocalTimeZone()).subtract({ years: 100 })}
                     maxValue={today(getLocalTimeZone())}
                     isRequired
+                    isReadOnly={!isEditMode}
                     classNames={{
                       base: "w-full",
                       ...inputStyle,
@@ -625,6 +745,7 @@ export default function ProfilePage() {
                       return phoneRegex.test(value) || 'Invalid phone number';
                     }}
                     isRequired
+                    isReadOnly={!isEditMode}
                   />
                 </div>
               </div>
@@ -633,8 +754,8 @@ export default function ProfilePage() {
 
           {/* Address Information */}
           <CardList>
-            <div className="p-4">
-              <h2 className="text-xl font-semibold mb-4 w-full text-center">Personal Address</h2>
+            <div>
+              <h2 className="text-xl font-semibold mb-4  w-full text-center">Personal Address</h2>
               <div className="space-y-4">
                 <div className="grid sm:grid-cols-2 gap-4">
                   <Input
@@ -655,6 +776,8 @@ export default function ProfilePage() {
                     classNames={{ clearButton: "text-default-800" }}
                     onSelectionChange={(e) => handleRegionChange(`${e}`)}
                     defaultSelectedKey={userData?.address?.region?.code || ''}
+                    isReadOnly={!isEditMode}
+                    {...(isEditMode ? {} : { selectorIcon: null, popoverProps: { className: "hidden" } })}
                   >
                     {regions.map(region => (
                       <AutocompleteItem key={region.regCode}>
@@ -674,7 +797,9 @@ export default function ProfilePage() {
                     classNames={{ clearButton: "text-default-800" }}
                     onSelectionChange={(e) => handleProvinceChange(`${e}`)}
                     isDisabled={!selectedRegion}
+                    isReadOnly={!isEditMode}
                     defaultSelectedKey={userData?.address?.province?.code || ''}
+                    {...(isEditMode ? {} : { selectorIcon: null, popoverProps: { className: "hidden" } })}
                   >
                     {provinces.map(province => (
                       <AutocompleteItem key={province.provCode}>
@@ -691,7 +816,9 @@ export default function ProfilePage() {
                     classNames={{ clearButton: "text-default-800" }}
                     onSelectionChange={(e) => handleCityMunicipalityChange(`${e}`)}
                     isDisabled={!selectedProvince}
+                    isReadOnly={!isEditMode}
                     defaultSelectedKey={userData?.address?.municipality?.code || ''}
+                    {...(isEditMode ? {} : { selectorIcon: null, popoverProps: { className: "hidden" } })}
                   >
                     {cityMunicipalities.map(city => (
                       <AutocompleteItem key={city.citymunCode}>
@@ -711,7 +838,9 @@ export default function ProfilePage() {
                     classNames={{ clearButton: "text-default-800" }}
                     onSelectionChange={(e) => setSelectedBarangay(`${e}`)}
                     isDisabled={!selectedCityMunicipality}
+                    isReadOnly={!isEditMode}
                     defaultSelectedKey={userData?.address?.barangay?.code || ''}
+                    {...(isEditMode ? {} : { selectorIcon: null, popoverProps: { className: "hidden" } })}
                   >
                     {barangays.map(barangay => (
                       <AutocompleteItem key={barangay.brgyCode}>
@@ -728,6 +857,7 @@ export default function ProfilePage() {
                     value={inputStreetAddress}
                     onValueChange={(value) => setInputStreetAddress(value.toUpperCase())}
                     isRequired
+                    isReadOnly={!isEditMode}
                   />
                 </div>
 
@@ -743,6 +873,7 @@ export default function ProfilePage() {
                     formatOptions={{ useGrouping: false }}
                     hideStepper
                     isRequired
+                    isReadOnly={!isEditMode}
                   />
                   <Input
                     id="address.fullAddress"
@@ -761,8 +892,8 @@ export default function ProfilePage() {
 
           {/* Company Address */}
           <CardList>
-            <div className="p-4">
-              <h2 className="text-xl font-semibold mb-4 w-full text-center">Company Information</h2>
+            <div>
+              <h2 className="text-xl font-semibold mb-4  w-full text-center">Company Information</h2>
               <div className="space-y-4">
                 <Input
                   id="companyName"
@@ -772,6 +903,7 @@ export default function ProfilePage() {
                   classNames={inputStyle}
                   defaultValue={userData?.company_name || ''}
                   isRequired
+                  isReadOnly={!isEditMode}
                 />
 
                 <div className="grid sm:grid-cols-2 gap-4">
@@ -793,6 +925,8 @@ export default function ProfilePage() {
                     classNames={{ clearButton: "text-default-800" }}
                     onSelectionChange={(e) => handleCompanyRegionChange(`${e}`)}
                     defaultSelectedKey={userData?.company_address?.region?.code || ''}
+                    isReadOnly={!isEditMode}
+                    {...(isEditMode ? {} : { selectorIcon: null, popoverProps: { className: "hidden" } })}
                   >
                     {regions.map(region => (
                       <AutocompleteItem key={region.regCode}>
@@ -812,7 +946,9 @@ export default function ProfilePage() {
                     classNames={{ clearButton: "text-default-800" }}
                     onSelectionChange={(e) => handleCompanyProvinceChange(`${e}`)}
                     isDisabled={!selectedCompanyRegion}
+                    isReadOnly={!isEditMode}
                     defaultSelectedKey={userData?.company_address?.province?.code || ''}
+                    {...(isEditMode ? {} : { selectorIcon: null, popoverProps: { className: "hidden" } })}
                   >
                     {companyProvinces.map(province => (
                       <AutocompleteItem key={province.provCode} >
@@ -829,7 +965,9 @@ export default function ProfilePage() {
                     classNames={{ clearButton: "text-default-800" }}
                     onSelectionChange={(e) => handleCompanyCityMunicipalityChange(`${e}`)}
                     isDisabled={!selectedCompanyProvince}
+                    isReadOnly={!isEditMode}
                     defaultSelectedKey={userData?.company_address?.municipality?.code || ''}
+                    {...(isEditMode ? {} : { selectorIcon: null, popoverProps: { className: "hidden" } })}
                   >
                     {companyCityMunicipalities.map(city => (
                       <AutocompleteItem key={city.citymunCode} >
@@ -849,7 +987,9 @@ export default function ProfilePage() {
                     classNames={{ clearButton: "text-default-800" }}
                     onSelectionChange={(e) => setSelectedCompanyBarangay(`${e}`)}
                     isDisabled={!selectedCompanyCityMunicipality}
+                    isReadOnly={!isEditMode}
                     defaultSelectedKey={userData?.company_address?.barangay?.code || ''}
+                    {...(isEditMode ? {} : { selectorIcon: null, popoverProps: { className: "hidden" } })}
                   >
                     {companyBarangays.map(barangay => (
                       <AutocompleteItem key={barangay.brgyCode}>
@@ -866,6 +1006,7 @@ export default function ProfilePage() {
                     onValueChange={setInputCompanyStreetAddress}
                     value={inputCompanyStreetAddress}
                     isRequired
+                    isReadOnly={!isEditMode}
                   />
                 </div>
 
@@ -882,6 +1023,7 @@ export default function ProfilePage() {
                     formatOptions={{ useGrouping: false }}
                     hideStepper
                     isRequired
+                    isReadOnly={!isEditMode}
                   />
                   <Input
                     id="companyAddress.fullAddress"
@@ -899,7 +1041,7 @@ export default function ProfilePage() {
           </CardList>
           {/* Account Information */}
           <CardList>
-            <div className="p-4">
+            <div>
               <h2 className="text-xl font-semibold mb-4 w-full text-center">Account Information</h2>
               <Input
                 id="email"
@@ -915,21 +1057,103 @@ export default function ProfilePage() {
             </div>
           </CardList>
 
-          <div className="flex justify-center pt-2 pb-6">
-            <Button
-              type="submit"
-              color="primary"
-              variant="shadow"
-              size="lg"
-              className="w-full max-w-xs"
-              isLoading={isSaving}
-              disabled={isSaving}
-            >
-              Save Changes
-            </Button>
-          </div>
+          {isEditMode ? (
+            <CardList>
+              <div>
+                <h2 className="text-xl font-semibold mb-4 w-full text-center">Profile Update Options</h2>
+
+                <AnimatePresence>
+                  {error && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.9, filter: "blur(10px)", height: 0 }}
+                      animate={{ opacity: 1, scale: 1, filter: "blur(0px)", height: "auto" }}
+                      exit={{ opacity: 0, scale: 0.9, filter: "blur(10px)", height: 0 }}
+                      transition={{
+                        duration: 0.3,
+                        type: "spring",
+                        stiffness: 300,
+                        damping: 20,
+                      }}
+                      className="mb-4 p-1">
+                      <Alert color="danger" variant="solid" title="Error" onClose={() => setError(null)}>
+                        {error}
+                      </Alert>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+                <AnimatePresence>
+                  {success && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.9, filter: "blur(10px)", height: 0 }}
+                      animate={{ opacity: 1, scale: 1, filter: "blur(0px)", height: "auto" }}
+                      exit={{ opacity: 0, scale: 0.9, filter: "blur(10px)", height: 0 }}
+                      transition={{
+                        duration: 0.3,
+                        type: "spring",
+                        stiffness: 300,
+                        damping: 20,
+                      }}
+                      className="mb-4 p-1">
+                      <Alert color="success" variant="solid" title="Success" onClose={() => setSuccess(false)}>
+                        Your profile has been updated successfully.
+                      </Alert>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+
+                <div className="flex justify-center gap-4">
+                  <Button
+                    type="button"
+                    color="danger"
+                    variant="shadow"
+                    size="lg"
+                    className="w-full"
+                    onPress={handleDiscardChanges}
+                    disabled={isSaving}
+                  >
+                    Discard Changes
+                  </Button>
+                  <Button
+                    type="submit"
+                    color="primary"
+                    variant="shadow"
+                    size="lg"
+                    className="w-full"
+                    isLoading={isSaving}
+                    disabled={isSaving}
+                  >
+                    Save Changes
+                  </Button>
+                </div>
+              </div>
+            </CardList>
+          ) : (
+            <CardList>
+              <div className="flex items-center justify-between h-full w-full">
+                <span>Change profile information</span>
+                <Button
+                  variant="shadow"
+                  color="primary"
+                  onPress={() => setIsEditMode(true)}
+                  className="my-1">
+                  <ChevronRightIcon className="w-4 h-4" />
+                </Button>
+              </div>
+              <div className="flex items-center justify-between h-full w-full">
+                <span>Change password</span>
+                <Button
+                  variant="shadow"
+                  color="primary"
+                  className="my-1">
+                  <ChevronRightIcon className="w-4 h-4" />
+                </Button>
+              </div>
+            </CardList>
+          )}
+
         </div>
-      </Form>
-    </div>
+      </Form >
+    </div >
   )
 }

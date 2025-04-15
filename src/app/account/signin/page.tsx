@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { login } from './actions'
+import { signin } from './actions'
 import { useTheme } from "next-themes";
 import { hslToRgb } from '@/utils/colors';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -35,7 +35,7 @@ import {
 import CardList from '@/components/card-list';
 
 
-export default function LoginPage() {
+export default function SigninPage() {
   const searchParams = useSearchParams()
   const error = searchParams.get('error')
   const [isLoading, setIsLoading] = useState(false)
@@ -76,9 +76,9 @@ export default function LoginPage() {
 
     try {
       const formData = new FormData(event.currentTarget)
-      await login(formData)
+      await signin(formData)
     } catch (error) {
-      console.error('Login error:', error)
+      console.error('Sign-in error:', error)
     } finally {
       setIsLoading(false)
     }
@@ -107,7 +107,7 @@ export default function LoginPage() {
 
       <div className="w-full z-3 xl:pr-[25rem] sm:pb-12 pt-4 sm:min-h-[55rem] h-full flex flex-col justify-center">
           <div className="flex flex-col items-center justify-between relative">
-          {/* Left side - Login form */}
+          {/* Left side - Sign-in form */}
           <div className="max-w-[200rem] flex sm:flex-col flex-row space-x-4 items-center justify-center sm:mb-[-6rem] mb-4">
             <Image src="/logo.png" alt="Logo" className="sm:h-48 h-20" />
             <div className="grid grid-cols-1 select-none sm:hidden">
@@ -134,7 +134,7 @@ export default function LoginPage() {
             </div>
             <div className="w-full space-y-8 sm:p-6 p-4">
               <div className='space-y-1'>
-                <h1 className="text-3xl font-bold text-center sm:pt-0 pt-2">Log-in</h1>
+                <h1 className="text-3xl font-bold text-center sm:pt-0 pt-2">Sign-in</h1>
                 <p className="text-sm text-center text-foreground/80">Welcome back! Please enter your details.</p>
               </div>
               <Card
@@ -221,7 +221,7 @@ export default function LoginPage() {
                               <Alert
                                 color='danger'
                                 variant='solid'
-                                onClose={() => { router.replace('/account/login') }}
+                                onClose={() => { router.replace('/account/signin') }}
                                 title={`Error Logging In`}
                                 description={error} />
                             </motion.div>
@@ -235,10 +235,10 @@ export default function LoginPage() {
                           className="w-full"
                           isLoading={isLoading}
                           onPress={(event) => {
-                            router.replace('/account/login')
+                            router.replace('/account/signin')
                           }}
                         >
-                          Log-in Account
+                          Sign-in Account
                         </Button>
                         <Button
                           as={Link}

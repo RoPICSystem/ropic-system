@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/utils/supabase/server'
 
-export async function login(formData: FormData) {
+export async function signin(formData: FormData) {
   const supabase = await createClient()
 
   // Extract form data
@@ -19,7 +19,7 @@ export async function login(formData: FormData) {
 
   if (error) {
     // Redirect back to the login page with an error message
-    redirect(`/account/login?error=${error.message}`)
+    redirect(`/account/signin?error=${error.message}`)
   }
 
   // Revalidate cache to reflect the new authentication state

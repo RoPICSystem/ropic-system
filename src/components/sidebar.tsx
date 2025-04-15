@@ -14,12 +14,17 @@ import {
   User,
 } from '@heroui/react';
 import { usePathname } from 'next/navigation';
-import { getUserProfile, getImageUrl } from '@/utils/user'
+import { 
+  getUserProfile, 
+  getImageUrl, 
+  signOut
+} from '@/utils/supabase/server/user'
 import {
   XMarkIcon,
   Bars3Icon,
   HomeIcon,
   UserGroupIcon,
+  ArrowLeftEndOnRectangleIcon,
   UserIcon,
   TruckIcon,
   ShoppingCartIcon,
@@ -206,16 +211,27 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
 
                   </Button>
                 </DropdownTrigger>
-                <DropdownMenu aria-label="Navigation">
-                  <DropdownItem key="logout" as={Link} href="/auth/logout">
+                <DropdownMenu 
+                  aria-label="Navigation"
+                  itemClasses={{
+                    base: 'text-default-800',
+                  }}>
+                  <DropdownItem key="logout" as={Link} onPress={async () => {
+                    const { error } = await signOut()
+                    if (error) {
+                      console.error('Error signing out:', error)
+                      return
+                    }
+                    window.location.href = '/account/signin'
+                  }}>
                     <div className="flex items-center gap-2">
-                      <XMarkIcon className="w-4 h-4" />
-                      Logout
+                      <ArrowLeftEndOnRectangleIcon className="w-4 h-4" />
+                      Sign out
                     </div>
                   </DropdownItem>
                   <DropdownItem key="profile" as={Link} href="/home/profile">
                     <div className="flex items-center gap-2">
-                      <XMarkIcon className="w-4 h-4" />
+                      <UserIcon className="w-4 h-4" />
                       Profile
                     </div>
                   </DropdownItem>
