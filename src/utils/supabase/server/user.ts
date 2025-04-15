@@ -25,8 +25,6 @@ export async function getUserProfile() {
 
   const profile_image = await getImageUrl(profile.profile_image)
 
-  console.log({ ...profile, email: user.email, profile_image });
-
   return { data: { ...profile, email: user.email, profile_image }, error: null }
 }
 

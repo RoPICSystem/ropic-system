@@ -492,90 +492,92 @@ export default function ProfilePage() {
   // Show loading state
   if (isLoading && !userData) {
     return (
-      <div className='space-y-4 '>
-        {/* Basic Information Skeleton */}
-        <CardList>
-          <div>
-            <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-6" /> {/* Section Title */}
-            <div className="flex flex-col items-center justify-center">
-              <Skeleton className="flex rounded-full w-48 h-48 mb-8" /> {/* Profile Image */}
+      <div className="container mx-auto max-w-4xl">
+        <div className='space-y-4 '>
+          {/* Basic Information Skeleton */}
+          <CardList>
+            <div>
+              <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-6" /> {/* Section Title */}
+              <div className="flex flex-col items-center justify-center">
+                <Skeleton className="flex rounded-full w-48 h-48 mb-8" /> {/* Profile Image */}
+              </div>
+              <div className="space-y-6">
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                </div>
+                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+              </div>
             </div>
-            <div className="space-y-6">
-              <div className="grid sm:grid-cols-2 gap-4">
-                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-              </div>
-              <div className="grid sm:grid-cols-2 gap-4">
-                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-              </div>
-              <div className="grid sm:grid-cols-2 gap-4">
-                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-              </div>
-              <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-            </div>
-          </div>
-        </CardList>
+          </CardList>
 
-        {/* Address Information Skeleton */}
-        < CardList>
-          <div>
-            <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-6" /> {/* Section Title */}
-            <div className="space-y-6">
-              <div className="grid sm:grid-cols-2 gap-4">
-                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-              </div>
-              <div className="grid sm:grid-cols-2 gap-4">
-                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-              </div>
-              <div className="grid sm:grid-cols-2 gap-4">
-                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-              </div>
-              <div className="flex sm:flex-row flex-col gap-4">
-                <Skeleton className="h-12 w-full sm:w-[10rem] rounded-lg" /> {/* Postal Code */}
-                <Skeleton className="h-12 w-full rounded-lg" /> {/* Full Address */}
-              </div>
-            </div>
-          </div>
-
-        </CardList >
-        {/* Company Information Skeleton */}
-        < CardList >
-          <div>
-            <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-6" /> {/* Section Title */}
-            <Skeleton className="h-12 rounded-lg mb-4" /> {/* Company Name */}
-            <div className="space-y-6">
-              <div className="grid sm:grid-cols-2 gap-4">
-                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-              </div>
-              <div className="grid sm:grid-cols-2 gap-4">
-                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-              </div>
-              <div className="grid sm:grid-cols-2 gap-4">
-                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-              </div>
-              <div className="flex sm:flex-row flex-col gap-4">
-                <Skeleton className="h-12 w-full sm:w-[10rem] rounded-lg" /> {/* Postal Code */}
-                <Skeleton className="h-12 w-full rounded-lg" /> {/* Full Address */}
+          {/* Address Information Skeleton */}
+          < CardList>
+            <div>
+              <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-6" /> {/* Section Title */}
+              <div className="space-y-6">
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                </div>
+                <div className="flex sm:flex-row flex-col gap-4">
+                  <Skeleton className="h-12 w-full sm:w-[10rem] rounded-lg" /> {/* Postal Code */}
+                  <Skeleton className="h-12 w-full rounded-lg" /> {/* Full Address */}
+                </div>
               </div>
             </div>
-          </div>
-        </CardList >
 
-        {/* Account Information Skeleton */}
-        < CardList >
-          <div>
-            <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-6" /> {/* Section Title */}
-            <Skeleton className="h-12 rounded-lg" /> {/* Email Field */}
-          </div>
-        </CardList >
+          </CardList >
+          {/* Company Information Skeleton */}
+          < CardList >
+            <div>
+              <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-6" /> {/* Section Title */}
+              <Skeleton className="h-12 rounded-lg mb-4" /> {/* Company Name */}
+              <div className="space-y-6">
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                </div>
+                <div className="flex sm:flex-row flex-col gap-4">
+                  <Skeleton className="h-12 w-full sm:w-[10rem] rounded-lg" /> {/* Postal Code */}
+                  <Skeleton className="h-12 w-full rounded-lg" /> {/* Full Address */}
+                </div>
+              </div>
+            </div>
+          </CardList >
+
+          {/* Account Information Skeleton */}
+          < CardList >
+            <div>
+              <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-6" /> {/* Section Title */}
+              <Skeleton className="h-12 rounded-lg" /> {/* Email Field */}
+            </div>
+          </CardList >
+        </div>
       </div>
     );
   }
