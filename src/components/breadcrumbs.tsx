@@ -87,7 +87,7 @@ export default function NavigationBread() {
         {isLast ? (
           <Dropdown>
             <DropdownTrigger>
-              <Button variant="light" color='primary' className='p-2 text-lg font-medium text-primary-800'>
+              <Button variant="light" color='primary' className='p-4 text-lg font-medium text-primary-800 min-w-0'>
                 {displayName}
               </Button>
             </DropdownTrigger>
@@ -103,7 +103,7 @@ export default function NavigationBread() {
             </DropdownMenu>
           </Dropdown>
         ) : (
-          <Link href={fullPath} className="p-2">
+          <Link href={fullPath} className="p-4">
             {displayName}
           </Link>
         )}

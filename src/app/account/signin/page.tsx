@@ -30,14 +30,15 @@ import {
 import {
   EyeSlashIcon,
   EyeIcon,
+  XMarkIcon,
   UserIcon,
 } from '@heroicons/react/24/solid';
 import CardList from '@/components/card-list';
+import { motionTransition } from '@/utils/anim';
 
 
 export default function SigninPage() {
-  const searchParams = useSearchParams()
-  const error = searchParams.get('error')
+  const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [primaryValue, setPrimaryValue] = useState('')
   const { theme } = useTheme()
@@ -74,14 +75,13 @@ export default function SigninPage() {
     event.preventDefault()
     setIsLoading(true)
 
-    try {
-      const formData = new FormData(event.currentTarget)
-      await signin(formData)
-    } catch (error) {
-      console.error('Sign-in error:', error)
-    } finally {
-      setIsLoading(false)
+
+    const formData = new FormData(event.currentTarget)
+    const { error, success } = await signin(formData)
+    if (error) {
+      setError(error)
     }
+    setIsLoading(false)
   }
 
 
@@ -106,7 +106,7 @@ export default function SigninPage() {
       </div>
 
       <div className="w-full z-3 xl:pr-[25rem] sm:pb-12 pt-4 sm:min-h-[55rem] h-full flex flex-col justify-center">
-          <div className="flex flex-col items-center justify-between relative">
+        <div className="flex flex-col items-center justify-between relative">
           {/* Left side - Sign-in form */}
           <div className="max-w-[200rem] flex sm:flex-col flex-row space-x-4 items-center justify-center sm:mb-[-6rem] mb-4">
             <Image src="/logo.png" alt="Logo" className="sm:h-48 h-20" />
@@ -152,6 +152,7 @@ export default function SigninPage() {
                             label="Email"
                             type="email"
                             autoComplete="email"
+                            isDisabled={isLoading}
                             isRequired
                           />
                         </div>
@@ -181,6 +182,7 @@ export default function SigninPage() {
                             type={isVisiblePassword ? "text" : "password"}
                             label="Password"
                             autoComplete="new-password"
+                            isDisabled={isLoading}
                             isRequired
                             minLength={8}
                           />
@@ -192,12 +194,15 @@ export default function SigninPage() {
                           <Checkbox
                             defaultSelected
                             id="remember-me"
+                            isDisabled={isLoading}
                             name="remember-me">
                             Remember me
                           </Checkbox>
                         </div>
                         <div className="text-sm">
-                          <Link href="/account/forgot-password">
+                          <Link
+                            isDisabled={isLoading}
+                            href="/account/forgot-password">
                             Forgot your password?
                           </Link>
                         </div>
@@ -207,21 +212,21 @@ export default function SigninPage() {
                         <AnimatePresence>
                           {error && !isLoading && (
                             <motion.div
-                              initial={{ opacity: 0, scale: 0.9, filter: "blur(10px)", height: 0 }}
-                              animate={{ opacity: 1, scale: 1, filter: "blur(0px)", height: "auto" }}
-                              exit={{ opacity: 0, scale: 0.9, filter: "blur(10px)", height: 0 }}
-                              transition={{
-                                duration: 0.3,
-                                type: "spring",
-                                stiffness: 300,
-                                damping: 20,
-                              }}
+                              {...motionTransition}
                               className='w-full'
                             >
                               <Alert
                                 color='danger'
                                 variant='solid'
-                                onClose={() => { router.replace('/account/signin') }}
+                                endContent={
+                                  <Button
+                                    variant='shadow'
+                                    color='danger'
+                                    isIconOnly
+                                    onPress={() => { setError(null) }}>
+                                      <XMarkIcon className="h-5 w-5 text-danger-50" />
+                                  </Button>
+                                }
                                 title={`Error Logging In`}
                                 description={error} />
                             </motion.div>
@@ -229,24 +234,21 @@ export default function SigninPage() {
                         </AnimatePresence>
                         <Button
                           type="submit"
-                          disabled={isLoading}
                           variant="shadow"
                           color="primary"
                           className="w-full"
                           isLoading={isLoading}
-                          onPress={(event) => {
-                            router.replace('/account/signin')
-                          }}
+                          onPress={(event) => { setError(null) }}
                         >
-                          Sign-in Account
+                          Sign in
                         </Button>
                         <Button
                           as={Link}
                           href="/account/register"
                           type="submit"
-                          isDisabled={isLoading}
                           variant="shadow"
                           color="default"
+                          isDisabled={isLoading}
                           className="w-full"
                         >
                           Register Account

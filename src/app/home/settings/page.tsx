@@ -109,8 +109,6 @@ export default function SettingsPage() {
             </Button>
           </div>
         </CardList>
-
-
       </div>
     </div>
   );

@@ -12,151 +12,24 @@ import {
 import { User } from '@supabase/supabase-js'
 
 
-export async function register(formData: FormData) {
+export async function register(formData: FormData) : 
+  Promise<{ error?: string, success?: boolean  }> {
   const supabase = await createClient()
 
-  const returnError = (message: string) => {
-    console.error(message)
-    redirect(`/account/register?error=${encodeURIComponent(message)}`)
-  }
-
-  // Extract basic form data
-  const email = formData.get('email') as string
-  const password = formData.get('password') as string
-  const confirmPassword = formData.get('confirmPassword') as string
-
-  // Basic validation
-  if (password !== confirmPassword) {
-    returnError('Passwords do not match')
-  }
-  
-  const profileImage = formData.get('profileImage') as File || null
-
-  const birthdayString = formData.get('birthday') as string | null;
-  let birthday: string | null = null;
-  if (birthdayString) {
-    try {
-      birthday = parseDate(birthdayString).toDate(getLocalTimeZone()).toISOString();
-    } catch (error) {
-      returnError('Invalid date format for birthday')
-    }
-  }
-
-  const name = {
-    first_name: formData.get('firstName') as string,
-    last_name: formData.get('lastName') as string,
-    middle_name: formData.get('middleName') as string || null,
-    suffix: formData.get('suffix') as string || null,
-  }
-
-
-
-  const metadata = {
-    is_admin: formData.get('isAdmin') as string === 'true',
-    name,
-    full_name: `${name.first_name} ${name.middle_name ? name.middle_name + ' ' : ''}${name.last_name}${name.suffix ? ' ' + name.suffix : ''}`,
-    profile_image: `profiles/${email}/profileImage.webp`,
-    gender: formData.get('gender') as string,
-    birthday: birthday,
-    phone_number: formData.get('phoneNumber') as string,
-    address: {
-      country: {
-        code: formData.get('address.country.code') as string,
-        desc: formData.get('address.country.desc') as string
-      },
-      region: {
-        code: formData.get('address.region.code') as string,
-        desc: formData.get('address.region.desc') as string
-      },
-      province: {
-        code: formData.get('address.province.code') as string,
-        desc: formData.get('address.province.desc') as string
-      },
-      municipality: {
-        code: formData.get('address.municipality.code') as string,
-        desc: formData.get('address.municipality.desc') as string
-      },
-      barangay: {
-        code: formData.get('address.barangay.code') as string,
-        desc: formData.get('address.barangay.desc') as string
-      },
-      streetAddress: formData.get('address.streetAddress') as string,
-      postalCode: formData.get('address.postalCode') as string,
-    },
-    full_address: formData.get('address.fullAddress') as string,
-    company_address: {
-      country: {
-        code: formData.get('companyAddress.country.code') as string,
-        desc: formData.get('companyAddress.country.desc') as string
-      },
-      region: {
-        code: formData.get('companyAddress.region.code') as string,
-        desc: formData.get('companyAddress.region.desc') as string
-      },
-      province: {
-        code: formData.get('companyAddress.province.code') as string,
-        desc: formData.get('companyAddress.province.desc') as string
-      },
-      municipality: {
-        code: formData.get('companyAddress.municipality.code') as string,
-        desc: formData.get('companyAddress.municipality.desc') as string
-      },
-      barangay: {
-        code: formData.get('companyAddress.barangay.code') as string,
-        desc: formData.get('companyAddress.barangay.desc') as string
-      },
-      streetAddress: formData.get('companyAddress.streetAddress') as string,
-      postalCode: formData.get('companyAddress.postalCode') as string,
-    },
-    full_company_address: formData.get('companyAddress.fullAddress') as string,
-    company_name: formData.get('companyName') as string
-  }
-
-  // Process and upload profile image if provided
-  if (profileImage && profileImage.size > 0) {
-    try {
-      // Convert File to Buffer
-      const arrayBuffer = await profileImage.arrayBuffer()
-      const buffer = Buffer.from(arrayBuffer)
-
-      // Process image with sharp - create full size version (cropped to square)
-      const processedImageBuffer = await sharp(buffer)
-        .resize({
-          width: 720,
-          height: 720,
-          fit: 'cover',
-          position: 'center'
-        })
-        .webp({ quality: 80 })
-        .toBuffer()
-
-      // Upload main image
-      const { error: uploadError } = await supabase.storage
-        .from('profile-images')
-        .upload(metadata.profile_image, processedImageBuffer, {
-          contentType: 'image/webp',
-          upsert: true
-        })
-
-      if (uploadError) {
-        returnError('Error uploading profile image')
-      } 
-    } catch (error) {
-      returnError(`Error processing profile image: ${error}`)
-    }
-  }
-
-  const { error, data: { user } } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      emailRedirectTo: `${baseURL()}/account/verification`,
-      data: metadata
-    },
-  })
-
-  const deleteAccount = async (user: User | null) => {
+  const deleteAccount = async (user: User | null, companyUuid: string | null = null) => {
     const supabaseAdmin = await createAdminClient()
+
+    // delete company if it exists
+    if (companyUuid) {
+      const { error: companyError } = await supabaseAdmin
+        .from('companies')
+        .delete()
+        .eq('uuid', companyUuid)
+
+      if (companyError) {
+        console.error('Error deleting company:', companyError)
+      }
+    }
 
     if (!user) return
 
@@ -168,38 +41,251 @@ export async function register(formData: FormData) {
     const userProfilePath = `profiles/${email}`
     const { error: deleteError } = await supabaseAdmin.storage
       .from('profile-images')
-      .remove([`${userProfilePath}/profileImage.webp`, `${userProfilePath}/profileImageThumb.webp`])
+      .remove([`${userProfilePath}/profileImage.webp`])
 
     if (deleteError) {
       console.error('Error deleting main image:', deleteError)
-      returnError('Error deleting main image')
+      return { error: deleteError }
     }
   }
 
-  if (error) {
-    deleteAccount(user)
-    returnError(error.message)
+  // Extract basic user data
+  const email = formData.get('email') as string;
+  const password = formData.get('password') as string;
+  const profileImage = formData.get('profileImage') as File;
+  const isNewCompany = formData.get('isNewCompany') === 'true';
+
+  // Extract address data
+  const address = {
+    country: {
+      code: formData.get('address.country.code') as string,
+      desc: formData.get('address.country.desc') as string
+    },
+    region: {
+      code: formData.get('address.region.code') as string,
+      desc: formData.get('address.region.desc') as string
+    },
+    province: {
+      code: formData.get('address.province.code') as string,
+      desc: formData.get('address.province.desc') as string
+    },
+    municipality: {
+      code: formData.get('address.municipality.code') as string,
+      desc: formData.get('address.municipality.desc') as string
+    },
+    barangay: {
+      code: formData.get('address.barangay.code') as string,
+      desc: formData.get('address.barangay.desc') as string
+    },
+    streetAddress: formData.get('address.streetAddress') as string,
+    postalCode: formData.get('address.postalCode') as string,
+    fullAddress: formData.get('address.fullAddress') as string
+  };
+
+  const name = {
+    first_name: formData.get('firstName') as string,
+    last_name: formData.get('lastName') as string,
+    middle_name: formData.get('middleName') as string || null,
+    suffix: formData.get('suffix') as string || null,
   }
 
-  // Create a more detailed profile in a separate table
-  if (user) {
-    const { error } = await supabase
-      .from('profiles')
-      .insert({
-        ...metadata,
-        user_id: user.id,
-        email: email,
-      })
-      .select();
-    if (error) {
-      deleteAccount(user)
-      returnError(`Error creating user table: ${error.message}`)
+  const birthdayString = formData.get('birthday') as string | null;
+  let birthday: string | null = null;
+  if (birthdayString) {
+    try {
+      birthday = parseDate(birthdayString).toDate(getLocalTimeZone()).toISOString();
+    } catch (error: any) {
+      return { error: error.message || 'Invalid date format' }
     }
-  } else {
-    deleteAccount(user)
-    returnError('User creation failed')
+  }
+
+  let company: {
+    uuid: string;
+    name: string;
+    address: {}
+  } | null = null;
+
+  try {
+    // Begin database transaction
+    const { data: client } = await supabase.auth.getSession();
+
+    if (!client.session) {
+      // Step 2: Handle company creation or selection
+      if (isNewCompany) {
+        // Extract new company data
+        const newCompanyName = formData.get('newCompanyName') as string;
+        const newCompanyAddressData = {
+          country: {
+            code: formData.get('newCompany.address.country.code') as string,
+            desc: formData.get('newCompany.address.country.desc') as string
+          },
+          region: {
+            code: formData.get('newCompany.address.region.code') as string,
+            desc: formData.get('newCompany.address.region.desc') as string
+          },
+          province: {
+            code: formData.get('newCompany.address.province.code') as string,
+            desc: formData.get('newCompany.address.province.desc') as string
+          },
+          municipality: {
+            code: formData.get('newCompany.address.municipality.code') as string,
+            desc: formData.get('newCompany.address.municipality.desc') as string
+          },
+          barangay: {
+            code: formData.get('newCompany.address.barangay.code') as string,
+            desc: formData.get('newCompany.address.barangay.desc') as string
+          },
+          streetAddress: formData.get('newCompany.address.streetAddress') as string,
+          postalCode: formData.get('newCompany.address.postalCode') as string,
+          fullAddress: formData.get('newCompany.address.fullAddress') as string
+        };
+
+        // Create a new company
+        const { error: companyError, data: companyData } = await supabase
+          .from('companies')
+          .insert({
+            name: newCompanyName,
+            address: newCompanyAddressData
+          })
+          .select('uuid, name, address')
+          .single();
+
+        company = companyData;
+
+        if (companyError) {
+          deleteAccount(null, company?.uuid)
+          return { error: companyError.message }
+        }
+
+      } else {
+        // Use existing company
+        const companyId = formData.get('existingCompany.uuid') as string;
+
+        // Verify if company exists
+        const { data: companyData, error: companyCheckError } = await supabase
+          .from('companies')
+          .select('uuid, name, address')
+          .eq('uuid', companyId)
+          .single();
+
+        if (companyCheckError || !companyData) {
+          return { error: 'Company not found' }
+        }
+
+        // Check admin count if user is registering as admin
+        const isAdmin = formData.get('isAdmin') as string === 'true';
+        if (isAdmin) {
+          // Count existing admins in this company
+          const { count: adminCount, error: countError } = await supabase
+            .from('profiles')
+            .select('uuid', { count: 'exact' })
+            .eq('company.uuid', companyId)
+            .eq('is_admin', true);
+
+          if (countError) {
+            return { error: countError.message }
+          }
+
+          if (adminCount && adminCount >= 2) {
+            return { error: 'This company already has 2 admins. Please contact support for assistance.' }
+          }
+        }
+
+        company = companyData
+      }
+
+
+      const metadata = {
+        is_admin: formData.get('isAdmin') as string === 'true',
+        name,
+        full_name: `${name.first_name} ${name.middle_name ? name.middle_name + ' ' : ''}${name.last_name}${name.suffix ? ' ' + name.suffix : ''}`,
+        profile_image: `profiles/${email}/profileImage.webp`,
+        gender: formData.get('gender.key') as string,
+        birthday,
+        phone_number: formData.get('phoneNumber') as string,
+        address,
+        company,
+        full_address: formData.get('address.fullAddress') as string,
+      }
+
+      // Step 3: Create user in auth.users
+      const { data: userData, error: userError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: metadata
+        }
+      });
+
+      if (userError) {
+        deleteAccount(null, company?.uuid)
+        return { error: userError.message }
+      }
+
+      // Step 4: Create detailed user profile in profiles table
+      const userId = userData.user?.id;
+      if (!userId) {
+        deleteAccount(null, company?.uuid)
+        return { error: 'User ID not found' }
+      }
+
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert({
+          ...metadata,
+          uuid: userId,
+          email: email,
+        });
+
+      if (profileError) {
+        deleteAccount(userData.user, company?.uuid)
+        return { error: profileError.message }
+      }
+
+      // Process and upload profile image if provided
+      if (profileImage && profileImage.size > 0) {
+        try {
+          // Convert File to Buffer
+          const arrayBuffer = await profileImage.arrayBuffer()
+          const buffer = Buffer.from(arrayBuffer)
+
+          // Process image with sharp - create full size version (cropped to square)
+          const processedImageBuffer = await sharp(buffer)
+            .resize({
+              width: 1024,
+              height: 1024,
+              fit: 'cover',
+              position: 'center'
+            })
+            .webp({ quality: 80 })
+            .toBuffer()
+
+          // Upload main image
+          const { error: uploadError } = await supabase.storage
+            .from('profile-images')
+            .upload(`profiles/${email}/profileImage.webp`, processedImageBuffer, {
+              contentType: 'image/webp',
+              upsert: true
+            })
+
+          if (uploadError) {
+            deleteAccount(userData.user, company?.uuid)
+            return { error: uploadError.message }
+          }
+        } catch (error: any) {
+          deleteAccount(userData.user, company?.uuid)
+          return { error: error.message || 'Error processing image' }
+        }
+      }
+
+    }
+  } catch (error: any) {
+    console.error('Error during registration:', error)
+    return { error: error.message || 'An error occurred during registration' }
   }
 
   revalidatePath('/', 'layout')
   redirect(`/account/verification?email=${encodeURIComponent(email)}`)
+  
+  return { success: true }
 }

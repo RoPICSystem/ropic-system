@@ -225,7 +225,7 @@ export default function VerificationRequestedPage() {
                           disabled={isSubmitting || success}
                           isLoading={isSubmitting}
                         >
-                          {isSubmitting ? 'Verifying...' : 'Verify Email'}
+                          Verify Email
                         </Button>
                         <p className="sm:mt-6 mt-4 text-sm text-foreground/80 text-center">
                           If you don't see the email, check your spam folder or{" "}

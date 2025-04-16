@@ -4,7 +4,8 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/utils/supabase/server'
 
-export async function signin(formData: FormData) {
+export async function signin(formData: FormData):
+  Promise<{ error?: string, success?: boolean }> {
   const supabase = await createClient()
 
   // Extract form data
@@ -18,13 +19,14 @@ export async function signin(formData: FormData) {
   })
 
   if (error) {
-    // Redirect back to the login page with an error message
-    redirect(`/account/signin?error=${error.message}`)
+    console.error('Sign-in error:', error)
+    return { error: error.message }
   }
 
   // Revalidate cache to reflect the new authentication state
   revalidatePath('/', 'layout')
-  
+
   // Redirect to dashboard or home page
   redirect('/home/dashboard')
+  return { success: true }
 }

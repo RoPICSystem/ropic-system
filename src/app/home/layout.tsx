@@ -6,6 +6,7 @@ type LayoutProps = {
   children: ReactNode;
 };
 
+
 export default function Layout({ children }: LayoutProps) {
   return (
     <div className="flex h-screen max-w-screen-2xl mx-auto 2xl:p-5 transition-[padding] duration-300 ease-in-out">
@@ -31,8 +32,6 @@ export default function Layout({ children }: LayoutProps) {
             </div>
           </main>
         </SideBar>
-
-
       </div>
     </div>
   );
