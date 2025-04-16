@@ -244,7 +244,7 @@ export default function SigninPage() {
                           as={Link}
                           href="/account/register"
                           type="submit"
-                          disabled={isLoading}
+                          isDisabled={isLoading}
                           variant="shadow"
                           color="default"
                           className="w-full"

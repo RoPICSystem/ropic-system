@@ -58,3 +58,18 @@ export async function createAdminClient() {
     }
   )
 }
+
+
+
+/*
+AuthApiError: Invalid Refresh Token: Refresh Token Not Found
+    at handleError (../../../src/lib/fetch.ts:102:8)
+    at async _handleRequest (../../../src/lib/fetch.ts:195:4)
+    at async _request (../../../src/lib/fetch.ts:157:15)
+    at async (../../src/GoTrueClient.ts:1847:17)
+    at async (../../../src/lib/helpers.ts:228:25) {
+  __isAuthError: true,
+  status: 400,
+  code: 'refresh_token_not_found'
+}
+*/

@@ -2,6 +2,7 @@
 
 
 import { useEffect, useState, useRef } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { updateProfile } from './actions'
 import { getUserProfile } from '@/utils/supabase/server/user'
 import {
@@ -73,6 +74,10 @@ export default function ProfilePage() {
   const [isEditMode, setIsEditMode] = useState(false)
   const [originalUserData, setOriginalUserData] = useState<any>(null)
 
+  // Search params and router
+  const searchParams = useSearchParams()
+  const router = useRouter()
+
   // Address form state
   const [regions, setRegions] = useState<Region[]>([])
   const [provinces, setProvinces] = useState<Province[]>([])
@@ -104,6 +109,55 @@ export default function ProfilePage() {
 
   const inputStyle = { inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200" }
   const autoCompleteStyle = { classNames: inputStyle }
+
+  // Load user data on initial render and check for edit parameter
+  useEffect(() => {
+    async function fetchUserData() {
+      try {
+        setIsLoading(true)
+        const { data, error } = await getUserProfile()
+
+        if (error) {
+          setError(error)
+          return
+        }
+
+        setUserData(data)
+        setOriginalUserData(JSON.parse(JSON.stringify(data))) // Create a deep copy for reset
+
+        if (!data?.profile_image.error) {
+          await setImagePreview(data.profile_image.data.url)
+        }
+
+        // Check for edit param and set edit mode accordingly
+        const editParam = searchParams.get('edit')
+        if (editParam === 'true') {
+          setIsEditMode(true)
+        }
+      } catch (err) {
+        console.error('Error fetching user profile:', err)
+        setError('Failed to load profile data')
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchUserData()
+  }, [searchParams])
+
+  // Update URL when edit mode changes
+  useEffect(() => {
+    // Create URL with or without edit parameter based on isEditMode
+    const url = new URL(window.location.href)
+    if (isEditMode) {
+      url.searchParams.set('edit', 'true')
+    } else {
+      url.searchParams.delete('edit')
+    }
+
+    // Replace the current URL without adding to history
+    window.history.replaceState({}, '', url)
+  }, [isEditMode])
 
   // Load user data on initial render
   useEffect(() => {
@@ -365,6 +419,21 @@ export default function ProfilePage() {
     }
   }
 
+  // Toggle edit mode function with URL update
+  const toggleEditMode = (value: boolean) => {
+    setIsEditMode(value)
+
+    // Use Next.js router to update the URL
+    const params = new URLSearchParams(searchParams.toString())
+    if (value) {
+      params.set('edit', 'true')
+    } else {
+      params.delete('edit')
+    }
+
+    router.replace(`?${params.toString()}`)
+  }
+
   // Function to discard changes and reset to original data
   function handleDiscardChanges() {
     setUserData(JSON.parse(JSON.stringify(originalUserData)))
@@ -388,7 +457,7 @@ export default function ProfilePage() {
       setImagePreview(null)
     }
 
-    setIsEditMode(false)
+    toggleEditMode(false)
   }
 
   // Handle region selection change
@@ -479,7 +548,7 @@ export default function ProfilePage() {
         if (data) {
           setOriginalUserData(JSON.parse(JSON.stringify(data)))
         }
-        setIsEditMode(false)
+        toggleEditMode(false)
       }
     } catch (error: any) {
       setError('An unexpected error occurred')
@@ -658,7 +727,7 @@ export default function ProfilePage() {
                     type="text"
                     classNames={inputStyle}
                     defaultValue={userData?.name?.first_name || ''}
-                    isRequired
+                    isRequired={isEditMode}
                     isReadOnly={!isEditMode}
                   />
                   <Input
@@ -680,7 +749,7 @@ export default function ProfilePage() {
                     type="text"
                     classNames={inputStyle}
                     defaultValue={userData?.name?.last_name || ''}
-                    isRequired
+                    isRequired={isEditMode}
                     isReadOnly={!isEditMode}
                   />
                   <Input
@@ -702,7 +771,7 @@ export default function ProfilePage() {
                     inputProps={autoCompleteStyle}
                     classNames={{ clearButton: "text-default-800" }}
                     defaultSelectedKey={userData?.gender || ''}
-                    isRequired
+                    isRequired={isEditMode}
                     isReadOnly={!isEditMode}
                     {...(isEditMode ? {} : { selectorIcon: null, popoverProps: { className: "hidden" } })}
                   >
@@ -719,7 +788,7 @@ export default function ProfilePage() {
                       today(getLocalTimeZone()).subtract({ years: 18 })}
                     minValue={today(getLocalTimeZone()).subtract({ years: 100 })}
                     maxValue={today(getLocalTimeZone())}
-                    isRequired
+                    isRequired={isEditMode}
                     isReadOnly={!isEditMode}
                     classNames={{
                       base: "w-full",
@@ -746,7 +815,7 @@ export default function ProfilePage() {
                       const phoneRegex = /^9[0-9]{9}$/;
                       return phoneRegex.test(value) || 'Invalid phone number';
                     }}
-                    isRequired
+                    isRequired={isEditMode}
                     isReadOnly={!isEditMode}
                   />
                 </div>
@@ -766,14 +835,14 @@ export default function ProfilePage() {
                     label="Country"
                     defaultValue="PHILIPPINES"
                     classNames={inputStyle}
-                    isRequired
+                    isRequired={isEditMode}
                     isReadOnly
                   />
                   <Autocomplete
                     id="address.region"
                     name="address.region"
                     label="Region"
-                    isRequired
+                    isRequired={isEditMode}
                     inputProps={autoCompleteStyle}
                     classNames={{ clearButton: "text-default-800" }}
                     onSelectionChange={(e) => handleRegionChange(`${e}`)}
@@ -794,7 +863,7 @@ export default function ProfilePage() {
                     id="address.province"
                     name="address.province"
                     label="Province"
-                    isRequired
+                    isRequired={isEditMode}
                     inputProps={autoCompleteStyle}
                     classNames={{ clearButton: "text-default-800" }}
                     onSelectionChange={(e) => handleProvinceChange(`${e}`)}
@@ -813,7 +882,7 @@ export default function ProfilePage() {
                     id="address.municipality"
                     name="address.municipality"
                     label="Municipality/City"
-                    isRequired
+                    isRequired={isEditMode}
                     inputProps={autoCompleteStyle}
                     classNames={{ clearButton: "text-default-800" }}
                     onSelectionChange={(e) => handleCityMunicipalityChange(`${e}`)}
@@ -835,7 +904,7 @@ export default function ProfilePage() {
                     id="address.barangay"
                     name="address.barangay"
                     label="Barangay"
-                    isRequired
+                    isRequired={isEditMode}
                     inputProps={autoCompleteStyle}
                     classNames={{ clearButton: "text-default-800" }}
                     onSelectionChange={(e) => setSelectedBarangay(`${e}`)}
@@ -858,7 +927,7 @@ export default function ProfilePage() {
                     classNames={inputStyle}
                     value={inputStreetAddress}
                     onValueChange={(value) => setInputStreetAddress(value.toUpperCase())}
-                    isRequired
+                    isRequired={isEditMode}
                     isReadOnly={!isEditMode}
                   />
                 </div>
@@ -874,7 +943,7 @@ export default function ProfilePage() {
                     value={inputPostalCode}
                     formatOptions={{ useGrouping: false }}
                     hideStepper
-                    isRequired
+                    isRequired={isEditMode}
                     isReadOnly={!isEditMode}
                   />
                   <Input
@@ -885,7 +954,7 @@ export default function ProfilePage() {
                     value={fullAddress}
                     classNames={inputStyle}
                     isReadOnly
-                    isRequired
+                    isRequired={isEditMode}
                   />
                 </div>
               </div>
@@ -904,7 +973,7 @@ export default function ProfilePage() {
                   type="text"
                   classNames={inputStyle}
                   defaultValue={userData?.company_name || ''}
-                  isRequired
+                  isRequired={isEditMode}
                   isReadOnly={!isEditMode}
                 />
 
@@ -915,14 +984,14 @@ export default function ProfilePage() {
                     label="Country"
                     defaultValue="PHILIPPINES"
                     classNames={inputStyle}
-                    isRequired
+                    isRequired={isEditMode}
                     isReadOnly
                   />
                   <Autocomplete
                     id="companyAddress.region"
                     name="companyAddress.region"
                     label="Region"
-                    isRequired
+                    isRequired={isEditMode}
                     inputProps={autoCompleteStyle}
                     classNames={{ clearButton: "text-default-800" }}
                     onSelectionChange={(e) => handleCompanyRegionChange(`${e}`)}
@@ -943,7 +1012,7 @@ export default function ProfilePage() {
                     id="companyAddress.province"
                     name="companyAddress.province"
                     label="Province"
-                    isRequired
+                    isRequired={isEditMode}
                     inputProps={autoCompleteStyle}
                     classNames={{ clearButton: "text-default-800" }}
                     onSelectionChange={(e) => handleCompanyProvinceChange(`${e}`)}
@@ -962,7 +1031,7 @@ export default function ProfilePage() {
                     id="companyAddress.municipality"
                     name="companyAddress.municipality"
                     label="Municipality/City"
-                    isRequired
+                    isRequired={isEditMode}
                     inputProps={autoCompleteStyle}
                     classNames={{ clearButton: "text-default-800" }}
                     onSelectionChange={(e) => handleCompanyCityMunicipalityChange(`${e}`)}
@@ -984,7 +1053,7 @@ export default function ProfilePage() {
                     id="companyAddress.barangay"
                     name="companyAddress.barangay"
                     label="Barangay"
-                    isRequired
+                    isRequired={isEditMode}
                     inputProps={autoCompleteStyle}
                     classNames={{ clearButton: "text-default-800" }}
                     onSelectionChange={(e) => setSelectedCompanyBarangay(`${e}`)}
@@ -1007,7 +1076,7 @@ export default function ProfilePage() {
                     classNames={inputStyle}
                     onValueChange={setInputCompanyStreetAddress}
                     value={inputCompanyStreetAddress}
-                    isRequired
+                    isRequired={isEditMode}
                     isReadOnly={!isEditMode}
                   />
                 </div>
@@ -1024,7 +1093,7 @@ export default function ProfilePage() {
                     value={inputCompanyPostalCode}
                     formatOptions={{ useGrouping: false }}
                     hideStepper
-                    isRequired
+                    isRequired={isEditMode}
                     isReadOnly={!isEditMode}
                   />
                   <Input
@@ -1035,7 +1104,7 @@ export default function ProfilePage() {
                     value={fullCompanyAddress}
                     classNames={inputStyle}
                     isReadOnly
-                    isRequired
+                    isRequired={isEditMode}
                   />
                 </div>
               </div>
@@ -1054,7 +1123,7 @@ export default function ProfilePage() {
                 classNames={inputStyle}
                 defaultValue={userData?.email || ''}
                 isReadOnly
-                isRequired
+                isRequired={isEditMode}
               />
             </div>
           </CardList>
@@ -1137,7 +1206,7 @@ export default function ProfilePage() {
                 <Button
                   variant="shadow"
                   color="primary"
-                  onPress={() => setIsEditMode(true)}
+                  onPress={() => toggleEditMode(true)}
                   className="my-1">
                   <ChevronRightIcon className="w-4 h-4" />
                 </Button>

@@ -12,11 +12,17 @@ import {
   DropdownItem,
   Skeleton,
   User,
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+  useDisclosure,
 } from '@heroui/react';
 import { usePathname } from 'next/navigation';
-import { 
-  getUserProfile, 
-  getImageUrl, 
+import {
+  getUserProfile,
+  getImageUrl,
   signOut
 } from '@/utils/supabase/server/user'
 import {
@@ -24,6 +30,7 @@ import {
   Bars3Icon,
   HomeIcon,
   UserGroupIcon,
+  ChevronUpIcon,
   ArrowLeftEndOnRectangleIcon,
   UserIcon,
   TruckIcon,
@@ -49,8 +56,10 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
   const [isOpen, setIsOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
   const [isLoading, setIsLoading] = useState(true)
+  const [isSignOutLoading, setIsSignOutLoading] = useState(false)
   const [userProfile, setUserProfile] = useState<any>(null);
-  const [imageIcon, setImageIcon] = useState<string | null>(null)
+  const [imageIcon, setImageIcon] = useState<string | null>(null);
+  const { isOpen: isSignOut, onOpen: onSignOut, onOpenChange: onSignOutChange } = useDisclosure();
   const pathname = usePathname();
 
   useEffect(() => {
@@ -181,7 +190,13 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
             <div className="border-t border-default-200 p-4 flex-shrink-0 ">
               <Dropdown>
                 <DropdownTrigger>
-                  <Button variant="light" color='primary' className='flex w-full h-14 p-2 items-center'>
+                  <Button
+                    variant="light"
+                    color='primary'
+                    endContent={
+                      <ChevronUpIcon className="h-4 w-4" />
+                    }
+                    className='flex w-full h-14 p-2 items-center'>
                     {
                       isLoading ?
 
@@ -197,7 +212,7 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
                         </div> :
                         <User
                           avatarProps={{ src: imageIcon || undefined }}
-                          description="View Profile"
+                          description={userData?.is_admin ? 'Administrator' : 'Operator'}
                           classNames={{
                             base: 'flex items-start gap-4 justify-start w-full',
                             name: 'text-sm font-semibold text-default-600',
@@ -211,19 +226,12 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
 
                   </Button>
                 </DropdownTrigger>
-                <DropdownMenu 
+                <DropdownMenu
                   aria-label="Navigation"
                   itemClasses={{
                     base: 'text-default-800',
                   }}>
-                  <DropdownItem key="logout" as={Link} onPress={async () => {
-                    const { error } = await signOut()
-                    if (error) {
-                      console.error('Error signing out:', error)
-                      return
-                    }
-                    window.location.href = '/account/signin'
-                  }}>
+                  <DropdownItem key="logout" as={Link} onPress={onSignOut}>
                     <div className="flex items-center gap-2">
                       <ArrowLeftEndOnRectangleIcon className="w-4 h-4" />
                       Sign out
@@ -232,7 +240,7 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
                   <DropdownItem key="profile" as={Link} href="/home/profile">
                     <div className="flex items-center gap-2">
                       <UserIcon className="w-4 h-4" />
-                      Profile
+                      View Profile
                     </div>
                   </DropdownItem>
                 </DropdownMenu>
@@ -271,6 +279,57 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
         </div>
         {children}
       </div>
+
+      <Modal
+        isOpen={isSignOut}
+        placement='auto'
+        backdrop='blur'
+        classNames={{
+          backdrop: "bg-background/50",
+          closeButton: 'hidden'
+        }}
+        onOpenChange={onSignOutChange}
+        isDismissable>
+        <ModalContent>
+          {(onClose) => (
+            <>
+              <ModalHeader className="flex flex-col gap-1">Sign out</ModalHeader>
+              <ModalBody>
+                <div className="flex flex-col gap-2">
+                  <p className="text-medium">Are you sure you want to sign out?</p>
+                  <p className="text-tiny text-default-600">
+                    You will be redirected to the sign-in page.
+                  </p>
+                </div>
+              </ModalBody>
+              <ModalFooter>
+                <Button 
+                  color="primary" 
+                  onPress={onClose}
+                  isDisabled={isSignOutLoading}>
+                  Cancel
+                </Button>
+                <Button
+                  color="danger"
+                  isLoading={isSignOutLoading}
+                  onPress={async (e) => {
+                    setIsSignOutLoading(true)
+                    const { error } = await signOut()
+                    setIsSignOutLoading(false)
+                    if (error) {
+                      console.error('Error signing out:', error)
+                      return
+                    }
+                    window.location.href = '/account/signin'
+                    onClose()
+                  }}>
+                  Sign out
+                </Button>
+              </ModalFooter>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
     </>
   );
 }

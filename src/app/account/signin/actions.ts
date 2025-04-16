@@ -26,5 +26,5 @@ export async function signin(formData: FormData) {
   revalidatePath('/', 'layout')
   
   // Redirect to dashboard or home page
-  redirect('/home')
+  redirect('/home/dashboard')
 }
