@@ -14,8 +14,12 @@ import CardList from "@/components/card-list";
 import {
   ChevronRightIcon,
 } from '@heroicons/react/24/solid';
+import { useSearchParams, useRouter } from 'next/navigation'
 
 export default function SettingsPage() {
+  const router = useRouter()
+  
+
   return (
     <div className="container mx-auto max-w-4xl">
       <div className="space-y-4">
@@ -42,8 +46,22 @@ export default function SettingsPage() {
             </div>
           </Switch>
           <div className="flex items-center justify-between h-full w-full">
-            <span>Change user information</span>
-            <Button variant="shadow" color="primary" className="my-1">
+            <span>Show profile information</span>
+            <Button 
+              variant="shadow" 
+              color="primary"
+              onPress={() => router.push('/home/profile')}
+              className="my-1">
+              <ChevronRightIcon className="w-4 h-4" />
+            </Button>
+          </div>
+          <div className="flex items-center justify-between h-full w-full">
+            <span>Change profile information</span>
+            <Button 
+              variant="shadow" 
+              color="primary"
+              onPress={() => router.push('/home/profile?edit=true')}
+              className="my-1">
               <ChevronRightIcon className="w-4 h-4" />
             </Button>
           </div>

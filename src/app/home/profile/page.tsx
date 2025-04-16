@@ -110,54 +110,11 @@ export default function ProfilePage() {
   const inputStyle = { inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200" }
   const autoCompleteStyle = { classNames: inputStyle }
 
-  // Load user data on initial render and check for edit parameter
-  useEffect(() => {
-    async function fetchUserData() {
-      try {
-        setIsLoading(true)
-        const { data, error } = await getUserProfile()
+  // Function to compare values
+  const compare = (a: any, b: any) => {
+    return `${a}` === `${b}`
+  }
 
-        if (error) {
-          setError(error)
-          return
-        }
-
-        setUserData(data)
-        setOriginalUserData(JSON.parse(JSON.stringify(data))) // Create a deep copy for reset
-
-        if (!data?.profile_image.error) {
-          await setImagePreview(data.profile_image.data.url)
-        }
-
-        // Check for edit param and set edit mode accordingly
-        const editParam = searchParams.get('edit')
-        if (editParam === 'true') {
-          setIsEditMode(true)
-        }
-      } catch (err) {
-        console.error('Error fetching user profile:', err)
-        setError('Failed to load profile data')
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    fetchUserData()
-  }, [searchParams])
-
-  // Update URL when edit mode changes
-  useEffect(() => {
-    // Create URL with or without edit parameter based on isEditMode
-    const url = new URL(window.location.href)
-    if (isEditMode) {
-      url.searchParams.set('edit', 'true')
-    } else {
-      url.searchParams.delete('edit')
-    }
-
-    // Replace the current URL without adding to history
-    window.history.replaceState({}, '', url)
-  }, [isEditMode])
 
   // Load user data on initial render
   useEffect(() => {
@@ -188,177 +145,241 @@ export default function ProfilePage() {
     fetchUserData()
   }, [])
 
-  // Fetch regions on component mount
+  // Load user data on initial render and check for edit parameter
   useEffect(() => {
-    async function fetchRegions() {
-      const regionsData = await getRegions()
-      setRegions(regionsData)
+    async function fetchUserData() {
+      try {
+        setIsLoading(true)
+        const { data, error } = await getUserProfile()
+
+        if (error) {
+          setError(error)
+          return
+        }
+
+        setUserData(data)
+        setOriginalUserData(JSON.parse(JSON.stringify(data))) // Create a deep copy for reset
+
+        if (!data?.profile_image.error) {
+          await setImagePreview(data.profile_image.data.url)
+        }
+
+        // Check for edit param and set edit mode accordingly
+        const editParam = searchParams.get('edit')
+        setIsEditMode(editParam === 'true')
+      } catch (err) {
+        console.error('Error fetching user profile:', err)
+        setError('Failed to load profile data')
+      } finally {
+        setIsLoading(false)
+      }
     }
+
+    fetchUserData()
+  }, [searchParams])
+
+
+
+  // Fetch address data on initial render
+  useEffect(() => {
     fetchRegions()
   }, [])
 
-  const compare = (a: any, b: any) => {
-    return `${a}` === `${b}`
+  // Set form values when userData is loaded - fixed infinite loop
+  useEffect(() => {
+    async function initializeUserData() {
+      console.log('Initializing user data...', userData, regions)
+      if (userData && regions.length) {
+        // Handle personal address
+        if (userData.address?.region?.code) {
+          const region = regions.find(r => compare(r.regCode, userData.address.region.code))
+          if (region) {
+            setSelectedRegion(region.regCode)
+          }
+        }
+
+        // Handle company address
+        if (userData.company_address?.region?.code) {
+          const region = regions.find(r => compare(r.regCode, userData.company_address.region.code))
+          if (region) {
+            setSelectedCompanyRegion(region.regCode)
+          }
+        }
+
+        // Set street address and postal code
+        setInputStreetAddress(userData.address?.streetAddress || '')
+        setInputPostalCode(userData.address?.postalCode ? Number(userData.address.postalCode) : undefined)
+
+        setInputCompanyStreetAddress(userData.company_address?.streetAddress || '')
+        setInputCompanyPostalCode(userData.company_address?.postalCode ? Number(userData.company_address.postalCode) : undefined)
+
+        // Set full addresses
+        setFullAddress(userData.full_address || '')
+        setFullCompanyAddress(userData.full_company_address || '')
+      }
+    }
+
+    initializeUserData()
+  }, [userData, regions])
+
+
+
+
+  // Fetch address data based on selected region, province, city/municipality, and barangay
+  const fetchRegions = async () => {
+    const regionsData = await getRegions()
+    setRegions(regionsData)
   }
 
-  // Set form values when userData is loaded
-  useEffect(() => {
-    if (userData) {
-      // Set region code for address and load provinces
-      if (userData.address?.region?.code && regions.length) {
-        const region = regions.find(r => compare(r.regCode, userData.address.region.code))
-        if (region) {
-          setSelectedRegion(region.regCode)
+  const fetchProvinces = async () => {
+    if (selectedRegion) {
+      const provincesData = await getProvinces(selectedRegion)
+      setProvinces(provincesData)
+
+      // If userData has province code, set it
+      if (userData?.address?.province?.code) {
+        const province = provincesData.find(p => compare(p.provCode, userData.address.province.code))
+        if (province) {
+          setSelectedProvince(province.provCode)
         }
-      }
-
-      // Set region code for company address
-      if (userData.company_address?.region?.code && regions.length) {
-        const region = regions.find(r => compare(r.regCode, userData.company_address.region.code))
-        if (region) {
-          setSelectedCompanyRegion(region.regCode)
-        }
-      }
-
-      // Set street address and postal code
-      setInputStreetAddress(userData.address?.streetAddress || '')
-      setInputPostalCode(userData.address?.postalCode ? Number(userData.address.postalCode) : undefined)
-
-      setInputCompanyStreetAddress(userData.company_address?.streetAddress || '')
-      setInputCompanyPostalCode(userData.company_address?.postalCode ? Number(userData.company_address.postalCode) : undefined)
-
-      // Set full addresses
-      setFullAddress(userData.full_address || '')
-      setFullCompanyAddress(userData.full_company_address || '')
-    }
-  }, [userData])
-
-  // Fetch provinces when region changes
-  useEffect(() => {
-    async function fetchProvinces() {
-      if (selectedRegion) {
-        const provincesData = await getProvinces(selectedRegion)
-        setProvinces(provincesData)
-
-        // If userData has province code, set it
-        if (userData?.address?.province?.code) {
-          const province = provincesData.find(p => compare(p.provCode, userData.address.province.code))
-          if (province) {
-            setSelectedProvince(province.provCode)
-          }
-        } else {
-          setSelectedProvince('')
-          setCityMunicipalities([])
-          setBarangays([])
-        }
+      } else {
+        setSelectedProvince('')
+        setCityMunicipalities([])
+        setBarangays([])
       }
     }
-    fetchProvinces()
+  }
+
+  const fetchCityMunicipalities = async () => {
+    if (selectedProvince) {
+      const cityMunData = await getCityMunicipalities(selectedProvince)
+      setCityMunicipalities(cityMunData)
+
+      // If userData has municipality code, set it
+      if (userData?.address?.municipality?.code) {
+        const cityMun = cityMunData.find(c => compare(c.citymunCode, userData.address.municipality.code))
+        if (cityMun) {
+          setSelectedCityMunicipality(cityMun.citymunCode)
+        }
+      } else {
+        setSelectedCityMunicipality('')
+        setBarangays([])
+      }
+    }
+  }
+
+  const fetchBarangays = async () => {
+    if (selectedCityMunicipality) {
+      const barangaysData = await getBarangays(selectedCityMunicipality)
+      setBarangays(barangaysData)
+
+      // If userData has barangay code, set it
+      if (userData?.address?.barangay?.code) {
+        const barangay = barangaysData.find(b => compare(b.brgyCode, userData.address.barangay.code))
+        if (barangay) {
+          setSelectedBarangay(barangay.brgyCode)
+        }
+      } else {
+        setSelectedBarangay('')
+      }
+    }
+  }
+
+  // Handle province loading when region changes
+  useEffect(() => {
+    if (selectedRegion && userData?.address?.province?.code) {
+      fetchProvinces()
+    }
   }, [selectedRegion, userData])
 
-  // Fetch cities/municipalities when province changes
+  // Handle city/municipality loading when province changes
   useEffect(() => {
-    async function fetchCityMunicipalities() {
-      if (selectedProvince) {
-        const cityMunData = await getCityMunicipalities(selectedProvince)
-        setCityMunicipalities(cityMunData)
-
-        // If userData has municipality code, set it
-        if (userData?.address?.municipality?.code) {
-          const cityMun = cityMunData.find(c => compare(c.citymunCode, userData.address.municipality.code))
-          if (cityMun) {
-            setSelectedCityMunicipality(cityMun.citymunCode)
-          }
-        } else {
-          setSelectedCityMunicipality('')
-          setBarangays([])
-        }
-      }
+    if (selectedProvince && userData?.address?.municipality?.code) {
+      fetchCityMunicipalities()
     }
-    fetchCityMunicipalities()
   }, [selectedProvince, userData])
 
-  // Fetch barangays when city/municipality changes
+  // Handle barangay loading when city/municipality changes
   useEffect(() => {
-    async function fetchBarangays() {
-      if (selectedCityMunicipality) {
-        const barangaysData = await getBarangays(selectedCityMunicipality)
-        setBarangays(barangaysData)
-
-        // If userData has barangay code, set it
-        if (userData?.address?.barangay?.code) {
-          const barangay = barangaysData.find(b => compare(b.brgyCode, userData.address.barangay.code))
-          if (barangay) {
-            setSelectedBarangay(barangay.brgyCode)
-          }
-        } else {
-          setSelectedBarangay('')
-        }
-      }
+    if (selectedCityMunicipality && userData?.address?.barangay?.code) {
+      fetchBarangays()
     }
-    fetchBarangays()
   }, [selectedCityMunicipality, userData])
 
-  // Company address fetch effects
-  useEffect(() => {
-    async function fetchCompanyProvinces() {
-      if (selectedCompanyRegion) {
-        const provincesData = await getProvinces(selectedCompanyRegion)
-        setCompanyProvinces(provincesData)
 
-        if (userData?.company_address?.province?.code) {
-          const province = provincesData.find(p => compare(p.provCode, userData.company_address.province.code))
-          if (province) {
-            setSelectedCompanyProvince(province.provCode)
-          }
-        } else {
-          setSelectedCompanyProvince('')
-          setCompanyCityMunicipalities([])
-          setCompanyBarangays([])
+
+  // Fetch company address data based on selected region, province, city/municipality, and barangay
+  const fetchCompanyProvinces = async () => {
+    if (selectedCompanyRegion) {
+      const provincesData = await getProvinces(selectedCompanyRegion)
+      setCompanyProvinces(provincesData)
+
+      if (userData?.company_address?.province?.code) {
+        const province = provincesData.find(p => compare(p.provCode, userData.company_address.province.code))
+        if (province) {
+          setSelectedCompanyProvince(province.provCode)
         }
+      } else {
+        setSelectedCompanyProvince('')
+        setCompanyCityMunicipalities([])
+        setCompanyBarangays([])
       }
     }
-    fetchCompanyProvinces()
+  }
+
+  const fetchCompanyCityMunicipalities = async () => {
+    if (selectedCompanyProvince) {
+      const cityMunData = await getCityMunicipalities(selectedCompanyProvince)
+      setCompanyCityMunicipalities(cityMunData)
+
+      if (userData?.company_address?.municipality?.code) {
+        const cityMun = cityMunData.find(c => compare(c.citymunCode, userData.company_address.municipality.code))
+        if (cityMun) {
+          setSelectedCompanyCityMunicipality(cityMun.citymunCode)
+        }
+      } else {
+        setSelectedCompanyCityMunicipality('')
+        setCompanyBarangays([])
+      }
+    }
+  }
+
+  const fetchCompanyBarangays = async () => {
+    if (selectedCompanyCityMunicipality) {
+      const barangaysData = await getBarangays(selectedCompanyCityMunicipality)
+      setCompanyBarangays(barangaysData)
+
+      if (userData?.company_address?.barangay?.code) {
+        const barangay = barangaysData.find(b => compare(b.brgyCode, userData.company_address.barangay.code))
+        if (barangay) {
+          setSelectedCompanyBarangay(barangay.brgyCode)
+        }
+      } else {
+        setSelectedCompanyBarangay('')
+      }
+    }
+  }
+
+  // Company address handling
+  useEffect(() => {
+    if (selectedCompanyRegion && userData?.company_address?.province?.code) {
+      fetchCompanyProvinces()
+    }
   }, [selectedCompanyRegion, userData])
 
   useEffect(() => {
-    async function fetchCompanyCityMunicipalities() {
-      if (selectedCompanyProvince) {
-        const cityMunData = await getCityMunicipalities(selectedCompanyProvince)
-        setCompanyCityMunicipalities(cityMunData)
-
-        if (userData?.company_address?.municipality?.code) {
-          const cityMun = cityMunData.find(c => compare(c.citymunCode, userData.company_address.municipality.code))
-          if (cityMun) {
-            setSelectedCompanyCityMunicipality(cityMun.citymunCode)
-          }
-        } else {
-          setSelectedCompanyCityMunicipality('')
-          setCompanyBarangays([])
-        }
-      }
+    if (selectedCompanyProvince && userData?.company_address?.municipality?.code) {
+      fetchCompanyCityMunicipalities()
     }
-    fetchCompanyCityMunicipalities()
   }, [selectedCompanyProvince, userData])
 
   useEffect(() => {
-    async function fetchCompanyBarangays() {
-      if (selectedCompanyCityMunicipality) {
-        const barangaysData = await getBarangays(selectedCompanyCityMunicipality)
-        setCompanyBarangays(barangaysData)
-
-        if (userData?.company_address?.barangay?.code) {
-          const barangay = barangaysData.find(b => compare(b.brgyCode, userData.company_address.barangay.code))
-          if (barangay) {
-            setSelectedCompanyBarangay(barangay.brgyCode)
-          }
-        } else {
-          setSelectedCompanyBarangay('')
-        }
-      }
+    if (selectedCompanyCityMunicipality && userData?.company_address?.barangay?.code) {
+      fetchCompanyBarangays()
     }
-    fetchCompanyBarangays()
   }, [selectedCompanyCityMunicipality, userData])
+
+
 
   // Generate full address when components change
   useEffect(() => {
@@ -419,45 +440,9 @@ export default function ProfilePage() {
     }
   }
 
-  // Toggle edit mode function with URL update
-  const toggleEditMode = (value: boolean) => {
-    setIsEditMode(value)
-
-    // Use Next.js router to update the URL
-    const params = new URLSearchParams(searchParams.toString())
-    if (value) {
-      params.set('edit', 'true')
-    } else {
-      params.delete('edit')
-    }
-
-    router.replace(`?${params.toString()}`)
-  }
-
   // Function to discard changes and reset to original data
   function handleDiscardChanges() {
-    setUserData(JSON.parse(JSON.stringify(originalUserData)))
-    setSelectedRegion(originalUserData?.address?.region?.code || '')
-    setSelectedProvince(originalUserData?.address?.province?.code || '')
-    setSelectedCityMunicipality(originalUserData?.address?.municipality?.code || '')
-    setSelectedBarangay(originalUserData?.address?.barangay?.code || '')
-    setInputStreetAddress(originalUserData?.address?.streetAddress || '')
-    setInputPostalCode(originalUserData?.address?.postalCode ? Number(originalUserData.address.postalCode) : undefined)
-
-    setSelectedCompanyRegion(originalUserData?.company_address?.region?.code || '')
-    setSelectedCompanyProvince(originalUserData?.company_address?.province?.code || '')
-    setSelectedCompanyCityMunicipality(originalUserData?.company_address?.municipality?.code || '')
-    setSelectedCompanyBarangay(originalUserData?.company_address?.barangay?.code || '')
-    setInputCompanyStreetAddress(originalUserData?.company_address?.streetAddress || '')
-    setInputCompanyPostalCode(originalUserData?.company_address?.postalCode ? Number(originalUserData.company_address.postalCode) : undefined)
-
-    if (originalUserData?.profile_image?.data?.url) {
-      setImagePreview(originalUserData.profile_image.data.url)
-    } else {
-      setImagePreview(null)
-    }
-
-    toggleEditMode(false)
+    router.back()
   }
 
   // Handle region selection change
@@ -548,7 +533,7 @@ export default function ProfilePage() {
         if (data) {
           setOriginalUserData(JSON.parse(JSON.stringify(data)))
         }
-        toggleEditMode(false)
+        router.back()
       }
     } catch (error: any) {
       setError('An unexpected error occurred')
@@ -1206,7 +1191,7 @@ export default function ProfilePage() {
                 <Button
                   variant="shadow"
                   color="primary"
-                  onPress={() => toggleEditMode(true)}
+                  onPress={() => router.push('/home/profile?edit=true')}
                   className="my-1">
                   <ChevronRightIcon className="w-4 h-4" />
                 </Button>
