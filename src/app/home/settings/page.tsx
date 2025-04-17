@@ -60,7 +60,7 @@ export default function SettingsPage() {
             <Button 
               variant="shadow" 
               color="primary"
-              onPress={() => router.push('/home/profile?edit=true')}
+              onPress={() => router.push('/home/profile/edit')}
               className="my-1">
               <ChevronRightIcon className="w-4 h-4" />
             </Button>

@@ -21,6 +21,7 @@ import {
   CogIcon,
   PlusIcon
 } from '@heroicons/react/24/solid';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const navigation = [
   { name: 'Dashboard', href: '/home/dashboard', icon: HomeIcon },
@@ -35,8 +36,6 @@ const navigation = [
 export default function NavigationBread() {
   const pathname = usePathname();
   const pathSegments = pathname.split('/').filter(Boolean);
-
-  // Filter out "home" from display but keep it for path construction
   const displaySegments = pathSegments.filter(segment => segment !== 'home');
 
   // Group navigation items by their path depth
@@ -66,56 +65,56 @@ export default function NavigationBread() {
     });
   };
 
-  // Create breadcrumb items from filtered segments
-  const breadcrumbItems = displaySegments.map((segment, index) => {
-    // Reconstruct full path including 'home'
-    const fullPath = index === 0 
-      ? `/home/${segment}` 
-      : `/home/${displaySegments.slice(0, index + 1).join('/')}`;
-    
-    const isLast = index === displaySegments.length - 1;
-
-    // Find matching navigation item to get proper name
-    const navItem = navigation.find(item => item.href === fullPath);
-    const displayName = navItem?.name || segment.charAt(0).toUpperCase() + segment.slice(1);
-    
-    // Get relevant dropdown items for this breadcrumb level
-    const dropdownItems = getDropdownItems(fullPath);
-
-    return (
-      <BreadcrumbItem key={fullPath}>
-        {isLast ? (
-          <Dropdown>
-            <DropdownTrigger>
-              <Button variant="light" color='primary' className='p-4 text-lg font-medium text-primary-800 min-w-0'>
-                {displayName}
-              </Button>
-            </DropdownTrigger>
-            <DropdownMenu aria-label="Navigation">
-              {dropdownItems.map((item) => (
-                <DropdownItem key={item.href} as={Link} href={item.href}>
-                  <div className="flex items-center gap-2">
-                    <item.icon className="w-4 h-4" />
-                    {item.name}
-                  </div>
-                </DropdownItem>
-              ))}
-            </DropdownMenu>
-          </Dropdown>
-        ) : (
-          <Link href={fullPath} className="p-4">
-            {displayName}
-          </Link>
-        )}
-      </BreadcrumbItem>
-    );
-  });
-
   return (
-    <>
-      <Breadcrumbs size='lg'>
-        {breadcrumbItems}
-      </Breadcrumbs>
-    </>
+    <AnimatePresence mode="wait">
+      <motion.div
+        key={pathname}
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 10 }}
+        transition={{ duration: 0.3 }}
+      >
+        <Breadcrumbs size='lg'>
+          {displaySegments.map((segment, index) => {
+            const fullPath = index === 0 
+              ? `/home/${segment}` 
+              : `/home/${displaySegments.slice(0, index + 1).join('/')}`;
+            
+            const isLast = index === displaySegments.length - 1;
+            const navItem = navigation.find(item => item.href === fullPath);
+            const displayName = navItem?.name || segment.charAt(0).toUpperCase() + segment.slice(1);
+            const dropdownItems = getDropdownItems(fullPath);
+
+            return (
+              <BreadcrumbItem key={fullPath}>
+                {isLast ? (
+                  <Dropdown>
+                    <DropdownTrigger>
+                      <Button variant="light" color='primary' className='p-4 text-lg font-medium text-primary-800 min-w-0'>
+                        {displayName}
+                      </Button>
+                    </DropdownTrigger>
+                    <DropdownMenu aria-label="Navigation">
+                      {dropdownItems.map((item) => (
+                        <DropdownItem key={item.href} as={Link} href={item.href}>
+                          <div className="flex items-center gap-2">
+                            <item.icon className="w-4 h-4" />
+                            {item.name}
+                          </div>
+                        </DropdownItem>
+                      ))}
+                    </DropdownMenu>
+                  </Dropdown>
+                ) : (
+                  <Link href={fullPath} className="p-4">
+                    {displayName}
+                  </Link>
+                )}
+              </BreadcrumbItem>
+            );
+          })}
+        </Breadcrumbs>
+      </motion.div>
+    </AnimatePresence>
   );
 }

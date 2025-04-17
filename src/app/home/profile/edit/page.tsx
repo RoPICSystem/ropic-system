@@ -31,6 +31,7 @@ import {
   EyeSlashIcon,
   ChevronRightIcon,
   EyeIcon,
+  XMarkIcon,
   UserIcon,
 } from '@heroicons/react/24/solid'
 import { today, getLocalTimeZone, parseDate } from '@internationalized/date'
@@ -149,27 +150,6 @@ export default function ProfilePage() {
     return `${a}` === `${b}`
   }
 
-  const generateFullAddress = (
-    streetAddress: string,
-    barangay: string,
-    municipality: string,
-    province: string,
-    region: string,
-    country: string = 'PHILIPPINES',
-    postalCode?: string
-  ) => {
-    const addressParts = [
-      streetAddress,
-      barangay,
-      municipality,
-      province,
-      region,
-      country,
-      postalCode
-    ].filter(Boolean);
-    return addressParts.join(', ');
-  }
-
   function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (file) {
@@ -179,6 +159,49 @@ export default function ProfilePage() {
       }
       reader.readAsDataURL(file)
     }
+  }
+
+
+  // Handle region selection change
+  function handleRegionChange(value: string) {
+    setSelectedRegion(value)
+    setSelectedProvince('')
+    setSelectedCityMunicipality('')
+    setSelectedBarangay('')
+  }
+
+  // Handle province selection change
+  function handleProvinceChange(value: string) {
+    setSelectedProvince(value)
+    setSelectedCityMunicipality('')
+    setSelectedBarangay('')
+  }
+
+  // Handle city/municipality selection change
+  function handleCityMunicipalityChange(value: string) {
+    setSelectedCityMunicipality(value)
+    setSelectedBarangay('')
+  }
+
+  // Handle company region selection change
+  function handleCompanyRegionChange(value: string) {
+    setSelectedCompanyRegion(value)
+    setSelectedCompanyProvince('')
+    setSelectedCompanyCityMunicipality('')
+    setSelectedCompanyBarangay('')
+  }
+
+  // Handle company province selection change
+  function handleCompanyProvinceChange(value: string) {
+    setSelectedCompanyProvince(value)
+    setSelectedCompanyCityMunicipality('')
+    setSelectedCompanyBarangay('')
+  }
+
+  // Handle company city/municipality selection change
+  function handleCompanyCityMunicipalityChange(value: string) {
+    setSelectedCompanyCityMunicipality(value)
+    setSelectedCompanyBarangay('')
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -201,7 +224,7 @@ export default function ProfilePage() {
     formData.append('updateCompany', `${updateCompany}`)
 
     formData.append('isNewCompany', `${isNewCompany}`)
-  
+
     if (isNewCompany) {
       formData.append('newCompany.address.country.code', '1')
       formData.append('newCompany.address.region.code', selectedCompanyRegion)
@@ -214,9 +237,9 @@ export default function ProfilePage() {
 
     const { error, success } = await updateProfile(formData)
 
-    if (error){
-      setError(error)
+    if (error) {
       console.error('Error updating profile:', error)
+      setError(error)
     }
     else {
       setSuccess(true)
@@ -285,19 +308,9 @@ export default function ProfilePage() {
   }, []);
 
 
-  // Set form values when userData is loaded - fixed infinite loop
+  // Set form values when userData is loaded
   useEffect(() => {
     async function initializeUserData() {
-      if (userData && existingCompanies.length) {
-        if (userData.company?.uuid) {
-          const company = existingCompanies.find(r => compare(r.uuid, userData.company.uuid))
-          if (company) {
-            setSelectedExistingCompany(company.uuid)
-            setExistingCompany(company)
-          }
-        }
-      }
-
       if (userData && regions.length) {
         // Handle personal address
         if (userData.address?.region?.code) {
@@ -329,7 +342,23 @@ export default function ProfilePage() {
     }
 
     initializeUserData()
-  }, [userData, regions, existingCompanies])
+  }, [userData, regions])
+
+  useEffect(() => {
+    async function initializeUserData() {
+      if (userData && existingCompanies.length) {
+        if (userData.company?.uuid) {
+          const company = existingCompanies.find(r => compare(r.uuid, userData.company.uuid))
+          if (company) {
+            setSelectedExistingCompany(company.uuid)
+            setExistingCompany(company)
+          }
+        }
+      }
+    }
+
+    initializeUserData()
+  }, [userData, existingCompanies])
 
 
   // Update existingCompany whenever selectedExistingCompany changes
@@ -364,9 +393,10 @@ export default function ProfilePage() {
         }
       } else {
         setSelectedProvince('')
-        setCityMunicipalities([])
-        setBarangays([])
       }
+      setCityMunicipalities([])
+      setBarangays([])
+
     }
   }
 
@@ -383,8 +413,8 @@ export default function ProfilePage() {
         }
       } else {
         setSelectedCityMunicipality('')
-        setBarangays([])
       }
+      setBarangays([])
     }
   }
 
@@ -441,9 +471,10 @@ export default function ProfilePage() {
         }
       } else {
         setSelectedCompanyProvince('')
-        setCompanyCityMunicipalities([])
-        setCompanyBarangays([])
       }
+      setCompanyCityMunicipalities([])
+      setCompanyBarangays([])
+
     }
   }
 
@@ -459,8 +490,8 @@ export default function ProfilePage() {
         }
       } else {
         setSelectedCompanyCityMunicipality('')
-        setCompanyBarangays([])
       }
+      setCompanyBarangays([])
     }
   }
 
@@ -501,138 +532,186 @@ export default function ProfilePage() {
 
   // Update the full address when components change
   useEffect(() => {
+    if (!regions.length) return
 
-    const regionName = regions.find(r => `${r.regCode}` === selectedRegion)?.regDesc || '';
-    const provinceName = provinces.find(p => `${p.provCode}` === selectedProvince)?.provDesc || '';
-    const cityMunName = cityMunicipalities.find(c => `${c.citymunCode}` === selectedCityMunicipality)?.citymunDesc || '';
-    const barangayName = barangays.find(b => `${b.brgyCode}` === selectedBarangay)?.brgyDesc || '';
+    const regionName = regions.find(r => r.regCode === selectedRegion)?.regDesc || '';
+    const provinceName = provinces.find(p => p.provCode === selectedProvince)?.provDesc || '';
+    const cityMunName = cityMunicipalities.find(c => c.citymunCode === selectedCityMunicipality)?.citymunDesc || '';
+    const barangayName = barangays.find(b => b.brgyCode === selectedBarangay)?.brgyDesc || '';
 
-    setFullAddress(
-      generateFullAddress(
-        inputStreetAddress,
-        barangayName,
-        cityMunName,
-        provinceName,
-        regionName,
-        'PHILIPPINES',
-        inputPostalCode?.toString()
-      )
-    );
+    const addressParts = [
+      inputStreetAddress,
+      barangayName,
+      cityMunName,
+      provinceName,
+      regionName,
+      'PHILIPPINES',
+      inputPostalCode?.toString()
+    ].filter(Boolean);
+
+    setFullAddress(addressParts.join(', '));
 
   }, [selectedRegion, selectedProvince, selectedCityMunicipality,
     selectedBarangay, inputStreetAddress, inputPostalCode,
-    regions, provinces, cityMunicipalities]);
+    regions, provinces, cityMunicipalities, barangays]);
 
   // Similar logic for company address
   useEffect(() => {
-    const regionName = regions.find(r => `${r.regCode}` === selectedCompanyRegion)?.regDesc || '';
-    const provinceName = companyProvinces.find(p => `${p.provCode}` === selectedCompanyProvince)?.provDesc || '';
-    const cityMunName = companyCityMunicipalities.find(c => `${c.citymunCode}` === selectedCompanyCityMunicipality)?.citymunDesc || '';
-    const barangayName = companyBarangays.find(b => `${b.brgyCode}` === selectedCompanyBarangay)?.brgyDesc || '';
+    if (!regions.length) return
 
-    setFullCompanyAddress(
-      generateFullAddress(
-        inputCompanyStreetAddress,
-        barangayName,
-        cityMunName,
-        provinceName,
-        regionName,
-        'PHILIPPINES',
-        inputCompanyPostalCode?.toString()
-      )
-    );
+    const regionName = regions.find(r => r.regCode === selectedCompanyRegion)?.regDesc || '';
+    const provinceName = companyProvinces.find(p => p.provCode === selectedCompanyProvince)?.provDesc || '';
+    const cityMunName = companyCityMunicipalities.find(c => c.citymunCode === selectedCompanyCityMunicipality)?.citymunDesc || '';
+    const barangayName = companyBarangays.find(b => b.brgyCode === selectedCompanyBarangay)?.brgyDesc || '';
+
+    const addressParts = [
+      inputCompanyStreetAddress,
+      barangayName,
+      cityMunName,
+      provinceName,
+      regionName,
+      'PHILIPPINES',
+      inputCompanyPostalCode?.toString()
+    ].filter(Boolean);
+
+    setFullCompanyAddress(addressParts.join(', '));
+
   }, [selectedCompanyRegion, selectedCompanyProvince, selectedCompanyCityMunicipality,
     selectedCompanyBarangay, inputCompanyStreetAddress, inputCompanyPostalCode,
-    regions, companyProvinces, companyCityMunicipalities]);
+    regions, companyProvinces, companyCityMunicipalities, companyBarangays]);
 
-  // Show loading state
+  // Update the skeleton loading state in your existing code
   if (isLoading && !userData) {
     return (
       <div className="container mx-auto max-w-4xl">
-        <div className='space-y-4 '>
-          {/* Basic Information Skeleton */}
+        <div className='space-y-4'>
+          {/* Profile Image Skeleton */}
           <CardList>
-            <div>
-              <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-6" /> {/* Section Title */}
-              <div className="flex flex-col items-center justify-center">
-                <Skeleton className="flex rounded-full w-48 h-48 mb-8" /> {/* Profile Image */}
-              </div>
-              <div className="space-y-6">
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-                </div>
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-                </div>
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-                </div>
-                <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+            <div className="flex flex-col items-center justify-center w-full mb-1">
+              <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-4" /> {/* "Profile Image" title */}
+              <div className="flex flex-col items-center justify-center p-4 bg-default-100 mt-1 border border-default-200 rounded-xl w-full">
+                <Skeleton className="rounded-full w-48 h-48 mb-4" /> {/* Profile Image */}
+                <Skeleton className="h-4 w-52 rounded-lg mb-1 mt-2" /> {/* "Click to upload" text */}
+                <Skeleton className="h-3 w-32 rounded-lg" /> {/* "Max size: 2MB" text */}
               </div>
             </div>
           </CardList>
-
+  
+          {/* Basic Information Skeleton */}
+          <CardList>
+            <div>
+              <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-6" /> {/* "Basic Information" title */}
+              <div className="space-y-4">
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Skeleton className="h-14 rounded-lg" /> {/* First Name */}
+                  <Skeleton className="h-14 rounded-lg" /> {/* Middle Name */}
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Skeleton className="h-14 rounded-lg" /> {/* Last Name */}
+                  <Skeleton className="h-14 rounded-lg" /> {/* Suffix */}
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Skeleton className="h-14 rounded-lg" /> {/* Gender */}
+                  <Skeleton className="h-14 rounded-lg" /> {/* Birthday */}
+                </div>
+                <Skeleton className="h-14 rounded-lg" /> {/* Phone Number */}
+              </div>
+            </div>
+          </CardList>
+  
           {/* Address Information Skeleton */}
-          < CardList>
+          <CardList>
             <div>
-              <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-6" /> {/* Section Title */}
-              <div className="space-y-6">
+              <Skeleton className="h-6 w-52 mx-auto rounded-lg mb-6" /> {/* "Personal Address" title */}
+              <div className="space-y-4">
                 <div className="grid sm:grid-cols-2 gap-4">
-                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                  <Skeleton className="h-14 rounded-lg" /> {/* Country */}
+                  <Skeleton className="h-14 rounded-lg" /> {/* Region */}
                 </div>
                 <div className="grid sm:grid-cols-2 gap-4">
-                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                  <Skeleton className="h-14 rounded-lg" /> {/* Province */}
+                  <Skeleton className="h-14 rounded-lg" /> {/* Municipality/City */}
                 </div>
                 <div className="grid sm:grid-cols-2 gap-4">
-                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                  <Skeleton className="h-14 rounded-lg" /> {/* Barangay */}
+                  <Skeleton className="h-14 rounded-lg" /> {/* Street Address */}
                 </div>
                 <div className="flex sm:flex-row flex-col gap-4">
-                  <Skeleton className="h-12 w-full sm:w-[10rem] rounded-lg" /> {/* Postal Code */}
-                  <Skeleton className="h-12 w-full rounded-lg" /> {/* Full Address */}
+                  <Skeleton className="h-14 w-full sm:w-[10rem] rounded-lg" /> {/* Postal Code */}
+                  <Skeleton className="h-14 w-full rounded-lg" /> {/* Full Address */}
                 </div>
               </div>
             </div>
-
-          </CardList >
-          {/* Company Information Skeleton */}
-          < CardList >
+          </CardList>
+  
+          {/* Company Information Skeleton with Accordion-like appearance */}
+          <CardList>
             <div>
-              <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-6" /> {/* Section Title */}
-              <Skeleton className="h-12 rounded-lg mb-4" /> {/* Company Name */}
-              <div className="space-y-6">
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+              <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-6" /> {/* "Company Profile" title */}
+              
+              {/* Accordion-like skeleton */}
+              <div className="border border-default-200 rounded-lg overflow-hidden mb-4">
+                {/* Accordion header */}
+                <div className="h-14 px-4 flex items-center border-b border-default-200 bg-default-50">
+                  <div className="flex items-center justify-between w-full">
+                    <Skeleton className="h-5 w-32 rounded-lg" /> {/* "Existing Company" */}
+                    <Skeleton className="h-5 w-5 rounded-lg" /> {/* Accordion indicator */}
+                  </div>
                 </div>
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
+                
+                {/* Accordion content */}
+                <div className="p-4 space-y-4">
+                  <Skeleton className="h-14 rounded-lg" /> {/* Existing Company Name */}
+                  
+                  <Skeleton className="h-5 w-48 mx-auto rounded-lg my-4" /> {/* "Company Address" title */}
+                  
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <Skeleton className="h-14 rounded-lg" /> {/* Country */}
+                    <Skeleton className="h-14 rounded-lg" /> {/* Region */}
+                  </div>
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <Skeleton className="h-14 rounded-lg" /> {/* Province */}
+                    <Skeleton className="h-14 rounded-lg" /> {/* Municipality/City */}
+                  </div>
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <Skeleton className="h-14 rounded-lg" /> {/* Barangay */}
+                    <Skeleton className="h-14 rounded-lg" /> {/* Street Address */}
+                  </div>
+                  <div className="flex sm:flex-row flex-col gap-4">
+                    <Skeleton className="h-14 w-full sm:w-[10rem] rounded-lg" /> {/* Postal Code */}
+                    <Skeleton className="h-14 w-full rounded-lg" /> {/* Full Address */}
+                  </div>
                 </div>
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-                  <Skeleton className="h-12 rounded-lg" /> {/* Form Field */}
-                </div>
-                <div className="flex sm:flex-row flex-col gap-4">
-                  <Skeleton className="h-12 w-full sm:w-[10rem] rounded-lg" /> {/* Postal Code */}
-                  <Skeleton className="h-12 w-full rounded-lg" /> {/* Full Address */}
+              </div>
+              
+              {/* Second accordion item (collapsed) */}
+              <div className="border border-default-200 rounded-lg overflow-hidden">
+                <div className="h-14 px-4 flex items-center justify-between">
+                  <Skeleton className="h-5 w-28 rounded-lg" /> {/* "New Company" */}
+                  <Skeleton className="h-5 w-5 rounded-lg" /> {/* Accordion indicator */}
                 </div>
               </div>
             </div>
-          </CardList >
-
+          </CardList>
+  
           {/* Account Information Skeleton */}
-          < CardList >
+          <CardList>
             <div>
-              <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-6" /> {/* Section Title */}
-              <Skeleton className="h-12 rounded-lg" /> {/* Email Field */}
+              <Skeleton className="h-6 w-52 mx-auto rounded-lg mb-6" /> {/* "Account Information" title */}
+              <Skeleton className="h-14 rounded-lg" /> {/* Email field */}
             </div>
-          </CardList >
+          </CardList>
+          
+          {/* Profile Update Options Skeleton */}
+          <CardList>
+            <div>
+              <Skeleton className="h-6 w-56 mx-auto rounded-lg mb-6" /> {/* "Profile Update Options" title */}
+              <div className="flex justify-center gap-4">
+                <Skeleton className="h-12 w-full rounded-lg" /> {/* Discard Changes button */}
+                <Skeleton className="h-12 w-full rounded-lg" /> {/* Save Changes button */}
+              </div>
+            </div>
+          </CardList>
         </div>
       </div>
     );
@@ -640,11 +719,13 @@ export default function ProfilePage() {
 
   return (
     <div className="container mx-auto max-w-4xl">
-      <Form className="space-y-4 items-center w-full" onSubmit={handleSubmit}>
+      <Form className="space-y-4 items-center w-full" onSubmit={handleSubmit}
+        onInvalid={(error) => {
+          setError("Please fill out all required fields.")
+          setIsSaving(false)
+        }}>
         <div className="space-y-4 w-full">
-
           {/* Profile Image Section */}
-
           <CardList>
             <div className="flex flex-col items-center justify-center w-full">
               <h2 className="text-xl font-semibold mb-4 ">Profile Image</h2>
@@ -671,7 +752,6 @@ export default function ProfilePage() {
                 </div>
 
                 <Input
-                  isRequired
                   type="file"
                   name="profileImage"
                   className="hidden"
@@ -683,7 +763,6 @@ export default function ProfilePage() {
               </Button>
             </div>
           </CardList>
-
 
           {/* Basic Information */}
           <CardList>
@@ -736,6 +815,7 @@ export default function ProfilePage() {
                     name="gender"
                     label="Gender"
                     inputProps={autoCompleteStyle}
+                    onSelectionChange={(e) => setSelectedGender(`${e}`)}
                     classNames={{ clearButton: "text-default-800" }}
                     defaultSelectedKey={userData?.gender || ''}
                     isRequired
@@ -809,7 +889,7 @@ export default function ProfilePage() {
                     isRequired
                     inputProps={autoCompleteStyle}
                     classNames={{ clearButton: "text-default-800" }}
-                    onSelectionChange={(e) => setSelectedRegion(e as string)}
+                    onSelectionChange={(e) => handleRegionChange(`${e}`)}
                     defaultSelectedKey={userData?.address?.region?.code || ''}
                     isDisabled={isLoading}
                   >
@@ -829,7 +909,7 @@ export default function ProfilePage() {
                     isRequired
                     inputProps={autoCompleteStyle}
                     classNames={{ clearButton: "text-default-800" }}
-                    onSelectionChange={(e) => setSelectedProvince(`${e}`)}
+                    onSelectionChange={(e) => handleProvinceChange(`${e}`)}
                     defaultSelectedKey={userData?.address?.province?.code || ''}
                     isDisabled={!selectedRegion || isLoading}
                   >
@@ -840,14 +920,13 @@ export default function ProfilePage() {
                     ))}
                   </Autocomplete>
                   <Autocomplete
-
                     id="address.municipality.desc"
                     name="address.municipality.desc"
                     label="Municipality/City"
                     isRequired
                     inputProps={autoCompleteStyle}
                     classNames={{ clearButton: "text-default-800" }}
-                    onSelectionChange={(e) => setSelectedCityMunicipality(`${e}`)}
+                    onSelectionChange={(e) => handleCityMunicipalityChange(`${e}`)}
                     defaultSelectedKey={userData?.address?.municipality?.code || ''}
                     isDisabled={!selectedProvince || isLoading}
                   >
@@ -892,7 +971,6 @@ export default function ProfilePage() {
 
                 <div className="flex sm:flex-row flex-col gap-4">
                   <NumberInput
-
                     id="address.postalCode"
                     name="address.postalCode"
                     label="Postal Code"
@@ -990,7 +1068,7 @@ export default function ProfilePage() {
                         isRequired={isNewCompany}
                         inputProps={autoCompleteStyle}
                         classNames={{ clearButton: "text-default-800" }}
-                        onSelectionChange={(e) => setSelectedCompanyRegion(`${e}`)}
+                        onSelectionChange={(e) => handleCompanyRegionChange(`${e}`)}
                         isDisabled={isLoading}
                       >
                         {regions.map(region => (
@@ -1009,7 +1087,7 @@ export default function ProfilePage() {
                         isRequired={isNewCompany}
                         inputProps={autoCompleteStyle}
                         classNames={{ clearButton: "text-default-800" }}
-                        onSelectionChange={(e) => setSelectedCompanyProvince(`${e}`)}
+                        onSelectionChange={(e) => handleCompanyProvinceChange(`${e}`)}
                         isDisabled={!selectedCompanyRegion || isLoading}
                       >
                         {companyProvinces.map(province => (
@@ -1026,7 +1104,7 @@ export default function ProfilePage() {
                         isRequired={isNewCompany}
                         inputProps={autoCompleteStyle}
                         classNames={{ clearButton: "text-default-800" }}
-                        onSelectionChange={(e) => setSelectedCompanyCityMunicipality(`${e}`)}
+                        onSelectionChange={(e) => handleCompanyCityMunicipalityChange(`${e}`)}
                         isDisabled={!selectedCompanyProvince || isLoading}
                       >
                         {companyCityMunicipalities.map(city => (
@@ -1244,11 +1322,23 @@ export default function ProfilePage() {
               <AnimatePresence>
                 {error && (
                   <motion.div
-                    {...motionTransition}
-                    className="mb-4 p-1">
-                    <Alert color="danger" variant="solid" title="Error" onClose={() => setError(null)}>
+                    {...motionTransition}>
+                    <Alert color="danger" variant="solid" title="Error"
+                      endContent={
+                        <Button
+                          aria-label="toggle password visibility"
+                          className="focus:outline-none my-[-0.25rem] mr-[-0.4rem]"
+                          type="button"
+                          color="danger"
+                          radius='full'
+                          isIconOnly
+                          onPress={() => setError(null)}>
+                          <XMarkIcon className="h-4 w-4" />
+                        </Button>
+                      }>
                       {error}
                     </Alert>
+                    <div className='h-4' />
                   </motion.div>
                 )}
               </AnimatePresence>

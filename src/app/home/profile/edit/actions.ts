@@ -3,22 +3,17 @@
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
 import sharp from 'sharp'
-import { redirect } from 'next/navigation'
 import { getLocalTimeZone, parseDate } from '@internationalized/date'
 
 
-
-export async function updateProfile(formData: FormData) {
+export async function updateProfile(formData: FormData):
+  Promise<{ error?: string, success?: boolean }> {
   const supabase = await createClient()
+
 
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
     return { error: 'Not authenticated' }
-  }
-
-  const returnError = (message: string) => {
-    console.error(message)
-    redirect(`home/profile/?error=${encodeURIComponent(message)}`)
   }
 
   // Extract basic user data
@@ -81,7 +76,7 @@ export async function updateProfile(formData: FormData) {
     // Begin database transaction
     const { data: client } = await supabase.auth.getSession();
 
-    if (!client.session) {
+    if (client.session) {
       // Step 2: Handle company creation or selection
       if (updateCompany) {
         if (isNewCompany) {
@@ -126,7 +121,6 @@ export async function updateProfile(formData: FormData) {
           company = companyData;
 
           if (companyError) {
-            returnError(`Error creating company: ${companyError.message}`);
             return { error: companyError.message }
           }
 
@@ -181,6 +175,8 @@ export async function updateProfile(formData: FormData) {
         ...(updateCompany ? { company } : {}),
       }
 
+      console.log('Metadata:', metadata)
+
       // Also update user metadata in auth
       const { error: authError } = await supabase.auth.updateUser({
         data: metadata
@@ -234,13 +230,13 @@ export async function updateProfile(formData: FormData) {
         }
       }
 
+    } else {
+      return { error: 'There was an error with the session' }
     }
   } catch (error: any) {
     console.error('Error during registration:', error)
-    returnError('An unexpected error occurred during registration')
     return { error: error.message || 'An unexpected error occurred' }
   }
-
   revalidatePath('/', 'layout')
-  return { success: true, error: null }
+  return { success: true }
 }

@@ -278,6 +278,8 @@ export async function register(formData: FormData) :
         }
       }
 
+    } else {
+      return { error: 'Session not found' }
     }
   } catch (error: any) {
     console.error('Error during registration:', error)
