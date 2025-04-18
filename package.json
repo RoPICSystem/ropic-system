@@ -28,6 +28,7 @@
     "three-stdlib": "^2.35.15"
   },
   "devDependencies": {
+    "@iconify-icon/react": "^2.3.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

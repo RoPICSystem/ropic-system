@@ -294,6 +294,11 @@ export default function ProfilePage() {
                     type="text"
                     classNames={inputStyle}
                     value={userData?.phone_number || ''}
+                    startContent={
+                      <div className="pointer-events-none flex items-center">
+                        <span className="text-default-600 text-small">+63</span>
+                      </div>
+                    }
                     isReadOnly
                   />
                 </div>

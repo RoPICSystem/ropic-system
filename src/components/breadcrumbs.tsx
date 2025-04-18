@@ -19,7 +19,8 @@ import {
   BellAlertIcon,
   ChartBarIcon,
   CogIcon,
-  PlusIcon
+  PlusIcon,
+  UserIcon,
 } from '@heroicons/react/24/solid';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -31,6 +32,7 @@ const navigation = [
   { name: 'Notifications', href: '/home/notifications', icon: BellAlertIcon },
   { name: 'Reports', href: '/home/reports', icon: ChartBarIcon },
   { name: 'Settings', href: '/home/settings', icon: CogIcon },
+  { name: 'Profile', href: '/home/profile', icon:  UserIcon },
 ];
 
 export default function NavigationBread() {

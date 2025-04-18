@@ -596,11 +596,11 @@ export default function ProfilePage() {
               </div>
             </div>
           </CardList>
-  
+
           {/* Basic Information Skeleton */}
           <CardList>
             <div>
-              <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-6" /> {/* "Basic Information" title */}
+              <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-4" /> {/* "Basic Information" title */}
               <div className="space-y-4">
                 <div className="grid sm:grid-cols-2 gap-4">
                   <Skeleton className="h-14 rounded-lg" /> {/* First Name */}
@@ -618,7 +618,7 @@ export default function ProfilePage() {
               </div>
             </div>
           </CardList>
-  
+
           {/* Address Information Skeleton */}
           <CardList>
             <div>
@@ -643,12 +643,12 @@ export default function ProfilePage() {
               </div>
             </div>
           </CardList>
-  
+
           {/* Company Information Skeleton with Accordion-like appearance */}
           <CardList>
             <div>
               <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-6" /> {/* "Company Profile" title */}
-              
+
               {/* Accordion-like skeleton */}
               <div className="border border-default-200 rounded-lg overflow-hidden mb-4">
                 {/* Accordion header */}
@@ -658,13 +658,13 @@ export default function ProfilePage() {
                     <Skeleton className="h-5 w-5 rounded-lg" /> {/* Accordion indicator */}
                   </div>
                 </div>
-                
+
                 {/* Accordion content */}
                 <div className="p-4 space-y-4">
                   <Skeleton className="h-14 rounded-lg" /> {/* Existing Company Name */}
-                  
+
                   <Skeleton className="h-5 w-48 mx-auto rounded-lg my-4" /> {/* "Company Address" title */}
-                  
+
                   <div className="grid sm:grid-cols-2 gap-4">
                     <Skeleton className="h-14 rounded-lg" /> {/* Country */}
                     <Skeleton className="h-14 rounded-lg" /> {/* Region */}
@@ -683,7 +683,7 @@ export default function ProfilePage() {
                   </div>
                 </div>
               </div>
-              
+
               {/* Second accordion item (collapsed) */}
               <div className="border border-default-200 rounded-lg overflow-hidden">
                 <div className="h-14 px-4 flex items-center justify-between">
@@ -693,7 +693,7 @@ export default function ProfilePage() {
               </div>
             </div>
           </CardList>
-  
+
           {/* Account Information Skeleton */}
           <CardList>
             <div>
@@ -701,7 +701,7 @@ export default function ProfilePage() {
               <Skeleton className="h-14 rounded-lg" /> {/* Email field */}
             </div>
           </CardList>
-          
+
           {/* Profile Update Options Skeleton */}
           <CardList>
             <div>
@@ -1177,7 +1177,7 @@ export default function ProfilePage() {
                   key="existingCompany"
                   aria-label="Existing Company"
                   title="Existing Company">
-                  <div className="space-y-4">
+                  <div>
                     <Autocomplete
                       id="existingCompany.name"
                       name="existingCompany.name"
@@ -1204,88 +1204,89 @@ export default function ProfilePage() {
                     <AnimatePresence>
                       {existingCompany &&
                         <motion.div
-                          {...motionTransition}
-                          className="space-y-4">
-                          <h2 className="text-lg font-semibold text-center">Company Address</h2>
-                          <div className="grid sm:grid-cols-2 gap-4">
-                            <Input
-                              label="Country"
-                              defaultValue="PHILIPPINES"
-                              classNames={inputStyle}
-                              isRequired={!isNewCompany}
-                              isDisabled={isLoading}
-                              isReadOnly
-                            />
-                            <Input
-                              label="Region"
-                              value={existingCompany?.address?.region?.desc || ''}
-                              classNames={inputStyle}
-                              isRequired={!isNewCompany}
-                              isDisabled={isLoading}
-                              isReadOnly
-                            />
-                          </div>
+                          {...motionTransition}>
+                          <div className="space-y-4">
+                            <h2 className="text-lg font-semibold text-center pt-4">Company Address</h2>
+                            <div className="grid sm:grid-cols-2 gap-4">
+                              <Input
+                                label="Country"
+                                defaultValue="PHILIPPINES"
+                                classNames={inputStyle}
+                                isRequired={!isNewCompany}
+                                isDisabled={isLoading}
+                                isReadOnly
+                              />
+                              <Input
+                                label="Region"
+                                value={existingCompany?.address?.region?.desc || ''}
+                                classNames={inputStyle}
+                                isRequired={!isNewCompany}
+                                isDisabled={isLoading}
+                                isReadOnly
+                              />
+                            </div>
 
-                          <div className="grid sm:grid-cols-2 gap-4">
-                            <Input
-                              label="Province"
-                              value={existingCompany?.address?.province?.desc || ''}
-                              classNames={inputStyle}
-                              isRequired={!isNewCompany}
-                              isDisabled={isLoading}
-                              isReadOnly
-                            />
-                            <Input
-                              label="Municipality/City"
-                              value={existingCompany?.address?.municipality?.desc || ''}
-                              classNames={inputStyle}
-                              isRequired={!isNewCompany}
-                              isDisabled={isLoading}
-                              isReadOnly
-                            />
-                          </div>
+                            <div className="grid sm:grid-cols-2 gap-4">
+                              <Input
+                                label="Province"
+                                value={existingCompany?.address?.province?.desc || ''}
+                                classNames={inputStyle}
+                                isRequired={!isNewCompany}
+                                isDisabled={isLoading}
+                                isReadOnly
+                              />
+                              <Input
+                                label="Municipality/City"
+                                value={existingCompany?.address?.municipality?.desc || ''}
+                                classNames={inputStyle}
+                                isRequired={!isNewCompany}
+                                isDisabled={isLoading}
+                                isReadOnly
+                              />
+                            </div>
 
-                          <div className="grid sm:grid-cols-2 gap-4">
-                            <Input
-                              label="Barangay"
-                              value={existingCompany?.address?.barangay?.desc || ''}
-                              classNames={inputStyle}
-                              isRequired={!isNewCompany}
-                              isDisabled={isLoading}
-                              isReadOnly
-                            />
-                            <Input
-                              label="Street Address"
-                              value={existingCompany?.address?.streetAddress || ''}
-                              classNames={inputStyle}
-                              isRequired={!isNewCompany}
-                              isDisabled={isLoading}
-                              isReadOnly
-                            />
-                          </div>
+                            <div className="grid sm:grid-cols-2 gap-4">
+                              <Input
+                                label="Barangay"
+                                value={existingCompany?.address?.barangay?.desc || ''}
+                                classNames={inputStyle}
+                                isRequired={!isNewCompany}
+                                isDisabled={isLoading}
+                                isReadOnly
+                              />
+                              <Input
+                                label="Street Address"
+                                value={existingCompany?.address?.streetAddress || ''}
+                                classNames={inputStyle}
+                                isRequired={!isNewCompany}
+                                isDisabled={isLoading}
+                                isReadOnly
+                              />
+                            </div>
 
-                          <div className="flex sm:flex-row flex-col gap-4">
-                            <NumberInput
-                              label="Postal Code"
-                              type="text"
-                              className="sm:w-[10rem]"
-                              classNames={inputStyle}
-                              formatOptions={{ useGrouping: false }}
-                              hideStepper
-                              value={existingCompany?.address?.postalCode || 0}
-                              isRequired={!isNewCompany}
-                              isDisabled={isLoading}
-                              isReadOnly
-                            />
-                            <Input
-                              label="Full Company Address"
-                              type="text"
-                              value={existingCompany?.address?.fullAddress || ''}
-                              classNames={inputStyle}
-                              isRequired={!isNewCompany}
-                              isReadOnly
-                              isDisabled={isLoading}
-                            />
+                            <div className="flex sm:flex-row flex-col gap-4">
+                              <NumberInput
+                                label="Postal Code"
+                                type="text"
+                                className="sm:w-[10rem]"
+                                classNames={inputStyle}
+                                formatOptions={{ useGrouping: false }}
+                                hideStepper
+                                value={existingCompany?.address?.postalCode || 0}
+                                isRequired={!isNewCompany}
+                                isDisabled={isLoading}
+                                isReadOnly
+                              />
+                              <Input
+                                label="Full Company Address"
+                                type="text"
+                                value={existingCompany?.address?.fullAddress || ''}
+                                classNames={inputStyle}
+                                isRequired={!isNewCompany}
+                                isReadOnly
+                                isDisabled={isLoading}
+                              />
+                            </div>
                           </div>
                         </motion.div>
                       }

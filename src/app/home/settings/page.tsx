@@ -39,9 +39,9 @@ export default function SettingsPage() {
               base: "flex flex-row-reverse items-center justify-between h-full w-full max-w-full",
             }}>
             <div className="flex -ms-2 me-4 flex-col gap-1">
-              <p className="text-medium">Enable early access</p>
+              <p className="text-medium">Enable full screen mode</p>
               <p className="text-tiny text-default-600">
-                Get access to new features before they are released.
+                This will enable full screen mode for the web interface.
               </p>
             </div>
           </Switch>
