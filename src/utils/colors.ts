@@ -28,3 +28,27 @@ export const hslToRgb = (h: number, s: number, l: number): [number, number, numb
     Math.round((b + m) * 255)
   ];
 };
+
+
+export const hslToHex = (h: number, s: number, l: number): string => {
+  const [r, g, b] = hslToRgb(h, s, l);
+  return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+}
+
+
+export const herouiColor = (color: string, colorType: 'hsl' | 'rgb' | 'hex' = 'hsl') => {
+  const rootStyle = getComputedStyle(document.documentElement); 
+  const hsl = rootStyle.getPropertyValue(`--heroui-${color}`).trim().split(' ').map(val => {
+    return parseFloat(val.replace('%', ''));
+  })
+  switch (colorType) {
+    case 'hsl':
+      return hsl;
+    case 'rgb':
+      return hslToRgb(hsl[0], hsl[1], hsl[2]);
+    case 'hex':
+      return hslToHex(hsl[0], hsl[1], hsl[2]);
+    default:
+      return hsl;
+  }
+} 

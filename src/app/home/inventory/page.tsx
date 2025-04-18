@@ -19,13 +19,17 @@ import {
   ModalHeader,
   ModalBody,
   ModalFooter,
-  useDisclosure
+  useDisclosure,
+  Pagination,
+  NumberInput,
 } from "@heroui/react";
 import { Icon } from "@iconify-icon/react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { motion } from "framer-motion";
-import { FloorConfig, ShelfLocation, ShelfSelector3D } from "@/components/shelf-selector-3d";
+import { FloorConfig, ShelfLocation, ShelfSelector3D } from "@/components/shelf-selector-3d-v3";
+import { useTheme } from "next-themes";
+import { herouiColor } from "@/utils/colors";
 
 // Import server actions
 import {
@@ -89,6 +93,32 @@ export default function InventoryPage() {
     textColor: "#2c3e50",       // Dark blue text
   });
 
+  const { theme } = useTheme()
+
+  const updateHeroUITheme = () => {
+    setTimeout(() => {
+      setCustomColors({
+        backgroundColor: herouiColor('primary-50', 'hex') as string,
+        floorColor: herouiColor('primary-200', 'hex') as string,
+        floorHighlightedColor: herouiColor('primary-300', 'hex') as string,
+        cabinetColor: herouiColor('default', 'hex') as string,
+        cabinetSelectedColor: herouiColor('primary', 'hex') as string,
+        shelfColor: herouiColor('default-600', 'hex') as string,
+        shelfHoverColor: herouiColor('primary-400', 'hex') as string,
+        shelfSelectedColor: herouiColor('primary', 'hex') as string,
+        textColor: herouiColor('text', 'hex') as string,
+      });
+    }, 100);
+  };
+
+  useEffect(() => {
+    updateHeroUITheme();
+  }, [theme])
+
+  useEffect(() => {
+    updateHeroUITheme();
+  }, []);
+
   // Form state
   const [formData, setFormData] = useState<Partial<InventoryItem>>({
     company_uuid: "",
@@ -114,6 +144,7 @@ export default function InventoryPage() {
   const [selectedColumn, setSelectedColumn] = useState("");
   const [selectedRow, setSelectedRow] = useState("");
   const [selectedCabinet, setSelectedCabinet] = useState("");
+  const [selectedCode, setSelectedCode] = useState("");
 
   // Validation state
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -158,13 +189,16 @@ export default function InventoryPage() {
     const floorNumber = location.floor + 1;
     const column = String.fromCharCode(65 + location.cabinet_column); // Convert to letter (A, B, C...)
     const row = `${location.cabinet_row + 1}`; // 1-indexed row number
-    const cabinet = `C${location.cabinet_id + 1}`; // 1-indexed cabinet ID with prefix
+    const cabinet = `${location.cabinet_id + 1}`; // 1-indexed cabinet ID with prefix
 
     // Update the form state
-    setSelectedFloor(`Floor ${floorNumber}`);
+    setSelectedFloor(`${floorNumber}`);
     setSelectedColumn(column);
     setSelectedRow(row);
     setSelectedCabinet(cabinet);
+
+    // Also set the highlighted floor to match the selected shelf
+    setHighlightedFloor(location.floor);
   };
 
   // Fetch admin status and options when component mounts
@@ -250,6 +284,8 @@ export default function InventoryPage() {
         cabinet: selectedCabinet
       }
     }));
+
+    setSelectedCode(`F${selectedFloor || "?"}-${selectedColumn || "?"}${selectedRow || "?"}-C${selectedCabinet || "?"}`);
   }, [selectedFloor, selectedColumn, selectedRow, selectedCabinet]);
 
   // Form submission
@@ -318,30 +354,26 @@ export default function InventoryPage() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
-      className="container mx-auto py-8 px-4"
+      className="container mx-auto md:p-6 p-2 gap-6 flex flex-col max-w-4xl"
     >
-      <Card className="mb-8">
-        <CardHeader className="flex justify-between items-center">
-          <h1 className="text-2xl font-bold">Add New Inventory Item</h1>
-          <Button
-            color="primary"
-            variant="light"
-            onClick={() => router.push("/inventory/list")}
-            startContent={<Icon icon="material-symbols:arrow-back" />}
-          >
-            Back to List
-          </Button>
-        </CardHeader>
-      </Card>
+      {/* Header section */}
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold">Inventory Management</h1>
+          <p className="text-default-500">Manage your inventory items efficiently.</p>
+        </div>
+        <div className="flex gap-4">
+
+        </div>
+      </div>
 
       <form onSubmit={handleSubmit}>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Basic Information */}
-          <Card className="col-span-1">
+          <Card className="bg-background shadow-xl shadow-primary/10 col-span-1">
             <CardHeader>
               <h2 className="text-xl font-semibold">Basic Information</h2>
             </CardHeader>
-            <Divider />
             <CardBody className="space-y-4">
               <Input
                 name="item_code"
@@ -378,11 +410,10 @@ export default function InventoryPage() {
           </Card>
 
           {/* Quantity and Costs */}
-          <Card className="col-span-1">
+          <Card className="bg-background shadow-xl shadow-primary/10 col-span-1">
             <CardHeader>
               <h2 className="text-xl font-semibold">Quantity & Costs</h2>
             </CardHeader>
-            <Divider />
             <CardBody className="space-y-4">
               <div className="flex gap-4">
                 <Input
@@ -458,7 +489,7 @@ export default function InventoryPage() {
           </Card>
 
           {/* Location Information */}
-          <Card className="col-span-1 lg:col-span-2">
+          <Card className="bg-background shadow-xl shadow-primary/10 col-span-1 lg:col-span-2">
             <CardHeader>
               <div className="flex justify-between items-center w-full">
                 <h2 className="text-xl font-semibold">Item Location</h2>
@@ -467,26 +498,21 @@ export default function InventoryPage() {
                 </Button>
               </div>
             </CardHeader>
-            <Divider />
             <CardBody>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <Select
+
+              <NumberInput
                   name="location.floor"
                   label="Floor Level"
-                  placeholder="Select floor"
-                  value={selectedFloor}
-                  onChange={(e) => setSelectedFloor(e.target.value)}
+                  placeholder="e.g. A"
+                  maxValue={floorOptions.length-1}
+                  minValue={1}
+                  value={parseInt(selectedFloor) || 0}
+                  onChange={(e) => setSelectedFloor(`${e}`)}
                   isRequired
-                  isInvalid={!!errors["location.floor"]}
-                  errorMessage={errors["location.floor"]}
-                >
-                  {floorOptions.map((floor) => (
-                    <SelectItem key={floor}>
-                      {floor}
-                    </SelectItem>
-                  ))}
-                </Select>
-
+                  isInvalid={!!errors["location.column"]}
+                  errorMessage={errors["location.column"]}
+                />
                 <Input
                   name="location.column"
                   label="Column"
@@ -498,23 +524,23 @@ export default function InventoryPage() {
                   errorMessage={errors["location.column"]}
                 />
 
-                <Input
+                <NumberInput
                   name="location.row"
                   label="Row"
                   placeholder="e.g. 1"
-                  value={selectedRow}
-                  onChange={(e) => setSelectedRow(e.target.value)}
+                  value={parseInt(selectedRow) || 0}
+                  onChange={(e) => setSelectedRow(`${e}`)}
                   isRequired
                   isInvalid={!!errors["location.row"]}
                   errorMessage={errors["location.row"]}
                 />
 
-                <Input
+                <NumberInput
                   name="location.cabinet"
                   label="Cabinet"
                   placeholder="e.g. C1"
-                  value={selectedCabinet}
-                  onChange={(e) => setSelectedCabinet(e.target.value)}
+                  value={parseInt(selectedCabinet) || 0}
+                  onChange={(e) => setSelectedCabinet(`${e}`)}
                   isRequired
                   isInvalid={!!errors["location.cabinet"]}
                   errorMessage={errors["location.cabinet"]}
@@ -524,10 +550,7 @@ export default function InventoryPage() {
               <div className="mt-4 p-3 rounded-md">
                 <p className="font-semibold">Location Code:</p>
                 <p className="text-lg mt-1 text-primary">
-                  {selectedFloor ? selectedFloor.replace("Floor ", "F") : "F?"}-
-                  {selectedColumn || "?"}-
-                  {selectedRow || "?"}-
-                  {selectedCabinet || "?"}
+                  {selectedCode}
                 </p>
               </div>
             </CardBody>
@@ -535,13 +558,6 @@ export default function InventoryPage() {
         </div>
 
         <div className="mt-8 flex justify-end gap-4">
-          <Button
-            color="danger"
-            variant="flat"
-            onClick={() => router.push("/inventory/list")}
-          >
-            Cancel
-          </Button>
           <Button
             color="primary"
             type="submit"
@@ -553,11 +569,21 @@ export default function InventoryPage() {
       </form>
 
       {/* 3D Floorplan Modal */}
-      <Modal isOpen={isOpen} onClose={onClose} size="2xl">
+      <Modal
+        isOpen={isOpen}
+        onClose={onClose}
+        placement='auto'
+        classNames={{
+          backdrop: "bg-background/50",
+          closeButton: 'hidden'
+        }}
+        backdrop="blur"
+        scrollBehavior='inside'
+        size="5xl">
         <ModalContent>
           <ModalHeader>Interactive Warehouse Floorplan</ModalHeader>
           <ModalBody>
-            <div className="h-[500px] bg-default rounded-md">
+            <div className="h-[calc(100vh)] bg-primary-50 rounded-md overflow-hidden relative">
               <ShelfSelector3D
                 floors={floorConfigs}
                 onSelect={handleShelfSelection}
@@ -578,27 +604,32 @@ export default function InventoryPage() {
                 shelfSelectedColor={customColors.shelfSelectedColor}
                 textColor={customColors.textColor}
               />
+              <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-background/50 rounded-2xl p-2 backdrop-blur-lg">
+                <span className="text-sm font-semibold p-2">Floor</span>
+                <Pagination
+                  // showControls
+                  classNames={{item: "bg-default/25"}}
+                  initialPage={0}
+                  page={selectedFloor ? parseInt(selectedFloor) : 0}
+                  total={floorConfigs.length}
+                  onChange={(v) => setHighlightedFloor(v - 1)} />
+              </div>
+
+
+              <div className="absolute bottom-4 right-4 flex items-center gap-2 bg-background/50 rounded-2xl p-2 backdrop-blur-lg">
+                <span className="text-sm font-semibold p-2">CODE: <b>{selectedCode}</b></span>
+              
+              </div>
             </div>
-            <div className="mt-4">
+            <div className="">
               <p className="text-sm">
                 Click on a shelf in the 3D warehouse to select floor, column, row, and cabinet.
               </p>
 
               {/* Add floor controls */}
-              <div className="mt-4 p-3 rounded-md">
+              {/* <div className="mt-4 p-3 rounded-md">
                 <h3 className="text-md font-semibold mb-2">Floor Controls</h3>
-                <div className="flex gap-2 mb-3">
-                  {floorConfigs.map((_, index) => (
-                    <Button
-                      key={index}
-                      variant={highlightedFloor === index ? "shadow" : "flat"}
-                      color={highlightedFloor === index ? "primary" : "default"}
-                      onPress={() => setHighlightedFloor(index)}
-                    >
-                      Floor {index + 1}
-                    </Button>
-                  ))}
-                </div>
+
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <div className="flex items-center justify-between">
@@ -608,8 +639,7 @@ export default function InventoryPage() {
                       onValueChange={(value) => handleAnimationToggle('floor', value)}
                       size="sm"
                     />
-                  </div>
-                  <div className="flex items-center justify-between">
+                  </div> <div className="flex items-center justify-between">
                     <span>Focus on cabinet change</span>
                     <Switch
                       isSelected={isCabinetChangeAnimate}
@@ -626,12 +656,9 @@ export default function InventoryPage() {
                     />
                   </div>
                 </div>
-              </div>
+              </div> */}
 
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                <div className="p-2 rounded">
-                  <p className="font-semibold">Floor: {selectedFloor || "Not selected"}</p>
-                </div>
+              {/* <div className="mt-2 grid grid-cols-2 gap-2">
                 <div className="p-2 rounded">
                   <p className="font-semibold">Column: {selectedColumn || "Not selected"}</p>
                 </div>
@@ -641,11 +668,11 @@ export default function InventoryPage() {
                 <div className="p-2 rounded">
                   <p className="font-semibold">Cabinet: {selectedCabinet || "Not selected"}</p>
                 </div>
-              </div>
+              </div> */}
             </div>
           </ModalBody>
           <ModalFooter>
-            <Button color="primary" onClick={onClose}>
+            <Button color="primary" variant="shadow" onPress={onClose} className="mb-2">
               Confirm Location
             </Button>
           </ModalFooter>

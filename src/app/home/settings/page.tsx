@@ -18,11 +18,22 @@ import { useSearchParams, useRouter } from 'next/navigation'
 
 export default function SettingsPage() {
   const router = useRouter()
-  
+
 
   return (
-    <div className="container mx-auto max-w-4xl">
+    <div className="container mx-auto max-w-4xl p-1 md:p-6">
       <div className="space-y-4">
+        {/* Header section */}
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-2xl font-bold">Settings</h1>
+            <p className="text-default-500">Manage your account settings and preferences.</p>
+          </div>
+          <div className="flex gap-4">
+           
+          </div>
+        </div>
+
         <CardList>
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between h-full w-full space-y-2 sm:space-y-0">
             <span className="mb-2 sm:mb-0 mr-4">Theme style</span>
@@ -30,7 +41,7 @@ export default function SettingsPage() {
               <ThemeSwitcher className="rounded-xl bg-default-200 shadow-lg shadow-default-200/50 my-1 flex justify-center" />
             </div>
           </div>
-         
+
         </CardList>
         <CardList>
           <Switch
@@ -47,8 +58,8 @@ export default function SettingsPage() {
           </Switch>
           <div className="flex items-center justify-between h-full w-full">
             <span>Show profile information</span>
-            <Button 
-              variant="shadow" 
+            <Button
+              variant="shadow"
               color="primary"
               onPress={() => router.push('/home/profile')}
               className="my-1">
@@ -57,8 +68,8 @@ export default function SettingsPage() {
           </div>
           <div className="flex items-center justify-between h-full w-full">
             <span>Change profile information</span>
-            <Button 
-              variant="shadow" 
+            <Button
+              variant="shadow"
               color="primary"
               onPress={() => router.push('/home/profile/edit')}
               className="my-1">

@@ -49,12 +49,12 @@ export default function Dashboard() {
   ];
 
   return (
-    <div className="flex flex-col gap-6 p-6">
+    <div className="flex flex-col gap-6 p-1 md:p-6 max-w-4xl mx-auto">
       {/* Header section */}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold">Dashboard</h1>
-          <p className="text-gray-500">Welcome back! Here's an overview of your system.</p>
+          <p className="text-default-500">Welcome back! Here's an overview of your system.</p>
         </div>
         <div className="flex gap-4">
           <Button color="secondary" variant="flat">

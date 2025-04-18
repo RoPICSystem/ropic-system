@@ -160,7 +160,7 @@ const Cabinet = ({
   return (
     <group position={position} ref={cabinetRef}>
       {/* Cabinet frame with custom color */}
-      <mesh renderOrder={1}>
+      <mesh renderOrder={1} castShadow receiveShadow>
         <boxGeometry args={size} />
         <meshStandardMaterial
           color={isSelected ? cabinetSelectedColor : cabinetColor}
@@ -191,6 +191,8 @@ const Cabinet = ({
               onPointerOver={(e) => handlePointerOver(e, rowIndex, colIndex)}
               onPointerOut={(e) => handlePointerOut(e)}
               onClick={(e) => handleClick(e, rowIndex, colIndex)}
+              castShadow
+              receiveShadow
             >
               <boxGeometry args={[cellWidth * 0.9, cellHeight * 0.9, cabinetDepth * 0.2]} />
               <meshStandardMaterial
@@ -301,7 +303,7 @@ const Floor = ({
   return (
     <group position={[0, yPosition, 0]}>
       {/* Floor base with custom color */}
-      <mesh position={[1.5, -0.1, 0]}>
+      <mesh position={[1.5, -0.1, 0]} castShadow receiveShadow>
         <boxGeometry args={[floorWidth * gridSize, 0.1, floorDepth * gridSize]} />
         <meshStandardMaterial color={isHighlighted ? floorHighlightedColor : floorColor} />
       </mesh>
@@ -522,6 +524,45 @@ function CameraAnimation({
   });
 
   return null;
+}
+
+// Add this new component for camera-attached spotlight
+function CameraSpotlight() {
+  const spotlightRef = useRef<THREE.SpotLight>(null);
+  const { camera } = useThree();
+
+  useFrame(() => {
+    if (spotlightRef.current) {
+      // Update spotlight position to match camera position
+      spotlightRef.current.position.copy(camera.position);
+
+      // Get camera direction
+      const target = new THREE.Vector3(0, 0, -1);
+      target.applyQuaternion(camera.quaternion);
+      target.add(camera.position);
+
+      // Update spotlight target
+      spotlightRef.current.target.position.copy(target);
+      spotlightRef.current.target.updateMatrixWorld();
+    }
+  });
+
+  return (
+    <>
+      <spotLight
+        ref={spotlightRef}
+        intensity={7.5}
+        angle={Math.PI / 4}
+        penumbra={0.5}
+        distance={100}
+        castShadow
+        shadow-mapSize-width={1024}
+        shadow-mapSize-height={1024}
+        shadow-bias={-0.0001}
+      />
+      <primitive object={new THREE.Object3D()} ref={spotlightRef?.current?.target} />
+    </>
+  );
 }
 
 
@@ -1224,9 +1265,13 @@ export const ShelfSelector3D = ({
         }}
         // Set the background color
         style={{ background: backgroundColor }}>
-        <ambientLight intensity={0.5} />
-        <pointLight position={[10, 10, 10]} intensity={1} />
+        <ambientLight intensity={0.2} />
+        
+        <pointLight position={[0, 10, 10]} intensity={20} />
         <directionalLight position={[-5, 5, -5]} intensity={0.5} />
+
+        {/* Add the camera spotlight */}
+        <CameraSpotlight />
 
         <CameraAnimation controlsRef={controlsRef} dampingFactor={0.05} />
         <WASDControls controlsRef={controlsRef} />
