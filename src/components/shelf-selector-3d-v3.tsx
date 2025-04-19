@@ -1261,7 +1261,7 @@ export const ShelfSelector3D = memo(({
           near: 0.1,
           far: 1000,
         }}
-        dpr={[0.5, 1.5]}
+        dpr={[0.5, 1]}
         gl={{
           antialias: true,
           powerPreference: 'high-performance',

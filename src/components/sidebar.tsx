@@ -41,10 +41,8 @@ import {
 } from '@heroicons/react/24/solid';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const navigation = [
+let navigation = [
   { name: 'Dashboard', href: '/home/dashboard', icon: HomeIcon },
-  { name: 'Inventory', href: '/home/inventory', icon: ShoppingCartIcon },
-  { name: 'Deliveries', href: '/home/deliveries', icon: TruckIcon },
   { name: 'Notifications', href: '/home/notifications', icon: BellAlertIcon },
   // { name: 'Users', href: '/users', icon: UserGroupIcon },
   { name: 'Reports', href: '/home/reports', icon: ChartBarIcon },
@@ -73,6 +71,27 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
         if (error) {
           console.error('Error fetching user profile:', error)
           return
+        }
+
+        // if user is admin add Inventory to navigation next to dashboard
+        if (data?.is_admin) {
+          navigation = [
+            { name: 'Dashboard', href: '/home/dashboard', icon: HomeIcon },
+            { name: 'Inventory', href: '/home/inventory', icon: ShoppingCartIcon },
+            { name: 'Notifications', href: '/home/notifications', icon: BellAlertIcon },
+            // { name: 'Users', href: '/users', icon: UserGroupIcon },
+            { name: 'Reports', href: '/home/reports', icon: ChartBarIcon },
+            { name: 'Settings', href: '/home/settings', icon: CogIcon },
+          ]
+        } else {
+          navigation = [
+            { name: 'Dashboard', href: '/home/dashboard', icon: HomeIcon },
+            { name: 'Deliveries', href: '/home/deliveries', icon: TruckIcon },
+            { name: 'Notifications', href: '/home/notifications', icon: BellAlertIcon },
+            // { name: 'Users', href: '/users', icon: UserGroupIcon },
+            { name: 'Reports', href: '/home/reports', icon: ChartBarIcon },
+            { name: 'Settings', href: '/home/settings', icon: CogIcon },
+          ]
         }
 
         if (!data?.profile_image.error) {
@@ -303,8 +322,8 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
                 </div>
               </ModalBody>
               <ModalFooter>
-                <Button 
-                  color="primary" 
+                <Button
+                  color="primary"
                   onPress={onClose}
                   isDisabled={isSignOutLoading}>
                   Cancel
