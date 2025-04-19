@@ -79,6 +79,8 @@ export default function InventoryPage() {
   const [isShelfChangeAnimate, setIsShelfChangeAnimate] = useState<boolean>(true);
   const [isCabinetChangeAnimate, setIsCabinetChangeAnimate] = useState<boolean>(false);
 
+  // Add this state near your other state declarations
+  const [externalSelection, setExternalSelection] = useState<ShelfLocation | undefined>(undefined);
 
   // Inside the InventoryPage component, add custom colors
   const [customColors, setCustomColors] = useState({
@@ -183,7 +185,12 @@ export default function InventoryPage() {
     }
   ];
 
-  // Handler for ShelfSelector3D selection
+  // Add state for maximum values
+  const [maxCabinetId, setMaxCabinetId] = useState(0);
+  const [maxRow, setMaxRow] = useState(0);
+  const [maxColumn, setMaxColumn] = useState(0);
+
+  // Update the handleShelfSelection function
   const handleShelfSelection = (location: ShelfLocation) => {
     // Map the ShelfLocation to the format expected by the form
     const floorNumber = location.floor + 1;
@@ -199,6 +206,80 @@ export default function InventoryPage() {
 
     // Also set the highlighted floor to match the selected shelf
     setHighlightedFloor(location.floor);
+
+    // Update maximum values if available
+    if (location.max_cabinet_id !== undefined) setMaxCabinetId(location.max_cabinet_id);
+    if (location.max_row !== undefined) setMaxRow(location.max_row);
+    if (location.max_column !== undefined) setMaxColumn(location.max_column);
+  };
+
+  // Update the handle functions to update externalSelection
+  const handleFloorChange = (floorNum: number) => {
+    const floorIndex = floorNum - 1; // Convert to 0-based
+    // setSelectedFloor(`${floorNum}`);
+    // setHighlightedFloor(floorIndex);
+    
+    // Update external selection if we have enough info to create a valid selection
+    if (selectedCabinet) {
+      setExternalSelection({
+        floor: floorIndex,
+        cabinet_id: parseInt(selectedCabinet) - 1, // Convert to 0-based
+        cabinet_row: selectedRow ? parseInt(selectedRow) - 1 : 0,
+        cabinet_column: selectedColumn ? selectedColumn.charCodeAt(0) - 65 : 0
+      });
+    }
+  };
+  
+  const handleCabinetChange = (cabinetId: number) => {
+    // Update the UI
+    // setSelectedCabinet(`${cabinetId}`);
+    
+    // Convert to 0-based for the 3D component
+    const adjustedId = cabinetId - 1;
+    
+    if (selectedFloor && highlightedFloor !== null) {
+      setExternalSelection({
+        floor: highlightedFloor,
+        cabinet_id: adjustedId,
+        cabinet_row: selectedRow ? parseInt(selectedRow) - 1 : 0,
+        cabinet_column: selectedColumn ? selectedColumn.charCodeAt(0) - 65 : 0
+      });
+    }
+  };
+  
+  const handleRowChange = (rowNum: number) => {
+    // Update the UI
+    // setSelectedRow(`${rowNum}`);
+    
+    // Convert to 0-based for the 3D component
+    const adjustedRow = rowNum - 1;
+    
+    if (selectedFloor && highlightedFloor !== null && selectedCabinet) {
+      setExternalSelection({
+        floor: highlightedFloor,
+        cabinet_id: parseInt(selectedCabinet) - 1,
+        cabinet_row: adjustedRow,
+        cabinet_column: selectedColumn ? selectedColumn.charCodeAt(0) - 65 : 0
+      });
+    }
+  };
+  
+  const handleColumnChange = (colNum: number) => {
+    // Convert from number to letter for the UI
+    const colLetter = String.fromCharCode(64 + colNum);
+    // setSelectedColumn(colLetter);
+    
+    // Convert to 0-based for the 3D component
+    const adjustedCol = colNum - 1;
+    
+    if (selectedFloor && highlightedFloor !== null && selectedCabinet) {
+      setExternalSelection({
+        floor: highlightedFloor,
+        cabinet_id: parseInt(selectedCabinet) - 1,
+        cabinet_row: selectedRow ? parseInt(selectedRow) - 1 : 0,
+        cabinet_column: adjustedCol
+      });
+    }
   };
 
   // Fetch admin status and options when component mounts
@@ -349,6 +430,7 @@ export default function InventoryPage() {
     else if (type === 'shelf') setIsShelfChangeAnimate(value);
     else if (type === 'cabinet') setIsCabinetChangeAnimate(value);
   };
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -501,11 +583,11 @@ export default function InventoryPage() {
             <CardBody>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
 
-              <NumberInput
+                <NumberInput
                   name="location.floor"
                   label="Floor Level"
                   placeholder="e.g. A"
-                  maxValue={floorOptions.length-1}
+                  maxValue={floorOptions.length - 1}
                   minValue={1}
                   value={parseInt(selectedFloor) || 0}
                   onChange={(e) => setSelectedFloor(`${e}`)}
@@ -575,15 +657,14 @@ export default function InventoryPage() {
         placement='auto'
         classNames={{
           backdrop: "bg-background/50",
-          closeButton: 'hidden'
+          wrapper: 'overflow-hidden',
         }}
         backdrop="blur"
-        scrollBehavior='inside'
         size="5xl">
         <ModalContent>
           <ModalHeader>Interactive Warehouse Floorplan</ModalHeader>
-          <ModalBody>
-            <div className="h-[calc(100vh)] bg-primary-50 rounded-md overflow-hidden relative">
+          <ModalBody className='p-0'>
+            <div className="h-[80vh] bg-primary-50 rounded-md overflow-hidden relative">
               <ShelfSelector3D
                 floors={floorConfigs}
                 onSelect={handleShelfSelection}
@@ -593,7 +674,9 @@ export default function InventoryPage() {
                 isFloorChangeAnimate={isFloorChangeAnimate}
                 isShelfChangeAnimate={isShelfChangeAnimate}
                 isCabinetChangeAnimate={isCabinetChangeAnimate}
+                externalSelection={externalSelection}
                 // Add color customization
+                cameraOffsetY={-0.5}
                 backgroundColor={customColors.backgroundColor}
                 floorColor={customColors.floorColor}
                 floorHighlightedColor={customColors.floorHighlightedColor}
@@ -604,72 +687,74 @@ export default function InventoryPage() {
                 shelfSelectedColor={customColors.shelfSelectedColor}
                 textColor={customColors.textColor}
               />
-              <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-background/50 rounded-2xl p-2 backdrop-blur-lg">
-                <span className="text-sm font-semibold p-2">Floor</span>
-                <Pagination
-                  // showControls
-                  classNames={{item: "bg-default/25"}}
-                  initialPage={0}
-                  page={selectedFloor ? parseInt(selectedFloor) : 0}
-                  total={floorConfigs.length}
-                  onChange={(v) => setHighlightedFloor(v - 1)} />
+
+              <div className="absolute bottom-4 left-4 flex flex-col gap-2 bg-background/50 rounded-2xl p-4 backdrop-blur-lg md:w-auto w-[calc(100%-2rem)]">
+                <div className="grid md:grid-cols-2 grid-cols-1 gap-3">
+                  {/* First Column: Floor and Cabinet */}
+                  <div className="flex flex-col gap-2">
+                    {/* Floor Pagination */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold w-16">Floor</span>
+                      <Pagination
+                        classNames={{ item: "bg-default/25" }}
+                        initialPage={0}
+                        size="sm"
+                        page={selectedFloor ? parseInt(selectedFloor) : 0}
+                        total={floorConfigs.length}
+                        onChange={handleFloorChange}
+                      />
+                    </div>
+
+                    {/* Cabinet Pagination */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold w-16">Cabinet</span>
+                      <Pagination
+                        classNames={{ item: "bg-default/25" }}
+                        initialPage={1}
+                        size="sm"
+                        page={selectedCabinet ? parseInt(selectedCabinet) : 1}
+                        total={maxCabinetId + 1}
+                        onChange={handleCabinetChange}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Second Column: Row and Column */}
+                  <div className="flex flex-col gap-2">
+                    {/* Row Pagination */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold w-16">Row</span>
+                      <Pagination
+                        classNames={{ item: "bg-default/25" }}
+                        initialPage={1}
+                        size="sm"
+                        page={selectedRow ? parseInt(selectedRow) : 1}
+                        total={maxRow + 1}
+                        onChange={handleRowChange}
+                      />
+                    </div>
+
+                    {/* Column Pagination */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold w-16">Column</span>
+                      <Pagination
+                        classNames={{ item: "bg-default/25" }}
+                        initialPage={1}
+                        size="sm"
+                        page={selectedColumn ? selectedColumn.charCodeAt(0) - 64 : 1}
+                        total={maxColumn + 1}
+                        onChange={handleColumnChange}
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
 
-
-              <div className="absolute bottom-4 right-4 flex items-center gap-2 bg-background/50 rounded-2xl p-2 backdrop-blur-lg">
+              <div className="absolute top-4 right-4 flex items-center gap-2 bg-background/50 rounded-2xl p-2 backdrop-blur-lg">
                 <span className="text-sm font-semibold p-2">CODE: <b>{selectedCode}</b></span>
-              
               </div>
             </div>
-            <div className="">
-              <p className="text-sm">
-                Click on a shelf in the 3D warehouse to select floor, column, row, and cabinet.
-              </p>
-
-              {/* Add floor controls */}
-              {/* <div className="mt-4 p-3 rounded-md">
-                <h3 className="text-md font-semibold mb-2">Floor Controls</h3>
-
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <div className="flex items-center justify-between">
-                    <span>Focus on floor change</span>
-                    <Switch
-                      isSelected={isFloorChangeAnimate}
-                      onValueChange={(value) => handleAnimationToggle('floor', value)}
-                      size="sm"
-                    />
-                  </div> <div className="flex items-center justify-between">
-                    <span>Focus on cabinet change</span>
-                    <Switch
-                      isSelected={isCabinetChangeAnimate}
-                      onValueChange={(value) => handleAnimationToggle('cabinet', value)}
-                      size="sm"
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Focus on shelf selection</span>
-                    <Switch
-                      isSelected={isShelfChangeAnimate}
-                      onValueChange={(value) => handleAnimationToggle('shelf', value)}
-                      size="sm"
-                    />
-                  </div>
-                </div>
-              </div> */}
-
-              {/* <div className="mt-2 grid grid-cols-2 gap-2">
-                <div className="p-2 rounded">
-                  <p className="font-semibold">Column: {selectedColumn || "Not selected"}</p>
-                </div>
-                <div className="p-2 rounded">
-                  <p className="font-semibold">Row: {selectedRow || "Not selected"}</p>
-                </div>
-                <div className="p-2 rounded">
-                  <p className="font-semibold">Cabinet: {selectedCabinet || "Not selected"}</p>
-                </div>
-              </div> */}
-            </div>
+          
           </ModalBody>
           <ModalFooter>
             <Button color="primary" variant="shadow" onPress={onClose} className="mb-2">

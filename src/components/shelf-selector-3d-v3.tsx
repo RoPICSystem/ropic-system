@@ -16,12 +16,16 @@ declare global {
   }
 }
 
-// Types
+// Update the ShelfLocation interface
 export interface ShelfLocation {
   floor: number;
   cabinet_id: number;
   cabinet_row: number;
   cabinet_column: number;
+  // Add these new properties
+  max_cabinet_id?: number;
+  max_row?: number;
+  max_column?: number;
 }
 
 export interface FloorConfig {
@@ -40,6 +44,11 @@ export interface ShelfSelectorProps {
   isShelfChangeAnimate?: boolean;
   isCabinetChangeAnimate?: boolean;
   onAnimationToggle?: (type: 'floor' | 'shelf' | 'cabinet', value: boolean) => void;
+  // Add the external selection prop
+  externalSelection?: ShelfLocation;
+  // Camera center adjustment parameters
+  cameraOffsetX?: number;
+  cameraOffsetY?: number;
   // Color props
   backgroundColor?: string;
   floorColor?: string;
@@ -494,15 +503,6 @@ const Floor = memo(({
         <meshStandardMaterial color={isHighlighted ? floorHighlightedColor : floorColor} />
       </mesh>
 
-      {/* Floor label */}
-      <Text
-        position={[-floorWidth * gridSize / 2 - 0.5, 0, -floorDepth * gridSize / 2 - 0.5]}
-        fontSize={0.5}
-        color={textColor}
-      >
-        {`Floor ${floorIndex + 1}`}
-      </Text>
-
       {/* Cabinets */}
       {cabinets.map((cabinet: { id: Key | null | undefined; position: number[]; width: number; rows: number; }) => {
         const isSelected = selectedLocation?.floor === floorIndex &&
@@ -652,10 +652,12 @@ function WASDControls({ controlsRef }: { controlsRef: React.RefObject<any> }) {
 // Also update the CameraAnimation component:
 function CameraAnimation({
   controlsRef,
-  dampingFactor = 0.05
+  dampingFactor = 0.05,
+  cameraOffset = [0, 0]
 }: {
   controlsRef: React.RefObject<any>,
-  dampingFactor?: number
+  dampingFactor?: number,
+  cameraOffset?: [number, number]
 }) {
   const targetCameraPosition = useRef<THREE.Vector3 | null>(null);
   const targetControlsTarget = useRef<THREE.Vector3 | null>(null);
@@ -664,11 +666,20 @@ function CameraAnimation({
   const { invalidate } = useThree();
 
   const animateCamera = useCallback((newPosition: THREE.Vector3, newTarget: THREE.Vector3) => {
-    targetCameraPosition.current = newPosition.clone();
-    targetControlsTarget.current = newTarget.clone();
+    // Apply offsets to the position and target
+    const offsetPosition = newPosition.clone();
+    offsetPosition.x += cameraOffset[0];
+    offsetPosition.y += cameraOffset[1];
+    
+    const offsetTarget = newTarget.clone();
+    offsetTarget.x += cameraOffset[0];
+    offsetTarget.y += cameraOffset[1];
+    
+    targetCameraPosition.current = offsetPosition;
+    targetControlsTarget.current = offsetTarget;
     isAnimating.current = true;
     invalidate(); // Force immediate render when animation starts
-  }, [invalidate]);
+  }, [invalidate, cameraOffset]);
 
   // Initialize earlier and more robustly
   useEffect(() => {
@@ -677,7 +688,7 @@ function CameraAnimation({
       animateCamera,
       isAnimating: () => isAnimating.current
     };
-    
+
     return () => {
       // Only clear if it's still our instance
       if (window.cameraAnimator && window.cameraAnimator.animateCamera === animateCamera) {
@@ -777,6 +788,9 @@ export const ShelfSelector3D = memo(({
   isShelfChangeAnimate: externalIsShelfChangeAnimate,
   isCabinetChangeAnimate: externalIsCabinetChangeAnimate,
   onAnimationToggle,
+  externalSelection,
+  cameraOffsetX = 0,
+  cameraOffsetY = 0,
   backgroundColor = "#f5f5f5",
   floorColor = "#e0e0e0",
   floorHighlightedColor = "#d4e6ff",
@@ -793,6 +807,10 @@ export const ShelfSelector3D = memo(({
   const [internalIsFloorChangeAnimate, setInternalIsFloorChangeAnimate] = useState<boolean>(true);
   const [internalIsShelfChangeAnimate, setInternalIsShelfChangeAnimate] = useState<boolean>(true);
   const [internalIsCabinetChangeAnimate, setInternalIsCabinetChangeAnimate] = useState<boolean>(false);
+
+  // Add a new state to track the selection source
+  const [selectionSource, setSelectionSource] = useState<'internal' | 'external'>('internal');
+  const userInteractionInProgress = useRef(false);
 
   // Use external or internal state
   const highlightedFloor = externalHighlightedFloor !== undefined ? externalHighlightedFloor : internalHighlightedFloor;
@@ -904,31 +922,89 @@ export const ShelfSelector3D = memo(({
     }
   }, [floors, floorPositions, isCabinetChangeAnimate]);
 
-  // Optimize handlers
-  const handleSelect = useCallback((location: ShelfLocation) => {
-    setSelectedLocation(prevLocation => {
-      // Check if cabinet changed
-      const cabinetChanged = !prevLocation ||
-        prevLocation.floor !== location.floor ||
-        prevLocation.cabinet_id !== location.cabinet_id;
-  
-      if (cabinetChanged && isCabinetChangeAnimate) {
-        focusOnCabinet(location);
-      } else if (isShelfChangeAnimate) {
-        focusOnShelf(location);
-      }
-  
-      // Also highlight the floor when a shelf is selected
+  // Modify the handleSelect function to track internal selections
+  const handleSelect = useCallback((location: ShelfLocation, source: 'internal' | 'external' = 'internal') => {
+    // Set the source of this selection
+    setSelectionSource(source);
+
+    // Mark user interactions
+    if (source === 'internal') {
+      userInteractionInProgress.current = true;
+
+      // Clear the flag after a delay to allow the animation to complete
+      setTimeout(() => {
+        userInteractionInProgress.current = false;
+      }, 1000);
+    }
+
+    // Calculate max values
+    const floorMatrix = floors[location.floor].matrix;
+    const { cabinets } = processCabinetsMatrix(floorMatrix, location.floor);
+
+    // Find current cabinet
+    const currentCabinet = cabinets.find((c: any) => c.id === location.cabinet_id);
+
+    // Calculate maximums
+    const max_cabinet_id = cabinets.length > 0 ? Math.max(...cabinets.map((c: any) => c.id)) : 0;
+    const max_row = currentCabinet ? currentCabinet.rows - 1 : 0;
+    const max_column = currentCabinet ? currentCabinet.width - 1 : 0;
+
+    // Create enhanced location with max values
+    const enhancedLocation: ShelfLocation = {
+      ...location,
+      max_cabinet_id,
+      max_row,
+      max_column
+    };
+
+    setSelectedLocation(enhancedLocation);
+
+    const cabinetChanged = !selectedLocation ||
+      selectedLocation.floor !== location.floor ||
+      selectedLocation.cabinet_id !== location.cabinet_id;
+
+    // Only trigger animations for internal selections or when explicitly needed
+    const shouldAnimateCabinet = source === 'internal' ? internalIsCabinetChangeAnimate : isCabinetChangeAnimate;
+    const shouldAnimateShelf = source === 'internal' ? internalIsShelfChangeAnimate : isShelfChangeAnimate;
+
+    if (cabinetChanged && shouldAnimateCabinet) {
+      focusOnCabinet(enhancedLocation);
+    } else if (shouldAnimateShelf) {
+      focusOnShelf(enhancedLocation);
+    }
+
+    if (onSelect) onSelect(enhancedLocation);
+  }, [onSelect, focusOnCabinet, focusOnShelf, isCabinetChangeAnimate, isShelfChangeAnimate,
+    internalIsCabinetChangeAnimate, internalIsShelfChangeAnimate, selectedLocation, floors]);
+
+
+  // Handle floor highlighting separately with useEffect
+  useEffect(() => {
+    if (selectedLocation) {
       if (onHighlightFloor) {
-        onHighlightFloor(location.floor);
+        onHighlightFloor(selectedLocation.floor);
       } else {
-        setInternalHighlightedFloor(location.floor);
+        setInternalHighlightedFloor(selectedLocation.floor);
       }
-  
-      if (onSelect) onSelect(location);
-      return location;
-    });
-  }, [onSelect, focusOnCabinet, focusOnShelf, isCabinetChangeAnimate, isShelfChangeAnimate, onHighlightFloor]);
+    }
+  }, [selectedLocation, onHighlightFloor]);
+
+  // Update the external selection effect to respect user interactions
+  useEffect(() => {
+    if (externalSelection && floors[externalSelection.floor] && !userInteractionInProgress.current) {
+      // Only update if it's different from the current selection
+      if (!selectedLocation ||
+        selectedLocation.floor !== externalSelection.floor ||
+        selectedLocation.cabinet_id !== externalSelection.cabinet_id ||
+        selectedLocation.cabinet_row !== externalSelection.cabinet_row ||
+        selectedLocation.cabinet_column !== externalSelection.cabinet_column) {
+
+        // Call handleSelect with source='external'
+        handleSelect(externalSelection, 'external');
+      }
+    }
+  }, [externalSelection, floors, handleSelect, selectedLocation]);
+
 
   const handleArrowNavigation = useCallback((e: KeyboardEvent) => {
     if (!selectedLocation) return;
@@ -1117,21 +1193,20 @@ export const ShelfSelector3D = memo(({
     }
   }, [highlightedFloor, focusOnFloor]);
 
-  // Calculate initial camera position - now further away for initial animation
-  const initialCameraPosition = useMemo(() => {
-    const totalHeight = floorPositions[floorPositions.length - 1] +
-      floors[floors.length - 1].height + 0.5;
-    return [700, totalHeight * 1.5, 35] as [number, number, number]; // Positioned further away
-  }, [floors, floorPositions]);
-
-  // Calculate the center position of the building
+  // Update building center position with offsets
   const buildingCenterPosition = useMemo((): [number, number, number] => {
     const totalHeight = floorPositions[floorPositions.length - 1] +
       floors[floors.length - 1].height;
     const centerY = totalHeight / 2;
-    return [1, centerY, 0];
-  }, [floors, floorPositions]);
+    return [1 + cameraOffsetX, centerY + cameraOffsetY, 0];
+  }, [floors, floorPositions, cameraOffsetX, cameraOffsetY]);
 
+  // Update initial camera position
+  const initialCameraPosition = useMemo(() => {
+    const totalHeight = floorPositions[floorPositions.length - 1] +
+      floors[floors.length - 1].height + 0.5;
+    return [700 + cameraOffsetX, totalHeight * 1.5 + cameraOffsetY, 35] as [number, number, number];
+  }, [floors, floorPositions, cameraOffsetX, cameraOffsetY]);
 
   // Replace the current initial animation effect with this one:
   useEffect(() => {
@@ -1186,7 +1261,7 @@ export const ShelfSelector3D = memo(({
           near: 0.1,
           far: 1000,
         }}
-        dpr={[0.5, 1]}
+        dpr={[0.5, 1.5]}
         gl={{
           antialias: true,
           powerPreference: 'high-performance',
@@ -1198,7 +1273,7 @@ export const ShelfSelector3D = memo(({
           max: 0.8,
           debounce: 200
         }}
-        frameloop="demand" 
+        frameloop="demand"
         onCreated={({ gl, scene: onLoadScene }) => {
           gl.setClearColor(backgroundColor);
           setScene(onLoadScene);
@@ -1209,12 +1284,16 @@ export const ShelfSelector3D = memo(({
         <ambientLight intensity={0.5} />
         <directionalLight position={[0, 5, 5]} intensity={0.5} />
         <CameraSpotlight />
-        <CameraAnimation controlsRef={controlsRef} dampingFactor={0.05} />
+        <CameraAnimation 
+          controlsRef={controlsRef} 
+          dampingFactor={0.05} 
+          cameraOffset={[cameraOffsetX, cameraOffsetY]} 
+        />
         <WASDControls controlsRef={controlsRef} />
 
         {/* Add this to ensure renders during initial animation */}
         {isInitialized && <RenderTrigger duration={5000} />}
-        
+
         {/* Floors */}
         <group>
           {floors.map((floor, index) => (
