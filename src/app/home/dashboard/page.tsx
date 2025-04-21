@@ -49,7 +49,7 @@ export default function Dashboard() {
   ];
 
   return (
-    <div className="flex flex-col gap-6 p-1 md:p-6 max-w-4xl mx-auto">
+    <div className="flex flex-col gap-6 p-2 max-w-4xl mx-auto">
       {/* Header section */}
       <div className="flex justify-between items-center">
         <div>

@@ -22,14 +22,21 @@ import {
   ModalFooter,
   useDisclosure,
   Pagination,
+  Skeleton,
   NumberInput,
   Form,
+  Avatar,
+  ListboxItem,
+  Listbox,
+  Badge,
+  Spinner,
 } from "@heroui/react";
+import { useInfiniteScroll } from "@heroui/use-infinite-scroll";
 import { Icon } from "@iconify-icon/react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { motion } from "framer-motion";
-import { FloorConfig, ShelfLocation, ShelfSelector3D } from "@/components/shelf-selector-3d-v3";
+import { FloorConfig, generateShelfOccupancyMatrix, ShelfLocation, ShelfSelector3D } from "@/components/shelf-selector-3d-v3";
 import { useTheme } from "next-themes";
 import { herouiColor } from "@/utils/colors";
 
@@ -38,8 +45,11 @@ import {
   checkAdminStatus,
   createInventoryItem,
   getUnitOptions,
-  getFloorOptions
+  getFloorOptions,
+  getInventoryItems,
+  getOccupiedShelfLocations,
 } from "./actions";
+
 import CardList from "@/components/card-list";
 
 interface LocationData {
@@ -76,6 +86,14 @@ export default function InventoryPage() {
   const [floorOptions, setFloorOptions] = useState<string[]>([]);
   const { isOpen, onOpen, onClose } = useDisclosure();
 
+  // Inventory list state
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const [isLoadingItems, setIsLoadingItems] = useState(true);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+
   // Inside the component, add state for ShelfSelector3D controls
   const [highlightedFloor, setHighlightedFloor] = useState<number | null>(null);
   const [isFloorChangeAnimate, setIsFloorChangeAnimate] = useState<boolean>(true);
@@ -84,6 +102,9 @@ export default function InventoryPage() {
 
   // Add this state near your other state declarations
   const [externalSelection, setExternalSelection] = useState<ShelfLocation | undefined>(undefined);
+  // Inside your component, add this state
+  const [occupiedLocations, setOccupiedLocations] = useState<ShelfLocation[]>([]);
+
 
   // Inside the InventoryPage component, add custom colors
   const [customColors, setCustomColors] = useState({
@@ -95,6 +116,7 @@ export default function InventoryPage() {
     shelfColor: "#dddddd",      // Default shelf
     shelfHoverColor: "#ffb74d", // Hover orange
     shelfSelectedColor: "#ff5252", // Selected red
+    occupiedShelfColor: "#8B0000", // Occupied red
     textColor: "#2c3e50",       // Dark blue text
   });
 
@@ -111,6 +133,7 @@ export default function InventoryPage() {
         shelfColor: herouiColor('default-600', 'hex') as string,
         shelfHoverColor: herouiColor('primary-400', 'hex') as string,
         shelfSelectedColor: herouiColor('primary', 'hex') as string,
+        occupiedShelfColor: herouiColor('danger', 'hex') as string,
         textColor: herouiColor('text', 'hex') as string,
       });
     }, 100);
@@ -144,7 +167,9 @@ export default function InventoryPage() {
     }
   });
 
-  const inputStyle = { inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200" }
+  const inputStyle = {
+    inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
+  }
 
   // Location state
   const [selectedFloor, setSelectedFloor] = useState("");
@@ -328,6 +353,98 @@ export default function InventoryPage() {
     onClose();
   };
 
+  // Load more inventory items
+  const loadMoreItems = async () => {
+    if (!hasMore || isLoadingItems) return;
+
+    try {
+      setIsLoadingItems(true);
+      const nextPage = page + 1;
+      const result = await getInventoryItems({
+        page: nextPage,
+        pageSize: 10,
+        search: searchQuery,
+        companyUuid: companyUUID
+      });
+
+      if (result.data && result.data.length > 0) {
+        setInventoryItems(prev => [...prev, ...result.data]);
+        setPage(nextPage);
+      } else {
+        setHasMore(false);
+      }
+    } catch (error) {
+      console.error("Error loading more items:", error);
+    } finally {
+      setIsLoadingItems(false);
+    }
+  };
+
+
+  // Infinite scroll for inventory list
+  const [, scrollRef] = useInfiniteScroll({
+    hasMore,
+    onLoadMore: loadMoreItems,
+  });
+
+  // Handle item search
+  const handleSearch = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const query = e.target.value;
+    setSearchQuery(query);
+
+    try {
+      setIsLoadingItems(true);
+      setPage(1);
+      setHasMore(true);
+
+      const result = await getInventoryItems({
+        page: 1,
+        pageSize: 10,
+        search: query,
+        companyUuid: companyUUID
+      });
+
+      setInventoryItems(result.data || []);
+    } catch (error) {
+      console.error("Error searching items:", error);
+    } finally {
+      setIsLoadingItems(false);
+    }
+  };
+
+  // Select an inventory item
+  const handleSelectItem = (key: string) => {
+    const item = inventoryItems.find(i => i.uuid === key) as InventoryItem;
+    if (!item) return;
+
+    setSelectedItemId(item.uuid);
+    setFormData({
+      ...item,
+      admin_uuid: adminUUID,
+    });
+
+    // Update location fields
+    if (item.location) {
+      setSelectedFloor(item.location.floor);
+      setSelectedColumn(item.location.column);
+      setSelectedRow(item.location.row);
+      setSelectedCabinet(item.location.cabinet);
+      setSelectedCode(`F${item.location.floor || "?"}-${item.location.column || "?"}${item.location.row || "?"}-C${item.location.cabinet || "?"}`);
+    }
+  };
+
+  // Add this to your initPage function or create a separate function
+  const fetchOccupiedLocations = async () => {
+    try {
+      const result = await getOccupiedShelfLocations(adminUUID);
+      if (result.success) {
+        setOccupiedLocations(result.data);
+      }
+    } catch (error) {
+      console.error("Error fetching occupied locations:", error);
+    }
+  };
+
   // Fetch admin status and options when component mounts
   useEffect(() => {
     const initPage = async () => {
@@ -336,6 +453,8 @@ export default function InventoryPage() {
         setIsAdmin(true);
         setAdminUUID(adminData.uuid);
         setCompanyUUID(adminData.company.uuid);
+
+        console.log("Admin Data:", adminData);
 
         setFormData(prev => ({
           ...prev,
@@ -352,6 +471,23 @@ export default function InventoryPage() {
 
         setUnitOptions(units);
         setFloorOptions(floors);
+
+        // Fetch initial inventory items
+        const items = await getInventoryItems({
+          page: 1,
+          pageSize: 10,
+          companyUuid: adminData.company.uuid
+        });
+
+        setInventoryItems(items.data || []);
+        setIsLoadingItems(false);
+
+        // Fetch occupied shelf locations
+        const locationsResult = await getOccupiedShelfLocations(adminData.company.uuid);
+        if (locationsResult.success) {
+          setOccupiedLocations(locationsResult.data);
+          console.log("Occupied locations:", locationsResult.data);
+        }
       } catch (error) {
         console.error("Error initializing page:", error);
       }
@@ -410,7 +546,6 @@ export default function InventoryPage() {
     if (!formData.quantity || formData.quantity <= 0) newErrors.quantity = "Valid quantity is required";
     if (!formData.unit) newErrors.unit = "Unit is required";
     if (formData.ending_inventory === undefined || formData.ending_inventory < 0) newErrors.ending_inventory = "Valid ending inventory is required";
-
     if (!formData.location!.floor) newErrors["location.floor"] = "Floor is required";
     if (!formData.location!.column) newErrors["location.column"] = "Column is required";
     if (!formData.location!.row) newErrors["location.row"] = "Row is required";
@@ -427,7 +562,56 @@ export default function InventoryPage() {
       const result = await createInventoryItem(formData as any);
 
       if (result.success) {
-        router.push("/inventory/list");
+        // Reset page to 1 and refresh inventory list
+        setPage(1);
+
+        // Refresh the inventory items list
+        const refreshedItems = await getInventoryItems({
+          page: 1,
+          pageSize: 10,
+          search: searchQuery,
+          companyUuid: companyUUID
+        });
+
+        setInventoryItems(refreshedItems.data || []);
+        setHasMore(refreshedItems.data?.length >= 10);
+
+        // Clear form if it's a new item, or select the updated item
+        if (!selectedItemId) {
+          // If new item was created, reset form
+          setFormData({
+            company_uuid: companyUUID,
+            admin_uuid: adminUUID,
+            item_code: "",
+            item_name: "",
+            description: "",
+            quantity: 0,
+            unit: "",
+            ending_inventory: 0,
+            netsuite: null,
+            variance: null,
+            location: {
+              company_uuid: companyUUID,
+              floor: "",
+              column: "",
+              row: "",
+              cabinet: ""
+            }
+          });
+          setSelectedFloor("");
+          setSelectedColumn("");
+          setSelectedRow("");
+          setSelectedCabinet("");
+          setSelectedCode("");
+        } else if (result.data) {
+          if ((result.data as any).uuid)
+            setSelectedItemId((result.data as any).uuid);
+        }
+
+        // Clear any previous errors
+        setErrors({});
+
+        // You could add a success message here if you have a toast notification system
       } else {
         throw new Error(result.error);
       }
@@ -441,12 +625,69 @@ export default function InventoryPage() {
 
   if (!isAdmin) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Card className="w-96">
-          <CardBody>
-            <p className="text-center">Loading or checking permissions...</p>
-          </CardBody>
-        </Card>
+      <div className="container mx-auto p-2 gap-6 flex flex-col max-w-4xl">
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-2xl font-bold">Inventory Management</h1>
+            <p className="text-default-500">Manage your inventory items efficiently.</p>
+          </div>
+          <Skeleton className="h-10 w-40 rounded-xl" /> {/* Save button */}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Basic Information Skeleton */}
+          <CardList>
+            <div>
+              <Skeleton className="h-6 w-48 mx-auto rounded-xl mb-5" /> {/* Section Title */}
+              <div className="space-y-4">
+                <div className="flex gap-4">
+                  <Skeleton className="h-16 w-full rounded-xl" /> {/* Item Code */}
+                  <Skeleton className="h-16 w-full rounded-xl" /> {/* Item Name */}
+                </div>
+                <Skeleton className="h-36 w-full rounded-xl" /> {/* Description */}
+              </div>
+            </div>
+          </CardList>
+
+          {/* Quantity & Costs Skeleton */}
+          <CardList>
+            <div>
+              <Skeleton className="h-6 w-48 mx-auto rounded-xl mb-5" /> {/* Section Title */}
+              <div className="space-y-4">
+                <div className="flex gap-4">
+                  <Skeleton className="h-16 w-full rounded-xl" /> {/* Quantity */}
+                  <Skeleton className="h-16 w-full rounded-xl" /> {/* Unit */}
+                </div>
+                <Skeleton className="h-16 w-full rounded-xl" /> {/* Ending Inventory */}
+                <div className="flex gap-4">
+                  <Skeleton className="h-16 w-full rounded-xl" /> {/* Netsuite */}
+                  <Skeleton className="h-16 w-full rounded-xl" /> {/* Variance */}
+                </div>
+              </div>
+            </div>
+          </CardList>
+
+          {/* Item Location Skeleton */}
+          <div className="col-span-1 lg:col-span-2">
+            <CardList>
+              <div>
+                <Skeleton className="h-6 w-48 mx-auto rounded-xl mb-5" /> {/* Section Title */}
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <Skeleton className="h-16 rounded-xl" /> {/* Floor Level */}
+                    <Skeleton className="h-16 rounded-xl" /> {/* Column */}
+                    <Skeleton className="h-16 rounded-xl" /> {/* Row */}
+                    <Skeleton className="h-16 rounded-xl" /> {/* Cabinet */}
+                  </div>
+                  <div className="mt-4 flex items-center justify-between">
+                    <Skeleton className="h-8 w-32 rounded-xl" /> {/* Location Code Chip */}
+                    <Skeleton className="h-10 w-48 rounded-xl" /> {/* Open Floorplan Button */}
+                  </div>
+                </div>
+              </div>
+            </CardList>
+          </div>
+        </div>
       </div>
     );
   }
@@ -457,132 +698,227 @@ export default function InventoryPage() {
     else if (type === 'cabinet') setIsCabinetChangeAnimate(value);
   };
 
+
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.5 }}
-      className="container mx-auto md:p-6 p-2 gap-6 flex flex-col max-w-4xl"
-    >
-      <div className="flex justify-between items-center">
+    <div className="container mx-auto p-2 max-w-4xl">
+      <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold">Inventory Management</h1>
           <p className="text-default-500">Manage your inventory items efficiently.</p>
         </div>
         <div className="flex gap-4">
-
+          {!isLoadingItems && inventoryItems.length > 0 && (
+            <div className="mt-4 text-center">
+              <Button
+                color="primary"
+                variant="shadow"
+                onPress={() => {
+                  setFormData({
+                    uuid: companyUUID,
+                    item_code: "",
+                    item_name: "",
+                    description: "",
+                    quantity: 0,
+                    unit: "",
+                    ending_inventory: 0,
+                    netsuite: null,
+                    variance: null,
+                    location: {
+                      company_uuid: companyUUID,
+                      floor: "",
+                      column: "",
+                      row: "",
+                      cabinet: ""
+                    }
+                  });
+                  setSelectedItemId(null);
+                  setSelectedFloor("");
+                  setSelectedColumn("");
+                  setSelectedRow("");
+                  setSelectedCabinet("");
+                  setSelectedCode("");
+                }}
+              >
+                New Item
+              </Button>
+            </div>
+          )}
         </div>
       </div>
+      <div className="flex flex-col lg:flex-row gap-4">
+        {/* Left side: Inventory List */}
+        <div className="lg:w-1/3 shadow-xl shadow-primary/10 min-h-[32rem] 
+            min-w-[350px] rounded-2xl overflow-hidden bg-background border border-default-200">
+          <div className="flex flex-col h-full relative">
+            <div className="p-4 absolute w-full z-20 top-0 bg-background/50 backdrop-blur-lg border-b border-default-200">
+              <h2 className="text-xl font-semibold mb-4 w-full text-center">Inventory Items</h2>
+              <Input
+                placeholder="Search items..."
+                value={searchQuery}
+                onChange={handleSearch}
+                startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
+              />
+            </div>
+            <div className="h-full absolute w-full">
+              {!isLoadingItems && inventoryItems.length !== 0 && (
+                <Listbox
+                  classNames={{ list: 'space-y-4 p-3 overflow-y-scroll pt-32', base: 'h-full' }}
+                  onSelectionChange={(item) => handleSelectItem((item as Set<string>).values().next().value || "")}
+                  selectedKeys={[selectedItemId || ""]}
+                  ref={scrollRef}
+                  selectionMode="single">
+                  {inventoryItems.map((item) => (
+                    <ListboxItem
+                      key={item.uuid}
+                      as={Button}
+                      onPress={() => handleSelectItem(item.uuid)}
+                      variant="shadow"
+                      className={`w-full min-h-28 !transition-all duration-200 rounded-xl px-0 py-4 ${selectedItemId === item.uuid ?
+                        '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' :
+                        '!bg-default-100/50 hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
+                      hideSelectedIcon
+                    >
+                      <div className="flex justify-between items-start px-0">
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between px-4">
+                            <span className="font-semibold">{item.item_name}</span>
+                            <Chip color="default" variant={selectedItemId === item.uuid ? "shadow" : "flat"} size="sm">{item.item_code}</Chip>
+                          </div>
+                          {item.description &&
+                            <p className={`text-sm px-4 ${selectedItemId === item.uuid ? 'text-default-800 ' : 'text-default-600'} line-clamp-1 text-start`}>
+                              {item.description}
+                            </p>
+                          }
+                          <div className={`flex items-center gap-2 mt-3 border-t ${selectedItemId === item.uuid ? 'border-primary-300' : 'border-default-100'} px-4 pt-4`}>
+                            <Chip color="secondary" variant={selectedItemId === item.uuid ? "shadow" : "flat"} size="sm">
+                              {item.quantity} {item.unit}
+                            </Chip>
+                            <Chip color="success" variant={selectedItemId === item.uuid ? "shadow" : "flat"} size="sm">
+                              ₱{item.ending_inventory.toFixed(2)}
+                            </Chip>
+                            <Chip color="danger" variant={selectedItemId === item.uuid ? "shadow" : "flat"} size="sm">
+                              {`F${item.location.floor}-${item.location.column}${item.location.row}-C${item.location.cabinet}`}
+                            </Chip>
+                          </div>
+                        </div>
+                      </div>
+                    </ListboxItem>
+                  ))}
+                </Listbox>
+              )}
+            </div>
 
-      <Form onSubmit={handleSubmit}>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <CardList>
-            <div>
-              <h2 className="text-xl font-semibold mb-4  w-full text-center">Basic Information</h2>
-              <div className="space-y-4">
+            {isLoadingItems && (
+              <div className="py-4 flex left-[50%] top-[50%] absolute translate-x-[-50%] translate-y-[-50%] absolute">
+                <Spinner size="sm" />
+              </div>
+            )}
+          </div>
+        </div>
 
-                <div className="flex gap-4">
+        {/* Right side: Item Form */}
+        <div className="lg:w-2/3">
+          <Form id="inventoryForm" onSubmit={handleSubmit} className="items-stretch space-y-4">
+            <CardList>
+              <div>
+                <h2 className="text-xl font-semibold mb-4 w-full text-center">Basic Information</h2>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2  gap-4">
+                    <Input
+                      name="item_code"
+                      label="Item Code"
+                      classNames={inputStyle}
+                      placeholder="Enter item code"
+                      value={formData.item_code || ""}
+                      onChange={handleInputChange}
+                      isRequired
+                      isInvalid={!!errors.item_code}
+                      errorMessage={errors.item_code}
+                      startContent={<Icon icon="mdi:barcode" className="text-default-500 pb-[0.1rem]" />}
+                    />
 
-                  <Input
-                    name="item_code"
-                    label="Item Code"
+                    <Input
+                      name="item_name"
+                      label="Item Name"
+                      classNames={inputStyle}
+                      placeholder="Enter item name"
+                      value={formData.item_name || ""}
+                      onChange={handleInputChange}
+                      isRequired
+                      isInvalid={!!errors.item_name}
+                      errorMessage={errors.item_name}
+                      startContent={<Icon icon="mdi:package-variant" className="text-default-500 pb-[0.1rem]" />}
+                    />
+                  </div>
+
+                  <Textarea
+                    name="description"
+                    label="Description"
+                    maxRows={5}
+                    minRows={5}
                     classNames={inputStyle}
-                    placeholder="Enter item code"
-                    value={formData.item_code || ""}
+                    placeholder="Enter item description (optional)"
+                    value={formData.description || ""}
                     onChange={handleInputChange}
-                    isRequired
-                    isInvalid={!!errors.item_code}
-                    errorMessage={errors.item_code}
-                    startContent={<Icon icon="mdi:barcode" />}
-                  />
-
-                  <Input
-                    name="item_name"
-                    label="Item Name"
-                    classNames={inputStyle}
-                    placeholder="Enter item name"
-                    value={formData.item_name || ""}
-                    onChange={handleInputChange}
-                    isRequired
-                    isInvalid={!!errors.item_name}
-                    errorMessage={errors.item_name}
-                    startContent={<Icon icon="mdi:package-variant" />}
                   />
                 </div>
-
-
-                <Textarea
-                  name="description"
-                  label="Description"
-                  classNames={inputStyle}
-                  size="lg"
-                  placeholder="Enter item description (optional)"
-                  value={formData.description || ""}
-                  onChange={handleInputChange}
-                />
               </div>
-            </div>
-          </CardList>
 
+              <div>
+                <h2 className="text-xl font-semibold mb-4 w-full text-center">Quantity & Costs</h2>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-4">
+                    <NumberInput
+                      name="quantity"
+                      classNames={inputStyle}
+                      label="Quantity"
+                      placeholder="0"
+                      minValue={0}
+                      maxValue={999999}
+                      step={1}
+                      value={formData.quantity}
+                      onValueChange={(e) => setFormData({ ...formData, quantity: e })}
+                      isRequired
+                      isInvalid={!!errors.quantity}
+                      errorMessage={errors.quantity}
+                      startContent={<Icon icon="mdi:numeric" className="text-default-500 pb-[0.1rem]" />}
+                    />
 
-          <CardList>
-            <div>
-              <h2 className="text-xl font-semibold mb-4  w-full text-center">Quantity & Costs</h2>
-              <div className="space-y-4">
-                <div className="flex gap-4">
+                    <Select
+                      name="unit"
+                      label="Unit"
+                      placeholder="Select unit"
+                      value={formData.unit || ""}
+                      onChange={handleInputChange}
+                      isRequired
+                      classNames={{ trigger: inputStyle.inputWrapper }}
+                      isInvalid={!!errors.unit}
+                      errorMessage={errors.unit}
+                    >
+                      {unitOptions.map((unit) => (
+                        <SelectItem key={unit}>
+                          {unit}
+                        </SelectItem>
+                      ))}
+                    </Select>
+                  </div>
+
                   <NumberInput
-                    name="quantity"
+                    name="ending_inventory"
                     classNames={inputStyle}
-                    label="Quantity"
-                    placeholder="0"
+                    label="Ending Inventory (Cost)"
+                    placeholder="0.00"
                     minValue={0}
                     maxValue={999999}
-                    step={1}
-                    value={formData.quantity}
-                    onValueChange={(e) => setFormData({ ...formData, quantity: e })}
+                    value={formData.ending_inventory}
+                    onValueChange={(e) => setFormData({ ...formData, ending_inventory: e })}
                     isRequired
-                    isInvalid={!!errors.quantity}
-                    errorMessage={errors.quantity}
-                    startContent={<Icon icon="mdi:numeric" />}
-                    className="flex-1"
+                    isInvalid={!!errors.ending_inventory}
+                    errorMessage={errors.ending_inventory}
+                    startContent={<Icon icon="mdi:currency-php" className="text-default-500 pb-[0.1rem]" />}
                   />
 
-                  <Select
-                    name="unit"
-                    label="Unit"
-                    placeholder="Select unit"
-                    value={formData.unit || ""}
-                    onChange={handleInputChange}
-                    isRequired
-                    classNames={{ trigger: inputStyle.inputWrapper }}
-                    isInvalid={!!errors.unit}
-                    errorMessage={errors.unit}
-                    className="flex-1"
-                  >
-                    {unitOptions.map((unit) => (
-                      <SelectItem key={unit}>
-                        {unit}
-                      </SelectItem>
-                    ))}
-                  </Select>
-                </div>
-
-                <NumberInput
-                  name="ending_inventory"
-                  classNames={inputStyle}
-                  label="Ending Inventory (Cost)"
-                  placeholder="0.00"
-                  minValue={0}
-                  maxValue={999999}
-                  value={formData.ending_inventory}
-                  onValueChange={(e) => setFormData({ ...formData, ending_inventory: e })}
-                  isRequired
-                  isInvalid={!!errors.ending_inventory}
-                  errorMessage={errors.ending_inventory}
-                  startContent={<Icon icon="mdi:currency-php" />}
-                />
-
-                <div className="flex gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-4"></div>
                   <NumberInput
                     name="netsuite"
                     classNames={inputStyle}
@@ -590,8 +926,7 @@ export default function InventoryPage() {
                     placeholder="0.00"
                     onValueChange={(e) => setFormData({ ...formData, netsuite: e })}
                     value={formData.netsuite || 0}
-                    startContent={<Icon icon="mdi:database" />}
-                    className="flex-1"
+                    startContent={<Icon icon="mdi:database" className="text-default-500 pb-[0.1rem]" />}
                   />
 
                   <NumberInput
@@ -601,35 +936,29 @@ export default function InventoryPage() {
                     placeholder="0.00"
                     onValueChange={(e) => setFormData({ ...formData, variance: e })}
                     value={formData.variance || 0}
-                    startContent={<Icon icon="mdi:chart-line-variant" />}
-                    className="flex-1"
+                    startContent={<Icon icon="mdi:chart-line-variant" className="text-default-500 pb-[0.1rem]" />}
                   />
                 </div>
               </div>
-            </div>
-          </CardList>
 
-          <div className="col-span-1 lg:col-span-2">
-
-            <CardList>
               <div>
-                <h2 className="text-xl font-semibold mb-4  w-full text-center">Item Location</h2>
+                <h2 className="text-xl font-semibold mb-4 w-full text-center">Item Location</h2>
                 <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-
+                  <div className="grid grid-cols-2 lg:grid-cols-2 xl:grid-cols-4 gap-4">
                     <NumberInput
                       name="location.floor"
                       classNames={inputStyle}
-                      label="Floor Level"
-                      placeholder="e.g. A"
+                      label="Floor"
+                      placeholder="e.g. 1"
                       maxValue={floorOptions.length - 1}
                       minValue={1}
                       value={parseInt(selectedFloor) || 0}
                       onChange={(e) => setSelectedFloor(`${e}`)}
                       isRequired
-                      isInvalid={!!errors["location.column"]}
-                      errorMessage={errors["location.column"]}
+                      isInvalid={!!errors["location.floor"]}
+                      errorMessage={errors["location.floor"]}
                     />
+
                     <Input
                       name="location.column"
                       classNames={inputStyle}
@@ -658,7 +987,7 @@ export default function InventoryPage() {
                       name="location.cabinet"
                       classNames={inputStyle}
                       label="Cabinet"
-                      placeholder="e.g. C1"
+                      placeholder="e.g. 1"
                       value={parseInt(selectedCabinet) || 0}
                       onChange={(e) => setSelectedCabinet(`${e}`)}
                       isRequired
@@ -667,33 +996,32 @@ export default function InventoryPage() {
                     />
                   </div>
 
-                  <div className="mt-4rounded-md flex items-center justify-between">
-                    <Chip>
-                      Location Code: <b>{selectedCode}</b>
+                  <div className="mt-4 rounded-md flex flex-row items-center justify-between gap-3">
+                    <Chip className="mb-2 sm:mb-0 font-bold">
+                      {selectedCode}
                     </Chip>
                     <Button color="primary" onClick={handleOpenModal}>
-                      Open Interactive Floorplan
+                      Open Floorplan
                     </Button>
                   </div>
                 </div>
               </div>
+              <div className="flex justify-center">
+                <Button
+                  type="submit"
+                  form="inventoryForm"
+                  color="primary"
+                  variant="shadow"
+                  isLoading={isLoading}
+                  className="mb-2 w-full max-w-[200px]"
+                >
+                  Save Item
+                </Button>
+              </div>
             </CardList>
-
-
-
-          </div>
+          </Form>
         </div>
-
-        <div className="mt-8 flex justify-end gap-4">
-          <Button
-            color="primary"
-            type="submit"
-            isLoading={isLoading}
-          >
-            Save Inventory Item
-          </Button>
-        </div>
-      </Form>
+      </div>
 
       <Modal
         isOpen={isOpen}
@@ -712,6 +1040,8 @@ export default function InventoryPage() {
               <ShelfSelector3D
                 floors={floorConfigs}
                 onSelect={handleShelfSelection}
+                occupiedLocations={occupiedLocations}
+                canSelectOccupiedLocations={false}
                 className="w-full h-full"
                 highlightedFloor={highlightedFloor}
                 onHighlightFloor={setHighlightedFloor}
@@ -728,6 +1058,7 @@ export default function InventoryPage() {
                 shelfColor={customColors.shelfColor}
                 shelfHoverColor={customColors.shelfHoverColor}
                 shelfSelectedColor={customColors.shelfSelectedColor}
+                occupiedShelfColor={customColors.occupiedShelfColor}
                 textColor={customColors.textColor}
               />
 
@@ -804,6 +1135,6 @@ export default function InventoryPage() {
           </ModalFooter>
         </ModalContent>
       </Modal>
-    </motion.div>
+    </div>
   );
 }

@@ -46,6 +46,10 @@ export interface ShelfSelectorProps {
   onAnimationToggle?: (type: 'floor' | 'shelf' | 'cabinet', value: boolean) => void;
   // Add the external selection prop
   externalSelection?: ShelfLocation;
+  // Add occupied locations prop
+  occupiedLocations?: ShelfLocation[];
+  // New prop to control if occupied locations can be selected
+  canSelectOccupiedLocations?: boolean;
   // Camera center adjustment parameters
   cameraOffsetX?: number;
   cameraOffsetY?: number;
@@ -58,6 +62,7 @@ export interface ShelfSelectorProps {
   shelfColor?: string;
   shelfHoverColor?: string;
   shelfSelectedColor?: string;
+  occupiedShelfColor?: string;
   textColor?: string;
 }
 
@@ -218,24 +223,105 @@ const ensureCameraAnimator = () => {
 };
 
 
+export function generateShelfOccupancyMatrix(
+  inventoryItems: any[],
+  floorConfigs: any[]
+): number[][][] {
+  // Initialize matrices for each floor with all shelves (value 5) as available (1)
+  const occupancyMatrices = floorConfigs.map(config => {
+    return config.matrix.map((row: any[]) =>
+      row.map(cell => cell === 5 ? 1 : 0)
+    );
+  });
+
+  // Mark occupied slots based on inventory items
+  for (const item of inventoryItems) {
+    if (!item.location) continue;
+
+    const floorIndex = parseInt(item.location.floor) - 1;
+    if (floorIndex < 0 || floorIndex >= occupancyMatrices.length) continue;
+
+    // Get row and column indices - these need mapping to matrix positions
+    const cabinetId = parseInt(item.location.cabinet) - 1;
+    const cabinetRow = parseInt(item.location.row) - 1;
+    const cabinetColumn = item.location.column.charCodeAt(0) - 65; // Convert A->0, B->1, etc.
+
+    // Find position in matrix based on cabinet layout
+    // This depends on how cabinets are arranged in your floor plan
+    const matrixPosition = mapCabinetToMatrixPosition(
+      floorIndex,
+      cabinetId,
+      cabinetRow,
+      cabinetColumn,
+      floorConfigs
+    );
+
+    if (matrixPosition) {
+      // Mark as occupied (0)
+      occupancyMatrices[floorIndex][matrixPosition.y][matrixPosition.x] = 0;
+    }
+  }
+
+  return occupancyMatrices;
+}
+
+// Helper function to map cabinet coordinates to matrix positions
+function mapCabinetToMatrixPosition(
+  floorIndex: number,
+  cabinetId: number,
+  cabinetRow: number,
+  cabinetColumn: number,
+  floorConfigs: any[]
+): { x: number, y: number } | null {
+  // This mapping depends on your specific cabinet layout
+  // Example implementation (needs customization):
+
+  // Each cabinet might occupy a specific region of the matrix
+  // For example, if cabinets are arranged in a grid:
+  const cabinetsPerRow = 4; // Adjust based on your layout
+  const cabinetWidth = 4;   // Width of each cabinet in matrix cells
+  const cabinetHeight = 3;  // Height of each cabinet in matrix cells
+  const cabinetSpacing = 2; // Spacing between cabinets
+
+  // Calculate cabinet position in the matrix
+  const cabinetBaseX = (cabinetId % cabinetsPerRow) * (cabinetWidth + cabinetSpacing) + 2;
+  const cabinetBaseY = Math.floor(cabinetId / cabinetsPerRow) * (cabinetHeight + cabinetSpacing) + 2;
+
+  // Calculate item position within cabinet
+  const x = cabinetBaseX + cabinetColumn;
+  const y = cabinetBaseY + cabinetRow;
+
+  // Validate position is within matrix bounds
+  if (y >= 0 && y < floorConfigs[floorIndex].matrix.length &&
+    x >= 0 && x < floorConfigs[floorIndex].matrix[0].length) {
+    return { x, y };
+  }
+
+  return null;
+}
+
+
 // Optimized Shelf component using instancing for better performance
 const ShelfInstance = memo(({
   position,
   size,
   isHovered,
   isSelected,
+  isOccupied,
   onClick,
   onPointerOver,
   onPointerOut,
   opacity,
   shelfColor,
   shelfHoverColor,
-  shelfSelectedColor
+  shelfSelectedColor,
+  occupiedShelfColor
 }: {
   position: [number, number, number];
   size: [number, number, number];
   isHovered: boolean;
   isSelected: boolean;
+  isOccupied: boolean;
   onClick: (e: THREE.Event) => void;
   onPointerOver: (e: THREE.Event) => void;
   onPointerOut: (e: THREE.Event) => void;
@@ -243,8 +329,14 @@ const ShelfInstance = memo(({
   shelfColor: string;
   shelfHoverColor: string;
   shelfSelectedColor: string;
+  occupiedShelfColor: string;
 }) => {
-  const color = isSelected ? shelfSelectedColor : isHovered ? shelfHoverColor : shelfColor;
+  // Determine the color based on state priority: occupied > selected > hovered > default
+  const color = isOccupied ? occupiedShelfColor :
+    isSelected ? shelfSelectedColor :
+      isHovered ? shelfHoverColor :
+        shelfColor;
+
   const emissiveColor = isSelected ? shelfSelectedColor : "#000000";
   const emissiveIntensity = isSelected ? 0.3 : 0;
 
@@ -281,11 +373,14 @@ const Cabinet = memo(({
   isSelected,
   onSelect,
   selectedLocation,
+  occupiedLocations,
+  canSelectOccupiedLocations,
   cabinetColor,
   cabinetSelectedColor,
   shelfColor,
   shelfHoverColor,
-  shelfSelectedColor
+  shelfSelectedColor,
+  occupiedShelfColor
 }: {
   position: [number, number, number];
   size: [number, number, number];
@@ -296,11 +391,14 @@ const Cabinet = memo(({
   isSelected: boolean;
   onSelect: (location: ShelfLocation) => void;
   selectedLocation: ShelfLocation | null;
+  occupiedLocations?: ShelfLocation[];
+  canSelectOccupiedLocations?: boolean;
   cabinetColor: string;
   cabinetSelectedColor: string;
   shelfColor: string;
   shelfHoverColor: string;
   shelfSelectedColor: string;
+  occupiedShelfColor: string;
 }) => {
   const [hoverCell, setHoverCell] = useState<[number, number] | null>(null);
   const cabinetRef = useRef<THREE.Group>(null);
@@ -314,6 +412,18 @@ const Cabinet = memo(({
   const cabinetDepth = size[2];
   const cellWidth = useMemo(() => cabinetWidth / columns, [cabinetWidth, columns]);
   const cellHeight = useMemo(() => cabinetHeight / rows, [cabinetHeight, rows]);
+
+  // Function to check if a location is occupied
+  const isLocationOccupied = useCallback((floorIndex: number, cabId: number, rowIndex: number, colIndex: number) => {
+    if (!occupiedLocations || occupiedLocations.length === 0) return false;
+
+    return occupiedLocations.some(loc =>
+      loc.floor === floorIndex &&
+      loc.cabinet_id === cabId &&
+      loc.cabinet_row === rowIndex &&
+      loc.cabinet_column === colIndex
+    );
+  }, [occupiedLocations]);
 
   // Distance thresholds
   const FADE_START_DISTANCE = 4.75;
@@ -356,11 +466,13 @@ const Cabinet = memo(({
 
   // Memoize event handlers
   const handlePointerOver = useCallback((e: any, rowIndex: number, colIndex: number) => {
-    if (!isInteractionDisabled) {
+    if (!isInteractionDisabled &&
+      (canSelectOccupiedLocations || !isLocationOccupied(floor, cabinetId, rowIndex, colIndex))) {
       e.stopPropagation();
       setHoverCell([rowIndex, colIndex]);
     }
-  }, [isInteractionDisabled]);
+  }, [isInteractionDisabled, isLocationOccupied, floor, cabinetId, canSelectOccupiedLocations]);
+
 
   const handlePointerOut = useCallback((e: any) => {
     if (!isInteractionDisabled) {
@@ -370,7 +482,8 @@ const Cabinet = memo(({
   }, [isInteractionDisabled]);
 
   const handleClick = useCallback((e: any, rowIndex: number, colIndex: number) => {
-    if (!isInteractionDisabled) {
+    if (!isInteractionDisabled &&
+      (canSelectOccupiedLocations || !isLocationOccupied(floor, cabinetId, rowIndex, colIndex))) {
       e.stopPropagation();
       onSelect({
         floor,
@@ -379,7 +492,7 @@ const Cabinet = memo(({
         cabinet_column: colIndex
       });
     }
-  }, [isInteractionDisabled, onSelect, floor, cabinetId]);
+  }, [isInteractionDisabled, onSelect, floor, cabinetId, isLocationOccupied, canSelectOccupiedLocations]);
 
   // Pre-calculate shelf positions and properties for better rendering
   const shelves = useMemo(() => {
@@ -397,6 +510,8 @@ const Cabinet = memo(({
           hoverCell[0] === rowIndex &&
           hoverCell[1] === colIndex);
 
+        const isOccupied = isLocationOccupied(floor, cabinetId, rowIndex, colIndex);
+
         items.push({
           key: `${rowIndex}-${colIndex}`,
           position: [
@@ -407,6 +522,7 @@ const Cabinet = memo(({
           size: [cellWidth * 0.9, cellHeight * 0.9, cabinetDepth * 0.2] as [number, number, number],
           isHovered,
           isSelected: isShelfSelected,
+          isOccupied,
           rowIndex,
           colIndex
         });
@@ -414,7 +530,7 @@ const Cabinet = memo(({
     }
 
     return items;
-  }, [rows, columns, cellWidth, cellHeight, cabinetDepth, selectedLocation, hoverCell, floor, cabinetId]);
+  }, [rows, columns, cellWidth, cellHeight, cabinetDepth, selectedLocation, hoverCell, floor, cabinetId, isLocationOccupied]);
 
   return (
     <group position={position} ref={cabinetRef}>
@@ -429,8 +545,6 @@ const Cabinet = memo(({
         />
       </mesh>
 
-
-
       {/* Cabinet shelves - now more efficient */}
       {shelves.map(shelf => (
         <ShelfInstance
@@ -439,6 +553,7 @@ const Cabinet = memo(({
           size={shelf.size}
           isHovered={shelf.isHovered}
           isSelected={shelf.isSelected}
+          isOccupied={shelf.isOccupied}
           onClick={(e) => handleClick(e, shelf.rowIndex, shelf.colIndex)}
           onPointerOver={(e) => handlePointerOver(e, shelf.rowIndex, shelf.colIndex)}
           onPointerOut={handlePointerOut}
@@ -446,6 +561,7 @@ const Cabinet = memo(({
           shelfColor={shelfColor}
           shelfHoverColor={shelfHoverColor}
           shelfSelectedColor={shelfSelectedColor}
+          occupiedShelfColor={occupiedShelfColor}
         />
       ))}
     </group>
@@ -459,6 +575,8 @@ const Floor = memo(({
   yPosition,
   isHighlighted,
   selectedLocation,
+  occupiedLocations,
+  canSelectOccupiedLocations,
   onSelect,
   floorColor,
   floorHighlightedColor,
@@ -467,6 +585,7 @@ const Floor = memo(({
   shelfColor,
   shelfHoverColor,
   shelfSelectedColor,
+  occupiedShelfColor,
   textColor
 }: {
   floorConfig: FloorConfig;
@@ -474,6 +593,8 @@ const Floor = memo(({
   yPosition: number;
   isHighlighted: boolean;
   selectedLocation: ShelfLocation | null;
+  occupiedLocations?: ShelfLocation[];
+  canSelectOccupiedLocations?: boolean;
   onSelect: (location: ShelfLocation) => void;
   floorColor: string;
   floorHighlightedColor: string;
@@ -482,6 +603,7 @@ const Floor = memo(({
   shelfColor: string;
   shelfHoverColor: string;
   shelfSelectedColor: string;
+  occupiedShelfColor: string;
   textColor: string;
 }) => {
   const { matrix, height } = floorConfig;
@@ -524,11 +646,14 @@ const Floor = memo(({
             isSelected={isSelected}
             onSelect={onSelect}
             selectedLocation={selectedLocation}
+            occupiedLocations={occupiedLocations}
+            canSelectOccupiedLocations={canSelectOccupiedLocations}
             cabinetColor={cabinetColor}
             cabinetSelectedColor={cabinetSelectedColor}
             shelfColor={shelfColor}
             shelfHoverColor={shelfHoverColor}
             shelfSelectedColor={shelfSelectedColor}
+            occupiedShelfColor={occupiedShelfColor}
           />
         );
       })}
@@ -670,11 +795,11 @@ function CameraAnimation({
     const offsetPosition = newPosition.clone();
     offsetPosition.x += cameraOffset[0];
     offsetPosition.y += cameraOffset[1];
-    
+
     const offsetTarget = newTarget.clone();
     offsetTarget.x += cameraOffset[0];
     offsetTarget.y += cameraOffset[1];
-    
+
     targetCameraPosition.current = offsetPosition;
     targetControlsTarget.current = offsetTarget;
     isAnimating.current = true;
@@ -789,6 +914,8 @@ export const ShelfSelector3D = memo(({
   isCabinetChangeAnimate: externalIsCabinetChangeAnimate,
   onAnimationToggle,
   externalSelection,
+  occupiedLocations = [], // Add default empty array
+  canSelectOccupiedLocations = true,
   cameraOffsetX = 0,
   cameraOffsetY = 0,
   backgroundColor = "#f5f5f5",
@@ -799,6 +926,7 @@ export const ShelfSelector3D = memo(({
   shelfColor = "#dddddd",
   shelfHoverColor = "#ff9900",
   shelfSelectedColor = "#ff5555",
+  occupiedShelfColor = "#8B0000", // Dark red for occupied shelves
   textColor = "#000000"
 }: ShelfSelectorProps) => {
   const [scene, setScene] = useState<THREE.Scene | null>(null);
@@ -835,6 +963,18 @@ export const ShelfSelector3D = memo(({
 
     return positions;
   }, [floors]);
+
+  // Add a helper function to check if a location is occupied
+  const isLocationOccupied = useCallback((location: ShelfLocation): boolean => {
+    if (!occupiedLocations || occupiedLocations.length === 0) return false;
+
+    return occupiedLocations.some(loc =>
+      loc.floor === location.floor &&
+      loc.cabinet_id === location.cabinet_id &&
+      loc.cabinet_row === location.cabinet_row &&
+      loc.cabinet_column === location.cabinet_column
+    );
+  }, [occupiedLocations]);
 
   // Memoize focus functions for better performance
   const focusOnFloor = useCallback((floorIndex: number) => {
@@ -1170,11 +1310,16 @@ export const ShelfSelector3D = memo(({
       }
     }
 
-    if (nextLocation) {
+    // Before applying the next location, check if it's occupied
+    if (nextLocation && (!isLocationOccupied(nextLocation) || canSelectOccupiedLocations)) {
       handleSelect(nextLocation);
       e.preventDefault();
+    } else if (nextLocation) {
+      // If the location is occupied and we can't select it, try to find next available location in the same direction
+      // This is optional behavior and may need more complex logic
+      console.log("Cannot select occupied location");
     }
-  }, [selectedLocation, floors, handleSelect]);
+  }, [selectedLocation, floors, handleSelect, isLocationOccupied, canSelectOccupiedLocations]);
 
   // Register keyboard handlers
   useEffect(() => {
@@ -1284,10 +1429,10 @@ export const ShelfSelector3D = memo(({
         <ambientLight intensity={0.5} />
         <directionalLight position={[0, 5, 5]} intensity={0.5} />
         <CameraSpotlight />
-        <CameraAnimation 
-          controlsRef={controlsRef} 
-          dampingFactor={0.05} 
-          cameraOffset={[cameraOffsetX, cameraOffsetY]} 
+        <CameraAnimation
+          controlsRef={controlsRef}
+          dampingFactor={0.05}
+          cameraOffset={[cameraOffsetX, cameraOffsetY]}
         />
         <WASDControls controlsRef={controlsRef} />
 
@@ -1304,6 +1449,8 @@ export const ShelfSelector3D = memo(({
               yPosition={floorPositions[index]}
               isHighlighted={highlightedFloor === index}
               selectedLocation={selectedLocation}
+              occupiedLocations={occupiedLocations}
+              canSelectOccupiedLocations={canSelectOccupiedLocations}
               onSelect={handleSelect}
               floorColor={floorColor}
               floorHighlightedColor={floorHighlightedColor}
@@ -1312,6 +1459,7 @@ export const ShelfSelector3D = memo(({
               shelfColor={shelfColor}
               shelfHoverColor={shelfHoverColor}
               shelfSelectedColor={shelfSelectedColor}
+              occupiedShelfColor={occupiedShelfColor}
               textColor={textColor}
             />
           ))}

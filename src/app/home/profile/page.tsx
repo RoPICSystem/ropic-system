@@ -101,11 +101,20 @@ export default function ProfilePage() {
     fetchUserData()
   }, [])
 
-   // Show loading state
+  // Show loading state
   if (isLoading && !userData) {
     return (
-      <div className="container mx-auto max-w-4xl">
+      <div className="container mx-auto max-w-4xl p-2">
         <div className='space-y-4'>
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-2xl font-bold">Profile</h1>
+              <p className="text-default-500">Listed below is your profile information.</p>
+            </div>
+            <div className="flex gap-4">
+
+            </div>
+          </div>
           {/* Basic Information Skeleton */}
           <CardList>
             <div>
@@ -132,7 +141,7 @@ export default function ProfilePage() {
               </div>
             </div>
           </CardList>
-  
+
           {/* Address Information Skeleton */}
           <CardList>
             <div>
@@ -157,13 +166,13 @@ export default function ProfilePage() {
               </div>
             </div>
           </CardList>
-  
+
           {/* Company Information Skeleton */}
           <CardList>
             <div>
               <Skeleton className="h-6 w-48 rounded-xl m-1 mx-auto" /> {/* Section Title */}
               <Skeleton className="h-14 rounded-xl my-4" /> {/* Company Name */}
-              
+
               <div className="space-y-4 border-2 border-default-200 p-4 rounded-2xl">
                 <Skeleton className="h-5 w-36 mx-auto rounded-xl mb-4 mt-2" /> {/* Company Address Title */}
                 <div className="grid sm:grid-cols-2 gap-4">
@@ -185,7 +194,7 @@ export default function ProfilePage() {
               </div>
             </div>
           </CardList>
-  
+
           {/* Account Information Skeleton */}
           <CardList>
             <div>
@@ -193,7 +202,7 @@ export default function ProfilePage() {
               <Skeleton className="h-14 rounded-xl mt-4" /> {/* Email Field */}
             </div>
           </CardList>
-  
+
           {/* Action Items Skeleton */}
           <CardList>
             <div className="flex items-center justify-between h-full w-full py-1">
@@ -211,11 +220,19 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="container mx-auto max-w-4xl">
+    <div className="container mx-auto max-w-4xl p-2">
       <div className="space-y-4 items-center w-full">
         <div className="space-y-4 w-full">
 
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-2xl font-bold">Profile</h1>
+              <p className="text-default-500">Listed below is your profile information.</p>
+            </div>
+            <div className="flex gap-4">
 
+            </div>
+          </div>
           {/* Basic Information */}
           <CardList>
             <div>

@@ -583,8 +583,17 @@ export default function ProfilePage() {
   // Update the skeleton loading state in your existing code
   if (isLoading && !userData) {
     return (
-      <div className="container mx-auto max-w-4xl">
+      <div className="container mx-auto max-w-4xl p-2">
         <div className='space-y-4'>
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-2xl font-bold">Edit Profile</h1>
+              <p className="text-default-500">Update your profile information.</p>
+            </div>
+            <div className="flex gap-4">
+
+            </div>
+          </div>
           {/* Profile Image Skeleton */}
           <CardList>
             <div className="flex flex-col items-center justify-center w-full mb-1">
@@ -718,13 +727,23 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="container mx-auto max-w-4xl">
+    <div className="container mx-auto max-w-4xl p-2">
       <Form className="space-y-4 items-center w-full" onSubmit={handleSubmit}
         onInvalid={(error) => {
           setError("Please fill out all required fields.")
           setIsSaving(false)
         }}>
         <div className="space-y-4 w-full">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-2xl font-bold">Edit Profile</h1>
+              <p className="text-default-500">Update your profile information.</p>
+            </div>
+            <div className="flex gap-4">
+
+            </div>
+          </div>
+
           {/* Profile Image Section */}
           <CardList>
             <div className="flex flex-col items-center justify-center w-full">
