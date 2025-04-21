@@ -63,6 +63,7 @@ export interface ShelfSelectorProps {
   shelfHoverColor?: string;
   shelfSelectedColor?: string;
   occupiedShelfColor?: string;
+  occupiedHoverShelfColor?: string; // Add new prop for hover color of occupied shelves
   textColor?: string;
 }
 
@@ -315,7 +316,8 @@ const ShelfInstance = memo(({
   shelfColor,
   shelfHoverColor,
   shelfSelectedColor,
-  occupiedShelfColor
+  occupiedShelfColor,
+  occupiedHoverShelfColor
 }: {
   position: [number, number, number];
   size: [number, number, number];
@@ -330,12 +332,16 @@ const ShelfInstance = memo(({
   shelfHoverColor: string;
   shelfSelectedColor: string;
   occupiedShelfColor: string;
+  occupiedHoverShelfColor: string;
 }) => {
-  // Determine the color based on state priority: occupied > selected > hovered > default
-  const color = isOccupied ? occupiedShelfColor :
-    isSelected ? shelfSelectedColor :
-      isHovered ? shelfHoverColor :
-        shelfColor;
+  // Update color determination to use occupiedHoverShelfColor when a shelf is both occupied and hovered
+  const color = isOccupied 
+    ? (isHovered ? occupiedHoverShelfColor : occupiedShelfColor) 
+    : isSelected 
+      ? shelfSelectedColor 
+      : isHovered 
+        ? shelfHoverColor 
+        : shelfColor;
 
   const emissiveColor = isSelected ? shelfSelectedColor : "#000000";
   const emissiveIntensity = isSelected ? 0.3 : 0;
@@ -380,7 +386,8 @@ const Cabinet = memo(({
   shelfColor,
   shelfHoverColor,
   shelfSelectedColor,
-  occupiedShelfColor
+  occupiedShelfColor,
+  occupiedHoverShelfColor
 }: {
   position: [number, number, number];
   size: [number, number, number];
@@ -399,6 +406,7 @@ const Cabinet = memo(({
   shelfHoverColor: string;
   shelfSelectedColor: string;
   occupiedShelfColor: string;
+  occupiedHoverShelfColor: string;
 }) => {
   const [hoverCell, setHoverCell] = useState<[number, number] | null>(null);
   const cabinetRef = useRef<THREE.Group>(null);
@@ -562,6 +570,7 @@ const Cabinet = memo(({
           shelfHoverColor={shelfHoverColor}
           shelfSelectedColor={shelfSelectedColor}
           occupiedShelfColor={occupiedShelfColor}
+          occupiedHoverShelfColor={occupiedHoverShelfColor}
         />
       ))}
     </group>
@@ -586,6 +595,7 @@ const Floor = memo(({
   shelfHoverColor,
   shelfSelectedColor,
   occupiedShelfColor,
+  occupiedHoverShelfColor,
   textColor
 }: {
   floorConfig: FloorConfig;
@@ -604,6 +614,7 @@ const Floor = memo(({
   shelfHoverColor: string;
   shelfSelectedColor: string;
   occupiedShelfColor: string;
+  occupiedHoverShelfColor: string;
   textColor: string;
 }) => {
   const { matrix, height } = floorConfig;
@@ -654,6 +665,7 @@ const Floor = memo(({
             shelfHoverColor={shelfHoverColor}
             shelfSelectedColor={shelfSelectedColor}
             occupiedShelfColor={occupiedShelfColor}
+            occupiedHoverShelfColor={occupiedHoverShelfColor}
           />
         );
       })}
@@ -927,6 +939,7 @@ export const ShelfSelector3D = memo(({
   shelfHoverColor = "#ff9900",
   shelfSelectedColor = "#ff5555",
   occupiedShelfColor = "#8B0000", // Dark red for occupied shelves
+  occupiedHoverShelfColor = "#BB0000", // Slightly brighter red for hover on occupied shelves
   textColor = "#000000"
 }: ShelfSelectorProps) => {
   const [scene, setScene] = useState<THREE.Scene | null>(null);
@@ -1403,7 +1416,7 @@ export const ShelfSelector3D = memo(({
           position: initialCameraPosition,
           fov: 50,
           up: [0, 1, 0],
-          near: 0.1,
+          near: 0.01,
           far: 1000,
         }}
         dpr={[0.5, 1]}
@@ -1460,6 +1473,7 @@ export const ShelfSelector3D = memo(({
               shelfHoverColor={shelfHoverColor}
               shelfSelectedColor={shelfSelectedColor}
               occupiedShelfColor={occupiedShelfColor}
+              occupiedHoverShelfColor={occupiedHoverShelfColor}
               textColor={textColor}
             />
           ))}

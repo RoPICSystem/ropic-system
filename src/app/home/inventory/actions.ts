@@ -5,10 +5,10 @@ import { redirect } from "next/navigation";
 
 interface LocationData {
   company_uuid: string;
-  floor: string;
-  column: string;
-  row: string;
-  cabinet: string;
+  floor: number;
+  column: number;
+  row: number;
+  cabinet: number;
 }
 
 interface InventoryItemData {
@@ -23,6 +23,7 @@ interface InventoryItemData {
   netsuite: number | null;
   variance: number | null;
   location: LocationData;
+  location_code: string | null;
 }
 
 /**
@@ -30,10 +31,10 @@ interface InventoryItemData {
  */
 export async function checkAdminStatus() {
   const supabase = await createClient();
-  
+
   // Get current user
   const { data: { user } } = await supabase.auth.getUser();
-  
+
   if (!user) {
     redirect("/login");
   }
@@ -44,7 +45,7 @@ export async function checkAdminStatus() {
     .select("uuid, company")
     .eq("is_admin", true)
     .single();
-  
+
   if (error || !adminData) {
     console.error("Not an admin or error:", error);
     redirect("/home/dashboard");
@@ -57,23 +58,23 @@ export async function checkAdminStatus() {
  */
 export async function createInventoryItem(formData: InventoryItemData) {
   const supabase = await createClient();
-  
+
   try {
     const { data, error } = await supabase
       .from("inventory_items")
       .insert(formData)
       .select();
-      
+
     if (error) {
       throw error;
     }
-    
+
     return { success: true, data };
   } catch (error) {
     console.error("Error creating inventory item:", error);
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : "Unknown error occurred" 
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error occurred"
     };
   }
 }
@@ -109,47 +110,47 @@ export async function getInventoryItems(options: {
 }) {
   const { page = 1, pageSize = 10, search = "", companyUuid } = options;
   const supabase = await createClient();
-  
+
   try {
     // Calculate pagination values
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
-    
+
     // Start building the query
     let query = supabase
       .from("inventory_items")
       .select("*")
       .order("created_at", { ascending: false });
-    
+
     // Apply company filter if provided
     if (companyUuid) {
       query = query.eq("company_uuid", companyUuid);
     }
-    
+
     // Apply search filter if provided
     if (search) {
       query = query.or(
         `item_code.ilike.%${search}%,item_name.ilike.%${search}%,description.ilike.%${search}%`
       );
     }
-    
+
     // Apply pagination
     query = query.range(from, to);
-    
+
     // Execute the query
     const { data, error, count } = await query;
-    
+
     if (error) {
       throw error;
     }
-    
+
     // Get total count in a separate query
     const { count: totalCount } = await supabase
       .from("inventory_items")
       .select("*", { count: "exact", head: true });
 
-    return { 
-      success: true, 
+    return {
+      success: true,
       data: data || [],
       pagination: {
         page,
@@ -160,8 +161,8 @@ export async function getInventoryItems(options: {
     };
   } catch (error) {
     console.error("Error fetching inventory items:", error);
-    return { 
-      success: false, 
+    return {
+      success: false,
       data: [],
       error: error instanceof Error ? error.message : "Unknown error occurred",
       pagination: {
@@ -182,39 +183,39 @@ export async function getInventoryItems(options: {
  */
 export async function getOccupiedShelfLocations(companyUuid: string) {
   const supabase = await createClient();
-  
+
   try {
     // Only select the location fields we need
     const { data, error } = await supabase
       .from("inventory_items")
       .select("location")
       .eq("company_uuid", companyUuid);
-      
+
     if (error) {
       throw error;
     }
-    
+
     // Transform database location format to ShelfLocation format
     const occupiedLocations = data
-      .filter(item => item.location) // Filter out any items without location data
+      .filter(item => item.location)
       .map(item => {
         const loc = item.location;
         return {
-          floor: parseInt(loc.floor) - 1, // Convert to zero-based index
-          cabinet_id: parseInt(loc.cabinet) - 1,
-          cabinet_row: parseInt(loc.row) - 1,
-          cabinet_column: loc.column.charCodeAt(0) - 65 // Convert column letter to zero-based index (A=0, B=1, etc.)
+          floor: loc.floor - 1,
+          cabinet_id: loc.cabinet - 1,
+          cabinet_row: loc.row - 1,
+          cabinet_column: loc.column - 1
         };
       });
-    
-    return { 
-      success: true, 
+
+    return {
+      success: true,
       data: occupiedLocations
     };
   } catch (error) {
     console.error("Error fetching occupied shelf locations:", error);
-    return { 
-      success: false, 
+    return {
+      success: false,
       data: [],
       error: error instanceof Error ? error.message : "Unknown error occurred"
     };

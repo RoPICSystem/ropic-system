@@ -312,7 +312,7 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
         <ModalContent>
           {(onClose) => (
             <>
-              <ModalHeader className="flex flex-col gap-1">Sign out</ModalHeader>
+              <ModalHeader className="flex flex-col gap-2">Sign out</ModalHeader>
               <ModalBody>
                 <div className="flex flex-col gap-2">
                   <p className="text-medium">Are you sure you want to sign out?</p>
@@ -321,15 +321,17 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
                   </p>
                 </div>
               </ModalBody>
-              <ModalFooter>
+              <ModalFooter className="flex justify-end gap-4 p-4">
                 <Button
                   color="primary"
+                  variant="shadow"
                   onPress={onClose}
                   isDisabled={isSignOutLoading}>
                   Cancel
                 </Button>
                 <Button
                   color="danger"
+                  variant="shadow"
                   isLoading={isSignOutLoading}
                   onPress={async (e) => {
                     setIsSignOutLoading(true)

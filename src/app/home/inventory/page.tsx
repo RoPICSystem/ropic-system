@@ -35,7 +35,7 @@ import { useInfiniteScroll } from "@heroui/use-infinite-scroll";
 import { Icon } from "@iconify-icon/react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { FloorConfig, generateShelfOccupancyMatrix, ShelfLocation, ShelfSelector3D } from "@/components/shelf-selector-3d-v3";
 import { useTheme } from "next-themes";
 import { herouiColor } from "@/utils/colors";
@@ -51,13 +51,14 @@ import {
 } from "./actions";
 
 import CardList from "@/components/card-list";
+import { motionTransition } from "@/utils/anim";
 
 interface LocationData {
   company_uuid: string;
-  floor: string;
-  column: string;
-  row: string;
-  cabinet: string;
+  floor: number | null;
+  column: number | null;
+  row: number | null;
+  cabinet: number | null;
 }
 
 interface InventoryItem {
@@ -99,6 +100,8 @@ export default function InventoryPage() {
   const [isFloorChangeAnimate, setIsFloorChangeAnimate] = useState<boolean>(true);
   const [isShelfChangeAnimate, setIsShelfChangeAnimate] = useState<boolean>(true);
   const [isCabinetChangeAnimate, setIsCabinetChangeAnimate] = useState<boolean>(false);
+  const [isSelectedLocationOccupied, setIsSelectedLocationOccupied] = useState(false);
+
 
   // Add this state near your other state declarations
   const [externalSelection, setExternalSelection] = useState<ShelfLocation | undefined>(undefined);
@@ -117,8 +120,10 @@ export default function InventoryPage() {
     shelfHoverColor: "#ffb74d", // Hover orange
     shelfSelectedColor: "#ff5252", // Selected red
     occupiedShelfColor: "#8B0000", // Occupied red
+    occupiedHoverShelfColor: "#BB3333", // New occupied hover color - lighter red
     textColor: "#2c3e50",       // Dark blue text
   });
+
 
   const { theme } = useTheme()
 
@@ -134,9 +139,20 @@ export default function InventoryPage() {
         shelfHoverColor: herouiColor('primary-400', 'hex') as string,
         shelfSelectedColor: herouiColor('primary', 'hex') as string,
         occupiedShelfColor: herouiColor('danger', 'hex') as string,
+        occupiedHoverShelfColor: herouiColor('danger-400', 'hex') as string, // Add danger-400 for hover
         textColor: herouiColor('text', 'hex') as string,
       });
     }, 100);
+  };
+
+  const checkIfLocationOccupied = (location: ShelfLocation) => {
+    return occupiedLocations.some(
+      loc =>
+        loc.floor === location.floor &&
+        loc.cabinet_id === location.cabinet_id &&
+        loc.cabinet_row === location.cabinet_row &&
+        loc.cabinet_column === location.cabinet_column
+    );
   };
 
   useEffect(() => {
@@ -160,10 +176,10 @@ export default function InventoryPage() {
     variance: null,
     location: {
       company_uuid: "",
-      floor: "",
-      column: "",
-      row: "",
-      cabinet: ""
+      floor: null,
+      column: null,
+      row: null,
+      cabinet: null
     }
   });
 
@@ -171,18 +187,20 @@ export default function InventoryPage() {
     inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
   }
 
-  // Location state
-  const [selectedFloor, setSelectedFloor] = useState("");
-  const [selectedColumn, setSelectedColumn] = useState("");
-  const [selectedRow, setSelectedRow] = useState("");
-  const [selectedCabinet, setSelectedCabinet] = useState("");
+  // Location state - change from strings to numbers and add columnCode for the letter representation
+  const [selectedFloor, setSelectedFloor] = useState<number | null>(null);
+  const [selectedColumnCode, setSelectedColumnCode] = useState<string>("");
+  const [selectedColumn, setSelectedColumn] = useState<number | null>(null);
+  const [selectedRow, setSelectedRow] = useState<number | null>(null);
+  const [selectedCabinet, setSelectedCabinet] = useState<number | null>(null);
   const [selectedCode, setSelectedCode] = useState("");
 
-  // Add state for temporary modal selections
-  const [tempSelectedFloor, setTempSelectedFloor] = useState("");
-  const [tempSelectedColumn, setTempSelectedColumn] = useState("");
-  const [tempSelectedRow, setTempSelectedRow] = useState("");
-  const [tempSelectedCabinet, setTempSelectedCabinet] = useState("");
+  // Add state for temporary modal selections - use numbers instead of strings
+  const [tempSelectedFloor, setTempSelectedFloor] = useState<number | null>(null);
+  const [tempSelectedColumnCode, setTempSelectedColumnCode] = useState<string>("");
+  const [tempSelectedColumn, setTempSelectedColumn] = useState<number | null>(null);
+  const [tempSelectedRow, setTempSelectedRow] = useState<number | null>(null);
+  const [tempSelectedCabinet, setTempSelectedCabinet] = useState<number | null>(null);
   const [tempSelectedCode, setTempSelectedCode] = useState("");
 
   // Validation state
@@ -227,21 +245,55 @@ export default function InventoryPage() {
   const [maxRow, setMaxRow] = useState(0);
   const [maxColumn, setMaxColumn] = useState(0);
 
-  // Update the handleShelfSelection function
+  // Convert column to Excel style (AA = 0, AB = 1, etc.)
+  const parseColumn = (column: number | null) => {
+    if (column === null || column === undefined) return null;
+
+    const firstChar = String.fromCharCode(65 + Math.floor(column / 26));
+    const secondChar = String.fromCharCode(65 + (column % 26));
+    const colStr = column !== undefined && column !== null ?
+      firstChar + secondChar :
+      null;
+    return colStr;
+  }
+
+  const formatCode = (location: ShelfLocation | any) => {
+    // Format the location code
+    const { floor, cabinet_id: cabinet, cabinet_row: row, cabinet_column: column } = location;
+    const colStr = parseColumn(column);
+
+    // Format with leading zeros: floor (2 digits), row (2 digits), cabinet (3 digits)
+    const floorStr = floor !== undefined && floor !== null ?
+      floor.toString().padStart(2, '0') : "???";
+    const rowStr = row !== undefined && row !== null ?
+      row.toString().padStart(2, '0') : "???";
+    const cabinetStr = cabinet !== undefined && cabinet !== null ?
+      cabinet.toString().padStart(3, '0') : "???";
+
+    return `F${floorStr}${colStr}${rowStr}C${cabinetStr}`;
+  }
+
+
+  // Update the handleShelfSelection function to check if selected location is occupied
   const handleShelfSelection = (location: ShelfLocation) => {
-    const floorNumber = location.floor + 1;
-    const column = String.fromCharCode(65 + location.cabinet_column);
-    const row = `${location.cabinet_row + 1}`;
-    const cabinet = `${location.cabinet_id + 1}`;
+    const floorNumber = location.floor;
+    const columnNumber = location.cabinet_column;
+    const columnCode = String.fromCharCode(65 + columnNumber);
+    const rowNumber = location.cabinet_row;
+    const cabinetNumber = location.cabinet_id;
 
-    // Update temporary selections
-    setTempSelectedFloor(`${floorNumber}`);
-    setTempSelectedColumn(column);
-    setTempSelectedRow(row);
-    setTempSelectedCabinet(cabinet);
+    console.log("Selected Floor:", floorNumber, "Column:", columnNumber, "Row:", rowNumber, "Cabinet:", cabinetNumber);
 
-    // Update temp code
-    setTempSelectedCode(`F${floorNumber || "?"}-${column || "?"}${row || "?"}-C${cabinet || "?"}`);
+
+    // Update temporary selections with numerical values
+    setTempSelectedFloor(floorNumber);
+    setTempSelectedColumn(columnNumber);
+    setTempSelectedColumnCode(columnCode);
+    setTempSelectedRow(rowNumber);
+    setTempSelectedCabinet(cabinetNumber);
+
+    // Use formatCode for consistent code formatting
+    setTempSelectedCode(formatCode(location));
 
     // Set the highlighted floor
     setHighlightedFloor(location.floor);
@@ -250,108 +302,173 @@ export default function InventoryPage() {
     if (location.max_cabinet_id !== undefined) setMaxCabinetId(location.max_cabinet_id);
     if (location.max_row !== undefined) setMaxRow(location.max_row);
     if (location.max_column !== undefined) setMaxColumn(location.max_column);
+
+    // Check if location is occupied
+    setIsSelectedLocationOccupied(checkIfLocationOccupied(location));
   };
 
-  // Update the handle functions for modal pagination controls
+  // Add a helper function to update the occupied status after selection changes
+  const updateLocationOccupiedStatus = () => {
+    if (highlightedFloor !== null && tempSelectedCabinet !== null &&
+      tempSelectedRow !== null && tempSelectedColumn !== null) {
+      const location = {
+        floor: highlightedFloor,
+        cabinet_id: tempSelectedCabinet,
+        cabinet_row: tempSelectedRow,
+        cabinet_column: tempSelectedColumn
+      };
+      setIsSelectedLocationOccupied(checkIfLocationOccupied(location));
+    }
+  };
+
+  // Update the handle functions to check for occupation after selection and use formatCode
   const handleFloorChange = (floorNum: number) => {
     const floorIndex = floorNum - 1;
-    setTempSelectedFloor(`${floorNum}`);
+    setTempSelectedFloor(floorIndex);
     setHighlightedFloor(floorIndex);
 
-    if (tempSelectedCabinet) {
-      setExternalSelection({
+    if (tempSelectedCabinet !== null) {
+      const location = {
         floor: floorIndex,
-        cabinet_id: parseInt(tempSelectedCabinet) - 1,
-        cabinet_row: tempSelectedRow ? parseInt(tempSelectedRow) - 1 : 0,
-        cabinet_column: tempSelectedColumn ? tempSelectedColumn.charCodeAt(0) - 65 : 0
-      });
-    }
+        cabinet_id: tempSelectedCabinet,
+        cabinet_row: tempSelectedRow !== null ? tempSelectedRow : 0,
+        cabinet_column: tempSelectedColumn !== null ? tempSelectedColumn : 0
+      };
+      setExternalSelection(location);
 
-    // Update temp code
-    setTempSelectedCode(`F${floorNum || "?"}-${tempSelectedColumn || "?"}${tempSelectedRow || "?"}-C${tempSelectedCabinet || "?"}`);
+      // Use formatCode for consistent formatting
+      setTempSelectedCode(formatCode(location));
+
+      // Check if new location is occupied
+      setTimeout(updateLocationOccupiedStatus, 0);
+    }
   };
 
   const handleCabinetChange = (cabinetId: number) => {
     const adjustedId = cabinetId - 1;
-    setTempSelectedCabinet(`${cabinetId}`);
+    setTempSelectedCabinet(adjustedId);
 
-    if (tempSelectedFloor && highlightedFloor !== null) {
-      setExternalSelection({
+    if (tempSelectedFloor !== null && highlightedFloor !== null) {
+      const location = {
         floor: highlightedFloor,
         cabinet_id: adjustedId,
-        cabinet_row: tempSelectedRow ? parseInt(tempSelectedRow) - 1 : 0,
-        cabinet_column: tempSelectedColumn ? tempSelectedColumn.charCodeAt(0) - 65 : 0
-      });
-    }
+        cabinet_row: tempSelectedRow !== null ? tempSelectedRow : 0,
+        cabinet_column: tempSelectedColumn !== null ? tempSelectedColumn : 0
+      };
+      setExternalSelection(location);
 
-    setTempSelectedCode(`F${tempSelectedFloor || "?"}-${tempSelectedColumn || "?"}${tempSelectedRow || "?"}-C${cabinetId || "?"}`);
+      // Use formatCode for consistent formatting
+      setTempSelectedCode(formatCode(location));
+
+      // Check if new location is occupied
+      setTimeout(updateLocationOccupiedStatus, 0);
+    }
   };
 
   const handleRowChange = (rowNum: number) => {
     const adjustedRow = rowNum - 1;
-    setTempSelectedRow(`${rowNum}`);
+    setTempSelectedRow(adjustedRow);
 
-    if (tempSelectedFloor && highlightedFloor !== null && tempSelectedCabinet) {
-      setExternalSelection({
+    if (tempSelectedFloor !== null && highlightedFloor !== null && tempSelectedCabinet !== null) {
+      const location = {
         floor: highlightedFloor,
-        cabinet_id: parseInt(tempSelectedCabinet) - 1,
+        cabinet_id: tempSelectedCabinet,
         cabinet_row: adjustedRow,
-        cabinet_column: tempSelectedColumn ? tempSelectedColumn.charCodeAt(0) - 65 : 0
-      });
-    }
+        cabinet_column: tempSelectedColumn !== null ? tempSelectedColumn : 0
+      };
+      setExternalSelection(location);
 
-    setTempSelectedCode(`F${tempSelectedFloor || "?"}-${tempSelectedColumn || "?"}${rowNum || "?"}-C${tempSelectedCabinet || "?"}`);
+      // Use formatCode for consistent formatting
+      setTempSelectedCode(formatCode(location));
+
+      // Check if new location is occupied
+      setTimeout(updateLocationOccupiedStatus, 0);
+    }
   };
 
   const handleColumnChange = (colNum: number) => {
-    const colLetter = String.fromCharCode(64 + colNum);
-    setTempSelectedColumn(colLetter);
-
     const adjustedCol = colNum - 1;
+    const colLetter = String.fromCharCode(64 + colNum);
 
-    if (tempSelectedFloor && highlightedFloor !== null && tempSelectedCabinet) {
-      setExternalSelection({
+    setTempSelectedColumn(adjustedCol);
+    setTempSelectedColumnCode(colLetter);
+
+    if (tempSelectedFloor !== null && highlightedFloor !== null && tempSelectedCabinet !== null) {
+      const location = {
         floor: highlightedFloor,
-        cabinet_id: parseInt(tempSelectedCabinet) - 1,
-        cabinet_row: tempSelectedRow ? parseInt(tempSelectedRow) - 1 : 0,
+        cabinet_id: tempSelectedCabinet,
+        cabinet_row: tempSelectedRow !== null ? tempSelectedRow : 0,
         cabinet_column: adjustedCol
-      });
-    }
+      };
+      setExternalSelection(location);
 
-    setTempSelectedCode(`F${tempSelectedFloor || "?"}-${colLetter || "?"}${tempSelectedRow || "?"}-C${tempSelectedCabinet || "?"}`);
+      // Use formatCode for consistent formatting
+      setTempSelectedCode(formatCode(location));
+
+      // Check if new location is occupied
+      setTimeout(updateLocationOccupiedStatus, 0);
+    }
   };
 
-  // Modified modal open handler to initialize with current values
+  // Modified modal open handler to also check occupation status
   const handleOpenModal = () => {
     setTempSelectedFloor(selectedFloor);
     setTempSelectedColumn(selectedColumn);
+    setTempSelectedColumnCode(selectedColumnCode);
     setTempSelectedRow(selectedRow);
     setTempSelectedCabinet(selectedCabinet);
     setTempSelectedCode(selectedCode);
 
-    if (selectedFloor && selectedColumn && selectedRow && selectedCabinet) {
-      const floorIndex = parseInt(selectedFloor) - 1;
-      setHighlightedFloor(floorIndex);
+    if (selectedFloor !== null && selectedColumn !== null &&
+      selectedRow !== null && selectedCabinet !== null) {
+      setHighlightedFloor(selectedFloor);
 
-      setExternalSelection({
-        floor: floorIndex,
-        cabinet_id: parseInt(selectedCabinet) - 1,
-        cabinet_row: parseInt(selectedRow) - 1,
-        cabinet_column: selectedColumn.charCodeAt(0) - 65
-      });
+      const location = {
+        floor: selectedFloor,
+        cabinet_id: selectedCabinet,
+        cabinet_row: selectedRow,
+        cabinet_column: selectedColumn
+      };
+
+      setExternalSelection(location);
+
+      // Check if current location is occupied
+      setIsSelectedLocationOccupied(checkIfLocationOccupied(location));
     }
 
     onOpen();
   };
 
-  // Confirm location handler
   const handleConfirmLocation = () => {
     setSelectedFloor(tempSelectedFloor);
     setSelectedColumn(tempSelectedColumn);
+    setSelectedColumnCode(tempSelectedColumnCode);
     setSelectedRow(tempSelectedRow);
     setSelectedCabinet(tempSelectedCabinet);
+
+    // Generate and set the location code
+    const locationCode = tempSelectedCode;
+    setSelectedCode(locationCode);
+
+    // Update formData to include location_code
+    setFormData(prev => ({
+      ...prev,
+      location_code: locationCode
+    }));
+
     onClose();
   };
+
+  // Cancel location handler 
+  const handleCancelLocation = () => {
+    setTempSelectedFloor(selectedFloor);
+    setTempSelectedColumn(selectedColumn);
+    setTempSelectedColumnCode(selectedColumnCode);
+    setTempSelectedRow(selectedRow);
+    setTempSelectedCabinet(selectedCabinet);
+    setTempSelectedCode(selectedCode);
+    onClose();
+  }
 
   // Load more inventory items
   const loadMoreItems = async () => {
@@ -412,7 +529,7 @@ export default function InventoryPage() {
     }
   };
 
-  // Select an inventory item
+  // In handleSelectItem function:
   const handleSelectItem = (key: string) => {
     const item = inventoryItems.find(i => i.uuid === key) as InventoryItem;
     if (!item) return;
@@ -423,13 +540,35 @@ export default function InventoryPage() {
       admin_uuid: adminUUID,
     });
 
-    // Update location fields
+    // Update location fields - convert strings to numbers
     if (item.location) {
-      setSelectedFloor(item.location.floor);
+      const floorNumber = item.location.floor || null;
+      const columnNumber = item.location.column;
+      const rowNumber = item.location.row;
+      const cabinetNumber = item.location.cabinet;
+
+      setSelectedFloor(floorNumber);
+      setSelectedColumnCode(parseColumn(columnNumber) || "");
       setSelectedColumn(item.location.column);
-      setSelectedRow(item.location.row);
-      setSelectedCabinet(item.location.cabinet);
-      setSelectedCode(`F${item.location.floor || "?"}-${item.location.column || "?"}${item.location.row || "?"}-C${item.location.cabinet || "?"}`);
+      setSelectedRow(rowNumber);
+      setSelectedCabinet(cabinetNumber);
+
+      // Create a location object and use formatCode
+      const location = {
+        floor: floorNumber,
+        cabinet_id: cabinetNumber,
+        cabinet_row: rowNumber,
+        cabinet_column: columnNumber
+      };
+
+      const code = formatCode(location);
+      setSelectedCode(code);
+
+      // Ensure location_code is updated in formData
+      setFormData(prev => ({
+        ...prev,
+        location_code: code
+      }));
     }
   };
 
@@ -520,25 +659,40 @@ export default function InventoryPage() {
     }
   };
 
-  // Update location
   useEffect(() => {
-    setFormData(prev => ({
-      ...prev,
-      location: {
-        ...prev.location!,
+    if (selectedFloor !== null && selectedColumnCode && selectedRow !== null && selectedCabinet !== null) {
+      // Create the location object
+      const location = {
         floor: selectedFloor,
-        column: selectedColumn,
-        row: selectedRow,
-        cabinet: selectedCabinet
-      }
-    }));
+        cabinet_id: selectedCabinet,
+        cabinet_row: selectedRow,
+        cabinet_column: selectedColumn !== null ? selectedColumn : 0
+      };
 
-    setSelectedCode(`F${selectedFloor || "?"}-${selectedColumn || "?"}${selectedRow || "?"}-C${selectedCabinet || "?"}`);
-  }, [selectedFloor, selectedColumn, selectedRow, selectedCabinet]);
+      // Generate the location code
+      const code = formatCode(location);
+
+      setFormData(prev => ({
+        ...prev,
+        location: {
+          ...prev.location!,
+          floor: selectedFloor,
+          column: selectedColumn,
+          row: selectedRow,
+          cabinet: selectedCabinet
+        },
+        location_code: code // Set the location_code field
+      }));
+
+      setSelectedCode(code);
+    }
+  }, [selectedFloor, selectedColumn, selectedColumnCode, selectedRow, selectedCabinet]);
 
   // Form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    console.log("Form Data:", formData);
 
     const newErrors: Record<string, string> = {};
     if (!formData.item_code) newErrors.item_code = "Item code is required";
@@ -546,10 +700,10 @@ export default function InventoryPage() {
     if (!formData.quantity || formData.quantity <= 0) newErrors.quantity = "Valid quantity is required";
     if (!formData.unit) newErrors.unit = "Unit is required";
     if (formData.ending_inventory === undefined || formData.ending_inventory < 0) newErrors.ending_inventory = "Valid ending inventory is required";
-    if (!formData.location!.floor) newErrors["location.floor"] = "Floor is required";
-    if (!formData.location!.column) newErrors["location.column"] = "Column is required";
-    if (!formData.location!.row) newErrors["location.row"] = "Row is required";
-    if (!formData.location!.cabinet) newErrors["location.cabinet"] = "Cabinet is required";
+    if (formData.location!.floor === null) newErrors["location.floor"] = "Floor is required";
+    if (formData.location!.column === null) newErrors["location.column"] = "Column is required";
+    if (formData.location!.row === null) newErrors["location.row"] = "Row is required";
+    if (formData.location!.cabinet === null) newErrors["location.cabinet"] = "Cabinet is required";
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
@@ -592,16 +746,16 @@ export default function InventoryPage() {
             variance: null,
             location: {
               company_uuid: companyUUID,
-              floor: "",
-              column: "",
-              row: "",
-              cabinet: ""
+              floor: null,
+              column: null,
+              row: null,
+              cabinet: null,
             }
           });
-          setSelectedFloor("");
-          setSelectedColumn("");
-          setSelectedRow("");
-          setSelectedCabinet("");
+          setSelectedFloor(null);
+          setSelectedColumn(null);
+          setSelectedRow(null);
+          setSelectedCabinet(null);
           setSelectedCode("");
         } else if (result.data) {
           if ((result.data as any).uuid)
@@ -725,17 +879,17 @@ export default function InventoryPage() {
                     variance: null,
                     location: {
                       company_uuid: companyUUID,
-                      floor: "",
-                      column: "",
-                      row: "",
-                      cabinet: ""
+                      floor: null,
+                      column: null,
+                      row: null,
+                      cabinet: null,
                     }
                   });
                   setSelectedItemId(null);
-                  setSelectedFloor("");
-                  setSelectedColumn("");
-                  setSelectedRow("");
-                  setSelectedCabinet("");
+                  setSelectedFloor(null);
+                  setSelectedColumn(null);
+                  setSelectedRow(null);
+                  setSelectedCabinet(null);
                   setSelectedCode("");
                 }}
               >
@@ -745,12 +899,13 @@ export default function InventoryPage() {
           )}
         </div>
       </div>
-      <div className="flex flex-col lg:flex-row gap-4">
+      <div className="flex flex-col lg:flex-row gap-4 ">
         {/* Left side: Inventory List */}
         <div className="lg:w-1/3 shadow-xl shadow-primary/10 min-h-[32rem] 
-            min-w-[350px] rounded-2xl overflow-hidden bg-background border border-default-200">
+            min-w-[350px] rounded-2xl overflow-hidden bg-background border border-default-200"
+        >
           <div className="flex flex-col h-full relative">
-            <div className="p-4 absolute w-full z-20 top-0 bg-background/50 backdrop-blur-lg border-b border-default-200">
+            <div className="p-4 absolute w-full z-20 top-0 bg-background/50 border-b border-default-200 backdrop-blur-lg">
               <h2 className="text-xl font-semibold mb-4 w-full text-center">Inventory Items</h2>
               <Input
                 placeholder="Search items..."
@@ -762,7 +917,7 @@ export default function InventoryPage() {
             <div className="h-full absolute w-full">
               {!isLoadingItems && inventoryItems.length !== 0 && (
                 <Listbox
-                  classNames={{ list: 'space-y-4 p-3 overflow-y-scroll pt-32', base: 'h-full' }}
+                  classNames={{ list: 'space-y-4 p-3 overflow-y-auto pt-32', base: 'h-full' }}
                   onSelectionChange={(item) => handleSelectItem((item as Set<string>).values().next().value || "")}
                   selectedKeys={[selectedItemId || ""]}
                   ref={scrollRef}
@@ -797,7 +952,12 @@ export default function InventoryPage() {
                               ₱{item.ending_inventory.toFixed(2)}
                             </Chip>
                             <Chip color="danger" variant={selectedItemId === item.uuid ? "shadow" : "flat"} size="sm">
-                              {`F${item.location.floor}-${item.location.column}${item.location.row}-C${item.location.cabinet}`}
+                              {formatCode({
+                                floor: item.location?.floor,
+                                cabinet_column: item.location?.column,
+                                cabinet_row: item.location?.row,
+                                cabinet_id: item.location?.cabinet
+                              })}
                             </Chip>
                           </div>
                         </div>
@@ -855,7 +1015,7 @@ export default function InventoryPage() {
                     name="description"
                     label="Description"
                     maxRows={5}
-                    minRows={5}
+                    minRows={1}
                     classNames={inputStyle}
                     placeholder="Enter item description (optional)"
                     value={formData.description || ""}
@@ -918,26 +1078,27 @@ export default function InventoryPage() {
                     startContent={<Icon icon="mdi:currency-php" className="text-default-500 pb-[0.1rem]" />}
                   />
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-4"></div>
-                  <NumberInput
-                    name="netsuite"
-                    classNames={inputStyle}
-                    label="Netsuite (Optional)"
-                    placeholder="0.00"
-                    onValueChange={(e) => setFormData({ ...formData, netsuite: e })}
-                    value={formData.netsuite || 0}
-                    startContent={<Icon icon="mdi:database" className="text-default-500 pb-[0.1rem]" />}
-                  />
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-4">
+                    <NumberInput
+                      name="netsuite"
+                      classNames={inputStyle}
+                      label="Netsuite (Optional)"
+                      placeholder="0.00"
+                      onValueChange={(e) => setFormData({ ...formData, netsuite: e })}
+                      value={formData.netsuite || 0}
+                      startContent={<Icon icon="mdi:database" className="text-default-500 pb-[0.1rem]" />}
+                    />
 
-                  <NumberInput
-                    name="variance"
-                    classNames={inputStyle}
-                    label="Variance (Optional)"
-                    placeholder="0.00"
-                    onValueChange={(e) => setFormData({ ...formData, variance: e })}
-                    value={formData.variance || 0}
-                    startContent={<Icon icon="mdi:chart-line-variant" className="text-default-500 pb-[0.1rem]" />}
-                  />
+                    <NumberInput
+                      name="variance"
+                      classNames={inputStyle}
+                      label="Variance (Optional)"
+                      placeholder="0.00"
+                      onValueChange={(e) => setFormData({ ...formData, variance: e })}
+                      value={formData.variance || 0}
+                      startContent={<Icon icon="mdi:chart-line-variant" className="text-default-500 pb-[0.1rem]" />}
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -945,6 +1106,7 @@ export default function InventoryPage() {
                 <h2 className="text-xl font-semibold mb-4 w-full text-center">Item Location</h2>
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 lg:grid-cols-2 xl:grid-cols-4 gap-4">
+
                     <NumberInput
                       name="location.floor"
                       classNames={inputStyle}
@@ -952,8 +1114,9 @@ export default function InventoryPage() {
                       placeholder="e.g. 1"
                       maxValue={floorOptions.length - 1}
                       minValue={1}
-                      value={parseInt(selectedFloor) || 0}
-                      onChange={(e) => setSelectedFloor(`${e}`)}
+                      // Display floor as 1-indexed but store as 0-indexed
+                      value={selectedFloor !== null ? selectedFloor + 1 : 0}
+                      onValueChange={(e) => setSelectedFloor(e - 1)}
                       isRequired
                       isInvalid={!!errors["location.floor"]}
                       errorMessage={errors["location.floor"]}
@@ -964,8 +1127,14 @@ export default function InventoryPage() {
                       classNames={inputStyle}
                       label="Column"
                       placeholder="e.g. A"
-                      value={selectedColumn}
-                      onChange={(e) => setSelectedColumn(e.target.value)}
+                      value={selectedColumnCode || ""}
+                      onChange={(e) => {
+                        const val = e.target.value.toUpperCase();
+                        setSelectedColumnCode(val);
+                        if (val) {
+                          setSelectedColumn(val.charCodeAt(0) - 65);
+                        }
+                      }}
                       isRequired
                       isInvalid={!!errors["location.column"]}
                       errorMessage={errors["location.column"]}
@@ -975,9 +1144,11 @@ export default function InventoryPage() {
                       name="location.row"
                       classNames={inputStyle}
                       label="Row"
+                      minValue={1}
                       placeholder="e.g. 1"
-                      value={parseInt(selectedRow) || 0}
-                      onChange={(e) => setSelectedRow(`${e}`)}
+                      // Display row as 1-indexed but store as 0-indexed
+                      value={selectedRow !== null ? selectedRow + 1 : 0}
+                      onValueChange={(e) => setSelectedRow(e - 1)}
                       isRequired
                       isInvalid={!!errors["location.row"]}
                       errorMessage={errors["location.row"]}
@@ -987,9 +1158,11 @@ export default function InventoryPage() {
                       name="location.cabinet"
                       classNames={inputStyle}
                       label="Cabinet"
+                      minValue={1}
                       placeholder="e.g. 1"
-                      value={parseInt(selectedCabinet) || 0}
-                      onChange={(e) => setSelectedCabinet(`${e}`)}
+                      // Display cabinet as 1-indexed but store as 0-indexed
+                      value={selectedCabinet !== null ? selectedCabinet + 1 : 0}
+                      onValueChange={(e) => setSelectedCabinet(e - 1)}
                       isRequired
                       isInvalid={!!errors["location.cabinet"]}
                       errorMessage={errors["location.cabinet"]}
@@ -997,8 +1170,8 @@ export default function InventoryPage() {
                   </div>
 
                   <div className="mt-4 rounded-md flex flex-row items-center justify-between gap-3">
-                    <Chip className="mb-2 sm:mb-0 font-bold">
-                      {selectedCode}
+                    <Chip className="mb-2 sm:mb-0">
+                      CODE: <b>{selectedCode}</b>
                     </Chip>
                     <Button color="primary" onClick={handleOpenModal}>
                       Open Floorplan
@@ -1025,7 +1198,7 @@ export default function InventoryPage() {
 
       <Modal
         isOpen={isOpen}
-        onClose={onClose}
+        onClose={handleCancelLocation}
         placement='auto'
         classNames={{
           backdrop: "bg-background/50",
@@ -1041,7 +1214,7 @@ export default function InventoryPage() {
                 floors={floorConfigs}
                 onSelect={handleShelfSelection}
                 occupiedLocations={occupiedLocations}
-                canSelectOccupiedLocations={false}
+                canSelectOccupiedLocations={true}
                 className="w-full h-full"
                 highlightedFloor={highlightedFloor}
                 onHighlightFloor={setHighlightedFloor}
@@ -1059,79 +1232,97 @@ export default function InventoryPage() {
                 shelfHoverColor={customColors.shelfHoverColor}
                 shelfSelectedColor={customColors.shelfSelectedColor}
                 occupiedShelfColor={customColors.occupiedShelfColor}
+                occupiedHoverShelfColor={customColors.occupiedHoverShelfColor}
                 textColor={customColors.textColor}
               />
 
-              <div className="absolute bottom-4 left-4 flex flex-col gap-2 bg-background/50 rounded-2xl p-4 backdrop-blur-lg md:w-auto w-[calc(100%-2rem)]">
-                <div className="grid md:grid-cols-2 grid-cols-1 gap-3">
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold w-16">Floor</span>
-                      <Pagination
-                        classNames={{ item: "bg-default/25" }}
-                        initialPage={0}
-                        size="sm"
-                        page={tempSelectedFloor ? parseInt(tempSelectedFloor) : 0}
-                        total={floorConfigs.length}
-                        onChange={handleFloorChange}
-                      />
-                    </div>
+              <AnimatePresence>
+                {tempSelectedCode &&
+                  <motion.div
+                    {...motionTransition}
+                    className="absolute bottom-4 left-4 flex flex-col gap-2 bg-background/50 rounded-2xl backdrop-blur-lg md:w-auto w-[calc(100%-2rem)]">
+                    <div className="grid md:grid-cols-2 grid-cols-1 gap-3 p-4">
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold w-16">Floor</span>
+                          <Pagination
+                            classNames={{ item: "bg-default/25" }}
+                            initialPage={0}
+                            size="sm"
+                            page={(tempSelectedFloor || 0) + 1}
+                            total={floorConfigs.length}
+                            onChange={handleFloorChange}
+                          />
+                        </div>
 
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold w-16">Cabinet</span>
-                      <Pagination
-                        classNames={{ item: "bg-default/25" }}
-                        initialPage={1}
-                        size="sm"
-                        page={tempSelectedCabinet ? parseInt(tempSelectedCabinet) : 1}
-                        total={maxCabinetId + 1}
-                        onChange={handleCabinetChange}
-                      />
-                    </div>
-                  </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold w-16">Cabinet</span>
+                          <Pagination
+                            classNames={{ item: "bg-default/25" }}
+                            initialPage={1}
+                            size="sm"
+                            page={(tempSelectedCabinet || 0) + 1}
+                            total={maxCabinetId + 1}
+                            onChange={handleCabinetChange}
+                          />
+                        </div>
+                      </div>
 
-                  <div className="flex flex-col gap-2 md:border-default md:border-l md:pl-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold w-16">Row</span>
-                      <Pagination
-                        classNames={{ item: "bg-default/25" }}
-                        initialPage={1}
-                        size="sm"
-                        page={tempSelectedRow ? parseInt(tempSelectedRow) : 1}
-                        total={maxRow + 1}
-                        onChange={handleRowChange}
-                      />
-                    </div>
+                      <div className="flex flex-col gap-2 md:border-default md:border-l md:pl-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold w-16">Row</span>
+                          <Pagination
+                            classNames={{ item: "bg-default/25" }}
+                            initialPage={1}
+                            size="sm"
+                            page={(tempSelectedRow || 0) + 1}
+                            total={maxRow + 1}
+                            onChange={handleRowChange}
+                          />
+                        </div>
 
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold w-16">Column</span>
-                      <Pagination
-                        classNames={{ item: "bg-default/25" }}
-                        initialPage={1}
-                        size="sm"
-                        page={tempSelectedColumn ? tempSelectedColumn.charCodeAt(0) - 64 : 1}
-                        total={maxColumn + 1}
-                        onChange={handleColumnChange}
-                      />
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold w-16">Column</span>
+                          <Pagination
+                            classNames={{ item: "bg-default/25" }}
+                            initialPage={1}
+                            size="sm"
+                            page={(tempSelectedColumn || 0) + 1}
+                            total={maxColumn + 1}
+                            onChange={handleColumnChange}
+                          />
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              </div>
+                  </motion.div>
+                }
+              </AnimatePresence>
 
-              <div className="absolute top-4 right-4 flex items-center gap-2 bg-background/50 rounded-2xl p-2 backdrop-blur-lg">
-                <span className="text-sm font-semibold p-2">CODE: <b>{tempSelectedCode}</b></span>
-              </div>
+              <AnimatePresence>
+                {tempSelectedCode &&
+                  <motion.div
+                    {...motionTransition}
+                    className="absolute top-4 right-4 flex items-center gap-2 bg-background/50 rounded-2xl backdrop-blur-lg">
+                    <span className="text-sm font-semibold p-4">CODE: <b>{tempSelectedCode}</b></span>
+                  </motion.div>
+                }
+              </AnimatePresence>
+
+
             </div>
           </ModalBody>
-          <ModalFooter>
-            <div className="flex justify-between w-full">
-              <Button color="default" variant="light" onPress={onClose}>
-                Cancel
-              </Button>
-              <Button color="primary" variant="shadow" onPress={handleConfirmLocation} className="mb-2">
-                Confirm Location
-              </Button>
-            </div>
+          <ModalFooter className="flex justify-end gap-4 p-4">
+            <Button color="danger" variant="shadow" onPress={handleCancelLocation}>
+              Cancel
+            </Button>
+            <Button
+              color="primary"
+              variant="shadow"
+              onPress={handleConfirmLocation}
+              isDisabled={isSelectedLocationOccupied}
+            >
+              {isSelectedLocationOccupied ? "Location Occupied" : "Confirm Location"}
+            </Button>
           </ModalFooter>
         </ModalContent>
       </Modal>
