@@ -59,6 +59,7 @@ interface LocationData {
   column: number | null;
   row: number | null;
   group: number | null;
+  depth: number | null;
 }
 
 interface InventoryItem {
@@ -151,7 +152,8 @@ export default function InventoryPage() {
         loc.floor === location.floor &&
         loc.group_id === location.group_id &&
         loc.group_row === location.group_row &&
-        loc.group_column === location.group_column
+        loc.group_column === location.group_column &&
+        (loc.group_depth === location.group_depth || loc.group_depth === undefined)
     );
   };
 
@@ -179,6 +181,7 @@ export default function InventoryPage() {
       floor: null,
       column: null,
       row: null,
+      depth: null,
       group: null
     }
   });
@@ -194,6 +197,7 @@ export default function InventoryPage() {
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<number | null>(null);
   const [selectedCode, setSelectedCode] = useState("");
+  const [selectedDepth, setSelectedDepth] = useState<number | null>(null);
 
   // Add state for temporary modal selections - use numbers instead of strings
   const [tempSelectedFloor, setTempSelectedFloor] = useState<number | null>(null);
@@ -202,6 +206,13 @@ export default function InventoryPage() {
   const [tempSelectedRow, setTempSelectedRow] = useState<number | null>(null);
   const [tempSelectedGroup, setTempSelectedGroup] = useState<number | null>(null);
   const [tempSelectedCode, setTempSelectedCode] = useState("");
+  const [tempSelectedDepth, setTempSelectedDepth] = useState<number | null>(null);
+
+  // Add state for maximum values
+  const [maxGroupId, setMaxGroupId] = useState(0);
+  const [maxRow, setMaxRow] = useState(0);
+  const [maxColumn, setMaxColumn] = useState(0);
+  const [maxDepth, setMaxDepth] = useState(0);
 
   // Validation state
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -213,6 +224,10 @@ export default function InventoryPage() {
       matrix: [
         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 0, 0],
+        [0, 0, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 0, 0],
+        [0, 0, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 0, 0],
+        [0, 0, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 0, 0],
         [0, 0, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 0, 0],
         [0, 0, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 0, 0],
         [0, 0, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 0, 0],
@@ -236,6 +251,10 @@ export default function InventoryPage() {
         [0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0],
         [0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0],
         [0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0],
+        [0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0],
+        [0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0],
+        [0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0],
+        [0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0],
         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         [0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0, 5, 5, 5, 5, 0, 0],
@@ -248,10 +267,6 @@ export default function InventoryPage() {
     }
   ];
 
-  // Add state for maximum values
-  const [maxGroupId, setMaxGroupId] = useState(0);
-  const [maxRow, setMaxRow] = useState(0);
-  const [maxColumn, setMaxColumn] = useState(0);
 
   // Convert column to Excel style (AA = 0, AB = 1, etc.)
   const parseColumn = (column: number | null) => {
@@ -267,18 +282,20 @@ export default function InventoryPage() {
 
   const formatCode = (location: ShelfLocation | any) => {
     // Format the location code
-    const { floor, group_id: group, group_row: row, group_column: column } = location;
+    const { floor, group_id: group, group_row: row, group_column: column, group_depth: depth = 0 } = location;
     const colStr = parseColumn(column);
 
-    // Format with leading zeros: floor (2 digits), row (2 digits), group (3 digits)
+    // Format with leading zeros: floor (2 digits), row (2 digits), depth (2 digits), group (2 digits)
     const floorStr = floor !== undefined && floor !== null ?
-      floor.toString().padStart(2, '0') : "???";
+      floor.toString().padStart(2, '0') : "??";
     const rowStr = row !== undefined && row !== null ?
-      row.toString().padStart(2, '0') : "???";
+      row.toString().padStart(2, '0') : "??";
     const groupStr = group !== undefined && group !== null ?
-      group.toString().padStart(3, '0') : "???";
+      group.toString().padStart(2, '0') : "??";
+    const depthStr = depth !== undefined && depth !== null ?
+      depth.toString().padStart(2, '0') : "??";
 
-    return `F${floorStr}${colStr}${rowStr}C${groupStr}`;
+    return `F${floorStr}${colStr}${rowStr}D${depthStr}C${groupStr}`;
   }
 
 
@@ -289,9 +306,7 @@ export default function InventoryPage() {
     const columnCode = String.fromCharCode(65 + columnNumber);
     const rowNumber = location.group_row;
     const groupNumber = location.group_id;
-
-    console.log("Selected Floor:", floorNumber, "Column:", columnNumber, "Row:", rowNumber, "Group:", groupNumber);
-
+    const depthNumber = location.group_depth || 0; // Get depth value
 
     // Update temporary selections with numerical values
     setTempSelectedFloor(floorNumber);
@@ -299,6 +314,7 @@ export default function InventoryPage() {
     setTempSelectedColumnCode(columnCode);
     setTempSelectedRow(rowNumber);
     setTempSelectedGroup(groupNumber);
+    setTempSelectedDepth(depthNumber); // Set depth value
 
     // Use formatCode for consistent code formatting
     setTempSelectedCode(formatCode(location));
@@ -310,6 +326,7 @@ export default function InventoryPage() {
     if (location.max_group_id !== undefined) setMaxGroupId(location.max_group_id);
     if (location.max_row !== undefined) setMaxRow(location.max_row);
     if (location.max_column !== undefined) setMaxColumn(location.max_column);
+    if (location.max_depth !== undefined) setMaxDepth(location.max_depth); // Set max depth
 
     // Check if location is occupied
     setIsSelectedLocationOccupied(checkIfLocationOccupied(location));
@@ -323,7 +340,8 @@ export default function InventoryPage() {
         floor: highlightedFloor,
         group_id: tempSelectedGroup,
         group_row: tempSelectedRow,
-        group_column: tempSelectedColumn
+        group_column: tempSelectedColumn,
+        group_depth: tempSelectedDepth !== null ? tempSelectedDepth : 0
       };
       setIsSelectedLocationOccupied(checkIfLocationOccupied(location));
     }
@@ -340,7 +358,8 @@ export default function InventoryPage() {
         floor: floorIndex,
         group_id: tempSelectedGroup,
         group_row: tempSelectedRow !== null ? tempSelectedRow : 0,
-        group_column: tempSelectedColumn !== null ? tempSelectedColumn : 0
+        group_column: tempSelectedColumn !== null ? tempSelectedColumn : 0,
+        group_depth: tempSelectedDepth !== null ? tempSelectedDepth : 0
       };
       setExternalSelection(location);
 
@@ -361,7 +380,8 @@ export default function InventoryPage() {
         floor: highlightedFloor,
         group_id: adjustedId,
         group_row: tempSelectedRow !== null ? tempSelectedRow : 0,
-        group_column: tempSelectedColumn !== null ? tempSelectedColumn : 0
+        group_column: tempSelectedColumn !== null ? tempSelectedColumn : 0,
+        group_depth: tempSelectedDepth !== null ? tempSelectedDepth : 0
       };
       setExternalSelection(location);
 
@@ -382,7 +402,8 @@ export default function InventoryPage() {
         floor: highlightedFloor,
         group_id: tempSelectedGroup,
         group_row: adjustedRow,
-        group_column: tempSelectedColumn !== null ? tempSelectedColumn : 0
+        group_column: tempSelectedColumn !== null ? tempSelectedColumn : 0,
+        group_depth: tempSelectedDepth !== null ? tempSelectedDepth : 0
       };
       setExternalSelection(location);
 
@@ -406,7 +427,30 @@ export default function InventoryPage() {
         floor: highlightedFloor,
         group_id: tempSelectedGroup,
         group_row: tempSelectedRow !== null ? tempSelectedRow : 0,
-        group_column: adjustedCol
+        group_column: adjustedCol,
+        group_depth: tempSelectedDepth !== null ? tempSelectedDepth : 0
+      };
+      setExternalSelection(location);
+
+      // Use formatCode for consistent formatting
+      setTempSelectedCode(formatCode(location));
+
+      // Check if new location is occupied
+      setTimeout(updateLocationOccupiedStatus, 0);
+    }
+  };
+
+  const handleDepthChange = (depthNum: number) => {
+    const adjustedDepth = depthNum - 1;
+    setTempSelectedDepth(adjustedDepth);
+
+    if (tempSelectedFloor !== null && highlightedFloor !== null && tempSelectedGroup !== null && tempSelectedDepth !== null) {
+      const location = {
+        floor: highlightedFloor,
+        group_id: tempSelectedGroup,
+        group_row: tempSelectedRow !== null ? tempSelectedRow : 0,
+        group_column: tempSelectedColumn !== null ? tempSelectedColumn : 0,
+        group_depth: adjustedDepth
       };
       setExternalSelection(location);
 
@@ -424,18 +468,20 @@ export default function InventoryPage() {
     setTempSelectedColumn(selectedColumn);
     setTempSelectedColumnCode(selectedColumnCode);
     setTempSelectedRow(selectedRow);
+    setTempSelectedDepth(selectedDepth);
     setTempSelectedGroup(selectedGroup);
     setTempSelectedCode(selectedCode);
 
     if (selectedFloor !== null && selectedColumn !== null &&
-      selectedRow !== null && selectedGroup !== null) {
+      selectedRow !== null && selectedGroup !== null && selectedDepth !== null) {
       setHighlightedFloor(selectedFloor);
 
       const location = {
         floor: selectedFloor,
         group_id: selectedGroup,
         group_row: selectedRow,
-        group_column: selectedColumn
+        group_column: selectedColumn,
+        group_depth: selectedDepth
       };
 
       setExternalSelection(location);
@@ -453,6 +499,7 @@ export default function InventoryPage() {
     setSelectedColumnCode(tempSelectedColumnCode);
     setSelectedRow(tempSelectedRow);
     setSelectedGroup(tempSelectedGroup);
+    setSelectedDepth(tempSelectedDepth);
 
     // Generate and set the location code
     const locationCode = tempSelectedCode;
@@ -473,6 +520,7 @@ export default function InventoryPage() {
     setTempSelectedColumn(selectedColumn);
     setTempSelectedColumnCode(selectedColumnCode);
     setTempSelectedRow(selectedRow);
+    setTempSelectedDepth(selectedDepth);
     setTempSelectedGroup(selectedGroup);
     setTempSelectedCode(selectedCode);
     onClose();
@@ -553,12 +601,14 @@ export default function InventoryPage() {
       const floorNumber = item.location.floor || null;
       const columnNumber = item.location.column;
       const rowNumber = item.location.row;
+      const depthNumber = item.location.depth || null;
       const groupNumber = item.location.group;
 
       setSelectedFloor(floorNumber);
       setSelectedColumnCode(parseColumn(columnNumber) || "");
       setSelectedColumn(item.location.column);
       setSelectedRow(rowNumber);
+      setSelectedDepth(depthNumber);
       setSelectedGroup(groupNumber);
 
       // Create a location object and use formatCode
@@ -566,7 +616,8 @@ export default function InventoryPage() {
         floor: floorNumber,
         group_id: groupNumber,
         group_row: rowNumber,
-        group_column: columnNumber
+        group_column: columnNumber,
+        group_depth: depthNumber
       };
 
       const code = formatCode(location);
@@ -601,8 +652,6 @@ export default function InventoryPage() {
         setAdminUUID(adminData.uuid);
         setCompanyUUID(adminData.company.uuid);
 
-        console.log("Admin Data:", adminData);
-
         setFormData(prev => ({
           ...prev,
           admin_uuid: adminData.uuid,
@@ -633,7 +682,6 @@ export default function InventoryPage() {
         const locationsResult = await getOccupiedShelfLocations(adminData.company.uuid);
         if (locationsResult.success) {
           setOccupiedLocations(locationsResult.data);
-          console.log("Occupied locations:", locationsResult.data);
         }
       } catch (error) {
         console.error("Error initializing page:", error);
@@ -674,7 +722,8 @@ export default function InventoryPage() {
         floor: selectedFloor,
         group_id: selectedGroup,
         group_row: selectedRow,
-        group_column: selectedColumn !== null ? selectedColumn : 0
+        group_column: selectedColumn !== null ? selectedColumn : 0,
+        group_depth: selectedDepth !== null ? selectedDepth : 0
       };
 
       // Generate the location code
@@ -687,20 +736,19 @@ export default function InventoryPage() {
           floor: selectedFloor,
           column: selectedColumn,
           row: selectedRow,
-          group: selectedGroup
+          group: selectedGroup,
+          depth: selectedDepth
         },
-        location_code: code // Set the location_code field
+        location_code: code
       }));
 
       setSelectedCode(code);
     }
-  }, [selectedFloor, selectedColumn, selectedColumnCode, selectedRow, selectedGroup]);
+  }, [selectedFloor, selectedColumn, selectedColumnCode, selectedRow, selectedGroup, selectedDepth]);
 
   // Form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    console.log("Form Data:", formData);
 
     const newErrors: Record<string, string> = {};
     if (!formData.item_code) newErrors.item_code = "Item code is required";
@@ -757,6 +805,7 @@ export default function InventoryPage() {
               floor: null,
               column: null,
               row: null,
+              depth: null,
               group: null,
             }
           });
@@ -764,6 +813,7 @@ export default function InventoryPage() {
           setSelectedColumn(null);
           setSelectedRow(null);
           setSelectedGroup(null);
+          setSelectedDepth(null);
           setSelectedCode("");
         } else if (result.data) {
           if ((result.data as any).uuid)
@@ -890,6 +940,7 @@ export default function InventoryPage() {
                       floor: null,
                       column: null,
                       row: null,
+                      depth: null,
                       group: null,
                     }
                   });
@@ -897,6 +948,7 @@ export default function InventoryPage() {
                   setSelectedFloor(null);
                   setSelectedColumn(null);
                   setSelectedRow(null);
+                  setSelectedDepth(null);
                   setSelectedGroup(null);
                   setSelectedCode("");
                 }}
@@ -1175,6 +1227,20 @@ export default function InventoryPage() {
                       isInvalid={!!errors["location.group"]}
                       errorMessage={errors["location.group"]}
                     />
+
+                    <NumberInput
+                      name="location.depth"
+                      classNames={inputStyle}
+                      label="Depth"
+                      minValue={1}
+                      placeholder="e.g. 1"
+                      // Display depth as 1-indexed but store as 0-indexed
+                      value={selectedDepth !== null ? selectedDepth + 1 : 0}
+                      onValueChange={(e) => setSelectedDepth(e - 1)}
+                      isRequired
+                      isInvalid={!!errors["location.depth"]}
+                      errorMessage={errors["location.depth"]}
+                    />
                   </div>
 
                   <div className="mt-4 rounded-md flex flex-row items-center justify-between gap-3">
@@ -1298,6 +1364,18 @@ export default function InventoryPage() {
                             page={(tempSelectedColumn || 0) + 1}
                             total={maxColumn + 1}
                             onChange={handleColumnChange}
+                          />
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold w-16">Depth</span>
+                          <Pagination
+                            classNames={{ item: "bg-default/25" }}
+                            initialPage={1}
+                            size="sm"
+                            page={(tempSelectedDepth || 0) + 1}
+                            total={maxDepth + 1}
+                            onChange={handleDepthChange}
                           />
                         </div>
                       </div>

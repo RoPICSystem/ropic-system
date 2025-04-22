@@ -16,16 +16,16 @@ declare global {
   }
 }
 
-// Update the ShelfLocation interface
 export interface ShelfLocation {
   floor: number;
   group_id: number;
   group_row: number;
   group_column: number;
-  // Add these new properties
+  group_depth?: number; // Add depth property
   max_group_id?: number;
   max_row?: number;
   max_column?: number;
+  max_depth?: number; // Add max depth
 }
 
 export interface FloorConfig {
@@ -126,7 +126,7 @@ const findNearestGroupColumnToRight = (floorMatrix: number[][], rowIndex: number
   return -1;
 };
 
-// Process matrix to find all groups - now with caching
+// Process matrix to find all groups with proper depth handling
 const processGroupsMatrix = (floorMatrix: number[][], floorIndex: number) => {
   const cacheKey = `floor-${floorIndex}-${JSON.stringify(floorMatrix)}`;
 
@@ -139,45 +139,63 @@ const processGroupsMatrix = (floorMatrix: number[][], floorIndex: number) => {
   const visited = Array(floorMatrix.length).fill(0).map(() => Array(floorMatrix[0].length).fill(false));
   let groupId = 0;
 
-
   for (let i = 0; i < floorMatrix.length; i++) {
     for (let j = 0; j < floorMatrix[i].length; j++) {
       if (floorMatrix[i][j] > 0 && !visited[i][j]) {
+        const value = floorMatrix[i][j]; // The shelf type (e.g., 5 or 4)
+        let minI = i, maxI = i;
         let minJ = j, maxJ = j;
-        const rows = floorMatrix[i][j];
 
-        // BFS to find group extent
+        // BFS to find group extent in both directions
         const queue = [[i, j]];
         visited[i][j] = true;
 
         while (queue.length > 0) {
           const [x, y] = queue.shift()!;
 
-          // Check horizontal connections
-          if (y + 1 < floorMatrix[i].length && floorMatrix[x][y + 1] === rows && !visited[x][y + 1]) {
+          // Check horizontal connections (width)
+          if (y + 1 < floorMatrix[x].length && floorMatrix[x][y + 1] === value && !visited[x][y + 1]) {
             visited[x][y + 1] = true;
             queue.push([x, y + 1]);
             maxJ = Math.max(maxJ, y + 1);
           }
 
-          if (y - 1 >= 0 && floorMatrix[x][y - 1] === rows && !visited[x][y - 1]) {
+          if (y - 1 >= 0 && floorMatrix[x][y - 1] === value && !visited[x][y - 1]) {
             visited[x][y - 1] = true;
             queue.push([x, y - 1]);
             minJ = Math.min(minJ, y - 1);
           }
+
+          // Check vertical connections (depth)
+          if (x + 1 < floorMatrix.length && floorMatrix[x + 1][y] === value && !visited[x + 1][y]) {
+            visited[x + 1][y] = true;
+            queue.push([x + 1, y]);
+            maxI = Math.max(maxI, x + 1);
+          }
+
+          if (x - 1 >= 0 && floorMatrix[x - 1][y] === value && !visited[x - 1][y]) {
+            visited[x - 1][y] = true;
+            queue.push([x - 1, y]);
+            minI = Math.min(minI, x - 1);
+          }
         }
 
-        const width = maxJ - minJ + 1;
+        const width = maxJ - minJ + 1; // Width (columns)
+        const depth = maxI - minI + 1; // Depth (rows in z-direction)
+
         groups.push({
           id: groupId,
-          rows,
-          width,
-          position: [i, minJ], // Store actual starting position, not average
+          rows: value, // Number of shelves based on the value
+          width,      // Width in columns
+          depth,      // Depth in rows
+          position: [minI, minJ], // Store starting position
+          minI,
+          maxI,
           minJ,
           maxJ
         });
 
-        groupPositions.push([i, minJ, groupId]);
+        groupPositions.push([minI, minJ, groupId]);
         groupId++;
       }
     }
@@ -303,7 +321,6 @@ function mapGroupToMatrixPosition(
 }
 
 
-// Optimized Shelf component using instancing for better performance
 const ShelfInstance = memo(({
   position,
   size,
@@ -313,7 +330,7 @@ const ShelfInstance = memo(({
   onClick,
   onPointerOver,
   onPointerOut,
-  opacity,
+  opacity: groupOpacity,
   shelfColor,
   shelfHoverColor,
   shelfSelectedColor,
@@ -335,6 +352,37 @@ const ShelfInstance = memo(({
   occupiedShelfColor: string;
   occupiedHoverShelfColor: string;
 }) => {
+  const meshRef = useRef<THREE.Mesh>(null);
+  const { camera } = useThree();
+  const [shelfOpacity, setShelfOpacity] = useState(1);
+
+  // Shelf-specific distance thresholds - closer than group thresholds
+  const SHELF_FADE_START = 5.75;  // Start fading shelves at this distance
+  const SHELF_FADE_END = 5.5;    // Completely transparent at this distance
+
+  // Update shelf opacity based on distance
+  useFrame(() => {
+    if (meshRef.current) {
+      const shelfWorldPos = new THREE.Vector3();
+      meshRef.current.getWorldPosition(shelfWorldPos);
+      const distanceToCamera = camera.position.distanceTo(shelfWorldPos);
+
+      let newOpacity = 1;
+
+      if (distanceToCamera < SHELF_FADE_END) {
+        newOpacity = 0;
+      } else if (distanceToCamera < SHELF_FADE_START) {
+        const t = (distanceToCamera - SHELF_FADE_END) / (SHELF_FADE_START - SHELF_FADE_END);
+        newOpacity = t;
+      }
+
+      // Only update if significant change
+      if (Math.abs(newOpacity - shelfOpacity) > 0.01) {
+        setShelfOpacity(newOpacity);
+      }
+    }
+  });
+
   // Update color determination to use occupiedHoverShelfColor when a shelf is both occupied and hovered
   const color = isOccupied
     ? (isHovered ? occupiedHoverShelfColor : occupiedShelfColor)
@@ -347,8 +395,12 @@ const ShelfInstance = memo(({
   const emissiveColor = isSelected ? shelfSelectedColor : "#000000";
   const emissiveIntensity = isSelected ? 0.3 : 0;
 
+  // Final opacity is the product of group opacity and shelf opacity
+  const finalOpacity = groupOpacity * shelfOpacity;
+
   return (
     <mesh
+      ref={meshRef}
       position={position}
       onPointerOver={onPointerOver}
       onPointerOut={onPointerOut}
@@ -362,8 +414,8 @@ const ShelfInstance = memo(({
         emissive={emissiveColor}
         emissiveIntensity={emissiveIntensity}
         transparent
-        depthWrite={opacity > 0.5}
-        opacity={opacity}
+        depthWrite={finalOpacity > 0.5}
+        opacity={finalOpacity}
       />
     </mesh>
   );
@@ -375,6 +427,7 @@ const Group = memo(({
   size,
   rows,
   columns,
+  depth, // New parameter for depth
   groupId,
   floor,
   isSelected,
@@ -394,6 +447,7 @@ const Group = memo(({
   size: [number, number, number];
   rows: number;
   columns: number;
+  depth: number; // Add depth parameter
   groupId: number;
   floor: number;
   isSelected: boolean;
@@ -409,7 +463,7 @@ const Group = memo(({
   occupiedShelfColor: string;
   occupiedHoverShelfColor: string;
 }) => {
-  const [hoverCell, setHoverCell] = useState<[number, number] | null>(null);
+  const [hoverCell, setHoverCell] = useState<[number, number, number] | null>(null);
   const groupRef = useRef<THREE.Group>(null);
   const [opacity, setOpacity] = useState(1);
   const [isInteractionDisabled, setIsInteractionDisabled] = useState(false);
@@ -421,22 +475,23 @@ const Group = memo(({
   const groupDepth = size[2];
   const cellWidth = useMemo(() => groupWidth / columns, [groupWidth, columns]);
   const cellHeight = useMemo(() => groupHeight / rows, [groupHeight, rows]);
+  const cellDepth = useMemo(() => groupDepth / depth, [groupDepth, depth]);
 
-  // Function to check if a location is occupied
-  const isLocationOccupied = useCallback((floorIndex: number, cabId: number, rowIndex: number, colIndex: number) => {
+  const isLocationOccupied = useCallback((floorIndex: number, cabId: number, rowIndex: number, colIndex: number, depthIndex: number) => {
     if (!occupiedLocations || occupiedLocations.length === 0) return false;
 
     return occupiedLocations.some(loc =>
       loc.floor === floorIndex &&
       loc.group_id === cabId &&
       loc.group_row === rowIndex &&
-      loc.group_column === colIndex
+      loc.group_column === colIndex &&
+      (loc.group_depth === depthIndex || loc.group_depth === undefined)
     );
   }, [occupiedLocations]);
 
   // Distance thresholds
-  const FADE_START_DISTANCE = 4.75;
-  const FADE_END_DISTANCE = 4.5;
+  const FADE_START_DISTANCE = 6.5;  // Start fading earlier
+  const FADE_END_DISTANCE = 5.5;     // Complete fade slightly later
   const INTERACTION_DISABLE_DISTANCE = 2;
 
   // Only update opacity based on distance changes, not every frame
@@ -444,22 +499,48 @@ const Group = memo(({
     if (groupRef.current) {
       const groupWorldPos = new THREE.Vector3();
       groupRef.current.getWorldPosition(groupWorldPos);
-      const distanceToCamera = camera.position.distanceTo(groupWorldPos);
 
-      // Only update state if there's a significant change
-      let newOpacity = opacity;
+      // Create a box3 representing the group's bounding box in world space
+      const halfWidth = size[0] / 2;
+      const halfHeight = size[1] / 2;
+      const halfDepth = size[2] / 2;
+
+      // Get min and max points of the box in world space
+      const minPoint = new THREE.Vector3(
+        groupWorldPos.x - halfWidth,
+        groupWorldPos.y - halfHeight,
+        groupWorldPos.z - halfDepth
+      );
+
+      const maxPoint = new THREE.Vector3(
+        groupWorldPos.x + halfWidth,
+        groupWorldPos.y + halfHeight,
+        groupWorldPos.z + halfDepth
+      );
+
+      const boundingBox = new THREE.Box3(minPoint, maxPoint);
+
+      // Find the closest point on the box surface to the camera
+      const closestPoint = new THREE.Vector3();
+      boundingBox.clampPoint(camera.position, closestPoint);
+
+      // Calculate distance from camera to closest point on box surface
+      const distanceToSurface = camera.position.distanceTo(closestPoint);
+
+      // Fading thresholds specifically for proximity to surface
+      const SURFACE_FADE_START = 3.0; // Start fading when 3 units from surface
+      const SURFACE_FADE_END = 1.5;   // Completely faded when 1.5 units from surface
+
+      let newOpacity = 1;
       let newInteractionState = isInteractionDisabled;
 
-      if (distanceToCamera < FADE_END_DISTANCE) {
+      if (distanceToSurface < SURFACE_FADE_END) {
         newOpacity = 0;
         newInteractionState = true;
-      } else if (distanceToCamera < FADE_START_DISTANCE) {
-        const t = (distanceToCamera - FADE_END_DISTANCE) / (FADE_START_DISTANCE - FADE_END_DISTANCE);
+      } else if (distanceToSurface < SURFACE_FADE_START) {
+        const t = (distanceToSurface - SURFACE_FADE_END) / (SURFACE_FADE_START - SURFACE_FADE_END);
         newOpacity = t;
-        newInteractionState = distanceToCamera < INTERACTION_DISABLE_DISTANCE;
-      } else {
-        newOpacity = 1;
-        newInteractionState = false;
+        newInteractionState = distanceToSurface < INTERACTION_DISABLE_DISTANCE;
       }
 
       // Only update state if there's a meaningful change
@@ -474,11 +555,11 @@ const Group = memo(({
   });
 
   // Memoize event handlers
-  const handlePointerOver = useCallback((e: any, rowIndex: number, colIndex: number) => {
+  const handlePointerOver = useCallback((e: any, rowIndex: number, colIndex: number, depthIndex: number) => {
     if (!isInteractionDisabled &&
-      (canSelectOccupiedLocations || !isLocationOccupied(floor, groupId, rowIndex, colIndex))) {
+      (canSelectOccupiedLocations || !isLocationOccupied(floor, groupId, rowIndex, colIndex, depthIndex))) {
       e.stopPropagation();
-      setHoverCell([rowIndex, colIndex]);
+      setHoverCell([rowIndex, colIndex, depthIndex]);
     }
   }, [isInteractionDisabled, isLocationOccupied, floor, groupId, canSelectOccupiedLocations]);
 
@@ -490,15 +571,16 @@ const Group = memo(({
     }
   }, [isInteractionDisabled]);
 
-  const handleClick = useCallback((e: any, rowIndex: number, colIndex: number) => {
+  const handleClick = useCallback((e: any, rowIndex: number, colIndex: number, depthIndex: number) => {
     if (!isInteractionDisabled &&
-      (canSelectOccupiedLocations || !isLocationOccupied(floor, groupId, rowIndex, colIndex))) {
+      (canSelectOccupiedLocations || !isLocationOccupied(floor, groupId, rowIndex, colIndex, depthIndex))) {
       e.stopPropagation();
       onSelect({
         floor,
         group_id: groupId,
         group_row: rowIndex,
-        group_column: colIndex
+        group_column: colIndex,
+        group_depth: depthIndex
       });
     }
   }, [isInteractionDisabled, onSelect, floor, groupId, isLocationOccupied, canSelectOccupiedLocations]);
@@ -509,37 +591,42 @@ const Group = memo(({
 
     for (let rowIndex = 0; rowIndex < rows; rowIndex++) {
       for (let colIndex = 0; colIndex < columns; colIndex++) {
-        const isShelfSelected =
-          selectedLocation?.floor === floor &&
-          selectedLocation?.group_id === groupId &&
-          selectedLocation?.group_row === rowIndex &&
-          selectedLocation?.group_column === colIndex;
+        for (let depthIndex = 0; depthIndex < depth; depthIndex++) {
+          const isShelfSelected =
+            selectedLocation?.floor === floor &&
+            selectedLocation?.group_id === groupId &&
+            selectedLocation?.group_row === rowIndex &&
+            selectedLocation?.group_column === colIndex &&
+            (selectedLocation?.group_depth === depthIndex || selectedLocation?.group_depth === undefined);
 
-        const isHovered = !!(hoverCell &&
-          hoverCell[0] === rowIndex &&
-          hoverCell[1] === colIndex);
+          const isHovered = !!(hoverCell &&
+            hoverCell[0] === rowIndex &&
+            hoverCell[1] === colIndex &&
+            hoverCell[2] === depthIndex);
 
-        const isOccupied = isLocationOccupied(floor, groupId, rowIndex, colIndex);
+          const isOccupied = isLocationOccupied(floor, groupId, rowIndex, colIndex, depthIndex);
 
-        items.push({
-          key: `${rowIndex}-${colIndex}`,
-          position: [
-            (colIndex - columns / 2 + 0.5) * cellWidth,
-            (rowIndex - rows / 2 + 0.5) * cellHeight,
-            0.1
-          ] as [number, number, number],
-          size: [cellWidth * 0.9, cellHeight * 0.9, groupDepth * 0.9] as [number, number, number],
-          isHovered,
-          isSelected: isShelfSelected,
-          isOccupied,
-          rowIndex,
-          colIndex
-        });
+          items.push({
+            key: `${rowIndex}-${colIndex}-${depthIndex}`,
+            position: [
+              (colIndex - columns / 2 + 0.5) * cellWidth,
+              (rowIndex - rows / 2 + 0.5) * cellHeight,
+              (depthIndex - depth / 2 + 0.5) * cellDepth // Position along Z axis
+            ],
+            size: [cellWidth * 0.9, cellHeight * 0.9, cellDepth * 0.9],
+            isHovered,
+            isSelected: isShelfSelected,
+            isOccupied,
+            rowIndex,
+            colIndex,
+            depthIndex
+          });
+        }
       }
     }
 
     return items;
-  }, [rows, columns, cellWidth, cellHeight, groupDepth, selectedLocation, hoverCell, floor, groupId, isLocationOccupied]);
+  }, [rows, columns, depth, cellWidth, cellHeight, cellDepth, selectedLocation, hoverCell, floor, groupId, isLocationOccupied]);
 
   return (
     <group position={position} ref={groupRef}>
@@ -554,19 +641,19 @@ const Group = memo(({
         />
       </mesh>
 
-      {/* Group shelves - now more efficient */}
+      {/* Shelves with depth */}
       {shelves.map(shelf => (
         <ShelfInstance
           key={shelf.key}
-          position={shelf.position}
-          size={shelf.size}
+          position={shelf.position as [number, number, number]}
+          size={shelf.size as [number, number, number]}
           isHovered={shelf.isHovered}
           isSelected={shelf.isSelected}
           isOccupied={shelf.isOccupied}
-          onClick={(e) => handleClick(e, shelf.rowIndex, shelf.colIndex)}
-          onPointerOver={(e) => handlePointerOver(e, shelf.rowIndex, shelf.colIndex)}
+          onClick={(e) => handleClick(e, shelf.rowIndex, shelf.colIndex, shelf.depthIndex)}
+          onPointerOver={(e) => handlePointerOver(e, shelf.rowIndex, shelf.colIndex, shelf.depthIndex)}
           onPointerOut={handlePointerOut}
-          opacity={opacity}
+          opacity={1}
           shelfColor={shelfColor}
           shelfHoverColor={shelfHoverColor}
           shelfSelectedColor={shelfSelectedColor}
@@ -623,7 +710,7 @@ const Floor = memo(({
   const floorDepth = matrix.length;
   const gridSize = 1;
 
-  // Use cached group data
+  // Use cached group data with depth info
   const { groups } = useMemo(() =>
     processGroupsMatrix(matrix, floorIndex),
     [matrix, floorIndex]
@@ -637,27 +724,32 @@ const Floor = memo(({
         <meshStandardMaterial color={isHighlighted ? floorHighlightedColor : floorColor} />
       </mesh>
 
-      {/* Groups */}
-      {groups.map((group: { id: Key | null | undefined; position: number[]; width: number; rows: number; minJ: number; }) => {
+      {/* Groups with depth */}
+      {groups.map((group: { id: Key | null | undefined; minI: any; minJ: any; width: number; depth: number; rows: number; }) => {
         const isSelected = selectedLocation?.floor === floorIndex &&
           selectedLocation?.group_id === group.id;
 
-        // Correct positioning logic
-        const rowPos = group.position[0]; // Row index in matrix
-        const colPos = group.minJ;        // Starting column in matrix
+        // Calculate correct position with depth
+        const rowPos = group.minI; // Starting row index
+        const colPos = group.minJ; // Starting column index
 
         return (
           <Group
             key={group.id}
             position={[
-              (colPos - floorWidth / 2 + group.width / 2) * gridSize, // Center X at actual column position
-              height / 2,
-              (rowPos - floorDepth / 2 + 0.5) * gridSize // Position Z at actual row
+              (colPos - floorWidth / 2 + group.width / 2) * gridSize, // Center X
+              height / 2, // Center Y
+              (rowPos - floorDepth / 2 + group.depth / 2) * gridSize // Center Z with depth
             ]}
-            size={[group.width * gridSize, height, gridSize]}
-            rows={group.rows}
-            columns={group.width}
-            groupId={group.id as number}
+            size={[
+              group.width * gridSize,  // Width (X)
+              height,                  // Height (Y)
+              group.depth * gridSize   // Depth (Z)
+            ]}
+            rows={group.rows}          // Number of shelves
+            columns={group.width}      // Width in columns
+            depth={group.depth}        // Add depth parameter
+            groupId={parseInt(group.id as string)}
             floor={floorIndex}
             isSelected={isSelected}
             onSelect={onSelect}
@@ -677,7 +769,6 @@ const Floor = memo(({
     </group>
   );
 });
-
 
 function WASDControls({ controlsRef }: { controlsRef: React.RefObject<any> }) {
   const velocity = useRef(new THREE.Vector3(0, 0, 0));
@@ -1019,37 +1110,44 @@ export const ShelfSelector3D = memo(({
     }
   }, [floors, floorPositions, isFloorChangeAnimate, cameraOffsetX]);
 
+  // Update the focusOnShelf function to properly center on depth changes
   const focusOnShelf = useCallback((location: ShelfLocation) => {
     if (controlsRef.current && isShelfChangeAnimate) {
-      const { floor, group_id, group_row, group_column } = location;
+      const { floor, group_id, group_row, group_column, group_depth = 0 } = location;
       const floorMatrix = floors[floor].matrix;
 
       // Use cached data
       const { groups } = processGroupsMatrix(floorMatrix, floor);
-      const group = groups.find((c: { id: number; }) => c.id === group_id);
+      const group = groups.find((g: { id: number; }) => g.id === group_id);
 
       if (group) {
         const floorWidth = floorMatrix[0].length;
         const floorDepth = floorMatrix.length;
         const gridSize = 1;
 
-        // Calculate proper world coordinates
+        // Calculate proper world coordinates for x (column position)
         const x = (group.minJ - floorWidth / 2 + group_column + 0.5) * gridSize;
 
         // Calculate the exact center height of the shelf
         const shelfHeight = floors[floor].height / group.rows;
         const shelfCenterY = floorPositions[floor] + (shelfHeight * (group_row + 0.5));
 
-        const z = (group.position[0] - floorDepth / 2 + 0.5) * gridSize;
+        // Improved depth calculation to correctly position based on depth
+        // Each depth unit should be a full grid unit, not scaled down
+        const depthStep = gridSize;  // Each depth position is a full grid unit
+        const baseZ = (group.minI - floorDepth / 2) * gridSize; // Starting position of group
+
+        // Calculate the center position of the selected depth shelf
+        const z = baseZ + (group_depth + 0.5) * depthStep;
 
         const newTarget = new THREE.Vector3(x, shelfCenterY, z);
-        const zDistance = 4.85; // Distance from shelf
+        const zDistance = 6; // Distance from shelf
 
-        // Use exact same Y value for camera position - perfect horizontal alignment
+        // Position camera to look at the shelf from the correct depth position
         const newPosition = new THREE.Vector3(
-          x,
-          shelfCenterY, // Exactly same height as shelf center
-          z + zDistance
+          x,          // Same x as target
+          shelfCenterY, // Same y as target
+          z + zDistance // Positioned back from the shelf's depth
         );
 
         if (window.cameraAnimator) {
@@ -1099,7 +1197,8 @@ export const ShelfSelector3D = memo(({
     }
   }, [floors, floorPositions, isGroupChangeAnimate]);
 
-  // Modify the handleSelect function to track internal selections
+  // Update the handleSelect function to include depth
+
   const handleSelect = useCallback((location: ShelfLocation, source: 'internal' | 'external' = 'internal') => {
     // Set the source of this selection
     setSelectionSource(source);
@@ -1119,19 +1218,22 @@ export const ShelfSelector3D = memo(({
     const { groups } = processGroupsMatrix(floorMatrix, location.floor);
 
     // Find current group
-    const currentGroup = groups.find((c: any) => c.id === location.group_id);
+    const currentGroup = groups.find((g: any) => g.id === location.group_id);
 
     // Calculate maximums
-    const max_group_id = groups.length > 0 ? Math.max(...groups.map((c: any) => c.id)) : 0;
+    const max_group_id = groups.length > 0 ? Math.max(...groups.map((g: any) => g.id)) : 0;
     const max_row = currentGroup ? currentGroup.rows - 1 : 0;
     const max_column = currentGroup ? currentGroup.width - 1 : 0;
+    const max_depth = currentGroup ? currentGroup.depth - 1 : 0;  // Add max depth from current group
 
     // Create enhanced location with max values
     const enhancedLocation: ShelfLocation = {
       ...location,
       max_group_id,
       max_row,
-      max_column
+      max_column,
+      max_depth,
+      group_depth: location.group_depth !== undefined ? location.group_depth : 0 // Default to 0 if not specified
     };
 
     setSelectedLocation(enhancedLocation);
@@ -1174,7 +1276,8 @@ export const ShelfSelector3D = memo(({
         selectedLocation.floor !== externalSelection.floor ||
         selectedLocation.group_id !== externalSelection.group_id ||
         selectedLocation.group_row !== externalSelection.group_row ||
-        selectedLocation.group_column !== externalSelection.group_column) {
+        selectedLocation.group_column !== externalSelection.group_column ||
+        selectedLocation.group_depth !== externalSelection.group_depth) {
 
         // Call handleSelect with source='external'
         handleSelect(externalSelection, 'external');
@@ -1183,16 +1286,17 @@ export const ShelfSelector3D = memo(({
   }, [externalSelection, floors, handleSelect, selectedLocation]);
 
 
+  // Update handleArrowNavigation function
   const handleArrowNavigation = useCallback((e: KeyboardEvent) => {
     if (!selectedLocation) return;
 
-    const { key, shiftKey } = e;
-    const { floor, group_id, group_row, group_column } = selectedLocation;
+    const { key, shiftKey, ctrlKey } = e;
+    const { floor, group_id, group_row, group_column, group_depth = 0 } = selectedLocation;
     const floorMatrix = floors[floor].matrix;
 
     // Use cached data
     const { groups, groupPositions } = processGroupsMatrix(floorMatrix, floor);
-    const currentGroup = groups.find((c: { id: number; }) => c.id === group_id);
+    const currentGroup = groups.find((g: { id: number; }) => g.id === group_id);
     if (!currentGroup) return;
 
     let nextLocation: ShelfLocation | null = null;
@@ -1201,78 +1305,132 @@ export const ShelfSelector3D = memo(({
     const groupPosition = groupPositions.find(([_row, _col, id]: [number, number, number]) => id === group_id);
     if (!groupPosition) return;
 
-    const [rowIndex, columnStart] = groupPosition;
-
-    if (shiftKey) {
-      // Group navigation
+    const shiftKeyPressed = (key: string) => {
       switch (key) {
         case 'ArrowUp': {
-          const targetRowAbove = findNearestGroupRowAbove(floorMatrix, rowIndex, columnStart);
-          if (targetRowAbove !== -1) {
-            const aboveGroup = groups.find((c: { position: number[]; minJ: number; maxJ: number; }) =>
-              c.position[0] === targetRowAbove && c.minJ <= columnStart && c.maxJ >= columnStart);
-            if (aboveGroup) {
+          // Find groups that are positioned above the current group
+          const aboveGroups = groups.filter((g: any) =>
+            g.maxI < rowStart && // Group is above current group
+            g.minJ <= columnStart + currentGroup.width - 1 && // Groups overlap horizontally
+            g.maxJ >= columnStart
+          );
+
+          if (aboveGroups.length > 0) {
+            // Find the closest group above (the one with highest maxI)
+            const closestGroup = aboveGroups.reduce((closest: any, group: any) =>
+              !closest || group.maxI > closest.maxI ? group : closest, null);
+
+            if (closestGroup) {
               nextLocation = {
                 floor,
-                group_id: aboveGroup.id,
+                group_id: closestGroup.id,
                 group_row,
-                group_column
+                group_column: Math.min(group_column, closestGroup.width - 1),
+                group_depth: closestGroup.depth - 1
               };
             }
           }
           break;
         }
         case 'ArrowDown': {
-          const targetRowBelow = findNearestGroupRowBelow(floorMatrix, rowIndex, columnStart);
-          if (targetRowBelow !== -1) {
-            const belowGroup = groups.find((c: { position: number[]; minJ: number; maxJ: number; }) =>
-              c.position[0] === targetRowBelow && c.minJ <= columnStart && c.maxJ >= columnStart);
-            if (belowGroup) {
+          // Find groups that are positioned below the current group
+          const belowGroups = groups.filter((g: any) =>
+            g.minI > rowStart + currentGroup.depth && // Group is below current group
+            g.minJ <= columnStart + currentGroup.width - 1 && // Groups overlap horizontally
+            g.maxJ >= columnStart
+          );
+
+          if (belowGroups.length > 0) {
+            // Find the closest group below (the one with lowest minI)
+            const closestGroup = belowGroups.reduce((closest: any, group: any) =>
+              !closest || group.minI < closest.minI ? group : closest, null);
+
+            if (closestGroup) {
               nextLocation = {
                 floor,
-                group_id: belowGroup.id,
+                group_id: closestGroup.id,
                 group_row,
-                group_column
+                group_column: Math.min(group_column, closestGroup.width - 1),
+                group_depth: closestGroup.depth - 1
               };
             }
           }
           break;
         }
+        // Left and Right group navigation remains the same but add group_depth
         case 'ArrowLeft': {
-          const leftColumnStart = findNearestGroupColumnToLeft(floorMatrix, rowIndex, columnStart);
+          const leftColumnStart = findNearestGroupColumnToLeft(floorMatrix, rowStart, columnStart);
           if (leftColumnStart !== -1) {
-            const leftGroup = groups.find((c: { position: any[]; minJ: number; maxJ: number; }) =>
-              c.position[0] === rowIndex && c.minJ <= leftColumnStart && c.maxJ >= leftColumnStart);
+            const leftGroup = groups.find((g: { position: any[]; minJ: number; maxJ: number; }) =>
+              g.position[0] === rowStart && g.minJ <= leftColumnStart && g.maxJ >= leftColumnStart);
             if (leftGroup) {
               nextLocation = {
                 floor,
                 group_id: leftGroup.id,
                 group_row,
-                group_column
+                group_column: Math.min(group_column, leftGroup.width - 1),
+                group_depth: Math.min(group_depth, leftGroup.depth - 1) // Reset depth when changing groups
               };
             }
           }
           break;
         }
         case 'ArrowRight': {
-          const rightColumnStart = findNearestGroupColumnToRight(floorMatrix, rowIndex, columnStart + currentGroup.width);
+          const rightColumnStart = findNearestGroupColumnToRight(floorMatrix, rowStart, columnStart + currentGroup.width);
           if (rightColumnStart !== -1) {
-            const rightGroup = groups.find((c: { position: any[]; minJ: number; maxJ: number; }) =>
-              c.position[0] === rowIndex && c.minJ <= rightColumnStart && c.maxJ >= rightColumnStart);
+            const rightGroup = groups.find((g: { position: any[]; minJ: number; maxJ: number; }) =>
+              g.position[0] === rowStart && g.minJ <= rightColumnStart && g.maxJ >= rightColumnStart);
             if (rightGroup) {
               nextLocation = {
                 floor,
                 group_id: rightGroup.id,
                 group_row,
-                group_column
+                group_column: Math.min(group_column, rightGroup.width - 1),
+                group_depth: Math.min(group_depth, rightGroup.depth - 1) // Reset depth when changing groups
               };
             }
           }
           break;
         }
       }
+    }
+
+    const [rowStart, columnStart] = groupPosition;
+    if (ctrlKey) {
+      switch (key) {
+        case 'ArrowUp':
+          if (group_depth !== undefined && group_depth > 0) {
+            nextLocation = {
+              floor,
+              group_id,
+              group_row,
+              group_column,
+              group_depth: group_depth - 1
+            };
+          } else {
+            shiftKeyPressed(key);
+          }
+          break;
+        case 'ArrowDown':
+          if (group_depth !== undefined && group_depth < (currentGroup.depth - 1)) {
+            nextLocation = {
+              floor,
+              group_id,
+              group_row,
+              group_column,
+              group_depth: group_depth + 1
+            };
+          } else {
+            shiftKeyPressed(key);
+          }
+          break;
+      }
+    }
+    // Handle group navigation with Shift
+    else if (shiftKey) {
+      shiftKeyPressed(key);
     } else {
-      // Shelf navigation
+      // Regular shelf navigation within a group
       const { rows, width } = currentGroup;
 
       switch (key) {
@@ -1282,7 +1440,8 @@ export const ShelfSelector3D = memo(({
               floor,
               group_id,
               group_row: group_row + 1,
-              group_column
+              group_column,
+              group_depth
             };
           }
           break;
@@ -1292,7 +1451,8 @@ export const ShelfSelector3D = memo(({
               floor,
               group_id,
               group_row: group_row - 1,
-              group_column
+              group_column,
+              group_depth
             };
           }
           break;
@@ -1302,19 +1462,21 @@ export const ShelfSelector3D = memo(({
               floor,
               group_id,
               group_row,
-              group_column: group_column - 1
+              group_column: group_column - 1,
+              group_depth
             };
           } else {
-            const leftGroupColumn = findNearestGroupColumnToLeft(floorMatrix, rowIndex, columnStart);
+            const leftGroupColumn = findNearestGroupColumnToLeft(floorMatrix, rowStart, columnStart);
             if (leftGroupColumn !== -1) {
-              const leftGroup = groups.find((c: { position: any[]; minJ: number; maxJ: number; }) =>
-                c.position[0] === rowIndex && c.minJ <= leftGroupColumn && c.maxJ >= leftGroupColumn);
+              const leftGroup = groups.find((g: { position: any[]; minJ: number; maxJ: number; }) =>
+                g.position[0] === rowStart && g.minJ <= leftGroupColumn && g.maxJ >= leftGroupColumn);
               if (leftGroup) {
                 nextLocation = {
                   floor,
                   group_id: leftGroup.id,
-                  group_row: group_row < leftGroup.rows ? group_row : leftGroup.rows - 1,
-                  group_column: leftGroup.width - 1
+                  group_row: Math.min(group_row, leftGroup.rows - 1),
+                  group_column: leftGroup.width - 1,
+                  group_depth: Math.min(group_depth, leftGroup.depth - 1) // Reset depth when changing groups
                 };
               }
             }
@@ -1326,19 +1488,21 @@ export const ShelfSelector3D = memo(({
               floor,
               group_id,
               group_row,
-              group_column: group_column + 1
+              group_column: group_column + 1,
+              group_depth
             };
           } else {
-            const rightGroupColumn = findNearestGroupColumnToRight(floorMatrix, rowIndex, columnStart + width);
+            const rightGroupColumn = findNearestGroupColumnToRight(floorMatrix, rowStart, columnStart + width);
             if (rightGroupColumn !== -1) {
-              const rightGroup = groups.find((c: { position: any[]; minJ: number; maxJ: number; }) =>
-                c.position[0] === rowIndex && c.minJ <= rightGroupColumn && c.maxJ >= rightGroupColumn);
+              const rightGroup = groups.find((g: { position: any[]; minJ: number; maxJ: number; }) =>
+                g.position[0] === rowStart && g.minJ <= rightGroupColumn && g.maxJ >= rightGroupColumn);
               if (rightGroup) {
                 nextLocation = {
                   floor,
                   group_id: rightGroup.id,
-                  group_row: group_row < rightGroup.rows ? group_row : rightGroup.rows - 1,
-                  group_column: 0
+                  group_row: Math.min(group_row, rightGroup.rows - 1),
+                  group_column: 0,
+                  group_depth: Math.min(group_depth, rightGroup.depth - 1) // Reset depth when changing groups
                 };
               }
             }
@@ -1352,8 +1516,6 @@ export const ShelfSelector3D = memo(({
       handleSelect(nextLocation);
       e.preventDefault();
     } else if (nextLocation) {
-      // If the location is occupied and we can't select it, try to find next available location in the same direction
-      // This is optional behavior and may need more complex logic
       console.log("Cannot select occupied location");
     }
   }, [selectedLocation, floors, handleSelect, isLocationOccupied, canSelectOccupiedLocations]);
