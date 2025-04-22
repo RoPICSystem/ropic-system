@@ -1305,7 +1305,79 @@ export const ShelfSelector3D = memo(({
     const groupPosition = groupPositions.find(([_row, _col, id]: [number, number, number]) => id === group_id);
     if (!groupPosition) return;
 
-    const shiftKeyPressed = (key: string) => {
+    const [rowStart, columnStart] = groupPosition;
+    if (ctrlKey) {
+      switch (key) {
+        case 'ArrowUp':
+          if (group_depth !== undefined && group_depth > 0) {
+            nextLocation = {
+              floor,
+              group_id,
+              group_row,
+              group_column,
+              group_depth: group_depth - 1
+            };
+          } else {
+            const aboveGroups = groups.filter((g: any) =>
+              g.maxI < rowStart && // Group is above current group
+              g.minJ <= columnStart + currentGroup.width - 1 && // Groups overlap horizontally
+              g.maxJ >= columnStart
+            );
+  
+            if (aboveGroups.length > 0) {
+              // Find the closest group above (the one with highest maxI)
+              const closestGroup = aboveGroups.reduce((closest: any, group: any) =>
+                !closest || group.maxI > closest.maxI ? group : closest, null);
+  
+              if (closestGroup) {
+                nextLocation = {
+                  floor,
+                  group_id: closestGroup.id,
+                  group_row,
+                  group_column: Math.min(group_column, closestGroup.width - 1),
+                  group_depth: closestGroup.depth - 1
+                };
+              }
+            }
+          }
+          break;
+        case 'ArrowDown':
+          if (group_depth !== undefined && group_depth < (currentGroup.depth - 1)) {
+            nextLocation = {
+              floor,
+              group_id,
+              group_row,
+              group_column,
+              group_depth: group_depth + 1
+            };
+          } else {
+            const belowGroups = groups.filter((g: any) =>
+              g.minI > rowStart + currentGroup.depth && // Group is below current group
+              g.minJ <= columnStart + currentGroup.width - 1 && // Groups overlap horizontally
+              g.maxJ >= columnStart
+            );
+  
+            if (belowGroups.length > 0) {
+              // Find the closest group below (the one with lowest minI)
+              const closestGroup = belowGroups.reduce((closest: any, group: any) =>
+                !closest || group.minI < closest.minI ? group : closest, null);
+  
+              if (closestGroup) {
+                nextLocation = {
+                  floor,
+                  group_id: closestGroup.id,
+                  group_row,
+                  group_column: Math.min(group_column, closestGroup.width - 1),
+                  group_depth: 0
+                };
+              }
+            }
+          }
+          break;
+      }
+    }
+    // Handle group navigation with Shift
+    else if (shiftKey) {
       switch (key) {
         case 'ArrowUp': {
           // Find groups that are positioned above the current group
@@ -1393,42 +1465,6 @@ export const ShelfSelector3D = memo(({
           break;
         }
       }
-    }
-
-    const [rowStart, columnStart] = groupPosition;
-    if (ctrlKey) {
-      switch (key) {
-        case 'ArrowUp':
-          if (group_depth !== undefined && group_depth > 0) {
-            nextLocation = {
-              floor,
-              group_id,
-              group_row,
-              group_column,
-              group_depth: group_depth - 1
-            };
-          } else {
-            shiftKeyPressed(key);
-          }
-          break;
-        case 'ArrowDown':
-          if (group_depth !== undefined && group_depth < (currentGroup.depth - 1)) {
-            nextLocation = {
-              floor,
-              group_id,
-              group_row,
-              group_column,
-              group_depth: group_depth + 1
-            };
-          } else {
-            shiftKeyPressed(key);
-          }
-          break;
-      }
-    }
-    // Handle group navigation with Shift
-    else if (shiftKey) {
-      shiftKeyPressed(key);
     } else {
       // Regular shelf navigation within a group
       const { rows, width } = currentGroup;
