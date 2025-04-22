@@ -320,7 +320,6 @@ function mapGroupToMatrixPosition(
   return null;
 }
 
-
 const ShelfInstance = memo(({
   position,
   size,
@@ -355,10 +354,12 @@ const ShelfInstance = memo(({
   const meshRef = useRef<THREE.Mesh>(null);
   const { camera } = useThree();
   const [shelfOpacity, setShelfOpacity] = useState(1);
+  const [isVisible, setIsVisible] = useState(true);
 
   // Shelf-specific distance thresholds - closer than group thresholds
   const SHELF_FADE_START = 5.75;  // Start fading shelves at this distance
   const SHELF_FADE_END = 5.5;    // Completely transparent at this distance
+  const VISIBILITY_THRESHOLD = 0.4; // Threshold for considering a shelf "visible" for interaction
 
   // Update shelf opacity based on distance
   useFrame(() => {
@@ -379,6 +380,8 @@ const ShelfInstance = memo(({
       // Only update if significant change
       if (Math.abs(newOpacity - shelfOpacity) > 0.01) {
         setShelfOpacity(newOpacity);
+        // Update visibility state for interaction control
+        setIsVisible(newOpacity * groupOpacity > VISIBILITY_THRESHOLD);
       }
     }
   });
@@ -398,13 +401,18 @@ const ShelfInstance = memo(({
   // Final opacity is the product of group opacity and shelf opacity
   const finalOpacity = groupOpacity * shelfOpacity;
 
+  // Use conditional handlers based on visibility
+  const handlePointerOver = isVisible ? onPointerOver : undefined;
+  const handlePointerOut = isVisible ? onPointerOut : undefined;
+  const handleClick = isVisible ? onClick : undefined;
+
   return (
     <mesh
       ref={meshRef}
       position={position}
-      onPointerOver={onPointerOver}
-      onPointerOut={onPointerOut}
-      onClick={onClick}
+      onPointerOver={handlePointerOver}
+      onPointerOut={handlePointerOut}
+      onClick={handleClick}
       castShadow
       receiveShadow
     >
@@ -1268,19 +1276,49 @@ export const ShelfSelector3D = memo(({
     }
   }, [selectedLocation, onHighlightFloor]);
 
-  // Update the external selection effect to respect user interactions
+  // Update the external selection effect to respect user interactions and validate bounds
   useEffect(() => {
     if (externalSelection && floors[externalSelection.floor] && !userInteractionInProgress.current) {
+      // Validate and clamp the external selection to valid bounds
+      const validatedSelection = { ...externalSelection };
+
+      // Validate floor index
+      validatedSelection.floor = Math.max(0, Math.min(validatedSelection.floor, floors.length - 1));
+
+      // Get the floor matrix for group calculations
+      const floorMatrix = floors[validatedSelection.floor].matrix;
+      const { groups } = processGroupsMatrix(floorMatrix, validatedSelection.floor);
+
+      // Validate group_id
+      const maxGroupId = groups.length > 0 ? groups.length - 1 : 0;
+      validatedSelection.group_id = Math.max(0, Math.min(validatedSelection.group_id, maxGroupId));
+
+      // Find current group
+      const currentGroup = groups.find((g: any) => g.id === validatedSelection.group_id);
+
+      if (currentGroup) {
+        // Validate group_row
+        validatedSelection.group_row = Math.max(0, Math.min(validatedSelection.group_row, currentGroup.rows - 1));
+
+        // Validate group_column
+        validatedSelection.group_column = Math.max(0, Math.min(validatedSelection.group_column, currentGroup.width - 1));
+
+        // Validate group_depth
+        if (validatedSelection.group_depth !== undefined) {
+          validatedSelection.group_depth = Math.max(0, Math.min(validatedSelection.group_depth, currentGroup.depth - 1));
+        }
+      }
+
       // Only update if it's different from the current selection
       if (!selectedLocation ||
-        selectedLocation.floor !== externalSelection.floor ||
-        selectedLocation.group_id !== externalSelection.group_id ||
-        selectedLocation.group_row !== externalSelection.group_row ||
-        selectedLocation.group_column !== externalSelection.group_column ||
-        selectedLocation.group_depth !== externalSelection.group_depth) {
+        selectedLocation.floor !== validatedSelection.floor ||
+        selectedLocation.group_id !== validatedSelection.group_id ||
+        selectedLocation.group_row !== validatedSelection.group_row ||
+        selectedLocation.group_column !== validatedSelection.group_column ||
+        selectedLocation.group_depth !== validatedSelection.group_depth) {
 
-        // Call handleSelect with source='external'
-        handleSelect(externalSelection, 'external');
+        // Call handleSelect with source='external' and validated selection
+        handleSelect(validatedSelection, 'external');
       }
     }
   }, [externalSelection, floors, handleSelect, selectedLocation]);
@@ -1323,12 +1361,12 @@ export const ShelfSelector3D = memo(({
               g.minJ <= columnStart + currentGroup.width - 1 && // Groups overlap horizontally
               g.maxJ >= columnStart
             );
-  
+
             if (aboveGroups.length > 0) {
               // Find the closest group above (the one with highest maxI)
               const closestGroup = aboveGroups.reduce((closest: any, group: any) =>
                 !closest || group.maxI > closest.maxI ? group : closest, null);
-  
+
               if (closestGroup) {
                 nextLocation = {
                   floor,
@@ -1356,12 +1394,12 @@ export const ShelfSelector3D = memo(({
               g.minJ <= columnStart + currentGroup.width - 1 && // Groups overlap horizontally
               g.maxJ >= columnStart
             );
-  
+
             if (belowGroups.length > 0) {
               // Find the closest group below (the one with lowest minI)
               const closestGroup = belowGroups.reduce((closest: any, group: any) =>
                 !closest || group.minI < closest.minI ? group : closest, null);
-  
+
               if (closestGroup) {
                 nextLocation = {
                   floor,
