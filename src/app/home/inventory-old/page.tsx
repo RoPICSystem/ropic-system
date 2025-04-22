@@ -36,7 +36,7 @@ import { Icon } from "@iconify-icon/react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { AnimatePresence, motion } from "framer-motion";
-import { FloorConfig, generateShelfOccupancyMatrix, ShelfLocation, ShelfSelector3D } from "@/components/shelf-selector-3d-v4";
+import { FloorConfig, generateShelfOccupancyMatrix, ShelfLocation, ShelfSelector3D } from "@/components/shelf-selector-3d-v3";
 import { useTheme } from "next-themes";
 import { herouiColor } from "@/utils/colors";
 
