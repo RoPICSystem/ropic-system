@@ -905,69 +905,97 @@ export default function InventoryPage() {
     router.push(`?${params.toString()}`, { scroll: false });
   };
 
-  if (!admin) {
+    if (!admin) {
     return (
-      <div className="container mx-auto p-2 gap-6 flex flex-col max-w-4xl">
-        <div className="flex justify-between items-center">
+      <div className="container mx-auto p-2 max-w-4xl">
+        <div className="flex justify-between items-center mb-6">
           <div>
             <h1 className="text-2xl font-bold">Inventory Management</h1>
             <p className="text-default-500">Manage your inventory items efficiently.</p>
           </div>
-          <Skeleton className="h-10 w-40 rounded-xl" /> {/* Save button */}
+          <div className="flex gap-4">
+            <div className="mt-4 text-center">
+              <Skeleton className="h-10 w-32 rounded-xl" /> {/* New Item button */}
+            </div>
+          </div>
         </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Basic Information Skeleton */}
-          <CardList>
-            <div>
-              <Skeleton className="h-6 w-48 mx-auto rounded-xl mb-5" /> {/* Section Title */}
-              <div className="space-y-4">
-                <div className="flex gap-4">
-                  <Skeleton className="h-16 w-full rounded-xl" /> {/* Item Code */}
-                  <Skeleton className="h-16 w-full rounded-xl" /> {/* Item Name */}
-                </div>
-                <Skeleton className="h-36 w-full rounded-xl" /> {/* Description */}
+  
+        <div className="flex flex-col xl:flex-row gap-4">
+          {/* Left side: Inventory List Skeleton */}
+          <div className="xl:w-1/3 shadow-xl shadow-primary/10 min-h-[42rem] 
+              min-w-[350px] rounded-2xl overflow-hidden bg-background border border-default-200 backdrop-blur-lg">
+            <div className="flex flex-col h-full relative">
+              <div className="p-4 absolute w-full z-20 top-0 bg-background/50 border-b border-default-200 backdrop-blur-lg">
+                <Skeleton className="h-8 w-48 mx-auto rounded-xl mb-4" /> {/* Inventory Items heading */}
+                <Skeleton className="h-10 w-full rounded-xl" /> {/* Search input */}
               </div>
-            </div>
-          </CardList>
-
-          {/* Quantity & Costs Skeleton */}
-          <CardList>
-            <div>
-              <Skeleton className="h-6 w-48 mx-auto rounded-xl mb-5" /> {/* Section Title */}
-              <div className="space-y-4">
-                <div className="flex gap-4">
-                  <Skeleton className="h-16 w-full rounded-xl" /> {/* Quantity */}
-                  <Skeleton className="h-16 w-full rounded-xl" /> {/* Unit */}
-                </div>
-                <Skeleton className="h-16 w-full rounded-xl" /> {/* Ending Inventory */}
-                <div className="flex gap-4">
-                  <Skeleton className="h-16 w-full rounded-xl" /> {/* Netsuite */}
-                  <Skeleton className="h-16 w-full rounded-xl" /> {/* Variance */}
+              <div className="h-full absolute w-full">
+                <div className="space-y-4 p-3 pt-32 h-[42rem]">
+                  {/* Item card skeletons */}
+                  {[...Array(5)].map((_, i) => (
+                    <Skeleton key={i} className="w-full min-h-28 rounded-xl" />
+                  ))}
                 </div>
               </div>
             </div>
-          </CardList>
-
-          {/* Item Location Skeleton */}
-          <div className="col-span-1 lg:col-span-2">
-            <CardList>
-              <div>
-                <Skeleton className="h-6 w-48 mx-auto rounded-xl mb-5" /> {/* Section Title */}
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <Skeleton className="h-16 rounded-xl" /> {/* Floor Level */}
-                    <Skeleton className="h-16 rounded-xl" /> {/* Column */}
-                    <Skeleton className="h-16 rounded-xl" /> {/* Row */}
-                    <Skeleton className="h-16 rounded-xl" /> {/* Group */}
-                  </div>
-                  <div className="mt-4 flex items-center justify-between">
-                    <Skeleton className="h-8 w-32 rounded-xl" /> {/* Location Code Chip */}
-                    <Skeleton className="h-10 w-48 rounded-xl" /> {/* Open Floorplan Button */}
+          </div>
+          
+          {/* Right side: Form Skeleton */}
+          <div className="xl:w-2/3">
+            <div className="space-y-4">
+              <CardList>
+                <div>
+                  <Skeleton className="h-6 w-48 mx-auto rounded-xl mb-5" /> {/* Basic Information heading */}
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
+                      <Skeleton className="h-16 w-full rounded-xl" /> {/* Item Code */}
+                      <Skeleton className="h-16 w-full rounded-xl" /> {/* Item Name */}
+                    </div>
+                    <Skeleton className="h-16 w-full rounded-xl" /> {/* Description */}
                   </div>
                 </div>
-              </div>
-            </CardList>
+  
+                <div>
+                  <Skeleton className="h-6 w-48 mx-auto rounded-xl mb-5" /> {/* Quantity & Costs heading */}
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
+                      <Skeleton className="h-16 w-full rounded-xl" /> {/* Quantity */}
+                      <Skeleton className="h-16 w-full rounded-xl" /> {/* Unit */}
+                    </div>
+                    <Skeleton className="h-16 w-full rounded-xl" /> {/* Ending Inventory */}
+                    <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
+                      <Skeleton className="h-16 w-full rounded-xl" /> {/* Netsuite */}
+                      <Skeleton className="h-16 w-full rounded-xl" /> {/* Variance */}
+                    </div>
+                  </div>
+                </div>
+  
+                <div>
+                  <Skeleton className="h-6 w-48 mx-auto rounded-xl mb-5" /> {/* Item Location heading */}
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4 mb-4">
+                      <Skeleton className="h-16 w-full rounded-xl" /> {/* Floor */}
+                      <Skeleton className="h-16 w-full rounded-xl" /> {/* Group */}
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-3 lg:grid-cols-3 gap-4">
+                      <Skeleton className="h-16 w-full rounded-xl" /> {/* Row */}
+                      <Skeleton className="h-16 w-full rounded-xl" /> {/* Column */}
+                      <Skeleton className="h-16 w-full rounded-xl" /> {/* Depth */}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Skeleton className="h-8 w-32 rounded-xl" /> {/* Location Code Chip */}
+                    </div>
+                    <div className="flex justify-center gap-4 border-t border-default-200 pt-4 px-4 -mx-4">
+                      <Skeleton className="h-10 w-full rounded-xl" /> {/* Open Floorplan Button */}
+                    </div>
+                  </div>
+                </div>
+  
+                <div className="flex justify-center items-center">
+                  <Skeleton className="h-10 w-full rounded-xl" /> {/* Save Item Button */}
+                </div>
+              </CardList>
+            </div>
           </div>
         </div>
       </div>
