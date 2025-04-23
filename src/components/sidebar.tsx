@@ -78,6 +78,7 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
           navigation = [
             { name: 'Dashboard', href: '/home/dashboard', icon: HomeIcon },
             { name: 'Inventory', href: '/home/inventory', icon: ShoppingCartIcon },
+            { name: 'Deliveries', href: '/home/deliveries', icon: TruckIcon },
             { name: 'Notifications', href: '/home/notifications', icon: BellAlertIcon },
             // { name: 'Users', href: '/users', icon: UserGroupIcon },
             { name: 'Reports', href: '/home/reports', icon: ChartBarIcon },

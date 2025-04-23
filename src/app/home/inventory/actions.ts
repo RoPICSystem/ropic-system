@@ -4,10 +4,10 @@ import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
 
 interface LocationData {
-  company_uuid: string;
   floor: number;
   column: number;
   row: number;
+  depth: number;
   group: number;
 }
 
@@ -79,6 +79,61 @@ export async function createInventoryItem(formData: InventoryItemData) {
   }
 }
 
+
+/**
+ * Updates an existing inventory item in the database
+ */
+export async function updateInventoryItem(uuid: string, formData: Partial<InventoryItemData>) {
+  const supabase = await createClient();
+
+  try {
+    const { data, error } = await supabase
+      .from("inventory_items")
+      .update(formData)
+      .eq("uuid", uuid)
+      .select();
+
+    if (error) {
+      throw error;
+    }
+
+    return { success: true, data };
+  } catch (error) {
+    console.error("Error updating inventory item:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error occurred"
+    };
+  }
+}
+
+/**
+ * Deletes an inventory item from the database
+ */
+export async function deleteInventoryItem(uuid: string) {
+  const supabase = await createClient();
+
+  try {
+    const { data, error } = await supabase
+      .from("inventory_items")
+      .delete()
+      .eq("uuid", uuid)
+      .select();
+
+    if (error) {
+      throw error;
+    }
+
+    return { success: true, data };
+  } catch (error) {
+    console.error("Error deleting inventory item:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error occurred"
+    };
+  }
+}
+
 /**
  * Fetches available units from the database or returns default ones
  */
@@ -97,12 +152,62 @@ export async function getFloorOptions() {
   return ["Floor 1", "Floor 2", "Floor 3"];
 }
 
+
+/**
+ * Fetches available shelf locations for a specific company
+ * @param companyUuid The company's UUID
+ * @param search Optional search term to filter locations
+ * @returns Array of shelf locations
+ */
+export async function getInventoryItems(companyUuid?: string, search: string = "") {
+  const supabase = await createClient();
+
+  try {
+    // Start building the query
+    let query = supabase
+      .from("inventory_items")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    // Apply company filter if provided
+    if (companyUuid) {
+      query = query.eq("company_uuid", companyUuid);
+    }
+
+    // Apply search filter if provided
+    if (search) {
+      query = query.or(
+        `item_code.ilike.%${search}%,item_name.ilike.%${search}%,description.ilike.%${search}%,location_code.ilike.%${search}%`
+      );
+    }
+
+    // Execute the query
+    const { data, error, count } = await query;
+
+    if (error) {
+      throw error;
+    }
+
+    return {
+      success: true,
+      data: data || []
+    };
+  } catch (error) {
+    console.error("Error fetching inventory items:", error);
+    return {
+      success: false,
+      data: [],
+      error: error instanceof Error ? error.message : "Unknown error occurred",
+    };
+  }
+}
+
 /**
  * Fetches inventory items with pagination, search, and company filtering
  * @param options Query options including pagination, search, and company UUID
  * @returns Object containing inventory items and pagination details
  */
-export async function getInventoryItems(options: {
+export async function getInventoryItemsPage(options: {
   page?: number;
   pageSize?: number;
   search?: string;
@@ -175,7 +280,6 @@ export async function getInventoryItems(options: {
   }
 }
 
-
 /**
  * Fetches only occupied shelf locations for a specific company
  * @param companyUuid The company's UUID
@@ -199,13 +303,7 @@ export async function getOccupiedShelfLocations(companyUuid: string) {
     const occupiedLocations = data
       .filter(item => item.location)
       .map(item => {
-        const loc = item.location;
-        return {
-          floor: loc.floor - 1,
-          group_id: loc.group - 1,
-          group_row: loc.row - 1,
-          group_column: loc.column - 1
-        };
+        return item.location;
       });
 
     return {

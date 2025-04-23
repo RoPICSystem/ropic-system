@@ -1,60 +1,53 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { FloorConfig, ShelfLocation } from "@/components/shelf-selector-3d-v4";
+import { herouiColor } from "@/utils/colors";
+import { createClient } from "@/utils/supabase/client";
 import {
   Button,
+  Chip,
+  Form,
   Input,
-  Textarea,
-  Card,
-  CardBody,
-  CardHeader,
-  CardFooter,
-  Divider,
+  Listbox,
+  ListboxItem,
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+  NumberInput,
+  Pagination,
   Select,
   SelectItem,
-  Switch,
-  Chip,
-  Modal,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-  useDisclosure,
-  Pagination,
   Skeleton,
-  NumberInput,
-  Form,
-  Avatar,
-  ListboxItem,
-  Listbox,
-  Badge,
   Spinner,
+  Textarea,
+  useDisclosure
 } from "@heroui/react";
-import { useInfiniteScroll } from "@heroui/use-infinite-scroll";
 import { Icon } from "@iconify-icon/react";
-import { Canvas } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
 import { AnimatePresence, motion } from "framer-motion";
-import { FloorConfig, generateShelfOccupancyMatrix, ShelfLocation, ShelfSelector3D } from "@/components/shelf-selector-3d-v4";
 import { useTheme } from "next-themes";
-import { herouiColor } from "@/utils/colors";
+import { useRouter, useSearchParams } from "next/navigation";
+import { QRCodeCanvas } from "qrcode.react";
+import React, { lazy, memo, Suspense, useEffect, useState } from "react";
+
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 
 // Import server actions
+import CardList from "@/components/card-list";
+import { motionTransition } from "@/utils/anim";
 import {
   checkAdminStatus,
   createInventoryItem,
-  getUnitOptions,
   getFloorOptions,
   getInventoryItems,
   getOccupiedShelfLocations,
+  getUnitOptions,
+  updateInventoryItem,
 } from "./actions";
 
-import CardList from "@/components/card-list";
-import { motionTransition } from "@/utils/anim";
-
 interface LocationData {
-  company_uuid: string;
   floor: number | null;
   column: number | null;
   row: number | null;
@@ -76,13 +69,20 @@ interface InventoryItem {
   netsuite: number | null;
   variance: number | null;
   location: LocationData;
+  location_code: string | null;
+  status: string | null;
 }
+
+const ShelfSelector3D = memo(lazy(() =>
+  import("@/components/shelf-selector-3d-v4").then(mod => ({
+    default: mod.ShelfSelector3D
+  }))
+));
 
 export default function InventoryPage() {
   const router = useRouter();
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [adminUUID, setAdminUUID] = useState("");
-  const [companyUUID, setCompanyUUID] = useState("");
+  const searchParams = useSearchParams();
+  const [admin, setAdmin] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [unitOptions, setUnitOptions] = useState<string[]>([]);
   const [floorOptions, setFloorOptions] = useState<string[]>([]);
@@ -93,8 +93,6 @@ export default function InventoryPage() {
   const [isLoadingItems, setIsLoadingItems] = useState(true);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
 
   // Inside the component, add state for ShelfSelector3D controls
   const [highlightedFloor, setHighlightedFloor] = useState<number | null>(null);
@@ -103,6 +101,8 @@ export default function InventoryPage() {
   const [isGroupChangeAnimate, setIsGroupChangeAnimate] = useState<boolean>(false);
   const [isSelectedLocationOccupied, setIsSelectedLocationOccupied] = useState(false);
 
+  // Add state for QR code modal
+  const [showQrCode, setShowQrCode] = useState(false);
 
   // Add this state near your other state declarations
   const [externalSelection, setExternalSelection] = useState<ShelfLocation | undefined>(undefined);
@@ -146,14 +146,32 @@ export default function InventoryPage() {
     }, 100);
   };
 
+  const generateProductJson = (space: number = 0) => {
+    if (!selectedItemId || !formData) return "{}";
+
+    // Remove data with null, "", or undefined values
+    const filteredData = Object.fromEntries(
+      Object.entries(formData).filter(([key, value]) =>
+        value !== null && value !== "" && value !== undefined &&
+        key !== "admin_uuid" && key !== "created_at" && key !== "updated_at" && key !== "status")
+    );
+
+    const productData = {
+      ...filteredData,
+      location: selectedCode || "",
+    };
+
+    return JSON.stringify(productData, null, space);
+  };
+
   const checkIfLocationOccupied = (location: ShelfLocation) => {
     return occupiedLocations.some(
       loc =>
         loc.floor === location.floor &&
-        loc.group_id === location.group_id &&
-        loc.group_row === location.group_row &&
-        loc.group_column === location.group_column &&
-        (loc.group_depth === location.group_depth || loc.group_depth === undefined)
+        loc.group === location.group &&
+        loc.row === location.row &&
+        loc.column === location.column &&
+        (loc.depth === location.depth || loc.depth === undefined)
     );
   };
 
@@ -177,7 +195,6 @@ export default function InventoryPage() {
     netsuite: null,
     variance: null,
     location: {
-      company_uuid: "",
       floor: null,
       column: null,
       row: null,
@@ -282,12 +299,12 @@ export default function InventoryPage() {
 
   const formatCode = (location: ShelfLocation | any) => {
     // Format the location code
-    const { floor, group_id: group, group_row: row, group_column: column, group_depth: depth = 0 } = location;
+    const { floor, group: group, row: row, column: column, depth: depth = 0 } = location;
     const colStr = parseColumn(column);
 
     // Format with leading zeros: floor (2 digits), row (2 digits), depth (2 digits), group (2 digits)
     const floorStr = floor !== undefined && floor !== null ?
-      floor.toString().padStart(2, '0') : "??";
+      floor.toString().padStart(2, '0') : "00";
     const rowStr = row !== undefined && row !== null ?
       row.toString().padStart(2, '0') : "??";
     const groupStr = group !== undefined && group !== null ?
@@ -302,11 +319,11 @@ export default function InventoryPage() {
   // Update the handleShelfSelection function to check if selected location is occupied
   const handleShelfSelection = (location: ShelfLocation) => {
     const floorNumber = location.floor;
-    const columnNumber = location.group_column;
+    const columnNumber = location.column;
     const columnCode = String.fromCharCode(65 + columnNumber);
-    const rowNumber = location.group_row;
-    const groupNumber = location.group_id;
-    const depthNumber = location.group_depth || 0; // Get depth value
+    const rowNumber = location.row;
+    const groupNumber = location.group;
+    const depthNumber = location.depth || 0; // Get depth value
 
     // Update temporary selections with numerical values
     setTempSelectedFloor(floorNumber);
@@ -323,7 +340,7 @@ export default function InventoryPage() {
     setHighlightedFloor(location.floor);
 
     // Update maximum values if available
-    if (location.max_group_id !== undefined) setMaxGroupId(location.max_group_id);
+    if (location.max_group !== undefined) setMaxGroupId(location.max_group);
     if (location.max_row !== undefined) setMaxRow(location.max_row);
     if (location.max_column !== undefined) setMaxColumn(location.max_column);
     if (location.max_depth !== undefined) setMaxDepth(location.max_depth); // Set max depth
@@ -338,10 +355,10 @@ export default function InventoryPage() {
       tempSelectedRow !== null && tempSelectedColumn !== null) {
       const location = {
         floor: highlightedFloor,
-        group_id: tempSelectedGroup,
-        group_row: tempSelectedRow,
-        group_column: tempSelectedColumn,
-        group_depth: tempSelectedDepth !== null ? tempSelectedDepth : 0
+        group: tempSelectedGroup,
+        row: tempSelectedRow,
+        column: tempSelectedColumn,
+        depth: tempSelectedDepth !== null ? tempSelectedDepth : 0
       };
       setIsSelectedLocationOccupied(checkIfLocationOccupied(location));
     }
@@ -356,10 +373,10 @@ export default function InventoryPage() {
     if (tempSelectedGroup !== null) {
       const location = {
         floor: floorIndex,
-        group_id: tempSelectedGroup,
-        group_row: tempSelectedRow !== null ? tempSelectedRow : 0,
-        group_column: tempSelectedColumn !== null ? tempSelectedColumn : 0,
-        group_depth: tempSelectedDepth !== null ? tempSelectedDepth : 0
+        group: tempSelectedGroup,
+        row: tempSelectedRow !== null ? tempSelectedRow : 0,
+        column: tempSelectedColumn !== null ? tempSelectedColumn : 0,
+        depth: tempSelectedDepth !== null ? tempSelectedDepth : 0
       };
       setExternalSelection(location);
 
@@ -378,10 +395,10 @@ export default function InventoryPage() {
     if (tempSelectedFloor !== null && highlightedFloor !== null) {
       const location = {
         floor: highlightedFloor,
-        group_id: adjustedId,
-        group_row: tempSelectedRow !== null ? tempSelectedRow : 0,
-        group_column: tempSelectedColumn !== null ? tempSelectedColumn : 0,
-        group_depth: tempSelectedDepth !== null ? tempSelectedDepth : 0
+        group: adjustedId,
+        row: tempSelectedRow !== null ? tempSelectedRow : 0,
+        column: tempSelectedColumn !== null ? tempSelectedColumn : 0,
+        depth: tempSelectedDepth !== null ? tempSelectedDepth : 0
       };
       setExternalSelection(location);
 
@@ -400,10 +417,10 @@ export default function InventoryPage() {
     if (tempSelectedFloor !== null && highlightedFloor !== null && tempSelectedGroup !== null) {
       const location = {
         floor: highlightedFloor,
-        group_id: tempSelectedGroup,
-        group_row: adjustedRow,
-        group_column: tempSelectedColumn !== null ? tempSelectedColumn : 0,
-        group_depth: tempSelectedDepth !== null ? tempSelectedDepth : 0
+        group: tempSelectedGroup,
+        row: adjustedRow,
+        column: tempSelectedColumn !== null ? tempSelectedColumn : 0,
+        depth: tempSelectedDepth !== null ? tempSelectedDepth : 0
       };
       setExternalSelection(location);
 
@@ -425,10 +442,10 @@ export default function InventoryPage() {
     if (tempSelectedFloor !== null && highlightedFloor !== null && tempSelectedGroup !== null) {
       const location = {
         floor: highlightedFloor,
-        group_id: tempSelectedGroup,
-        group_row: tempSelectedRow !== null ? tempSelectedRow : 0,
-        group_column: adjustedCol,
-        group_depth: tempSelectedDepth !== null ? tempSelectedDepth : 0
+        group: tempSelectedGroup,
+        row: tempSelectedRow !== null ? tempSelectedRow : 0,
+        column: adjustedCol,
+        depth: tempSelectedDepth !== null ? tempSelectedDepth : 0
       };
       setExternalSelection(location);
 
@@ -447,10 +464,10 @@ export default function InventoryPage() {
     if (tempSelectedFloor !== null && highlightedFloor !== null && tempSelectedGroup !== null && tempSelectedDepth !== null) {
       const location = {
         floor: highlightedFloor,
-        group_id: tempSelectedGroup,
-        group_row: tempSelectedRow !== null ? tempSelectedRow : 0,
-        group_column: tempSelectedColumn !== null ? tempSelectedColumn : 0,
-        group_depth: adjustedDepth
+        group: tempSelectedGroup,
+        row: tempSelectedRow !== null ? tempSelectedRow : 0,
+        column: tempSelectedColumn !== null ? tempSelectedColumn : 0,
+        depth: adjustedDepth
       };
       setExternalSelection(location);
 
@@ -472,22 +489,35 @@ export default function InventoryPage() {
     setTempSelectedGroup(selectedGroup);
     setTempSelectedCode(selectedCode);
 
+    console.log("Selected location:", {
+      selectedFloor,
+      selectedColumn,
+      selectedRow,
+      selectedGroup,
+      selectedDepth,
+      selectedColumnCode,
+      selectedCode
+    });
+
+
     if (selectedFloor !== null && selectedColumn !== null &&
       selectedRow !== null && selectedGroup !== null && selectedDepth !== null) {
       setHighlightedFloor(selectedFloor);
 
       const location = {
         floor: selectedFloor,
-        group_id: selectedGroup,
-        group_row: selectedRow,
-        group_column: selectedColumn,
-        group_depth: selectedDepth
+        group: selectedGroup,
+        row: selectedRow,
+        column: selectedColumn,
+        depth: selectedDepth
       };
 
       setExternalSelection(location);
 
       // Check if current location is occupied
       setIsSelectedLocationOccupied(checkIfLocationOccupied(location));
+    } else {
+      setExternalSelection(undefined);
     }
 
     onOpen();
@@ -526,56 +556,18 @@ export default function InventoryPage() {
     onClose();
   }
 
-  // Load more inventory items
-  const loadMoreItems = async () => {
-    if (!hasMore || isLoadingItems) return;
-
-    try {
-      setIsLoadingItems(true);
-      const nextPage = page + 1;
-      const result = await getInventoryItems({
-        page: nextPage,
-        pageSize: 10,
-        search: searchQuery,
-        companyUuid: companyUUID
-      });
-
-      if (result.data && result.data.length > 0) {
-        setInventoryItems(prev => [...prev, ...result.data]);
-        setPage(nextPage);
-      } else {
-        setHasMore(false);
-      }
-    } catch (error) {
-      console.error("Error loading more items:", error);
-    } finally {
-      setIsLoadingItems(false);
-    }
-  };
-
-
-  // Infinite scroll for inventory list
-  const [, scrollRef] = useInfiniteScroll({
-    hasMore,
-    onLoadMore: loadMoreItems,
-  });
 
   // Handle item search
-  const handleSearch = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const query = e.target.value;
+  const handleSearch = async (query: string) => {
     setSearchQuery(query);
 
     try {
       setIsLoadingItems(true);
-      setPage(1);
-      setHasMore(true);
 
-      const result = await getInventoryItems({
-        page: 1,
-        pageSize: 10,
-        search: query,
-        companyUuid: companyUUID
-      });
+      const result = await getInventoryItems(
+        admin.company.uuid,
+        query,
+      );
 
       setInventoryItems(result.data || []);
     } catch (error) {
@@ -585,81 +577,94 @@ export default function InventoryPage() {
     }
   };
 
-  // In handleSelectItem function:
+
+  // In handleSelectItem function, just update the URL
   const handleSelectItem = (key: string) => {
-    const item = inventoryItems.find(i => i.uuid === key) as InventoryItem;
+    // Update the URL with the selected item ID without reloading the page
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("itemId", key);
+    router.push(`?${params.toString()}`, { scroll: false });
+  };
+
+  // Add or update useEffect to watch for changes in search parameters
+  useEffect(() => {
+    if (!admin?.company?.uuid || isLoadingItems || inventoryItems.length === 0) return;
+
+    const itemId = searchParams.get("itemId");
+    if (!itemId) {
+      // Clear selection if no itemId in URL
+      setSelectedItemId(null);
+
+      setFormData({
+        uuid: admin.uuid,
+        company_uuid: admin.company.uuid,
+        admin_uuid: admin.uuid,
+        item_code: "",
+        item_name: "",
+        description: "",
+        quantity: 0,
+        unit: "",
+        ending_inventory: 0,
+        netsuite: null,
+        variance: null,
+        location: {
+          floor: null,
+          column: null,
+          row: null,
+          depth: null,
+          group: null,
+        }
+      });
+
+      setSelectedItemId(null);
+      setSelectedFloor(null);
+      setSelectedColumn(null);
+      setSelectedRow(null);
+      setSelectedDepth(null);
+      setSelectedGroup(null);
+      setSelectedColumnCode("");
+      setSelectedCode("");
+
+      console.log("No itemId in URL");
+      
+      return;
+    }
+
+    // Find the item in inventory
+    const item = inventoryItems.find(i => i.uuid === itemId) as InventoryItem;
     if (!item) return;
 
-    setSelectedItemId(item.uuid);
+    // Set the selected item and form data
+    setSelectedItemId(itemId);
     setFormData({
-      ...item,
-      admin_uuid: adminUUID,
+      ...item
     });
 
-    // Update location fields - convert strings to numbers
+    // Set location data
     if (item.location) {
-      const floorNumber = item.location.floor || null;
-      const columnNumber = item.location.column;
-      const rowNumber = item.location.row;
-      const depthNumber = item.location.depth || null;
-      const groupNumber = item.location.group;
-
-      setSelectedFloor(floorNumber);
-      setSelectedColumnCode(parseColumn(columnNumber) || "");
+      setSelectedFloor(item.location.floor);
+      setSelectedColumnCode(parseColumn(item.location.column) || "");
       setSelectedColumn(item.location.column);
-      setSelectedRow(rowNumber);
-      setSelectedDepth(depthNumber);
-      setSelectedGroup(groupNumber);
+      setSelectedRow(item.location.row);
+      setSelectedDepth(item.location.depth);
+      setSelectedGroup(item.location.group);
 
-      // Create a location object and use formatCode
-      const location = {
-        floor: floorNumber,
-        group_id: groupNumber,
-        group_row: rowNumber,
-        group_column: columnNumber,
-        group_depth: depthNumber
-      };
-
-      const code = formatCode(location);
-      setSelectedCode(code);
-
-      // Ensure location_code is updated in formData
-      setFormData(prev => ({
-        ...prev,
-        location_code: code
-      }));
+      setSelectedCode(item.location_code || "");
     }
-  };
-
-  // Add this to your initPage function or create a separate function
-  const fetchOccupiedLocations = async () => {
-    try {
-      const result = await getOccupiedShelfLocations(adminUUID);
-      if (result.success) {
-        setOccupiedLocations(result.data);
-      }
-    } catch (error) {
-      console.error("Error fetching occupied locations:", error);
-    }
-  };
+  }, [searchParams, admin?.company?.uuid, isLoadingItems, inventoryItems]);
 
   // Fetch admin status and options when component mounts
   useEffect(() => {
     const initPage = async () => {
       try {
         const adminData = await checkAdminStatus();
-        setIsAdmin(true);
-        setAdminUUID(adminData.uuid);
-        setCompanyUUID(adminData.company.uuid);
+        setAdmin(adminData);
 
         setFormData(prev => ({
           ...prev,
           admin_uuid: adminData.uuid,
           company_uuid: adminData.company.uuid,
-          location: {
-            ...prev.location!,
-            company_uuid: adminData.company.uuid
-          }
+          location: prev.location
         }));
 
         const units = await getUnitOptions();
@@ -669,20 +674,18 @@ export default function InventoryPage() {
         setFloorOptions(floors);
 
         // Fetch initial inventory items
-        const items = await getInventoryItems({
-          page: 1,
-          pageSize: 10,
-          companyUuid: adminData.company.uuid
-        });
-
-        setInventoryItems(items.data || []);
-        setIsLoadingItems(false);
+        const items = await getInventoryItems(
+          adminData.company.uuid
+        );
 
         // Fetch occupied shelf locations
         const locationsResult = await getOccupiedShelfLocations(adminData.company.uuid);
         if (locationsResult.success) {
           setOccupiedLocations(locationsResult.data);
         }
+
+        setInventoryItems(items.data || []);
+        setIsLoadingItems(false);
       } catch (error) {
         console.error("Error initializing page:", error);
       }
@@ -690,6 +693,49 @@ export default function InventoryPage() {
 
     initPage();
   }, []);
+
+  useEffect(() => {
+    if (!admin?.company?.uuid) return;
+
+    // Create a client-side Supabase client for real-time subscriptions
+    const supabase = createClient();
+
+    // Set up the real-time subscription
+    const channel = supabase
+      .channel('inventory-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen for all events (INSERT, UPDATE, DELETE)
+          schema: 'public',
+          table: 'inventory_items',
+          filter: `company_uuid=eq.${admin.company.uuid}`
+        },
+        async (payload) => {
+          console.log('Real-time update received:', payload);
+
+          // Refresh inventory items
+          const refreshedItems = await getInventoryItems(
+            admin.company.uuid,
+            searchQuery,
+          );
+
+          setInventoryItems(refreshedItems.data || []);
+
+          // Update occupied locations as well
+          const locationsResult = await getOccupiedShelfLocations(admin.company.uuid);
+          if (locationsResult.success) {
+            setOccupiedLocations(locationsResult.data);
+          }
+        }
+      )
+      .subscribe();
+
+    // Cleanup function
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [admin?.company?.uuid, searchQuery]);
 
   // Form change handler
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -720,10 +766,10 @@ export default function InventoryPage() {
       // Create the location object
       const location = {
         floor: selectedFloor,
-        group_id: selectedGroup,
-        group_row: selectedRow,
-        group_column: selectedColumn !== null ? selectedColumn : 0,
-        group_depth: selectedDepth !== null ? selectedDepth : 0
+        group: selectedGroup,
+        row: selectedRow,
+        column: selectedColumn !== null ? selectedColumn : 0,
+        depth: selectedDepth !== null ? selectedDepth : 0
       };
 
       // Generate the location code
@@ -750,7 +796,12 @@ export default function InventoryPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+
     const newErrors: Record<string, string> = {};
+    if (!admin) {
+      formData.admin_uuid = admin?.uuid;
+      formData.company_uuid = admin?.company.uuid;
+    }
     if (!formData.item_code) newErrors.item_code = "Item code is required";
     if (!formData.item_name) newErrors.item_name = "Item name is required";
     if (!formData.quantity || formData.quantity <= 0) newErrors.quantity = "Valid quantity is required";
@@ -769,73 +820,92 @@ export default function InventoryPage() {
     setIsLoading(true);
 
     try {
-      const result = await createInventoryItem(formData as any);
+      // Determine if we're creating or updating
+      let result;
 
-      if (result.success) {
-        // Reset page to 1 and refresh inventory list
-        setPage(1);
+      if (selectedItemId) {
+        // Update existing item
+        result = await updateInventoryItem(selectedItemId, formData as any);
+      } else {
+        // Create new item
+        result = await createInventoryItem(formData as any);
+      }
 
-        // Refresh the inventory items list
-        const refreshedItems = await getInventoryItems({
-          page: 1,
-          pageSize: 10,
-          search: searchQuery,
-          companyUuid: companyUUID
+      // If creating a new item, update the URL with the new item ID
+      const newItemId = (result.data as any)[0].uuid;
+      if (result.success && result.data && newItemId) {
+        // First set a pending state to track the new item
+        const newItem = result.success ? (result.data as any)[0] : null;
+        setSelectedItemId(newItem?.uuid || null);
+
+        // Wait for the items to be refreshed by the real-time subscription
+        // by adding a slight delay before updating the URL
+        setTimeout(() => {
+          if (newItem?.uuid) {
+            const params = new URLSearchParams(searchParams.toString());
+            params.set("itemId", newItem.uuid);
+            router.push(`?${params.toString()}`, { scroll: false });
+          }
+          setErrors({});
+        }, 500);
+        setErrors({});
+      }
+      // You could add a success message here if you have a toast notification system
+      else {
+        setFormData({
+          company_uuid: admin.company.uuid,
+          admin_uuid: admin.uuid,
+          item_code: "",
+          item_name: "",
+          description: "",
+          quantity: 0,
+          unit: "",
+          ending_inventory: 0,
+          netsuite: null,
+          variance: null,
+          location: {
+            floor: null,
+            column: null,
+            row: null,
+            depth: null,
+            group: null,
+          }
         });
 
-        setInventoryItems(refreshedItems.data || []);
-        setHasMore(refreshedItems.data?.length >= 10);
+        setSelectedItemId(null);
+        setSelectedFloor(null);
+        setSelectedColumn(null);
+        setSelectedRow(null);
+        setSelectedGroup(null);
+        setSelectedDepth(null);
+        setSelectedColumnCode("");
+        setSelectedCode("");
 
-        // Clear form if it's a new item, or select the updated item
-        if (!selectedItemId) {
-          // If new item was created, reset form
-          setFormData({
-            company_uuid: companyUUID,
-            admin_uuid: adminUUID,
-            item_code: "",
-            item_name: "",
-            description: "",
-            quantity: 0,
-            unit: "",
-            ending_inventory: 0,
-            netsuite: null,
-            variance: null,
-            location: {
-              company_uuid: companyUUID,
-              floor: null,
-              column: null,
-              row: null,
-              depth: null,
-              group: null,
-            }
-          });
-          setSelectedFloor(null);
-          setSelectedColumn(null);
-          setSelectedRow(null);
-          setSelectedGroup(null);
-          setSelectedDepth(null);
-          setSelectedCode("");
-        } else if (result.data) {
-          if ((result.data as any).uuid)
-            setSelectedItemId((result.data as any).uuid);
-        }
-
-        // Clear any previous errors
-        setErrors({});
-
-        // You could add a success message here if you have a toast notification system
-      } else {
+        setTempSelectedFloor(null);
+        setTempSelectedColumn(null);
+        setTempSelectedRow(null);
+        setTempSelectedDepth(null);
+        setTempSelectedGroup(null);
+        setTempSelectedColumnCode("");
+        setTempSelectedCode("");
         throw new Error(result.error);
       }
     } catch (error) {
-      console.error("Error submitting inventory item:", error);
-      alert("Failed to save inventory item. Please try again.");
+      console.error(`Error ${selectedItemId ? 'updating' : 'creating'} inventory item:`, error);
+      alert(`Failed to ${selectedItemId ? 'update' : 'save'} inventory item. Please try again.`);
     } finally {
       setIsLoading(false);
     }
   };
 
-  if (!isAdmin) {
+  const handleNewItem = () => {
+    // Clear the URL parameter
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("itemId");
+    router.push(`?${params.toString()}`, { scroll: false });
+  };
+
+  if (!admin) {
     return (
       <div className="container mx-auto p-2 gap-6 flex flex-col max-w-4xl">
         <div className="flex justify-between items-center">
@@ -919,68 +989,43 @@ export default function InventoryPage() {
           <p className="text-default-500">Manage your inventory items efficiently.</p>
         </div>
         <div className="flex gap-4">
-          {!isLoadingItems && inventoryItems.length > 0 && (
-            <div className="mt-4 text-center">
-              <Button
-                color="primary"
-                variant="shadow"
-                onPress={() => {
-                  setFormData({
-                    uuid: companyUUID,
-                    item_code: "",
-                    item_name: "",
-                    description: "",
-                    quantity: 0,
-                    unit: "",
-                    ending_inventory: 0,
-                    netsuite: null,
-                    variance: null,
-                    location: {
-                      company_uuid: companyUUID,
-                      floor: null,
-                      column: null,
-                      row: null,
-                      depth: null,
-                      group: null,
-                    }
-                  });
-                  setSelectedItemId(null);
-                  setSelectedFloor(null);
-                  setSelectedColumn(null);
-                  setSelectedRow(null);
-                  setSelectedDepth(null);
-                  setSelectedGroup(null);
-                  setSelectedCode("");
-                }}
-              >
-                New Item
-              </Button>
-            </div>
-          )}
+          <div className="mt-4 text-center">
+            <Button
+              color="primary"
+              variant="shadow"
+              onPress={handleNewItem}
+            >
+              <Icon icon="mdi:plus" className="mr-2" />
+              New Item
+            </Button>
+          </div>
         </div>
       </div>
-      <div className="flex flex-col lg:flex-row gap-4 ">
+      <div className="flex flex-col xl:flex-row gap-4 ">
         {/* Left side: Inventory List */}
-        <div className="lg:w-1/3 shadow-xl shadow-primary/10 min-h-[32rem] 
-            min-w-[350px] rounded-2xl overflow-hidden bg-background border border-default-200"
+        <div className="xl:w-1/3 shadow-xl shadow-primary/10 min-h-[42rem] 
+            min-w-[350px] rounded-2xl overflow-hidden bg-background border border-default-200  backdrop-blur-lg"
         >
           <div className="flex flex-col h-full relative">
-            <div className="p-4 absolute w-full z-20 top-0 bg-background/50 border-b border-default-200 backdrop-blur-lg">
+            <div className="p-4 absolute w-full z-20 top-0 bg-background/50 border-b border-default-200 backdrop-blur-lg"
+
+            >
               <h2 className="text-xl font-semibold mb-4 w-full text-center">Inventory Items</h2>
               <Input
                 placeholder="Search items..."
                 value={searchQuery}
-                onChange={handleSearch}
+                onChange={(e) => handleSearch(e.target.value)}
+                isClearable
+                onClear={() => handleSearch("")}
                 startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
               />
             </div>
             <div className="h-full absolute w-full">
               {!isLoadingItems && inventoryItems.length !== 0 && (
                 <Listbox
-                  classNames={{ list: 'space-y-4 p-3 overflow-y-auto pt-32', base: 'h-full' }}
+                  classNames={{ list: 'space-y-4 p-3 overflow-y-auto pt-32', base: 'xl:h-full h-[42rem]' }}
                   onSelectionChange={(item) => handleSelectItem((item as Set<string>).values().next().value || "")}
                   selectedKeys={[selectedItemId || ""]}
-                  ref={scrollRef}
                   selectionMode="single">
                   {inventoryItems.map((item) => (
                     <ListboxItem
@@ -1012,12 +1057,7 @@ export default function InventoryPage() {
                               ₱{item.ending_inventory.toFixed(2)}
                             </Chip>
                             <Chip color="danger" variant={selectedItemId === item.uuid ? "shadow" : "flat"} size="sm">
-                              {formatCode({
-                                floor: item.location?.floor,
-                                group_column: item.location?.column,
-                                group_row: item.location?.row,
-                                group_id: item.location?.group
-                              })}
+                              {item.location_code}
                             </Chip>
                           </div>
                         </div>
@@ -1029,21 +1069,23 @@ export default function InventoryPage() {
             </div>
 
             {isLoadingItems && (
-              <div className="py-4 flex left-[50%] top-[50%] absolute translate-x-[-50%] translate-y-[-50%] absolute">
-                <Spinner size="sm" />
+              <div className="xl:h-full h-[42rem] absolute w-full">
+                <div className="py-4 flex absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
+                  <Spinner />
+                </div>
               </div>
             )}
           </div>
         </div>
 
         {/* Right side: Item Form */}
-        <div className="lg:w-2/3">
+        <div className="xl:w-2/3">
           <Form id="inventoryForm" onSubmit={handleSubmit} className="items-stretch space-y-4">
             <CardList>
               <div>
                 <h2 className="text-xl font-semibold mb-4 w-full text-center">Basic Information</h2>
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2  gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
                     <Input
                       name="item_code"
                       label="Item Code"
@@ -1087,7 +1129,7 @@ export default function InventoryPage() {
               <div>
                 <h2 className="text-xl font-semibold mb-4 w-full text-center">Quantity & Costs</h2>
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
                     <NumberInput
                       name="quantity"
                       classNames={inputStyle}
@@ -1108,7 +1150,7 @@ export default function InventoryPage() {
                       name="unit"
                       label="Unit"
                       placeholder="Select unit"
-                      value={formData.unit || ""}
+                      selectedKeys={[formData.unit || ""]}
                       onChange={handleInputChange}
                       isRequired
                       classNames={{ trigger: inputStyle.inputWrapper }}
@@ -1138,7 +1180,7 @@ export default function InventoryPage() {
                     startContent={<Icon icon="mdi:currency-php" className="text-default-500 pb-[0.1rem]" />}
                   />
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
                     <NumberInput
                       name="netsuite"
                       classNames={inputStyle}
@@ -1165,8 +1207,8 @@ export default function InventoryPage() {
               <div>
                 <h2 className="text-xl font-semibold mb-4 w-full text-center">Item Location</h2>
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 lg:grid-cols-2 xl:grid-cols-4 gap-4">
-
+                  {/* Floor and Group in the first row */}
+                  <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4 mb-4">
                     <NumberInput
                       name="location.floor"
                       classNames={inputStyle}
@@ -1180,6 +1222,37 @@ export default function InventoryPage() {
                       isRequired
                       isInvalid={!!errors["location.floor"]}
                       errorMessage={errors["location.floor"]}
+                    />
+
+                    <NumberInput
+                      name="location.group"
+                      classNames={inputStyle}
+                      label="Group"
+                      minValue={1}
+                      placeholder="e.g. 1"
+                      // Display group as 1-indexed but store as 0-indexed
+                      value={selectedGroup !== null ? selectedGroup + 1 : 0}
+                      onValueChange={(e) => setSelectedGroup(e - 1)}
+                      isRequired
+                      isInvalid={!!errors["location.group"]}
+                      errorMessage={errors["location.group"]}
+                    />
+                  </div>
+
+                  {/* Row, Column, and Depth grouped together in the second row */}
+                  <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-3 lg:grid-cols-3 gap-4">
+                    <NumberInput
+                      name="location.row"
+                      classNames={inputStyle}
+                      label="Row"
+                      minValue={1}
+                      placeholder="e.g. 1"
+                      // Display row as 1-indexed but store as 0-indexed
+                      value={selectedRow !== null ? selectedRow + 1 : 0}
+                      onValueChange={(e) => setSelectedRow(e - 1)}
+                      isRequired
+                      isInvalid={!!errors["location.row"]}
+                      errorMessage={errors["location.row"]}
                     />
 
                     <Input
@@ -1201,34 +1274,6 @@ export default function InventoryPage() {
                     />
 
                     <NumberInput
-                      name="location.row"
-                      classNames={inputStyle}
-                      label="Row"
-                      minValue={1}
-                      placeholder="e.g. 1"
-                      // Display row as 1-indexed but store as 0-indexed
-                      value={selectedRow !== null ? selectedRow + 1 : 0}
-                      onValueChange={(e) => setSelectedRow(e - 1)}
-                      isRequired
-                      isInvalid={!!errors["location.row"]}
-                      errorMessage={errors["location.row"]}
-                    />
-
-                    <NumberInput
-                      name="location.group"
-                      classNames={inputStyle}
-                      label="Group"
-                      minValue={1}
-                      placeholder="e.g. 1"
-                      // Display group as 1-indexed but store as 0-indexed
-                      value={selectedGroup !== null ? selectedGroup + 1 : 0}
-                      onValueChange={(e) => setSelectedGroup(e - 1)}
-                      isRequired
-                      isInvalid={!!errors["location.group"]}
-                      errorMessage={errors["location.group"]}
-                    />
-
-                    <NumberInput
                       name="location.depth"
                       classNames={inputStyle}
                       label="Depth"
@@ -1243,32 +1288,184 @@ export default function InventoryPage() {
                     />
                   </div>
 
-                  <div className="mt-4 rounded-md flex flex-row items-center justify-between gap-3">
+                  <div className="flex items-center justify-between">
                     <Chip className="mb-2 sm:mb-0">
                       CODE: <b>{selectedCode}</b>
                     </Chip>
-                    <Button color="primary" onClick={handleOpenModal}>
+                  </div>
+
+                  <div className="flex justify-center gap-4 border-t border-default-200 pt-4 px-4 -mx-4">
+                    {selectedItemId &&
+                      <Button
+                        variant="faded"
+                        color="secondary"
+                        onPress={() => setShowQrCode(true)}
+                        className="w-full border-default-200 text-secondary-600"
+                        isDisabled={!selectedItemId}
+                      >
+                        <Icon icon="mdi:qrcode" className="mr-1" />
+                        Show QR Code
+                      </Button>
+                    }
+                    <Button
+                      variant="faded"
+                      color="primary"
+                      onPress={handleOpenModal}
+                      className="w-full border-default-200 text-primary-600"
+                    >
+                      <Icon icon="mdi:warehouse" className="mr-1" />
                       Open Floorplan
                     </Button>
                   </div>
                 </div>
               </div>
-              <div className="flex justify-center">
+
+              {selectedItemId &&
+                <div>
+                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Item Status</h2>
+                  <Input
+                    name="variance"
+                    classNames={{ inputWrapper: `${inputStyle.inputWrapper} h-10` }}
+                    isReadOnly
+                    value={formData.status?.toUpperCase() || "UNKNOWN"}
+                  />
+                </div>
+
+              }
+
+
+              <div className="flex justify-center items-center gap-4">
+                {selectedItemId &&
+                  <Button
+                    form="inventoryForm"
+                    color="secondary"
+                    variant="shadow"
+                    className="w-full"
+                    isDisabled={formData.status?.toUpperCase() === "DELIVERED"}
+                  >
+                    {(() => {
+                      if (formData.status?.toUpperCase() === "DELIVERED") {
+                        return (
+                          <div className="flex items-center gap-2">
+                            <Icon icon="mdi:check" />
+                            <span>Item Delivered</span>
+                          </div>
+                        );
+                      } else if (formData.status?.toUpperCase() === "RECEIVED") {
+                        return (
+                          <div className="flex items-center gap-2">
+                            <Icon icon="mdi:check" />
+                            <span>Item Received</span>
+                          </div>
+                        );
+                      } else if (formData.status?.toUpperCase() === "PENDING") {
+                        return (
+                          <div className="flex items-center gap-2">
+                            <Icon icon="mdi:clock-time-four-outline" />
+                            <span>Delivery Status</span>
+                          </div>
+                        );
+                      } else {
+                        return (
+                          <div className="flex items-center gap-2">
+                            <Icon icon="mdi:truck-delivery" />
+                            <span>Deliver Item</span>
+                          </div>
+                        );
+                      }
+                    })()}
+                  </Button>
+                }
                 <Button
                   type="submit"
                   form="inventoryForm"
                   color="primary"
                   variant="shadow"
+                  className="w-full"
                   isLoading={isLoading}
-                  className="mb-2 w-full max-w-[200px]"
                 >
-                  Save Item
+                  <Icon icon="mdi:content-save" className="mr-1" />
+                  {selectedItemId ? "Update Item" : "Save Item"}
                 </Button>
               </div>
             </CardList>
           </Form>
         </div>
       </div>
+
+
+      <Modal
+        isOpen={showQrCode}
+        onClose={() => setShowQrCode(false)}
+        placement="auto"
+        backdrop="blur"
+        size="lg"
+        classNames={{
+          backdrop: "bg-background/50"
+        }}
+      >
+        <ModalContent>
+          <ModalHeader>Product QR Code</ModalHeader>
+          <ModalBody className="flex flex-col items-center">
+            <div className="bg-white rounded-xl overflow-hidden">
+              <QRCodeCanvas
+                id="qrcode"
+                value={generateProductJson()}
+                size={320}
+                marginSize={4}
+                level="L"
+              />
+            </div>
+            <p className="text-center mt-4 text-default-600">
+              Scan this code to get product details
+            </p>
+            <div className="mt-4 w-full bg-default-100 rounded-lg overflow-auto max-h-48">
+              <SyntaxHighlighter
+                language="json"
+                style={vscDarkPlus}
+                customStyle={{
+                  margin: 0,
+                  borderRadius: '0.5rem',
+                  fontSize: '0.75rem',
+                  backgroundColor: 'var(--heroui-default-100)',
+                }}
+              >
+                {generateProductJson(2)}
+              </SyntaxHighlighter>
+            </div>
+          </ModalBody>
+          <ModalFooter className="flex justify-end p-4 gap-4">
+            <Button
+              color="default"
+              onPress={() => setShowQrCode(false)}
+            >
+              Close
+            </Button>
+            <Button
+              color="primary"
+              variant="shadow"
+              onPress={() => {
+                // save the QRCodeCanvas as an image
+                const canvas = document.getElementById('qrcode') as HTMLCanvasElement;
+                const pngUrl = canvas.toDataURL('image/png');
+                const downloadLink = document.createElement('a');
+                downloadLink.href = pngUrl;
+                if (!formData.item_code || !formData.item_name)
+                  downloadLink.download = `product-${new Date().toISOString()}.png`;
+                else
+                  downloadLink.download = `${formData.item_name}-${formData.item_code}.png`;
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+                setShowQrCode(false);
+              }}
+            >
+              <Icon icon="mdi:download" className="mr-1" />
+              Download
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
 
       <Modal
         isOpen={isOpen}
@@ -1284,31 +1481,39 @@ export default function InventoryPage() {
           <ModalHeader>Interactive Warehouse Floorplan</ModalHeader>
           <ModalBody className='p-0'>
             <div className="h-[80vh] bg-primary-50 rounded-md overflow-hidden relative">
-              <ShelfSelector3D
-                floors={floorConfigs}
-                onSelect={handleShelfSelection}
-                occupiedLocations={occupiedLocations}
-                canSelectOccupiedLocations={true}
-                className="w-full h-full"
-                highlightedFloor={highlightedFloor}
-                onHighlightFloor={setHighlightedFloor}
-                isFloorChangeAnimate={isFloorChangeAnimate}
-                isShelfChangeAnimate={isShelfChangeAnimate}
-                isGroupChangeAnimate={isGroupChangeAnimate}
-                externalSelection={externalSelection}
-                cameraOffsetY={-0.25}
-                backgroundColor={customColors.backgroundColor}
-                floorColor={customColors.floorColor}
-                floorHighlightedColor={customColors.floorHighlightedColor}
-                groupColor={customColors.groupColor}
-                groupSelectedColor={customColors.groupSelectedColor}
-                shelfColor={customColors.shelfColor}
-                shelfHoverColor={customColors.shelfHoverColor}
-                shelfSelectedColor={customColors.shelfSelectedColor}
-                occupiedShelfColor={customColors.occupiedShelfColor}
-                occupiedHoverShelfColor={customColors.occupiedHoverShelfColor}
-                textColor={customColors.textColor}
-              />
+
+              <Suspense fallback={
+                <div className="flex items-center justify-center h-full">
+                  <Spinner size="lg" color="primary" />
+                  <span className="ml-2">Loading 3D viewer...</span>
+                </div>
+              }>
+                <ShelfSelector3D
+                  floors={floorConfigs}
+                  onSelect={handleShelfSelection}
+                  occupiedLocations={occupiedLocations}
+                  canSelectOccupiedLocations={true}
+                  className="w-full h-full"
+                  highlightedFloor={highlightedFloor}
+                  onHighlightFloor={setHighlightedFloor}
+                  isFloorChangeAnimate={isFloorChangeAnimate}
+                  isShelfChangeAnimate={isShelfChangeAnimate}
+                  isGroupChangeAnimate={isGroupChangeAnimate}
+                  externalSelection={externalSelection}
+                  cameraOffsetY={-0.25}
+                  backgroundColor={customColors.backgroundColor}
+                  floorColor={customColors.floorColor}
+                  floorHighlightedColor={customColors.floorHighlightedColor}
+                  groupColor={customColors.groupColor}
+                  groupSelectedColor={customColors.groupSelectedColor}
+                  shelfColor={customColors.shelfColor}
+                  shelfHoverColor={customColors.shelfHoverColor}
+                  shelfSelectedColor={customColors.shelfSelectedColor}
+                  occupiedShelfColor={customColors.occupiedShelfColor}
+                  occupiedHoverShelfColor={customColors.occupiedHoverShelfColor}
+                  textColor={customColors.textColor}
+                />
+              </Suspense>
 
               <AnimatePresence>
                 {tempSelectedCode &&
@@ -1412,6 +1617,6 @@ export default function InventoryPage() {
           </ModalFooter>
         </ModalContent>
       </Modal>
-    </div>
+    </div >
   );
 }
