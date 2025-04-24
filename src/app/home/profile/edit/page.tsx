@@ -1,54 +1,44 @@
 'use client'
 
 
-import { useEffect, useState, useRef, Key } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
-import { updateProfile } from './actions'
-import { getUserProfile } from '@/utils/supabase/server/user'
 import { getUserCompanyDetails } from '@/utils/supabase/server/companies'
+import { getUserProfile } from '@/utils/supabase/server/user'
+import { useRouter } from 'next/navigation'
+import { useEffect, useRef, useState } from 'react'
+import { updateProfile } from './actions'
 
 import {
-  Card,
-  CardHeader,
-  CardBody,
-  Form,
-  Input,
+  UserIcon,
+  XMarkIcon
+} from '@heroicons/react/24/solid'
+import {
+  Accordion,
+  AccordionItem,
+  Alert,
   Autocomplete,
   AutocompleteItem,
   Button,
-  Spinner,
-  Image,
-  Alert,
   DatePicker,
-  Skeleton,
-  CardFooter,
-  Divider,
-  Avatar,
+  Form,
+  Image,
+  Input,
   NumberInput,
-  Accordion,
-  AccordionItem,
-  Selection
+  Selection,
+  Skeleton
 } from "@heroui/react"
-import {
-  EyeSlashIcon,
-  ChevronRightIcon,
-  EyeIcon,
-  XMarkIcon,
-  UserIcon,
-} from '@heroicons/react/24/solid'
-import { today, getLocalTimeZone, parseDate } from '@internationalized/date'
+import { getLocalTimeZone, parseDate, today } from '@internationalized/date'
 
 // Import address utilities
-import {
-  getRegions,
-  getProvinces,
-  getCityMunicipalities,
-  getBarangays
-} from '@/utils/supabase/server/address'
 import CardList from '@/components/card-list'
-import { AnimatePresence, motion } from 'framer-motion'
 import { motionTransition } from '@/utils/anim'
+import {
+  getBarangays,
+  getCityMunicipalities,
+  getProvinces,
+  getRegions
+} from '@/utils/supabase/server/address'
 import { getExistingCompanies } from '@/utils/supabase/server/companies'
+import { AnimatePresence, motion } from 'framer-motion'
 
 // Types for address data
 interface Region {

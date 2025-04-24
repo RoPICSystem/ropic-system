@@ -1,52 +1,50 @@
 'use client';
 
-import { useEffect, useState, useRef, Key } from 'react'
-import { useRouter } from 'next/navigation'
-import { useTheme } from "next-themes";
-import { today, getLocalTimeZone } from '@internationalized/date';
 import { hslToRgb } from '@/utils/colors';
+import { getLocalTimeZone, today } from '@internationalized/date';
+import { useTheme } from "next-themes";
+import { useRouter } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
 
 import {
   register,
 } from './actions';
 
 import {
-  getRegions,
-  getProvinces,
+  getBarangays,
   getCityMunicipalities,
-  getBarangays
+  getProvinces,
+  getRegions
 } from '@/utils/supabase/server/address';
 
+import CardList from '@/components/card-list';
+import { motionTransition } from '@/utils/anim';
+import { getExistingCompanies } from '@/utils/supabase/server/companies';
 import {
-  Card,
-  Form,
-  Input,
-  Autocomplete,
-  AutocompleteItem,
-  Link,
-  Checkbox,
-  Button,
-  Image,
-  Alert,
-  CardBody,
-  DatePicker,
-  Tab,
-  Tabs,
-  Accordion,
-  AccordionItem,
-  NumberInput,
-  Divider,
-  Selection
-} from "@heroui/react";
-import {
-  EyeSlashIcon,
   EyeIcon,
+  EyeSlashIcon,
   UserIcon,
 } from '@heroicons/react/24/solid';
-import CardList from '@/components/card-list';
+import {
+  Accordion,
+  AccordionItem,
+  Alert,
+  Autocomplete,
+  AutocompleteItem,
+  Button,
+  Card,
+  Checkbox,
+  DatePicker,
+  Form,
+  Image,
+  Input,
+  Link,
+  NumberInput,
+  Selection,
+  Tab,
+  Tabs
+} from "@heroui/react";
 import { AnimatePresence, motion } from 'framer-motion';
-import { getExistingCompanies } from '@/utils/supabase/server/companies';
-import { motionTransition } from '@/utils/anim';
 
 
 // Types for address data
@@ -267,7 +265,7 @@ export default function RegisterPage() {
   useEffect(() => {
     async function fetchExistingCompanies() {
       if (!isNewCompany) {
-        const {data, error} = await getExistingCompanies();
+        const { data, error } = await getExistingCompanies();
         setExistingCompanies(data);
       }
     }
@@ -488,748 +486,759 @@ export default function RegisterPage() {
                   <CardList
                     className='bg-background/80'
                   >
-                    <div className="sm:p-6 p-4">
-                      <div className="space-y-4">
-                        <h2 className="text-xl font-semibold text-center pb-2">Profile Image</h2>
-                        <Button
-                          variant='faded'
-                          className={`flex border-default-200 hover:border-default-400 flex-col space-y-2 items-center justify-center p-2 cursor-pointer w-full h-full p-4
+                    <div>
+                      <div className="sm:p-6 p-4">
+                        <div className="space-y-4">
+                          <h2 className="text-xl font-semibold text-center pb-2">Profile Image</h2>
+                          <Button
+                            variant='faded'
+                            className={`flex border-default-200 hover:border-default-400 flex-col space-y-2 items-center justify-center p-2 cursor-pointer w-full h-full p-4
                           ${imagePreview ? 'bg-default-100 hover:bg-default-200' : 'bg-danger-50'}
                           `}
-                          isDisabled={isLoading}
-                          onPress={() => fileInputRef.current?.click()}>
-                          <div className="relative w-48 h-48">
-                            {imagePreview ? (
-                              <Image isBlurred src={imagePreview} radius='full' alt="Profile preview" className="w-48 h-48 object-cover bg-default-200" />
-                            ) : (
-                              <div className="w-full h-full bg-default-300/70 rounded-full flex items-center justify-center">
-                                <UserIcon className="h-24 w-24 text-default-500" />
-                              </div>
-                            )}
-                          </div>
+                            isDisabled={isLoading}
+                            onPress={() => fileInputRef.current?.click()}>
+                            <div className="relative w-48 h-48">
+                              {imagePreview ? (
+                                <Image isBlurred src={imagePreview} radius='full' alt="Profile preview" className="w-48 h-48 object-cover bg-default-200" />
+                              ) : (
+                                <div className="w-full h-full bg-default-300/70 rounded-full flex items-center justify-center">
+                                  <UserIcon className="h-24 w-24 text-default-500" />
+                                </div>
+                              )}
+                            </div>
 
-                          <div className="flex flex-col items-center justify-center">
-                            <p className="text-sm text-default-500">Click to upload a profile image</p>
-                            <p className="text-sm text-default-500">Max size: 2MB</p>
-                          </div>
+                            <div className="flex flex-col items-center justify-center">
+                              <p className="text-sm text-default-500">Click to upload a profile image</p>
+                              <p className="text-sm text-default-500">Max size: 2MB</p>
+                            </div>
 
-                          <Input
-                            isRequired
-                            type="file"
-                            name="profileImage"
-                            className="hidden"
-                            ref={fileInputRef}
-                            accept="image/*"
-                            errorMessage="Please select a valid image file."
-                            onChange={handleImageChange}>
-                          </Input>
-                        </Button>
-                      </div>
-                      {!imagePreview &&
-                        <div className="justify-start text-danger text-tiny p-1">
-                          Please select a valid image file.
+                            <Input
+                              isRequired
+                              type="file"
+                              name="profileImage"
+                              className="hidden"
+                              ref={fileInputRef}
+                              accept="image/*"
+                              errorMessage="Please select a valid image file."
+                              onChange={handleImageChange}>
+                            </Input>
+                          </Button>
                         </div>
-                      }
+                        {!imagePreview &&
+                          <div className="justify-start text-danger text-tiny p-1">
+                            Please select a valid image file.
+                          </div>
+                        }
+                      </div>
                     </div>
 
                     {/* Basic Information */}
-                    <div className="space-y-4 sm:p-6 p-4">
-                      <h2 className="text-xl font-semibold text-center pb-2">Basic Information</h2>
-                      <div className="grid sm:grid-cols-2 gap-4">
-                        <Input
-
-                          id="firstName"
-                          name="firstName"
-                          label="First Name"
-                          type="text"
-                          classNames={inputStyle}
-                          isRequired
-                          isDisabled={isLoading}
-                        />
-                        <Input
-
-                          id="middleName"
-                          name="middleName"
-                          label="Middle Name"
-                          type="text"
-                          classNames={inputStyle}
-                          isDisabled={isLoading}
-                        />
-                      </div>
-
-                      <div className="grid sm:grid-cols-2 gap-4">
-                        <Input
-                          id="lastName"
-                          name="lastName"
-                          label="Last Name"
-                          type="text"
-                          classNames={inputStyle}
-                          isRequired
-                          isDisabled={isLoading}
-                        />
-                        <Input
-                          id="suffix"
-                          name="suffix"
-                          label="Suffix"
-                          type="text"
-                          classNames={inputStyle}
-                          isDisabled={isLoading}
-                        />
-                      </div>
-
-                      <div className="grid sm:grid-cols-2 gap-4">
-                        <Autocomplete
-                          id="gender"
-                          name="gender"
-                          label="Gender"
-                          inputProps={autoCompleteStyle}
-                          classNames={{ clearButton: "text-default-800" }}
-                          onSelectionChange={(e) => setSelectedGender(`${e}`)}
-                          isRequired
-                          isDisabled={isLoading}
-                        >
-                          <AutocompleteItem key="male">Male</AutocompleteItem>
-                          <AutocompleteItem key="female">Female</AutocompleteItem>
-                          <AutocompleteItem key="other">Other</AutocompleteItem>
-                          <AutocompleteItem key="prefer_not_to_say">Prefer not to say</AutocompleteItem>
-                        </Autocomplete>
-                        <DatePicker
-                          name="birthday"
-                          label="Birthday"
-                          defaultValue={today(getLocalTimeZone()).subtract({ years: 18 })}
-                          minValue={today(getLocalTimeZone()).subtract({ years: 100 })}
-                          maxValue={today(getLocalTimeZone()).subtract({ years: 18 })}
-                          isRequired
-                          classNames={{
-                            base: "w-full",
-                            ...inputStyle,
-                            selectorButton: "w-12 h-10 mb-4 mr-[-0.4rem]",
-                          }}
-                          isDisabled={isLoading}
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-1 gap-4">
-                        <Input
-
-                          id="phoneNumber"
-                          name="phoneNumber"
-                          label="Phone Number"
-                          type="tel"
-                          classNames={inputStyle}
-                          startContent={
-                            <div className="pointer-events-none flex items-center">
-                              <span className="text-default-600 text-small">+63</span>
-                            </div>
-                          }
-                          validate={(value) => {
-                            const phoneRegex = /^9[0-9]{9}$/;
-                            return phoneRegex.test(value) || 'Invalid phone number';
-                          }}
-                          isRequired
-                          isDisabled={isLoading}
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-4 sm:p-6 p-4">
-                      <h2 className="text-xl font-semibold  text-center pb-2">Address Information</h2>
-                      <div className="space-y-4 pb-2">
+                    <div>
+                      <div className="space-y-4 sm:p-6 p-4">
+                        <h2 className="text-xl font-semibold text-center pb-2">Basic Information</h2>
                         <div className="grid sm:grid-cols-2 gap-4">
                           <Input
-                            id="address.country.desc"
-                            name="address.country.desc"
-                            label="Country"
-                            defaultValue="PHILIPPINES"
-                            classNames={inputStyle}
-                            isRequired
-                            isReadOnly
-                            isDisabled={isLoading}
-                          />
-                          <Autocomplete
-                            id="address.region.desc"
-                            name="address.region.desc"
-                            label="Region"
-                            isRequired
-                            inputProps={autoCompleteStyle}
-                            classNames={{ clearButton: "text-default-800" }}
-                            onSelectionChange={(e) => setSelectedRegion(e as string)}
-                            isDisabled={isLoading}
-                          >
-                            {regions.map(region => (
-                              <AutocompleteItem key={region.regCode}>
-                                {region.regDesc}
-                              </AutocompleteItem>
-                            ))}
-                          </Autocomplete>
-                        </div>
 
-                        <div className="grid sm:grid-cols-2 gap-4">
-                          <Autocomplete
-
-                            id="address.province.desc"
-                            name="address.province.desc"
-                            label="Province"
-                            isRequired
-                            inputProps={autoCompleteStyle}
-                            classNames={{ clearButton: "text-default-800" }}
-                            onSelectionChange={(e) => setSelectedProvince(`${e}`)}
-                            isDisabled={!selectedRegion || isLoading}
-                          >
-                            {provinces.map(province => (
-                              <AutocompleteItem key={province.provCode}>
-                                {province.provDesc}
-                              </AutocompleteItem>
-                            ))}
-                          </Autocomplete>
-                          <Autocomplete
-
-                            id="address.municipality.desc"
-                            name="address.municipality.desc"
-                            label="Municipality/City"
-                            isRequired
-                            inputProps={autoCompleteStyle}
-                            classNames={{ clearButton: "text-default-800" }}
-                            onSelectionChange={(e) => setSelectedCityMunicipality(`${e}`)}
-                            isDisabled={!selectedProvince || isLoading}
-                          >
-                            {cityMunicipalities.map(city => (
-                              <AutocompleteItem key={city.citymunCode}>
-                                {city.citymunDesc}
-                              </AutocompleteItem>
-                            ))}
-                          </Autocomplete>
-                        </div>
-
-                        <div className="grid sm:grid-cols-2 gap-4">
-                          <Autocomplete
-
-                            id="address.barangay.desc"
-                            name="address.barangay.desc"
-                            label="Barangay"
-                            isRequired
-                            inputProps={autoCompleteStyle}
-                            classNames={{ clearButton: "text-default-800" }}
-                            onSelectionChange={(e) => setSelectedBarangay(`${e}`)}
-                            isDisabled={!selectedCityMunicipality || isLoading}
-                          >
-                            {barangays.map(barangay => (
-                              <AutocompleteItem key={barangay.brgyCode}>
-                                {barangay.brgyDesc}
-                              </AutocompleteItem>
-                            ))}
-                          </Autocomplete>
-                          <Input
-
-                            id="address.streetAddress"
-                            name="address.streetAddress"
-                            label="Street Address"
+                            id="firstName"
+                            name="firstName"
+                            label="First Name"
                             type="text"
                             classNames={inputStyle}
-                            value={inputStreetAddress}
-                            onValueChange={(value) => setInputStreetAddress(value.toUpperCase())}
-                            isRequired
-                            isDisabled={isLoading}
-                          />
-                        </div>
-
-                        <div className="flex sm:flex-row flex-col gap-4">
-                          <NumberInput
-
-                            id="address.postalCode"
-                            name="address.postalCode"
-                            label="Postal Code"
-                            className="md:w-[10rem]"
-                            minValue={0}
-                            classNames={inputStyle}
-                            onValueChange={setInputPostalCode}
-                            formatOptions={{ useGrouping: false }}
-                            hideStepper
                             isRequired
                             isDisabled={isLoading}
                           />
                           <Input
 
-                            id="address.fullAddress"
-                            name="address.fullAddress"
-                            label="Full Address"
+                            id="middleName"
+                            name="middleName"
+                            label="Middle Name"
                             type="text"
-                            value={fullAddress}
                             classNames={inputStyle}
-                            isReadOnly
+                            isDisabled={isLoading}
+                          />
+                        </div>
+
+                        <div className="grid sm:grid-cols-2 gap-4">
+                          <Input
+                            id="lastName"
+                            name="lastName"
+                            label="Last Name"
+                            type="text"
+                            classNames={inputStyle}
+                            isRequired
+                            isDisabled={isLoading}
+                          />
+                          <Input
+                            id="suffix"
+                            name="suffix"
+                            label="Suffix"
+                            type="text"
+                            classNames={inputStyle}
+                            isDisabled={isLoading}
+                          />
+                        </div>
+
+                        <div className="grid sm:grid-cols-2 gap-4">
+                          <Autocomplete
+                            id="gender"
+                            name="gender"
+                            label="Gender"
+                            inputProps={autoCompleteStyle}
+                            classNames={{ clearButton: "text-default-800" }}
+                            onSelectionChange={(e) => setSelectedGender(`${e}`)}
+                            isRequired
+                            isDisabled={isLoading}
+                          >
+                            <AutocompleteItem key="male">Male</AutocompleteItem>
+                            <AutocompleteItem key="female">Female</AutocompleteItem>
+                            <AutocompleteItem key="other">Other</AutocompleteItem>
+                            <AutocompleteItem key="prefer_not_to_say">Prefer not to say</AutocompleteItem>
+                          </Autocomplete>
+                          <DatePicker
+                            name="birthday"
+                            label="Birthday"
+                            defaultValue={today(getLocalTimeZone()).subtract({ years: 18 })}
+                            minValue={today(getLocalTimeZone()).subtract({ years: 100 })}
+                            maxValue={today(getLocalTimeZone()).subtract({ years: 18 })}
+                            isRequired
+                            classNames={{
+                              base: "w-full",
+                              ...inputStyle,
+                              selectorButton: "w-12 h-10 mb-4 mr-[-0.4rem]",
+                            }}
+                            isDisabled={isLoading}
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-4">
+                          <Input
+
+                            id="phoneNumber"
+                            name="phoneNumber"
+                            label="Phone Number"
+                            type="tel"
+                            classNames={inputStyle}
+                            startContent={
+                              <div className="pointer-events-none flex items-center">
+                                <span className="text-default-600 text-small">+63</span>
+                              </div>
+                            }
+                            validate={(value) => {
+                              const phoneRegex = /^9[0-9]{9}$/;
+                              return phoneRegex.test(value) || 'Invalid phone number';
+                            }}
                             isRequired
                             isDisabled={isLoading}
                           />
                         </div>
                       </div>
-
-
                     </div>
 
-                    <div className="space-y-4 sm:p-6 p-4">
-                      {/* Company Information */}
-                      <h2 className="text-xl font-semibold text-center pb-2">Company Profile</h2>
-                      <Accordion
-                        variant="bordered"
-                        defaultExpandedKeys={["newCompany"]}
-                        disallowEmptySelection
-                        // if the isAdmin is true, select the existing company
-                        {...(!isAdmin ? { selectedKeys: ['existingCompany'] } : {})}
-                        itemClasses={
-                          {
-                            base: "p-0 w-full",
-                            title: "font-normal text-lg font-semibold",
-                            trigger: "p-4 data-[hover=true]:bg-default-100 h-14 flex items-center transition-colors",
-                            indicator: "text-medium",
-                            content: "text-small p-4",
-                          }
-                        }
-                        onSelectionChange={(selection: Selection) => {
-                          const sel = (selection as Set<string>).values().next().value as string === 'newCompany';
-                          setIsNewCompany(sel)
-
-                          setSelectedCompanyRegion('')
-                          setSelectedCompanyProvince('')
-                          setSelectedCompanyCityMunicipality('')
-                          setSelectedCompanyBarangay('')
-
-                          setFullCompanyAddress('')
-                          setExistingCompanyAddress(addressReset)
-
-
-                          setSelectedExistingCompany('')
-                        }}
-                        className="w-full p-0  overflow-hidden">
-                        <AccordionItem
-                          key="newCompany"
-                          aria-label="New Company"
-                          isDisabled={!isAdmin}
-                          title="New Company">
-                          <div className="space-y-4">
+                    <div>
+                      <div className="space-y-4 sm:p-6 p-4">
+                        <h2 className="text-xl font-semibold  text-center pb-2">Address Information</h2>
+                        <div className="space-y-4 pb-2">
+                          <div className="grid sm:grid-cols-2 gap-4">
                             <Input
-                              id="newCompany.name"
-                              name="newCompanyName"
-                              label="New Company Name"
-                              type="text"
+                              id="address.country.desc"
+                              name="address.country.desc"
+                              label="Country"
+                              defaultValue="PHILIPPINES"
                               classNames={inputStyle}
-                              isRequired={isNewCompany}
+                              isRequired
+                              isReadOnly
                               isDisabled={isLoading}
                             />
-
-                            <h2 className="text-lg font-semibold text-center">Company Address</h2>
-                            <div className="grid sm:grid-cols-2 gap-4">
-                              <Input
-                                id="newCompany.address.country.desc"
-                                name="newCompany.address.country.desc"
-                                label="Country"
-                                defaultValue="PHILIPPINES"
-                                classNames={inputStyle}
-                                isRequired={isNewCompany}
-                                isDisabled={isLoading}
-                              />
-                              <Autocomplete
-                                id="newCompany.address.region.desc"
-                                name="newCompany.address.region.desc"
-                                label="Region"
-                                isRequired={isNewCompany}
-                                inputProps={autoCompleteStyle}
-                                classNames={{ clearButton: "text-default-800" }}
-                                onSelectionChange={(e) => setSelectedCompanyRegion(`${e}`)}
-                                isDisabled={isLoading}
-                              >
-                                {regions.map(region => (
-                                  <AutocompleteItem key={region.regCode}>
-                                    {region.regDesc}
-                                  </AutocompleteItem>
-                                ))}
-                              </Autocomplete>
-                            </div>
-
-                            <div className="grid sm:grid-cols-2 gap-4">
-                              <Autocomplete
-                                id="newCompany.address.province.desc"
-                                name="newCompany.address.province.desc"
-                                label="Province"
-                                isRequired={isNewCompany}
-                                inputProps={autoCompleteStyle}
-                                classNames={{ clearButton: "text-default-800" }}
-                                onSelectionChange={(e) => setSelectedCompanyProvince(`${e}`)}
-                                isDisabled={!selectedCompanyRegion || isLoading}
-                              >
-                                {companyProvinces.map(province => (
-                                  <AutocompleteItem key={province.provCode} >
-                                    {province.provDesc}
-                                  </AutocompleteItem>
-                                ))}
-                              </Autocomplete>
-                              <Autocomplete
-
-                                id="newCompany.address.municipality.desc"
-                                name="newCompany.address.municipality.desc"
-                                label="Municipality/City"
-                                isRequired={isNewCompany}
-                                inputProps={autoCompleteStyle}
-                                classNames={{ clearButton: "text-default-800" }}
-                                onSelectionChange={(e) => setSelectedCompanyCityMunicipality(`${e}`)}
-                                isDisabled={!selectedCompanyProvince || isLoading}
-                              >
-                                {companyCityMunicipalities.map(city => (
-                                  <AutocompleteItem key={city.citymunCode} >
-                                    {city.citymunDesc}
-                                  </AutocompleteItem>
-                                ))}
-                              </Autocomplete>
-                            </div>
-
-                            <div className="grid sm:grid-cols-2 gap-4">
-                              <Autocomplete
-                                id="newCompany.address.barangay.desc"
-                                name="newCompany.address.barangay.desc"
-                                label="Barangay"
-                                isRequired={isNewCompany}
-                                inputProps={autoCompleteStyle}
-                                classNames={{ clearButton: "text-default-800" }}
-                                onSelectionChange={(e) => setSelectedCompanyBarangay(`${e}`)}
-                                isDisabled={!selectedCompanyCityMunicipality || isLoading}
-                              >
-                                {companyBarangays.map(barangay => (
-                                  <AutocompleteItem key={barangay.brgyCode}>
-                                    {barangay.brgyDesc}
-                                  </AutocompleteItem>
-                                ))}
-                              </Autocomplete>
-                              <Input
-                                id="newCompany.address.streetAddress"
-                                name="newCompany.address.streetAddress"
-                                label="Street Address"
-                                type="text"
-                                classNames={inputStyle}
-                                onValueChange={setInputCompanyStreetAddress}
-                                isRequired={isNewCompany}
-                                isDisabled={isLoading}
-                              />
-                            </div>
-
-                            <div className="flex sm:flex-row flex-col gap-4">
-                              <NumberInput
-                                id="newCompany.address.postalCode"
-                                name="newCompany.address.postalCode"
-                                label="Postal Code"
-                                type="text"
-                                className="sm:w-[10rem]"
-                                minValue={0}
-                                classNames={inputStyle}
-                                onValueChange={setInputCompanyPostalCode}
-                                formatOptions={{ useGrouping: false }}
-                                hideStepper
-                                isRequired={isNewCompany}
-                                isDisabled={isLoading}
-                              />
-                              <Input
-                                id="newCompany.address.fullAddress"
-                                name="newCompany.address.fullAddress"
-                                label="Full Company Address"
-                                type="text"
-                                value={fullCompanyAddress}
-                                classNames={inputStyle}
-                                isReadOnly
-                                isRequired={isNewCompany}
-                                isDisabled={isLoading}
-                              />
-                            </div>
-                          </div>
-                        </AccordionItem>
-                        <AccordionItem
-                          key="existingCompany"
-                          aria-label="Existing Company"
-                          title="Existing Company">
-                          <Input
-                            type="hidden"
-                            id="existingCompany.uuid"
-                            name="existingCompany.uuid"
-                            className="hidden h-0"
-                            value={selectedExistingCompany}
-                          />
-                          <div className="space-y-4">
                             <Autocomplete
-                              id="existingCompany.name"
-                              name="existingCompany.name"
-                              label="Existing Company Name"
+                              id="address.region.desc"
+                              name="address.region.desc"
+                              label="Region"
+                              isRequired
                               inputProps={autoCompleteStyle}
                               classNames={{ clearButton: "text-default-800" }}
-                              isRequired={!isNewCompany}
+                              onSelectionChange={(e) => setSelectedRegion(e as string)}
                               isDisabled={isLoading}
-                              onSelectionChange={handleExistingCompanyChange}
                             >
-                              {existingCompanies.map(company => (
-                                <AutocompleteItem key={company.uuid} textValue={company.name}>
-                                  {company.name}
+                              {regions.map(region => (
+                                <AutocompleteItem key={region.regCode}>
+                                  {region.regDesc}
+                                </AutocompleteItem>
+                              ))}
+                            </Autocomplete>
+                          </div>
+
+                          <div className="grid sm:grid-cols-2 gap-4">
+                            <Autocomplete
+
+                              id="address.province.desc"
+                              name="address.province.desc"
+                              label="Province"
+                              isRequired
+                              inputProps={autoCompleteStyle}
+                              classNames={{ clearButton: "text-default-800" }}
+                              onSelectionChange={(e) => setSelectedProvince(`${e}`)}
+                              isDisabled={!selectedRegion || isLoading}
+                            >
+                              {provinces.map(province => (
+                                <AutocompleteItem key={province.provCode}>
+                                  {province.provDesc}
+                                </AutocompleteItem>
+                              ))}
+                            </Autocomplete>
+                            <Autocomplete
+
+                              id="address.municipality.desc"
+                              name="address.municipality.desc"
+                              label="Municipality/City"
+                              isRequired
+                              inputProps={autoCompleteStyle}
+                              classNames={{ clearButton: "text-default-800" }}
+                              onSelectionChange={(e) => setSelectedCityMunicipality(`${e}`)}
+                              isDisabled={!selectedProvince || isLoading}
+                            >
+                              {cityMunicipalities.map(city => (
+                                <AutocompleteItem key={city.citymunCode}>
+                                  {city.citymunDesc}
+                                </AutocompleteItem>
+                              ))}
+                            </Autocomplete>
+                          </div>
+
+                          <div className="grid sm:grid-cols-2 gap-4">
+                            <Autocomplete
+
+                              id="address.barangay.desc"
+                              name="address.barangay.desc"
+                              label="Barangay"
+                              isRequired
+                              inputProps={autoCompleteStyle}
+                              classNames={{ clearButton: "text-default-800" }}
+                              onSelectionChange={(e) => setSelectedBarangay(`${e}`)}
+                              isDisabled={!selectedCityMunicipality || isLoading}
+                            >
+                              {barangays.map(barangay => (
+                                <AutocompleteItem key={barangay.brgyCode}>
+                                  {barangay.brgyDesc}
                                 </AutocompleteItem>
                               ))}
                             </Autocomplete>
                             <Input
+
+                              id="address.streetAddress"
+                              name="address.streetAddress"
+                              label="Street Address"
+                              type="text"
+                              classNames={inputStyle}
+                              value={inputStreetAddress}
+                              onValueChange={(value) => setInputStreetAddress(value.toUpperCase())}
+                              isRequired
+                              isDisabled={isLoading}
+                            />
+                          </div>
+
+                          <div className="flex sm:flex-row flex-col gap-4">
+                            <NumberInput
+
+                              id="address.postalCode"
+                              name="address.postalCode"
+                              label="Postal Code"
+                              className="md:w-[10rem]"
+                              minValue={0}
+                              classNames={inputStyle}
+                              onValueChange={setInputPostalCode}
+                              formatOptions={{ useGrouping: false }}
+                              hideStepper
+                              isRequired
+                              isDisabled={isLoading}
+                            />
+                            <Input
+
+                              id="address.fullAddress"
+                              name="address.fullAddress"
+                              label="Full Address"
+                              type="text"
+                              value={fullAddress}
+                              classNames={inputStyle}
+                              isReadOnly
+                              isRequired
+                              isDisabled={isLoading}
+                            />
+                          </div>
+                        </div>
+
+
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="space-y-4 sm:p-6 p-4">
+                        {/* Company Information */}
+                        <h2 className="text-xl font-semibold text-center pb-2">Company Profile</h2>
+                        <Accordion
+                          variant="bordered"
+                          defaultExpandedKeys={["newCompany"]}
+                          disallowEmptySelection
+                          // if the isAdmin is true, select the existing company
+                          {...(!isAdmin ? { selectedKeys: ['existingCompany'] } : {})}
+                          itemClasses={
+                            {
+                              base: "p-0 w-full",
+                              title: "font-normal text-lg font-semibold",
+                              trigger: "p-4 data-[hover=true]:bg-default-100 h-14 flex items-center transition-colors",
+                              indicator: "text-medium",
+                              content: "text-small p-4",
+                            }
+                          }
+                          onSelectionChange={(selection: Selection) => {
+                            const sel = (selection as Set<string>).values().next().value as string === 'newCompany';
+                            setIsNewCompany(sel)
+
+                            setSelectedCompanyRegion('')
+                            setSelectedCompanyProvince('')
+                            setSelectedCompanyCityMunicipality('')
+                            setSelectedCompanyBarangay('')
+
+                            setFullCompanyAddress('')
+                            setExistingCompanyAddress(addressReset)
+
+
+                            setSelectedExistingCompany('')
+                          }}
+                          className="w-full p-0  overflow-hidden">
+                          <AccordionItem
+                            key="newCompany"
+                            aria-label="New Company"
+                            isDisabled={!isAdmin}
+                            title="New Company">
+                            <div className="space-y-4">
+                              <Input
+                                id="newCompany.name"
+                                name="newCompanyName"
+                                label="New Company Name"
+                                type="text"
+                                classNames={inputStyle}
+                                isRequired={isNewCompany}
+                                isDisabled={isLoading}
+                              />
+
+                              <h2 className="text-lg font-semibold text-center">Company Address</h2>
+                              <div className="grid sm:grid-cols-2 gap-4">
+                                <Input
+                                  id="newCompany.address.country.desc"
+                                  name="newCompany.address.country.desc"
+                                  label="Country"
+                                  defaultValue="PHILIPPINES"
+                                  classNames={inputStyle}
+                                  isRequired={isNewCompany}
+                                  isDisabled={isLoading}
+                                />
+                                <Autocomplete
+                                  id="newCompany.address.region.desc"
+                                  name="newCompany.address.region.desc"
+                                  label="Region"
+                                  isRequired={isNewCompany}
+                                  inputProps={autoCompleteStyle}
+                                  classNames={{ clearButton: "text-default-800" }}
+                                  onSelectionChange={(e) => setSelectedCompanyRegion(`${e}`)}
+                                  isDisabled={isLoading}
+                                >
+                                  {regions.map(region => (
+                                    <AutocompleteItem key={region.regCode}>
+                                      {region.regDesc}
+                                    </AutocompleteItem>
+                                  ))}
+                                </Autocomplete>
+                              </div>
+
+                              <div className="grid sm:grid-cols-2 gap-4">
+                                <Autocomplete
+                                  id="newCompany.address.province.desc"
+                                  name="newCompany.address.province.desc"
+                                  label="Province"
+                                  isRequired={isNewCompany}
+                                  inputProps={autoCompleteStyle}
+                                  classNames={{ clearButton: "text-default-800" }}
+                                  onSelectionChange={(e) => setSelectedCompanyProvince(`${e}`)}
+                                  isDisabled={!selectedCompanyRegion || isLoading}
+                                >
+                                  {companyProvinces.map(province => (
+                                    <AutocompleteItem key={province.provCode} >
+                                      {province.provDesc}
+                                    </AutocompleteItem>
+                                  ))}
+                                </Autocomplete>
+                                <Autocomplete
+
+                                  id="newCompany.address.municipality.desc"
+                                  name="newCompany.address.municipality.desc"
+                                  label="Municipality/City"
+                                  isRequired={isNewCompany}
+                                  inputProps={autoCompleteStyle}
+                                  classNames={{ clearButton: "text-default-800" }}
+                                  onSelectionChange={(e) => setSelectedCompanyCityMunicipality(`${e}`)}
+                                  isDisabled={!selectedCompanyProvince || isLoading}
+                                >
+                                  {companyCityMunicipalities.map(city => (
+                                    <AutocompleteItem key={city.citymunCode} >
+                                      {city.citymunDesc}
+                                    </AutocompleteItem>
+                                  ))}
+                                </Autocomplete>
+                              </div>
+
+                              <div className="grid sm:grid-cols-2 gap-4">
+                                <Autocomplete
+                                  id="newCompany.address.barangay.desc"
+                                  name="newCompany.address.barangay.desc"
+                                  label="Barangay"
+                                  isRequired={isNewCompany}
+                                  inputProps={autoCompleteStyle}
+                                  classNames={{ clearButton: "text-default-800" }}
+                                  onSelectionChange={(e) => setSelectedCompanyBarangay(`${e}`)}
+                                  isDisabled={!selectedCompanyCityMunicipality || isLoading}
+                                >
+                                  {companyBarangays.map(barangay => (
+                                    <AutocompleteItem key={barangay.brgyCode}>
+                                      {barangay.brgyDesc}
+                                    </AutocompleteItem>
+                                  ))}
+                                </Autocomplete>
+                                <Input
+                                  id="newCompany.address.streetAddress"
+                                  name="newCompany.address.streetAddress"
+                                  label="Street Address"
+                                  type="text"
+                                  classNames={inputStyle}
+                                  onValueChange={setInputCompanyStreetAddress}
+                                  isRequired={isNewCompany}
+                                  isDisabled={isLoading}
+                                />
+                              </div>
+
+                              <div className="flex sm:flex-row flex-col gap-4">
+                                <NumberInput
+                                  id="newCompany.address.postalCode"
+                                  name="newCompany.address.postalCode"
+                                  label="Postal Code"
+                                  type="text"
+                                  className="sm:w-[10rem]"
+                                  minValue={0}
+                                  classNames={inputStyle}
+                                  onValueChange={setInputCompanyPostalCode}
+                                  formatOptions={{ useGrouping: false }}
+                                  hideStepper
+                                  isRequired={isNewCompany}
+                                  isDisabled={isLoading}
+                                />
+                                <Input
+                                  id="newCompany.address.fullAddress"
+                                  name="newCompany.address.fullAddress"
+                                  label="Full Company Address"
+                                  type="text"
+                                  value={fullCompanyAddress}
+                                  classNames={inputStyle}
+                                  isReadOnly
+                                  isRequired={isNewCompany}
+                                  isDisabled={isLoading}
+                                />
+                              </div>
+                            </div>
+                          </AccordionItem>
+                          <AccordionItem
+                            key="existingCompany"
+                            aria-label="Existing Company"
+                            title="Existing Company">
+                            <Input
                               type="hidden"
-                              id="existingCompany.id"
-                              name="existingCompany.id"
+                              id="existingCompany.uuid"
+                              name="existingCompany.uuid"
+                              className="hidden h-0"
                               value={selectedExistingCompany}
                             />
-                            <AnimatePresence>
-                              {selectedExistingCompany &&
-                                <motion.div
-                                  {...motionTransition}
-                                  className="space-y-4">
-                                  <h2 className="text-lg font-semibold text-center">Company Address</h2>
-                                  <div className="grid sm:grid-cols-2 gap-4">
-                                    <Input
-                                      label="Country"
-                                      defaultValue="PHILIPPINES"
-                                      classNames={inputStyle}
-                                      isRequired={!isNewCompany}
-                                      isDisabled={isLoading}
-                                      isReadOnly
-                                    />
-                                    <Input
-                                      label="Region"
-                                      value={existingCompanyAddress.region.desc || ''}
-                                      classNames={inputStyle}
-                                      isRequired={!isNewCompany}
-                                      isDisabled={isLoading}
-                                      isReadOnly
-                                    />
-                                  </div>
+                            <div className="space-y-4">
+                              <Autocomplete
+                                id="existingCompany.name"
+                                name="existingCompany.name"
+                                label="Existing Company Name"
+                                inputProps={autoCompleteStyle}
+                                classNames={{ clearButton: "text-default-800" }}
+                                isRequired={!isNewCompany}
+                                isDisabled={isLoading}
+                                onSelectionChange={handleExistingCompanyChange}
+                              >
+                                {existingCompanies.map(company => (
+                                  <AutocompleteItem key={company.uuid} textValue={company.name}>
+                                    {company.name}
+                                  </AutocompleteItem>
+                                ))}
+                              </Autocomplete>
+                              <Input
+                                type="hidden"
+                                id="existingCompany.id"
+                                name="existingCompany.id"
+                                value={selectedExistingCompany}
+                              />
+                              <AnimatePresence>
+                                {selectedExistingCompany &&
+                                  <motion.div
+                                    {...motionTransition}
+                                    className="space-y-4">
+                                    <h2 className="text-lg font-semibold text-center">Company Address</h2>
+                                    <div className="grid sm:grid-cols-2 gap-4">
+                                      <Input
+                                        label="Country"
+                                        defaultValue="PHILIPPINES"
+                                        classNames={inputStyle}
+                                        isRequired={!isNewCompany}
+                                        isDisabled={isLoading}
+                                        isReadOnly
+                                      />
+                                      <Input
+                                        label="Region"
+                                        value={existingCompanyAddress.region.desc || ''}
+                                        classNames={inputStyle}
+                                        isRequired={!isNewCompany}
+                                        isDisabled={isLoading}
+                                        isReadOnly
+                                      />
+                                    </div>
 
-                                  <div className="grid sm:grid-cols-2 gap-4">
-                                    <Input
-                                      label="Province"
-                                      value={existingCompanyAddress.province.desc || ''}
-                                      classNames={inputStyle}
-                                      isRequired={!isNewCompany}
-                                      isDisabled={isLoading}
-                                      isReadOnly
-                                    />
-                                    <Input
-                                      label="Municipality/City"
-                                      value={existingCompanyAddress.municipality.desc || ''}
-                                      classNames={inputStyle}
-                                      isRequired={!isNewCompany}
-                                      isDisabled={isLoading}
-                                      isReadOnly
-                                    />
-                                  </div>
+                                    <div className="grid sm:grid-cols-2 gap-4">
+                                      <Input
+                                        label="Province"
+                                        value={existingCompanyAddress.province.desc || ''}
+                                        classNames={inputStyle}
+                                        isRequired={!isNewCompany}
+                                        isDisabled={isLoading}
+                                        isReadOnly
+                                      />
+                                      <Input
+                                        label="Municipality/City"
+                                        value={existingCompanyAddress.municipality.desc || ''}
+                                        classNames={inputStyle}
+                                        isRequired={!isNewCompany}
+                                        isDisabled={isLoading}
+                                        isReadOnly
+                                      />
+                                    </div>
 
-                                  <div className="grid sm:grid-cols-2 gap-4">
-                                    <Input
-                                      label="Barangay"
-                                      value={existingCompanyAddress.barangay.desc || ''}
-                                      classNames={inputStyle}
-                                      isRequired={!isNewCompany}
-                                      isDisabled={isLoading}
-                                      isReadOnly
-                                    />
-                                    <Input
-                                      label="Street Address"
-                                      value={existingCompanyAddress.streetAddress || ''}
-                                      classNames={inputStyle}
-                                      isRequired={!isNewCompany}
-                                      isDisabled={isLoading}
-                                      isReadOnly
-                                    />
-                                  </div>
+                                    <div className="grid sm:grid-cols-2 gap-4">
+                                      <Input
+                                        label="Barangay"
+                                        value={existingCompanyAddress.barangay.desc || ''}
+                                        classNames={inputStyle}
+                                        isRequired={!isNewCompany}
+                                        isDisabled={isLoading}
+                                        isReadOnly
+                                      />
+                                      <Input
+                                        label="Street Address"
+                                        value={existingCompanyAddress.streetAddress || ''}
+                                        classNames={inputStyle}
+                                        isRequired={!isNewCompany}
+                                        isDisabled={isLoading}
+                                        isReadOnly
+                                      />
+                                    </div>
 
-                                  <div className="flex sm:flex-row flex-col gap-4">
-                                    <NumberInput
-                                      label="Postal Code"
-                                      type="text"
-                                      className="sm:w-[10rem]"
-                                      classNames={inputStyle}
-                                      formatOptions={{ useGrouping: false }}
-                                      hideStepper
-                                      value={existingCompanyAddress.postalCode || 0}
-                                      isRequired={!isNewCompany}
-                                      isDisabled={isLoading}
-                                      isReadOnly
-                                    />
-                                    <Input
-                                      label="Full Company Address"
-                                      type="text"
-                                      value={existingCompanyAddress.fullAddress || ''}
-                                      classNames={inputStyle}
-                                      isRequired={!isNewCompany}
-                                      isReadOnly
-                                      isDisabled={isLoading}
-                                    />
-                                  </div>
-                                </motion.div>
-                              }
-                            </AnimatePresence>
-                          </div>
-                        </AccordionItem>
-                      </Accordion>
+                                    <div className="flex sm:flex-row flex-col gap-4">
+                                      <NumberInput
+                                        label="Postal Code"
+                                        type="text"
+                                        className="sm:w-[10rem]"
+                                        classNames={inputStyle}
+                                        formatOptions={{ useGrouping: false }}
+                                        hideStepper
+                                        value={existingCompanyAddress.postalCode || 0}
+                                        isRequired={!isNewCompany}
+                                        isDisabled={isLoading}
+                                        isReadOnly
+                                      />
+                                      <Input
+                                        label="Full Company Address"
+                                        type="text"
+                                        value={existingCompanyAddress.fullAddress || ''}
+                                        classNames={inputStyle}
+                                        isRequired={!isNewCompany}
+                                        isReadOnly
+                                        isDisabled={isLoading}
+                                      />
+                                    </div>
+                                  </motion.div>
+                                }
+                              </AnimatePresence>
+                            </div>
+                          </AccordionItem>
+                        </Accordion>
+                      </div>
                     </div>
 
+                    <div>
+                      <div className="space-y-4 p-0">
+                        {/* Account Information */}
+                        <h2 className="text-xl font-semibold text-center pt-6">Account Information</h2>
+                        <div className="space-y-4 sm:px-6 px-4 py-2">
 
-                    <div className="space-y-4 p-0">
-                      {/* Account Information */}
-                      <h2 className="text-xl font-semibold text-center pt-6">Account Information</h2>
-                      <div className="space-y-4 sm:px-6 px-4 py-2">
-
-                        <Input
-                          id="email"
-                          name="email"
-                          type="email"
-                          label="Email"
-                          autoComplete="email"
-                          classNames={inputStyle}
-                          isRequired
-                          isDisabled={isLoading}
-                        />
-                        <Input
-                          id="password"
-                          name="password"
-                          classNames={inputStyle}
-                          endContent={
-                            <Button
-                              aria-label="toggle password visibility"
-                              className="focus:outline-none my-[-0.25rem] mr-[-0.4rem]"
-                              type="button"
-                              variant='light'
-                              radius='full'
-                              isIconOnly
-                              onPress={toggleVisibilityPassword}
-                            >
-                              {isVisiblePassword ? (
-                                <EyeIcon className="h-5 w-5 text-foreground" />
-                              ) : (
-                                <EyeSlashIcon className="h-5 w-5 text-foreground" />
-                              )}
-                            </Button>
-                          }
-                          validate={validatePassword}
-                          onValueChange={setPassword}
-                          type={isVisiblePassword ? "text" : "password"}
-                          label="Password"
-                          autoComplete="new-password"
-                          isRequired
-                          isDisabled={isLoading}
-                          minLength={8}
-                        />
-                        <Input
-                          id="confirmPassword"
-                          name="confirmPassword"
-                          classNames={inputStyle}
-                          endContent={
-                            <Button
-                              aria-label="toggle password visibility"
-                              className="focus:outline-none my-[-0.25rem] mr-[-0.4rem]"
-                              type="button"
-                              variant='light'
-                              radius='full'
-                              isIconOnly
-                              onPress={toggleVisibilityConfirmPassword}
-                            >
-                              {isVisibleConfirmPassword ? (
-                                <EyeIcon className="h-5 w-5" />
-                              ) : (
-                                <EyeSlashIcon className="h-5 w-5" />
-                              )}
-                            </Button>
-                          }
-                          validate={(value) => validateConfirmPassword(value, password)}
-                          type={isVisibleConfirmPassword ? "text" : "password"}
-                          label="Confirm Password"
-                          autoComplete="new-password"
-                          isRequired
-                          isDisabled={isLoading}
-                          minLength={8}
-                        />
-
-                        <div className="flex sm:flex-row flex-col sm:space-y-0 space-y-4 justify-between items-center w-full bg-default-100 border-default-200 hover:border-default-400 border-2 rounded-md p-4 rounded-xl">
-                          <div className="justify-left w-full">
-                            Account type</div>
-                          <Checkbox
-                            defaultSelected
-                            className="hidden"
-                            id="isAdmin"
-                            name="isAdmin"
-                            value={isAdmin ? "true" : "false"}
+                          <Input
+                            id="email"
+                            name="email"
+                            type="email"
+                            label="Email"
+                            autoComplete="email"
+                            classNames={inputStyle}
                             isRequired
-                          >
-                            Is Admin
-                          </Checkbox>
-                          <Tabs color="primary"
-                            className="rounded-xl bg-default-300 shadow-lg shadow-default-200/50 my-1 flex justify-center sm:w-auto w-full"
-                            variant="light"
-                            selectedKey={isAdmin ? "admin" : "operator"}
-                            onSelectionChange={(key) => {
-                              setIsAdmin(key === "admin")
-                              if (key === "operator")
-                                setIsNewCompany(false)
-                            }}
                             isDisabled={isLoading}
-                          >
-                            <Tab key="admin"
-                              className=""
-                              title={
+                          />
+                          <Input
+                            id="password"
+                            name="password"
+                            classNames={inputStyle}
+                            endContent={
+                              <Button
+                                aria-label="toggle password visibility"
+                                className="focus:outline-none my-[-0.25rem] mr-[-0.4rem]"
+                                type="button"
+                                variant='light'
+                                radius='full'
+                                isIconOnly
+                                onPress={toggleVisibilityPassword}
+                              >
+                                {isVisiblePassword ? (
+                                  <EyeIcon className="h-5 w-5 text-foreground" />
+                                ) : (
+                                  <EyeSlashIcon className="h-5 w-5 text-foreground" />
+                                )}
+                              </Button>
+                            }
+                            validate={validatePassword}
+                            onValueChange={setPassword}
+                            type={isVisiblePassword ? "text" : "password"}
+                            label="Password"
+                            autoComplete="new-password"
+                            isRequired
+                            isDisabled={isLoading}
+                            minLength={8}
+                          />
+                          <Input
+                            id="confirmPassword"
+                            name="confirmPassword"
+                            classNames={inputStyle}
+                            endContent={
+                              <Button
+                                aria-label="toggle password visibility"
+                                className="focus:outline-none my-[-0.25rem] mr-[-0.4rem]"
+                                type="button"
+                                variant='light'
+                                radius='full'
+                                isIconOnly
+                                onPress={toggleVisibilityConfirmPassword}
+                              >
+                                {isVisibleConfirmPassword ? (
+                                  <EyeIcon className="h-5 w-5" />
+                                ) : (
+                                  <EyeSlashIcon className="h-5 w-5" />
+                                )}
+                              </Button>
+                            }
+                            validate={(value) => validateConfirmPassword(value, password)}
+                            type={isVisibleConfirmPassword ? "text" : "password"}
+                            label="Confirm Password"
+                            autoComplete="new-password"
+                            isRequired
+                            isDisabled={isLoading}
+                            minLength={8}
+                          />
 
+                          <div className="flex sm:flex-row flex-col sm:space-y-0 space-y-4 justify-between items-center w-full bg-default-100 border-default-200 hover:border-default-400 border-2 rounded-md p-4 rounded-xl">
+                            <div className="justify-left w-full">
+                              Account type</div>
+                            <Checkbox
+                              defaultSelected
+                              className="hidden"
+                              id="isAdmin"
+                              name="isAdmin"
+                              value={isAdmin ? "true" : "false"}
+                              isRequired
+                            >
+                              Is Admin
+                            </Checkbox>
+                            <Tabs color="primary"
+                              className="rounded-xl bg-default-300 shadow-lg shadow-default-200/50 my-1 flex justify-center sm:w-auto w-full"
+                              variant="light"
+                              selectedKey={isAdmin ? "admin" : "operator"}
+                              onSelectionChange={(key) => {
+                                setIsAdmin(key === "admin")
+                                if (key === "operator")
+                                  setIsNewCompany(false)
+                              }}
+                              isDisabled={isLoading}
+                            >
+                              <Tab key="admin"
+                                className=""
+                                title={
+
+                                  <div className="flex items-center text-foreground">
+                                    <svg className="h-5 w-5 mr-2" viewBox="0 0 24 24">
+                                      <path fill="currentColor" d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12c5.16-1.26 9-6.45 9-12V5Zm0 3.9a3 3 0 1 1-3 3a3 3 0 0 1 3-3m0 7.9c2 0 6 1.09 6 3.08a7.2 7.2 0 0 1-12 0c0-1.99 4-3.08 6-3.08" />
+                                    </svg>
+                                    Admin
+                                  </div>
+                                } />
+                              <Tab key="operator" title={
                                 <div className="flex items-center text-foreground">
                                   <svg className="h-5 w-5 mr-2" viewBox="0 0 24 24">
-                                    <path fill="currentColor" d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12c5.16-1.26 9-6.45 9-12V5Zm0 3.9a3 3 0 1 1-3 3a3 3 0 0 1 3-3m0 7.9c2 0 6 1.09 6 3.08a7.2 7.2 0 0 1-12 0c0-1.99 4-3.08 6-3.08" />
+                                    <path fill="currentColor" d="M1.05 20v-1.8q0-.825.425-1.55t1.175-1.1q1.275-.65 2.875-1.1T9.05 14t3.525.45t2.875 1.1q.75.375 1.175 1.1t.425 1.55V20q0 .425-.288.713T16.05 21h-14q-.425 0-.712-.288T1.05 20m8-7q-1.65 0-2.825-1.175T5.05 9H4.8q-.225 0-.362-.137T4.3 8.5t.138-.363T4.8 8h.25q0-1.125.55-2.025T7.05 4.55v.95q0 .225.138.363T7.55 6t.363-.137t.137-.363V4.15q.225-.075.475-.112T9.05 4t.525.038t.475.112V5.5q0 .225.138.363T10.55 6t.363-.137t.137-.363v-.95q.9.525 1.45 1.425T13.05 8h.25q.225 0 .363.138t.137.362t-.137.363T13.3 9h-.25q0 1.65-1.175 2.825T9.05 13m0-2q.825 0 1.413-.587T11.05 9h-4q0 .825.588 1.413T9.05 11m7.425 3.6l-.075-.35q-.15-.05-.287-.112t-.263-.188l-.3.1q-.175.05-.337 0t-.263-.225l-.1-.175q-.1-.15-.062-.325t.162-.3l.25-.225v-.6l-.25-.225q-.125-.125-.162-.3t.062-.325l.1-.175q.1-.175.263-.225t.337 0l.3.1q.1-.1.25-.175t.3-.125l.075-.35q.05-.175.175-.288t.3-.112h.2q.175 0 .3.113t.175.287l.075.35q.15.05.3.125t.25.175l.3-.1q.175-.05.338 0t.262.225l.1.175q.1.15.063.325t-.163.3l-.25.225v.6l.25.225q.125.125.163.3t-.063.325l-.1.175q-.1.175-.262.225t-.338 0l-.3-.1q-.125.125-.262.188t-.288.112l-.075.35q-.05.175-.175.288t-.3.112h-.2q-.175 0-.3-.112t-.175-.288m.575-1.35q.3 0 .525-.225t.225-.525t-.225-.525t-.525-.225t-.525.225t-.225.525t.225.525t.525.225m1.7-3.8l-.1-.5q-.225-.075-.413-.187T17.9 8.5l-.525.175q-.225.075-.45-.012t-.35-.288l-.15-.25q-.125-.2-.088-.437t.238-.413L17 6.9q-.05-.125-.05-.2v-.4q0-.075.05-.2l-.425-.375q-.2-.175-.238-.413t.088-.437l.15-.25q.125-.2.35-.288t.45-.012l.525.175q.15-.15.338-.262t.412-.188l.1-.5q.05-.25.238-.4t.437-.15h.25q.25 0 .438.15t.237.4l.1.5q.225.075.413.188t.337.262l.525-.175q.225-.075.45.013t.35.287l.15.25q.125.2.088.438t-.238.412L22.1 6.1q.05.125.05.2v.4q0 .075-.05.2l.425.375q.2.175.238.413t-.088.437l-.15.25q-.125.2-.35.288t-.45.012L21.2 8.5q-.15.15-.337.262t-.413.188l-.1.5q-.05.25-.238.4t-.437.15h-.25q-.25 0-.437-.15t-.238-.4m.8-1.7q.525 0 .888-.362T20.8 6.5t-.363-.888t-.887-.362t-.888.363t-.362.887t.363.888t.887.362" />
                                   </svg>
-                                  Admin
+                                  Operator
                                 </div>
                               } />
-                            <Tab key="operator" title={
-                              <div className="flex items-center text-foreground">
-                                <svg className="h-5 w-5 mr-2" viewBox="0 0 24 24">
-                                  <path fill="currentColor" d="M1.05 20v-1.8q0-.825.425-1.55t1.175-1.1q1.275-.65 2.875-1.1T9.05 14t3.525.45t2.875 1.1q.75.375 1.175 1.1t.425 1.55V20q0 .425-.288.713T16.05 21h-14q-.425 0-.712-.288T1.05 20m8-7q-1.65 0-2.825-1.175T5.05 9H4.8q-.225 0-.362-.137T4.3 8.5t.138-.363T4.8 8h.25q0-1.125.55-2.025T7.05 4.55v.95q0 .225.138.363T7.55 6t.363-.137t.137-.363V4.15q.225-.075.475-.112T9.05 4t.525.038t.475.112V5.5q0 .225.138.363T10.55 6t.363-.137t.137-.363v-.95q.9.525 1.45 1.425T13.05 8h.25q.225 0 .363.138t.137.362t-.137.363T13.3 9h-.25q0 1.65-1.175 2.825T9.05 13m0-2q.825 0 1.413-.587T11.05 9h-4q0 .825.588 1.413T9.05 11m7.425 3.6l-.075-.35q-.15-.05-.287-.112t-.263-.188l-.3.1q-.175.05-.337 0t-.263-.225l-.1-.175q-.1-.15-.062-.325t.162-.3l.25-.225v-.6l-.25-.225q-.125-.125-.162-.3t.062-.325l.1-.175q.1-.175.263-.225t.337 0l.3.1q.1-.1.25-.175t.3-.125l.075-.35q.05-.175.175-.288t.3-.112h.2q.175 0 .3.113t.175.287l.075.35q.15.05.3.125t.25.175l.3-.1q.175-.05.338 0t.262.225l.1.175q.1.15.063.325t-.163.3l-.25.225v.6l.25.225q.125.125.163.3t-.063.325l-.1.175q-.1.175-.262.225t-.338 0l-.3-.1q-.125.125-.262.188t-.288.112l-.075.35q-.05.175-.175.288t-.3.112h-.2q-.175 0-.3-.112t-.175-.288m.575-1.35q.3 0 .525-.225t.225-.525t-.225-.525t-.525-.225t-.525.225t-.225.525t.225.525t.525.225m1.7-3.8l-.1-.5q-.225-.075-.413-.187T17.9 8.5l-.525.175q-.225.075-.45-.012t-.35-.288l-.15-.25q-.125-.2-.088-.437t.238-.413L17 6.9q-.05-.125-.05-.2v-.4q0-.075.05-.2l-.425-.375q-.2-.175-.238-.413t.088-.437l.15-.25q.125-.2.35-.288t.45-.012l.525.175q.15-.15.338-.262t.412-.188l.1-.5q.05-.25.238-.4t.437-.15h.25q.25 0 .438.15t.237.4l.1.5q.225.075.413.188t.337.262l.525-.175q.225-.075.45.013t.35.287l.15.25q.125.2.088.438t-.238.412L22.1 6.1q.05.125.05.2v.4q0 .075-.05.2l.425.375q.2.175.238.413t-.088.437l-.15.25q-.125.2-.35.288t-.45.012L21.2 8.5q-.15.15-.337.262t-.413.188l-.1.5q-.05.25-.238.4t-.437.15h-.25q-.25 0-.437-.15t-.238-.4m.8-1.7q.525 0 .888-.362T20.8 6.5t-.363-.888t-.887-.362t-.888.363t-.362.887t.363.888t.887.362" />
-                                </svg>
-                                Operator
-                              </div>
-                            } />
-                          </Tabs>
+                            </Tabs>
+                          </div>
                         </div>
-                      </div>
 
 
-                      <div className="flex flex-col items-center justify-center w-full space-y-4 border-t-2 border-default-200 sm:p-6 p-4">
-                        <AnimatePresence>
-                          {error && !isLoading && (
-                            <motion.div
-                              {...motionTransition}
-                              className='w-full'
+                        <div className="flex flex-col items-center justify-center w-full space-y-4 border-t-2 border-default-200 sm:p-6 p-4">
+                          <AnimatePresence>
+                            {error && !isLoading && (
+                              <motion.div
+                                {...motionTransition}
+                                className='w-full'
+                              >
+                                <Alert
+                                  color='danger'
+                                  variant='solid'
+                                  title={`Error`}
+                                  onClose={() => { router.replace('/account/register') }}
+                                  description={error} />
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                          <div className="flex flex-row items-center justify-center w-full space-x-4">
+                            <Button
+                              as={Link}
+                              variant="shadow"
+                              className="w-full"
+                              href='/account/signin'
+                              isDisabled={isLoading}
                             >
-                              <Alert
-                                color='danger'
-                                variant='solid'
-                                title={`Error`}
-                                onClose={() => { router.replace('/account/register') }}
-                                description={error} />
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                        <div className="flex flex-row items-center justify-center w-full space-x-4">
-                          <Button
-                            as={Link}
-                            variant="shadow"
-                            className="w-full"
-                            href='/account/signin'
-                            isDisabled={isLoading}
-                          >
-                            Sign-in
-                          </Button>
-                          <Button
-                            type="submit"
-                            variant="shadow"
-                            color="primary"
-                            className="w-full"
-                            isDisabled={isLoading}
-                            isLoading={isLoading}
-                          >
-                            Create account
-                          </Button>
+                              Sign-in
+                            </Button>
+                            <Button
+                              type="submit"
+                              variant="shadow"
+                              color="primary"
+                              className="w-full"
+                              isDisabled={isLoading}
+                              isLoading={isLoading}
+                            >
+                              Create account
+                            </Button>
+                          </div>
                         </div>
-                      </div>
 
+                      </div>
                     </div>
+
                   </CardList>
                 </div>
               </Form>

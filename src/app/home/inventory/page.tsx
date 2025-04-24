@@ -32,7 +32,7 @@ import { QRCodeCanvas } from "qrcode.react";
 import React, { lazy, memo, Suspense, useEffect, useState } from "react";
 
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
+import { materialDark, materialLight } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 
 // Import server actions
 import CardList from "@/components/card-list";
@@ -1338,65 +1338,78 @@ export default function InventoryPage() {
                 </div>
               )}
 
-              <div className="flex justify-center items-center gap-4">
-                {!admin ? (
-                  <Skeleton className="h-10 w-full rounded-xl" />
-                ) : (
-                  <>
-                    {selectedItemId &&
+              <div>
+
+                <div className="flex justify-center items-center gap-4">
+                  {!admin ? (
+                    <Skeleton className="h-10 w-full rounded-xl" />
+                  ) : (
+                    <>
+                      {selectedItemId &&
+                        <Button
+                          form="inventoryForm"
+                          color="secondary"
+                          variant="shadow"
+                          className="w-full"
+                          onPress={() => {
+                            const params = new URLSearchParams("");
+                            if (formData.status?.toUpperCase() === "PENDING") {
+                              params.set("deliveryId", selectedItemId);
+                              router.replace(`/home/delivery?${params.toString()}`, { scroll: false });
+                            } else {                            
+                              params.set("setInventory", selectedItemId);
+                              router.replace(`/home/delivery?${params.toString()}`, { scroll: false });
+                            }
+                          }}
+                          isDisabled={formData.status?.toUpperCase() === "DELIVERED"}
+                        >
+                          {(() => {
+                            if (formData.status?.toUpperCase() === "DELIVERED") {
+                              return (
+                                <div className="flex items-center gap-2">
+                                  <Icon icon="mdi:check" />
+                                  <span>Item Delivered</span>
+                                </div>
+                              );
+                            } else if (formData.status?.toUpperCase() === "RECEIVED") {
+                              return (
+                                <div className="flex items-center gap-2">
+                                  <Icon icon="mdi:check" />
+                                  <span>Item Received</span>
+                                </div>
+                              );
+                            } else if (formData.status?.toUpperCase() === "PENDING") {
+                              return (
+                                <div className="flex items-center gap-2">
+                                  <Icon icon="mdi:clock-time-four-outline" />
+                                  <span>Delivery Status</span>
+                                </div>
+                              );
+                            } else {
+                              return (
+                                <div className="flex items-center gap-2">
+                                  <Icon icon="mdi:truck-delivery" />
+                                  <span>Deliver Item</span>
+                                </div>
+                              );
+                            }
+                          })()}
+                        </Button>
+                      }
                       <Button
+                        type="submit"
                         form="inventoryForm"
-                        color="secondary"
+                        color="primary"
                         variant="shadow"
                         className="w-full"
-                        isDisabled={formData.status?.toUpperCase() === "DELIVERED"}
+                        isLoading={isLoading}
                       >
-                        {(() => {
-                          if (formData.status?.toUpperCase() === "DELIVERED") {
-                            return (
-                              <div className="flex items-center gap-2">
-                                <Icon icon="mdi:check" />
-                                <span>Item Delivered</span>
-                              </div>
-                            );
-                          } else if (formData.status?.toUpperCase() === "RECEIVED") {
-                            return (
-                              <div className="flex items-center gap-2">
-                                <Icon icon="mdi:check" />
-                                <span>Item Received</span>
-                              </div>
-                            );
-                          } else if (formData.status?.toUpperCase() === "PENDING") {
-                            return (
-                              <div className="flex items-center gap-2">
-                                <Icon icon="mdi:clock-time-four-outline" />
-                                <span>Delivery Status</span>
-                              </div>
-                            );
-                          } else {
-                            return (
-                              <div className="flex items-center gap-2">
-                                <Icon icon="mdi:truck-delivery" />
-                                <span>Deliver Item</span>
-                              </div>
-                            );
-                          }
-                        })()}
+                        <Icon icon="mdi:content-save" className="mr-1" />
+                        {selectedItemId ? "Update Item" : "Save Item"}
                       </Button>
-                    }
-                    <Button
-                      type="submit"
-                      form="inventoryForm"
-                      color="primary"
-                      variant="shadow"
-                      className="w-full"
-                      isLoading={isLoading}
-                    >
-                      <Icon icon="mdi:content-save" className="mr-1" />
-                      {selectedItemId ? "Update Item" : "Save Item"}
-                    </Button>
-                  </>
-                )}
+                    </>
+                  )}
+                </div>
               </div>
             </CardList>
           </Form>
@@ -1429,15 +1442,14 @@ export default function InventoryPage() {
             <p className="text-center mt-4 text-default-600">
               Scan this code to get product details
             </p>
-            <div className="mt-4 w-full bg-default-100 rounded-lg overflow-auto max-h-48">
+            <div className="mt-4 w-full bg-default overflow-auto max-h-64 bg-default-50 rounded-xl">
               <SyntaxHighlighter
                 language="json"
-                style={vscDarkPlus}
+                style={theme === 'dark' ? materialDark : materialLight}
                 customStyle={{
                   margin: 0,
                   borderRadius: '0.5rem',
                   fontSize: '0.75rem',
-                  backgroundColor: 'var(--heroui-default-100)',
                 }}
               >
                 {generateProductJson(2)}

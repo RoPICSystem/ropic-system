@@ -256,3 +256,43 @@ export async function deleteDeliveryItem(uuid: string) {
     };
   }
 }
+
+
+// Get operators (users with isAdmin = false)
+export async function getOperators(companyUuid: string) {
+  const supabase = await createClient();
+  
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('uuid, email, full_name')
+      .eq('company_uuid', companyUuid)
+      .eq('is_admin', false);
+    
+    if (error) throw error;
+    
+    return { success: true, data };
+  } catch (error) {
+    console.error('Error fetching operators:', error);
+    return { success: false, error: 'Failed to fetch operators' };
+  }
+}
+
+// Get warehouses
+export async function getWarehouses(companyUuid: string) {
+  const supabase = await createClient();
+  
+  try {
+    const { data, error } = await supabase
+      .from('warehouses')
+      .select('*')
+      .eq('company_uuid', companyUuid);
+    
+    if (error) throw error;
+    
+    return { success: true, data };
+  } catch (error) {
+    console.error('Error fetching warehouses:', error);
+    return { success: false, error: 'Failed to fetch warehouses' };
+  }
+}

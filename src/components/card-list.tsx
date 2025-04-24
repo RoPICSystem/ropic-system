@@ -11,17 +11,23 @@ export default function CardList({ children, className = 'bg-background p-4', in
 
   return (
     <div className={innerClass}>
-      {childrenArray.map((child, index) => (
-        <div className={`shadow-xl shadow-primary/10 min-h-20
+      {childrenArray.map((child, index) => {
+        const classNameProps = React.isValidElement<{ className?: string }>(child)
+          ? child.props.className ?? ''
+          : '';
+
+        return <div className={
+          `shadow-xl shadow-primary/10 min-h-20
             ${index === 0 ? 'rounded-t-2xl' : 'rounded-t-md'} 
             ${index === childrenArray.length - 1 ? 'rounded-b-2xl' : 'rounded-b-md'}
-            !border !border-default-200
+            !border !border-default-200 transition-all 
             ${className}
+            ${classNameProps}
             `}
           key={index}>
           {child}
         </div>
-      ))}
+      })}
     </div>
   );
 }

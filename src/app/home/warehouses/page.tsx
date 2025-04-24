@@ -644,9 +644,10 @@ export default function WarehousePage() {
                     <Skeleton className="h-16 w-full rounded-xl" />
                   </div>
                 </div>
-
-                <div className="flex justify-center items-center gap-4">
-                  <Skeleton className="h-10 w-full rounded-xl" />
+                <div>
+                  <div className="flex justify-center items-center gap-4">
+                    <Skeleton className="h-10 w-full rounded-xl" />
+                  </div>
                 </div>
               </CardList>
             ) : (
@@ -800,30 +801,32 @@ export default function WarehousePage() {
                   </div>
                 )}
 
-                <div className="flex justify-center items-center gap-4">
-                  {selectedWarehouseId && (
+                <div>
+                  <div className="flex justify-center items-center gap-4">
+                    {selectedWarehouseId && (
+                      <Button
+                        color="danger"
+                        variant="flat"
+                        className="w-full"
+                        onPress={handleDeleteWarehouseClick}
+                        isDisabled={isSubmitting}
+                      >
+                        <Icon icon="mdi:delete" className="mr-1" />
+                        Delete Warehouse
+                      </Button>
+                    )}
                     <Button
-                      color="danger"
-                      variant="flat"
+                      type="submit"
+                      color="primary"
+                      variant="shadow"
                       className="w-full"
-                      onPress={handleDeleteWarehouseClick}
-                      isDisabled={isSubmitting}
+                      isLoading={isSubmitting}
+                      isDisabled={!currentWarehouse?.name || !manualFullAddress || isSubmitting}
                     >
-                      <Icon icon="mdi:delete" className="mr-1" />
-                      Delete Warehouse
+                      <Icon icon="mdi:content-save" className="mr-1" />
+                      {selectedWarehouseId ? "Update Warehouse" : "Save Warehouse"}
                     </Button>
-                  )}
-                  <Button
-                    type="submit"
-                    color="primary"
-                    variant="shadow"
-                    className="w-full"
-                    isLoading={isSubmitting}
-                    isDisabled={!currentWarehouse?.name || !manualFullAddress || isSubmitting}
-                  >
-                    <Icon icon="mdi:content-save" className="mr-1" />
-                    {selectedWarehouseId ? "Update Warehouse" : "Save Warehouse"}
-                  </Button>
+                  </div>
                 </div>
               </CardList>
             )}
