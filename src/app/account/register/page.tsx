@@ -234,7 +234,7 @@ export default function RegisterPage() {
     setIsLoading(false)
   }
 
-  function handleExistingCompanyChange(key: any){
+  function handleExistingCompanyChange(key: any) {
     const selectedCompany = existingCompanies.find(company => company.uuid === key);
     setSelectedExistingCompany(selectedCompany?.uuid || '');
     setExistingCompanyAddress(selectedCompany && selectedCompany.address || addressReset)
@@ -267,8 +267,8 @@ export default function RegisterPage() {
   useEffect(() => {
     async function fetchExistingCompanies() {
       if (!isNewCompany) {
-        const companies = await getExistingCompanies();
-        setExistingCompanies(companies);
+        const {data, error} = await getExistingCompanies();
+        setExistingCompanies(data);
       }
     }
     fetchExistingCompanies();
@@ -772,6 +772,8 @@ export default function RegisterPage() {
                         variant="bordered"
                         defaultExpandedKeys={["newCompany"]}
                         disallowEmptySelection
+                        // if the isAdmin is true, select the existing company
+                        {...(!isAdmin ? { selectedKeys: ['existingCompany'] } : {})}
                         itemClasses={
                           {
                             base: "p-0 w-full",
@@ -800,6 +802,7 @@ export default function RegisterPage() {
                         <AccordionItem
                           key="newCompany"
                           aria-label="New Company"
+                          isDisabled={!isAdmin}
                           title="New Company">
                           <div className="space-y-4">
                             <Input
@@ -939,6 +942,13 @@ export default function RegisterPage() {
                           key="existingCompany"
                           aria-label="Existing Company"
                           title="Existing Company">
+                          <Input
+                            type="hidden"
+                            id="existingCompany.uuid"
+                            name="existingCompany.uuid"
+                            className="hidden h-0"
+                            value={selectedExistingCompany}
+                          />
                           <div className="space-y-4">
                             <Autocomplete
                               id="existingCompany.name"
@@ -1149,7 +1159,11 @@ export default function RegisterPage() {
                             className="rounded-xl bg-default-300 shadow-lg shadow-default-200/50 my-1 flex justify-center sm:w-auto w-full"
                             variant="light"
                             selectedKey={isAdmin ? "admin" : "operator"}
-                            onSelectionChange={(key) => { setIsAdmin(key === "admin") }}
+                            onSelectionChange={(key) => {
+                              setIsAdmin(key === "admin")
+                              if (key === "operator")
+                                setIsNewCompany(false)
+                            }}
                             isDisabled={isLoading}
                           >
                             <Tab key="admin"

@@ -1,68 +1,98 @@
 "use client";
 
-import { ReactNode } from 'react';
-import Link from 'next/link';
 import {
-  Breadcrumbs,
+  getUserProfile
+} from '@/utils/supabase/server/user';
+import {
   BreadcrumbItem,
-  Dropdown,
-  DropdownTrigger,
-  DropdownMenu,
-  DropdownItem,
+  Breadcrumbs,
   Button,
+  Dropdown,
+  DropdownItem,
+  DropdownMenu,
+  DropdownTrigger,
 } from '@heroui/react';
+import { Icon } from "@iconify-icon/react";
+import { AnimatePresence, motion } from 'framer-motion';
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import {
-  HomeIcon,
-  ShoppingCartIcon,
-  TruckIcon,
-  BellAlertIcon,
-  ChartBarIcon,
-  CogIcon,
-  PlusIcon,
-  UserIcon,
-} from '@heroicons/react/24/solid';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useEffect, useState } from 'react';
 
-const navigation = [
-  { name: 'Dashboard', href: '/home/dashboard', icon: HomeIcon },
-  { name: 'New', href: '/home/dashboard/new', icon: PlusIcon },
-  { name: 'Inventory', href: '/home/inventory', icon: ShoppingCartIcon },
-  { name: 'Deliveries', href: '/home/deliveries', icon: TruckIcon },
-  { name: 'Notifications', href: '/home/notifications', icon: BellAlertIcon },
-  { name: 'Reports', href: '/home/reports', icon: ChartBarIcon },
-  { name: 'Settings', href: '/home/settings', icon: CogIcon },
-  { name: 'Profile', href: '/home/profile', icon:  UserIcon },
-];
 
 export default function NavigationBread() {
   const pathname = usePathname();
   const pathSegments = pathname.split('/').filter(Boolean);
   const displaySegments = pathSegments.filter(segment => segment !== 'home');
+  const [navigation, setNavigation] = useState<{ name: string; href: string; icon: any }[]>([]);
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    async function fetchUserData() {
+      try {
+        setIsLoading(true)
+        const { data, error } = await getUserProfile()
+
+        if (error) {
+          console.error('Error fetching user profile:', error)
+          return
+        }
+
+
+        // if user is admin add Inventory to navigation next to dashboard
+        if (data?.is_admin) {
+          setNavigation([
+            { name: 'Dashboard', href: '/home/dashboard', icon: "heroicons:home-solid" },
+            { name: 'Inventory', href: '/home/inventory', icon: "fluent:box-20-filled" },
+            { name: 'Delivery', href: '/home/delivery', icon: "heroicons:truck-20-solid" },
+            { name: 'Warehouses', href: '/home/warehouses', icon: 'material-symbols:warehouse-rounded' },
+            { name: 'Notifications', href: '/home/notifications', icon: "heroicons:bell-alert-20-solid" },
+            { name: 'Reports', href: '/home/reports', icon: "heroicons:chart-bar-20-solid" },
+            { name: 'Settings', href: '/home/settings', icon: "heroicons:cog-8-tooth-20-solid" },
+            { name: 'Profile', href: '/home/profile', icon: "heroicons:user-20-solid" },
+          ])
+        } else {
+          setNavigation([
+            { name: 'Dashboard', href: '/home/dashboard', icon: "heroicons:home-solid" },
+            { name: 'Delivery', href: '/home/delivery', icon: "heroicons:truck-20-solid" },
+            { name: 'Notifications', href: '/home/notifications', icon: "heroicons:bell-alert-20-solid" },
+            { name: 'Reports', href: '/home/reports', icon: "heroicons:chart-bar-20-solid" },
+            { name: 'Settings', href: '/home/settings', icon: "heroicons:cog-8-tooth-20-solid" },
+          ])
+        }
+
+      } catch (err) {
+        console.error('Error fetching user profile:', err)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchUserData()
+  }, [])
 
   // Group navigation items by their path depth
   const getDropdownItems = (currentPath: string) => {
     const currentPathParts = currentPath.split('/').filter(Boolean);
     const currentDepth = currentPathParts.length;
-    
+
     // Find siblings or children based on the current path
     return navigation.filter(item => {
       const itemParts = item.href.split('/').filter(Boolean);
-      
+
       // For top-level items (after /home/), show main navigation items
       if (currentDepth === 1 && itemParts.length === 2 && itemParts[0] === 'home') {
         return true;
       }
-      
+
       // For deeper levels, show siblings that share the same parent path
       if (currentDepth > 1) {
         // Get parent path without the current segment
         const parentPath = '/' + currentPathParts.slice(0, currentDepth - 1).join('/');
-        return item.href.startsWith(parentPath) && 
-               item.href !== currentPath &&
-               item.href.split('/').length === currentPath.split('/').length;
+        return item.href.startsWith(parentPath) &&
+          item.href !== currentPath &&
+          item.href.split('/').length === currentPath.split('/').length;
       }
-      
+
       return false;
     });
   };
@@ -78,10 +108,10 @@ export default function NavigationBread() {
       >
         <Breadcrumbs size='lg'>
           {displaySegments.map((segment, index) => {
-            const fullPath = index === 0 
-              ? `/home/${segment}` 
+            const fullPath = index === 0
+              ? `/home/${segment}`
               : `/home/${displaySegments.slice(0, index + 1).join('/')}`;
-            
+
             const isLast = index === displaySegments.length - 1;
             const navItem = navigation.find(item => item.href === fullPath);
             const displayName = navItem?.name || segment.charAt(0).toUpperCase() + segment.slice(1);
@@ -100,7 +130,7 @@ export default function NavigationBread() {
                       {dropdownItems.map((item) => (
                         <DropdownItem key={item.href} as={Link} href={item.href}>
                           <div className="flex items-center gap-2">
-                            <item.icon className="w-4 h-4" />
+                            <Icon icon={item.icon} width={20} className="h-5 w-5" />
                             {item.name}
                           </div>
                         </DropdownItem>

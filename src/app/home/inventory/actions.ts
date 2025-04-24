@@ -42,7 +42,7 @@ export async function checkAdminStatus() {
   // Check if user is admin
   const { data: adminData, error } = await supabase
     .from("profiles")
-    .select("uuid, company")
+    .select("uuid, company_uuid")
     .eq("is_admin", true)
     .single();
 

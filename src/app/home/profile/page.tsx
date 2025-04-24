@@ -4,6 +4,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { getUserProfile } from '@/utils/supabase/server/user'
+import { getUserCompanyDetails } from '@/utils/supabase/server/companies'
 import {
   Card,
   CardHeader,
@@ -79,16 +80,26 @@ export default function ProfilePage() {
       try {
         setIsLoading(true)
         const { data, error } = await getUserProfile()
+        const { data: companyData, error: companyError } = await getUserCompanyDetails(data?.uuid)
 
         if (error) {
           setError(error)
           return
         }
 
-        setUserData(data)
+        if (companyError) {
+          setError(`${companyError}`)
+          return
+        } else {
+          setUserData({
+            ...data,
+            company: companyData
+          })
+
+        }
 
         if (!data?.profile_image.error) {
-          await setImagePreview(data.profile_image.data.url)
+          await setImagePreview(data.profile_image_url)
         }
       } catch (err: any) {
         console.error('Error fetching user profile:', err)

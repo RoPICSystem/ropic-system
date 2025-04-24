@@ -56,7 +56,6 @@ interface LocationData {
 }
 
 interface InventoryItem {
-  id: string;
   uuid: string;
   admin_uuid: string;
   company_uuid: string;
@@ -565,7 +564,7 @@ export default function InventoryPage() {
       setIsLoadingItems(true);
 
       const result = await getInventoryItems(
-        admin.company.uuid,
+        admin.company_uuid,
         query,
       );
 
@@ -588,7 +587,7 @@ export default function InventoryPage() {
 
   // Add or update useEffect to watch for changes in search parameters
   useEffect(() => {
-    if (!admin?.company?.uuid || isLoadingItems || inventoryItems.length === 0) return;
+    if (!admin?.company_uuid || isLoadingItems || inventoryItems.length === 0) return;
 
     const itemId = searchParams.get("itemId");
     if (!itemId) {
@@ -597,7 +596,7 @@ export default function InventoryPage() {
 
       setFormData({
         uuid: admin.uuid,
-        company_uuid: admin.company.uuid,
+        company_uuid: admin.company_uuid,
         admin_uuid: admin.uuid,
         item_code: "",
         item_name: "",
@@ -626,7 +625,7 @@ export default function InventoryPage() {
       setSelectedCode("");
 
       console.log("No itemId in URL");
-      
+
       return;
     }
 
@@ -651,7 +650,7 @@ export default function InventoryPage() {
 
       setSelectedCode(item.location_code || "");
     }
-  }, [searchParams, admin?.company?.uuid, isLoadingItems, inventoryItems]);
+  }, [searchParams, admin?.company_uuid, isLoadingItems, inventoryItems]);
 
   // Fetch admin status and options when component mounts
   useEffect(() => {
@@ -663,7 +662,7 @@ export default function InventoryPage() {
         setFormData(prev => ({
           ...prev,
           admin_uuid: adminData.uuid,
-          company_uuid: adminData.company.uuid,
+          company_uuid: adminData.company_uuid,
           location: prev.location
         }));
 
@@ -675,11 +674,11 @@ export default function InventoryPage() {
 
         // Fetch initial inventory items
         const items = await getInventoryItems(
-          adminData.company.uuid
+          adminData.company_uuid
         );
 
         // Fetch occupied shelf locations
-        const locationsResult = await getOccupiedShelfLocations(adminData.company.uuid);
+        const locationsResult = await getOccupiedShelfLocations(adminData.company_uuid);
         if (locationsResult.success) {
           setOccupiedLocations(locationsResult.data);
         }
@@ -695,7 +694,7 @@ export default function InventoryPage() {
   }, []);
 
   useEffect(() => {
-    if (!admin?.company?.uuid) return;
+    if (!admin?.company_uuid) return;
 
     // Create a client-side Supabase client for real-time subscriptions
     const supabase = createClient();
@@ -709,21 +708,21 @@ export default function InventoryPage() {
           event: '*', // Listen for all events (INSERT, UPDATE, DELETE)
           schema: 'public',
           table: 'inventory_items',
-          filter: `company_uuid=eq.${admin.company.uuid}`
+          filter: `company_uuid=eq.${admin.company_uuid}`
         },
         async (payload) => {
           console.log('Real-time update received:', payload);
 
           // Refresh inventory items
           const refreshedItems = await getInventoryItems(
-            admin.company.uuid,
+            admin.company_uuid,
             searchQuery,
           );
 
           setInventoryItems(refreshedItems.data || []);
 
           // Update occupied locations as well
-          const locationsResult = await getOccupiedShelfLocations(admin.company.uuid);
+          const locationsResult = await getOccupiedShelfLocations(admin.company_uuid);
           if (locationsResult.success) {
             setOccupiedLocations(locationsResult.data);
           }
@@ -735,7 +734,7 @@ export default function InventoryPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [admin?.company?.uuid, searchQuery]);
+  }, [admin?.company_uuid, searchQuery]);
 
   // Form change handler
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -800,7 +799,7 @@ export default function InventoryPage() {
     const newErrors: Record<string, string> = {};
     if (!admin) {
       formData.admin_uuid = admin?.uuid;
-      formData.company_uuid = admin?.company.uuid;
+      formData.company_uuid = admin?.company_uuid;
     }
     if (!formData.item_code) newErrors.item_code = "Item code is required";
     if (!formData.item_name) newErrors.item_name = "Item name is required";
@@ -853,7 +852,7 @@ export default function InventoryPage() {
       // You could add a success message here if you have a toast notification system
       else {
         setFormData({
-          company_uuid: admin.company.uuid,
+          company_uuid: admin.company_uuid,
           admin_uuid: admin.uuid,
           item_code: "",
           item_name: "",
@@ -905,110 +904,6 @@ export default function InventoryPage() {
     router.push(`?${params.toString()}`, { scroll: false });
   };
 
-    if (!admin) {
-    return (
-      <div className="container mx-auto p-2 max-w-4xl">
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h1 className="text-2xl font-bold">Inventory Management</h1>
-            <p className="text-default-500">Manage your inventory items efficiently.</p>
-          </div>
-          <div className="flex gap-4">
-            <div className="mt-4 text-center">
-              <Skeleton className="h-10 w-32 rounded-xl" /> {/* New Item button */}
-            </div>
-          </div>
-        </div>
-  
-        <div className="flex flex-col xl:flex-row gap-4">
-          {/* Left side: Inventory List Skeleton */}
-          <div className="xl:w-1/3 shadow-xl shadow-primary/10 min-h-[42rem] 
-              min-w-[350px] rounded-2xl overflow-hidden bg-background border border-default-200 backdrop-blur-lg">
-            <div className="flex flex-col h-full relative">
-              <div className="p-4 absolute w-full z-20 top-0 bg-background/50 border-b border-default-200 backdrop-blur-lg">
-                <Skeleton className="h-8 w-48 mx-auto rounded-xl mb-4" /> {/* Inventory Items heading */}
-                <Skeleton className="h-10 w-full rounded-xl" /> {/* Search input */}
-              </div>
-              <div className="h-full absolute w-full">
-                <div className="space-y-4 p-3 pt-32 h-[42rem]">
-                  {/* Item card skeletons */}
-                  {[...Array(5)].map((_, i) => (
-                    <Skeleton key={i} className="w-full min-h-28 rounded-xl" />
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          {/* Right side: Form Skeleton */}
-          <div className="xl:w-2/3">
-            <div className="space-y-4">
-              <CardList>
-                <div>
-                  <Skeleton className="h-6 w-48 mx-auto rounded-xl mb-5" /> {/* Basic Information heading */}
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
-                      <Skeleton className="h-16 w-full rounded-xl" /> {/* Item Code */}
-                      <Skeleton className="h-16 w-full rounded-xl" /> {/* Item Name */}
-                    </div>
-                    <Skeleton className="h-16 w-full rounded-xl" /> {/* Description */}
-                  </div>
-                </div>
-  
-                <div>
-                  <Skeleton className="h-6 w-48 mx-auto rounded-xl mb-5" /> {/* Quantity & Costs heading */}
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
-                      <Skeleton className="h-16 w-full rounded-xl" /> {/* Quantity */}
-                      <Skeleton className="h-16 w-full rounded-xl" /> {/* Unit */}
-                    </div>
-                    <Skeleton className="h-16 w-full rounded-xl" /> {/* Ending Inventory */}
-                    <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
-                      <Skeleton className="h-16 w-full rounded-xl" /> {/* Netsuite */}
-                      <Skeleton className="h-16 w-full rounded-xl" /> {/* Variance */}
-                    </div>
-                  </div>
-                </div>
-  
-                <div>
-                  <Skeleton className="h-6 w-48 mx-auto rounded-xl mb-5" /> {/* Item Location heading */}
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4 mb-4">
-                      <Skeleton className="h-16 w-full rounded-xl" /> {/* Floor */}
-                      <Skeleton className="h-16 w-full rounded-xl" /> {/* Group */}
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-3 lg:grid-cols-3 gap-4">
-                      <Skeleton className="h-16 w-full rounded-xl" /> {/* Row */}
-                      <Skeleton className="h-16 w-full rounded-xl" /> {/* Column */}
-                      <Skeleton className="h-16 w-full rounded-xl" /> {/* Depth */}
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <Skeleton className="h-8 w-32 rounded-xl" /> {/* Location Code Chip */}
-                    </div>
-                    <div className="flex justify-center gap-4 border-t border-default-200 pt-4 px-4 -mx-4">
-                      <Skeleton className="h-10 w-full rounded-xl" /> {/* Open Floorplan Button */}
-                    </div>
-                  </div>
-                </div>
-  
-                <div className="flex justify-center items-center">
-                  <Skeleton className="h-10 w-full rounded-xl" /> {/* Save Item Button */}
-                </div>
-              </CardList>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const handleAnimationToggle = (type: 'floor' | 'shelf' | 'group', value: boolean) => {
-    if (type === 'floor') setIsFloorChangeAnimate(value);
-    else if (type === 'shelf') setIsShelfChangeAnimate(value);
-    else if (type === 'group') setIsGroupChangeAnimate(value);
-  };
-
-
   return (
     <div className="container mx-auto p-2 max-w-4xl">
       <div className="flex justify-between items-center mb-6">
@@ -1018,38 +913,56 @@ export default function InventoryPage() {
         </div>
         <div className="flex gap-4">
           <div className="mt-4 text-center">
-            <Button
-              color="primary"
-              variant="shadow"
-              onPress={handleNewItem}
-            >
-              <Icon icon="mdi:plus" className="mr-2" />
-              New Item
-            </Button>
+            {!admin ? (
+              <Skeleton className="h-10 w-32 rounded-xl" />
+            ) : (
+              <Button
+                color="primary"
+                variant="shadow"
+                onPress={handleNewItem}
+              >
+                <Icon icon="mdi:plus" className="mr-2" />
+                New Item
+              </Button>
+            )}
           </div>
         </div>
       </div>
       <div className="flex flex-col xl:flex-row gap-4 ">
         {/* Left side: Inventory List */}
-        <div className="xl:w-1/3 shadow-xl shadow-primary/10 min-h-[42rem] 
-            min-w-[350px] rounded-2xl overflow-hidden bg-background border border-default-200  backdrop-blur-lg"
+        <div className={`xl:w-1/3 shadow-xl shadow-primary/10 
+          xl:min-h-[calc(100vh-6.5rem)] 2xl:min-h-[calc(100vh-9rem)] min-h-[42rem] 
+          xl:min-w-[350px] w-full rounded-2xl overflow-hidden bg-background border 
+          border-default-200 backdrop-blur-lg xl:sticky top-0 self-start max-h-[calc(100vh-2rem)]`}
         >
-          <div className="flex flex-col h-full relative">
-            <div className="p-4 absolute w-full z-20 top-0 bg-background/50 border-b border-default-200 backdrop-blur-lg"
-
-            >
+          <div className="flex flex-col h-full">
+            <div className="p-4 sticky top-0 z-20 bg-background/80 border-b border-default-200 backdrop-blur-lg shadow-sm">
               <h2 className="text-xl font-semibold mb-4 w-full text-center">Inventory Items</h2>
-              <Input
-                placeholder="Search items..."
-                value={searchQuery}
-                onChange={(e) => handleSearch(e.target.value)}
-                isClearable
-                onClear={() => handleSearch("")}
-                startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
-              />
+              {!admin ? (
+                <Skeleton className="h-10 w-full rounded-xl" />
+              ) : (
+                <Input
+                  placeholder="Search items..."
+                  value={searchQuery}
+                  onChange={(e) => handleSearch(e.target.value)}
+                  isClearable
+                  onClear={() => handleSearch("")}
+                  startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
+                />
+              )}
             </div>
             <div className="h-full absolute w-full">
-              {!isLoadingItems && inventoryItems.length !== 0 && (
+              {!admin || isLoadingItems ? (
+                <div className="space-y-4 mt-1 p-4 pt-32 h-full relative">
+                  {[...Array(10)].map((_, i) => (
+                    <Skeleton key={i} className="w-full min-h-28 rounded-xl" />
+                  ))}
+                  <div className="absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-background to-transparent pointer-events-none" />
+                  <div className="py-4 flex absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
+                    <Spinner />
+                  </div>
+                </div>
+              ) : !isLoadingItems && inventoryItems.length !== 0 ? (
                 <Listbox
                   classNames={{ list: 'space-y-4 p-3 overflow-y-auto pt-32', base: 'xl:h-full h-[42rem]' }}
                   onSelectionChange={(item) => handleSelectItem((item as Set<string>).values().next().value || "")}
@@ -1093,16 +1006,17 @@ export default function InventoryPage() {
                     </ListboxItem>
                   ))}
                 </Listbox>
+              ) : null}
+
+              {admin && !isLoadingItems && inventoryItems.length === 0 && (
+                <div className="xl:h-full h-[42rem] absolute w-full">
+                  <div className="py-4 flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
+                    <Icon icon="fluent:box-dismiss-20-filled" className="text-5xl text-default-300" />
+                    <p className="text-default-500 mt-2">No items found.</p>
+                  </div>
+                </div>
               )}
             </div>
-
-            {isLoadingItems && (
-              <div className="xl:h-full h-[42rem] absolute w-full">
-                <div className="py-4 flex absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
-                  <Spinner />
-                </div>
-              </div>
-            )}
           </div>
         </div>
 
@@ -1114,43 +1028,56 @@ export default function InventoryPage() {
                 <h2 className="text-xl font-semibold mb-4 w-full text-center">Basic Information</h2>
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
-                    <Input
-                      name="item_code"
-                      label="Item Code"
-                      classNames={inputStyle}
-                      placeholder="Enter item code"
-                      value={formData.item_code || ""}
-                      onChange={handleInputChange}
-                      isRequired
-                      isInvalid={!!errors.item_code}
-                      errorMessage={errors.item_code}
-                      startContent={<Icon icon="mdi:barcode" className="text-default-500 pb-[0.1rem]" />}
-                    />
+                    {!admin ? (
+                      <>
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                      </>
+                    ) : (
+                      <>
+                        <Input
+                          name="item_code"
+                          label="Item Code"
+                          classNames={inputStyle}
+                          placeholder="Enter item code"
+                          value={formData.item_code || ""}
+                          onChange={handleInputChange}
+                          isRequired
+                          isInvalid={!!errors.item_code}
+                          errorMessage={errors.item_code}
+                          startContent={<Icon icon="mdi:barcode" className="text-default-500 pb-[0.1rem]" />}
+                        />
 
-                    <Input
-                      name="item_name"
-                      label="Item Name"
-                      classNames={inputStyle}
-                      placeholder="Enter item name"
-                      value={formData.item_name || ""}
-                      onChange={handleInputChange}
-                      isRequired
-                      isInvalid={!!errors.item_name}
-                      errorMessage={errors.item_name}
-                      startContent={<Icon icon="mdi:package-variant" className="text-default-500 pb-[0.1rem]" />}
-                    />
+                        <Input
+                          name="item_name"
+                          label="Item Name"
+                          classNames={inputStyle}
+                          placeholder="Enter item name"
+                          value={formData.item_name || ""}
+                          onChange={handleInputChange}
+                          isRequired
+                          isInvalid={!!errors.item_name}
+                          errorMessage={errors.item_name}
+                          startContent={<Icon icon="mdi:package-variant" className="text-default-500 pb-[0.1rem]" />}
+                        />
+                      </>
+                    )}
                   </div>
 
-                  <Textarea
-                    name="description"
-                    label="Description"
-                    maxRows={5}
-                    minRows={1}
-                    classNames={inputStyle}
-                    placeholder="Enter item description (optional)"
-                    value={formData.description || ""}
-                    onChange={handleInputChange}
-                  />
+                  {!admin ? (
+                    <Skeleton className="h-16 w-full rounded-xl" />
+                  ) : (
+                    <Textarea
+                      name="description"
+                      label="Description"
+                      maxRows={5}
+                      minRows={1}
+                      classNames={inputStyle}
+                      placeholder="Enter item description (optional)"
+                      value={formData.description || ""}
+                      onChange={handleInputChange}
+                    />
+                  )}
                 </div>
               </div>
 
@@ -1158,76 +1085,98 @@ export default function InventoryPage() {
                 <h2 className="text-xl font-semibold mb-4 w-full text-center">Quantity & Costs</h2>
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
-                    <NumberInput
-                      name="quantity"
-                      classNames={inputStyle}
-                      label="Quantity"
-                      placeholder="0"
-                      minValue={0}
-                      maxValue={999999}
-                      step={1}
-                      value={formData.quantity}
-                      onValueChange={(e) => setFormData({ ...formData, quantity: e })}
-                      isRequired
-                      isInvalid={!!errors.quantity}
-                      errorMessage={errors.quantity}
-                      startContent={<Icon icon="mdi:numeric" className="text-default-500 pb-[0.1rem]" />}
-                    />
+                    {!admin ? (
+                      <>
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                      </>
+                    ) : (
+                      <>
+                        <NumberInput
+                          name="quantity"
+                          classNames={inputStyle}
+                          label="Quantity"
+                          placeholder="0"
+                          minValue={0}
+                          maxValue={999999}
+                          step={1}
+                          value={formData.quantity}
+                          onValueChange={(e) => setFormData({ ...formData, quantity: e })}
+                          isRequired
+                          isInvalid={!!errors.quantity}
+                          errorMessage={errors.quantity}
+                          startContent={<Icon icon="mdi:numeric" className="text-default-500 pb-[0.1rem]" />}
+                        />
 
-                    <Select
-                      name="unit"
-                      label="Unit"
-                      placeholder="Select unit"
-                      selectedKeys={[formData.unit || ""]}
-                      onChange={handleInputChange}
-                      isRequired
-                      classNames={{ trigger: inputStyle.inputWrapper }}
-                      isInvalid={!!errors.unit}
-                      errorMessage={errors.unit}
-                    >
-                      {unitOptions.map((unit) => (
-                        <SelectItem key={unit}>
-                          {unit}
-                        </SelectItem>
-                      ))}
-                    </Select>
+                        <Select
+                          name="unit"
+                          label="Unit"
+                          placeholder="Select unit"
+                          selectedKeys={[formData.unit || ""]}
+                          onChange={handleInputChange}
+                          isRequired
+                          classNames={{ trigger: inputStyle.inputWrapper }}
+                          isInvalid={!!errors.unit}
+                          errorMessage={errors.unit}
+                        >
+                          {unitOptions.map((unit) => (
+                            <SelectItem key={unit}>
+                              {unit}
+                            </SelectItem>
+                          ))}
+                        </Select>
+                      </>
+                    )}
                   </div>
 
-                  <NumberInput
-                    name="ending_inventory"
-                    classNames={inputStyle}
-                    label="Ending Inventory (Cost)"
-                    placeholder="0.00"
-                    minValue={0}
-                    maxValue={999999}
-                    value={formData.ending_inventory}
-                    onValueChange={(e) => setFormData({ ...formData, ending_inventory: e })}
-                    isRequired
-                    isInvalid={!!errors.ending_inventory}
-                    errorMessage={errors.ending_inventory}
-                    startContent={<Icon icon="mdi:currency-php" className="text-default-500 pb-[0.1rem]" />}
-                  />
+                  {!admin ? (
+                    <Skeleton className="h-16 w-full rounded-xl" />
+                  ) : (
+                    <NumberInput
+                      name="ending_inventory"
+                      classNames={inputStyle}
+                      label="Ending Inventory (Cost)"
+                      placeholder="0.00"
+                      minValue={0}
+                      maxValue={999999}
+                      value={formData.ending_inventory}
+                      onValueChange={(e) => setFormData({ ...formData, ending_inventory: e })}
+                      isRequired
+                      isInvalid={!!errors.ending_inventory}
+                      errorMessage={errors.ending_inventory}
+                      startContent={<Icon icon="mdi:currency-php" className="text-default-500 pb-[0.1rem]" />}
+                    />
+                  )}
 
                   <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
-                    <NumberInput
-                      name="netsuite"
-                      classNames={inputStyle}
-                      label="Netsuite (Optional)"
-                      placeholder="0.00"
-                      onValueChange={(e) => setFormData({ ...formData, netsuite: e })}
-                      value={formData.netsuite || 0}
-                      startContent={<Icon icon="mdi:database" className="text-default-500 pb-[0.1rem]" />}
-                    />
+                    {!admin ? (
+                      <>
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                      </>
+                    ) : (
+                      <>
+                        <NumberInput
+                          name="netsuite"
+                          classNames={inputStyle}
+                          label="Netsuite (Optional)"
+                          placeholder="0.00"
+                          onValueChange={(e) => setFormData({ ...formData, netsuite: e })}
+                          value={formData.netsuite || 0}
+                          startContent={<Icon icon="mdi:database" className="text-default-500 pb-[0.1rem]" />}
+                        />
 
-                    <NumberInput
-                      name="variance"
-                      classNames={inputStyle}
-                      label="Variance (Optional)"
-                      placeholder="0.00"
-                      onValueChange={(e) => setFormData({ ...formData, variance: e })}
-                      value={formData.variance || 0}
-                      startContent={<Icon icon="mdi:chart-line-variant" className="text-default-500 pb-[0.1rem]" />}
-                    />
+                        <NumberInput
+                          name="variance"
+                          classNames={inputStyle}
+                          label="Variance (Optional)"
+                          placeholder="0.00"
+                          onValueChange={(e) => setFormData({ ...formData, variance: e })}
+                          value={formData.variance || 0}
+                          startContent={<Icon icon="mdi:chart-line-variant" className="text-default-500 pb-[0.1rem]" />}
+                        />
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1237,118 +1186,147 @@ export default function InventoryPage() {
                 <div className="space-y-4">
                   {/* Floor and Group in the first row */}
                   <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4 mb-4">
-                    <NumberInput
-                      name="location.floor"
-                      classNames={inputStyle}
-                      label="Floor"
-                      placeholder="e.g. 1"
-                      maxValue={floorOptions.length - 1}
-                      minValue={1}
-                      // Display floor as 1-indexed but store as 0-indexed
-                      value={selectedFloor !== null ? selectedFloor + 1 : 0}
-                      onValueChange={(e) => setSelectedFloor(e - 1)}
-                      isRequired
-                      isInvalid={!!errors["location.floor"]}
-                      errorMessage={errors["location.floor"]}
-                    />
+                    {!admin ? (
+                      <>
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                      </>
+                    ) : (
+                      <>
+                        <NumberInput
+                          name="location.floor"
+                          classNames={inputStyle}
+                          label="Floor"
+                          placeholder="e.g. 1"
+                          maxValue={floorOptions.length - 1}
+                          minValue={1}
+                          // Display floor as 1-indexed but store as 0-indexed
+                          value={selectedFloor !== null ? selectedFloor + 1 : 0}
+                          onValueChange={(e) => setSelectedFloor(e - 1)}
+                          isRequired
+                          isInvalid={!!errors["location.floor"]}
+                          errorMessage={errors["location.floor"]}
+                        />
 
-                    <NumberInput
-                      name="location.group"
-                      classNames={inputStyle}
-                      label="Group"
-                      minValue={1}
-                      placeholder="e.g. 1"
-                      // Display group as 1-indexed but store as 0-indexed
-                      value={selectedGroup !== null ? selectedGroup + 1 : 0}
-                      onValueChange={(e) => setSelectedGroup(e - 1)}
-                      isRequired
-                      isInvalid={!!errors["location.group"]}
-                      errorMessage={errors["location.group"]}
-                    />
+                        <NumberInput
+                          name="location.group"
+                          classNames={inputStyle}
+                          label="Group"
+                          minValue={1}
+                          placeholder="e.g. 1"
+                          // Display group as 1-indexed but store as 0-indexed
+                          value={selectedGroup !== null ? selectedGroup + 1 : 0}
+                          onValueChange={(e) => setSelectedGroup(e - 1)}
+                          isRequired
+                          isInvalid={!!errors["location.group"]}
+                          errorMessage={errors["location.group"]}
+                        />
+                      </>
+                    )}
                   </div>
 
                   {/* Row, Column, and Depth grouped together in the second row */}
                   <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-3 lg:grid-cols-3 gap-4">
-                    <NumberInput
-                      name="location.row"
-                      classNames={inputStyle}
-                      label="Row"
-                      minValue={1}
-                      placeholder="e.g. 1"
-                      // Display row as 1-indexed but store as 0-indexed
-                      value={selectedRow !== null ? selectedRow + 1 : 0}
-                      onValueChange={(e) => setSelectedRow(e - 1)}
-                      isRequired
-                      isInvalid={!!errors["location.row"]}
-                      errorMessage={errors["location.row"]}
-                    />
+                    {!admin ? (
+                      <>
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                      </>
+                    ) : (
+                      <>
+                        <NumberInput
+                          name="location.row"
+                          classNames={inputStyle}
+                          label="Row"
+                          minValue={1}
+                          placeholder="e.g. 1"
+                          // Display row as 1-indexed but store as 0-indexed
+                          value={selectedRow !== null ? selectedRow + 1 : 0}
+                          onValueChange={(e) => setSelectedRow(e - 1)}
+                          isRequired
+                          isInvalid={!!errors["location.row"]}
+                          errorMessage={errors["location.row"]}
+                        />
 
-                    <Input
-                      name="location.column"
-                      classNames={inputStyle}
-                      label="Column"
-                      placeholder="e.g. A"
-                      value={selectedColumnCode || ""}
-                      onChange={(e) => {
-                        const val = e.target.value.toUpperCase();
-                        setSelectedColumnCode(val);
-                        if (val) {
-                          setSelectedColumn(val.charCodeAt(0) - 65);
-                        }
-                      }}
-                      isRequired
-                      isInvalid={!!errors["location.column"]}
-                      errorMessage={errors["location.column"]}
-                    />
+                        <Input
+                          name="location.column"
+                          classNames={inputStyle}
+                          label="Column"
+                          placeholder="e.g. A"
+                          value={selectedColumnCode || ""}
+                          onChange={(e) => {
+                            const val = e.target.value.toUpperCase();
+                            setSelectedColumnCode(val);
+                            if (val) {
+                              setSelectedColumn(val.charCodeAt(0) - 65);
+                            }
+                          }}
+                          isRequired
+                          isInvalid={!!errors["location.column"]}
+                          errorMessage={errors["location.column"]}
+                        />
 
-                    <NumberInput
-                      name="location.depth"
-                      classNames={inputStyle}
-                      label="Depth"
-                      minValue={1}
-                      placeholder="e.g. 1"
-                      // Display depth as 1-indexed but store as 0-indexed
-                      value={selectedDepth !== null ? selectedDepth + 1 : 0}
-                      onValueChange={(e) => setSelectedDepth(e - 1)}
-                      isRequired
-                      isInvalid={!!errors["location.depth"]}
-                      errorMessage={errors["location.depth"]}
-                    />
+                        <NumberInput
+                          name="location.depth"
+                          classNames={inputStyle}
+                          label="Depth"
+                          minValue={1}
+                          placeholder="e.g. 1"
+                          // Display depth as 1-indexed but store as 0-indexed
+                          value={selectedDepth !== null ? selectedDepth + 1 : 0}
+                          onValueChange={(e) => setSelectedDepth(e - 1)}
+                          isRequired
+                          isInvalid={!!errors["location.depth"]}
+                          errorMessage={errors["location.depth"]}
+                        />
+                      </>
+                    )}
                   </div>
 
                   <div className="flex items-center justify-between">
-                    <Chip className="mb-2 sm:mb-0">
-                      CODE: <b>{selectedCode}</b>
-                    </Chip>
+                    {!admin ? (
+                      <Skeleton className="h-7 w-32 rounded-xl" />
+                    ) : (
+                      <Chip className="mb-2 sm:mb-0">
+                        CODE: <b>{selectedCode}</b>
+                      </Chip>
+                    )}
                   </div>
 
                   <div className="flex justify-center gap-4 border-t border-default-200 pt-4 px-4 -mx-4">
-                    {selectedItemId &&
-                      <Button
-                        variant="faded"
-                        color="secondary"
-                        onPress={() => setShowQrCode(true)}
-                        className="w-full border-default-200 text-secondary-600"
-                        isDisabled={!selectedItemId}
-                      >
-                        <Icon icon="mdi:qrcode" className="mr-1" />
-                        Show QR Code
-                      </Button>
-                    }
-                    <Button
-                      variant="faded"
-                      color="primary"
-                      onPress={handleOpenModal}
-                      className="w-full border-default-200 text-primary-600"
-                    >
-                      <Icon icon="mdi:warehouse" className="mr-1" />
-                      Open Floorplan
-                    </Button>
+                    {!admin ? (
+                      <Skeleton className="h-10 w-full rounded-xl" />
+                    ) : (
+                      <>
+                        {selectedItemId &&
+                          <Button
+                            variant="faded"
+                            color="secondary"
+                            onPress={() => setShowQrCode(true)}
+                            className="w-full border-default-200 text-secondary-600"
+                            isDisabled={!selectedItemId}
+                          >
+                            <Icon icon="mdi:qrcode" className="mr-1" />
+                            Show QR Code
+                          </Button>
+                        }
+                        <Button
+                          variant="faded"
+                          color="primary"
+                          onPress={handleOpenModal}
+                          className="w-full border-default-200 text-primary-600"
+                        >
+                          <Icon icon="mdi:warehouse" className="mr-1" />
+                          Open Floorplan
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
 
-              {selectedItemId &&
+              {admin && selectedItemId && (
                 <div>
                   <h2 className="text-xl font-semibold mb-4 w-full text-center">Item Status</h2>
                   <Input
@@ -1358,63 +1336,67 @@ export default function InventoryPage() {
                     value={formData.status?.toUpperCase() || "UNKNOWN"}
                   />
                 </div>
-
-              }
-
+              )}
 
               <div className="flex justify-center items-center gap-4">
-                {selectedItemId &&
-                  <Button
-                    form="inventoryForm"
-                    color="secondary"
-                    variant="shadow"
-                    className="w-full"
-                    isDisabled={formData.status?.toUpperCase() === "DELIVERED"}
-                  >
-                    {(() => {
-                      if (formData.status?.toUpperCase() === "DELIVERED") {
-                        return (
-                          <div className="flex items-center gap-2">
-                            <Icon icon="mdi:check" />
-                            <span>Item Delivered</span>
-                          </div>
-                        );
-                      } else if (formData.status?.toUpperCase() === "RECEIVED") {
-                        return (
-                          <div className="flex items-center gap-2">
-                            <Icon icon="mdi:check" />
-                            <span>Item Received</span>
-                          </div>
-                        );
-                      } else if (formData.status?.toUpperCase() === "PENDING") {
-                        return (
-                          <div className="flex items-center gap-2">
-                            <Icon icon="mdi:clock-time-four-outline" />
-                            <span>Delivery Status</span>
-                          </div>
-                        );
-                      } else {
-                        return (
-                          <div className="flex items-center gap-2">
-                            <Icon icon="mdi:truck-delivery" />
-                            <span>Deliver Item</span>
-                          </div>
-                        );
-                      }
-                    })()}
-                  </Button>
-                }
-                <Button
-                  type="submit"
-                  form="inventoryForm"
-                  color="primary"
-                  variant="shadow"
-                  className="w-full"
-                  isLoading={isLoading}
-                >
-                  <Icon icon="mdi:content-save" className="mr-1" />
-                  {selectedItemId ? "Update Item" : "Save Item"}
-                </Button>
+                {!admin ? (
+                  <Skeleton className="h-10 w-full rounded-xl" />
+                ) : (
+                  <>
+                    {selectedItemId &&
+                      <Button
+                        form="inventoryForm"
+                        color="secondary"
+                        variant="shadow"
+                        className="w-full"
+                        isDisabled={formData.status?.toUpperCase() === "DELIVERED"}
+                      >
+                        {(() => {
+                          if (formData.status?.toUpperCase() === "DELIVERED") {
+                            return (
+                              <div className="flex items-center gap-2">
+                                <Icon icon="mdi:check" />
+                                <span>Item Delivered</span>
+                              </div>
+                            );
+                          } else if (formData.status?.toUpperCase() === "RECEIVED") {
+                            return (
+                              <div className="flex items-center gap-2">
+                                <Icon icon="mdi:check" />
+                                <span>Item Received</span>
+                              </div>
+                            );
+                          } else if (formData.status?.toUpperCase() === "PENDING") {
+                            return (
+                              <div className="flex items-center gap-2">
+                                <Icon icon="mdi:clock-time-four-outline" />
+                                <span>Delivery Status</span>
+                              </div>
+                            );
+                          } else {
+                            return (
+                              <div className="flex items-center gap-2">
+                                <Icon icon="mdi:truck-delivery" />
+                                <span>Deliver Item</span>
+                              </div>
+                            );
+                          }
+                        })()}
+                      </Button>
+                    }
+                    <Button
+                      type="submit"
+                      form="inventoryForm"
+                      color="primary"
+                      variant="shadow"
+                      className="w-full"
+                      isLoading={isLoading}
+                    >
+                      <Icon icon="mdi:content-save" className="mr-1" />
+                      {selectedItemId ? "Update Item" : "Save Item"}
+                    </Button>
+                  </>
+                )}
               </div>
             </CardList>
           </Form>

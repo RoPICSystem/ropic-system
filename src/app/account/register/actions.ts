@@ -15,9 +15,9 @@ import { User } from '@supabase/supabase-js'
 export async function register(formData: FormData) : 
   Promise<{ error?: string, success?: boolean  }> {
   const supabase = await createClient()
+  const supabaseAdmin = await createAdminClient();
 
   const deleteAccount = async (user: User | null, companyUuid: string | null = null) => {
-    const supabaseAdmin = await createAdminClient()
 
     // delete company if it exists
     if (companyUuid) {
@@ -48,6 +48,10 @@ export async function register(formData: FormData) :
       return { error: deleteError }
     }
   }
+  
+  console.log('Form Data:', formData);
+
+  // return { error: 'Not implemented' }
 
   // Extract basic user data
   const email = formData.get('email') as string;
@@ -99,11 +103,7 @@ export async function register(formData: FormData) :
     }
   }
 
-  let company: {
-    uuid: string;
-    name: string;
-    address: {}
-  } | null = null;
+  let companyUuid: string | null = null;
 
   try {
     // Begin database transaction
@@ -141,31 +141,30 @@ export async function register(formData: FormData) :
         };
 
         // Create a new company
-        const { error: companyError, data: companyData } = await supabase
-          .from('companies')
-          .insert({
-            name: newCompanyName,
-            address: newCompanyAddressData
-          })
-          .select('uuid, name, address')
-          .single();
-
-        company = companyData;
+        const { error: companyError, data: companyData } = await supabaseAdmin
+        .from('companies')
+        .insert({
+          name: newCompanyName,
+          address: newCompanyAddressData
+        })
+        .select('uuid')
+        .single();
 
         if (companyError) {
-          deleteAccount(null, company?.uuid)
           return { error: companyError.message }
         }
+        
+        companyUuid = companyData.uuid;
 
       } else {
         // Use existing company
-        const companyId = formData.get('existingCompany.uuid') as string;
+        companyUuid = formData.get('existingCompany.uuid') as string;
 
         // Verify if company exists
-        const { data: companyData, error: companyCheckError } = await supabase
+        const { data: companyData, error: companyCheckError } = await supabaseAdmin
           .from('companies')
-          .select('uuid, name, address')
-          .eq('uuid', companyId)
+          .select('uuid')
+          .eq('uuid', companyUuid)
           .single();
 
         if (companyCheckError || !companyData) {
@@ -179,7 +178,7 @@ export async function register(formData: FormData) :
           const { count: adminCount, error: countError } = await supabase
             .from('profiles')
             .select('uuid', { count: 'exact' })
-            .eq('company.uuid', companyId)
+            .eq('company_uuid', companyUuid)
             .eq('is_admin', true);
 
           if (countError) {
@@ -190,10 +189,7 @@ export async function register(formData: FormData) :
             return { error: 'This company already has 2 admins. Please contact support for assistance.' }
           }
         }
-
-        company = companyData
       }
-
 
       const metadata = {
         is_admin: formData.get('isAdmin') as string === 'true',
@@ -204,8 +200,8 @@ export async function register(formData: FormData) :
         birthday,
         phone_number: formData.get('phoneNumber') as string,
         address,
-        company,
         full_address: formData.get('address.fullAddress') as string,
+        company_uuid: companyUuid,
       }
 
       // Step 3: Create user in auth.users
@@ -218,18 +214,22 @@ export async function register(formData: FormData) :
       });
 
       if (userError) {
-        deleteAccount(null, company?.uuid)
+        if (isNewCompany) {
+          deleteAccount(null, companyUuid)
+        }
         return { error: userError.message }
       }
 
       // Step 4: Create detailed user profile in profiles table
       const userId = userData.user?.id;
       if (!userId) {
-        deleteAccount(null, company?.uuid)
+        if (isNewCompany) {
+          deleteAccount(null, companyUuid)
+        }
         return { error: 'User ID not found' }
       }
 
-      const { error: profileError } = await supabase
+      const { error: profileError } = await supabaseAdmin
         .from('profiles')
         .insert({
           ...metadata,
@@ -238,7 +238,7 @@ export async function register(formData: FormData) :
         });
 
       if (profileError) {
-        deleteAccount(userData.user, company?.uuid)
+        deleteAccount(userData.user, companyUuid)
         return { error: profileError.message }
       }
 
@@ -261,7 +261,7 @@ export async function register(formData: FormData) :
             .toBuffer()
 
           // Upload main image
-          const { error: uploadError } = await supabase.storage
+          const { error: uploadError } = await supabaseAdmin.storage
             .from('profile-images')
             .upload(`profiles/${email}/profileImage.webp`, processedImageBuffer, {
               contentType: 'image/webp',
@@ -269,11 +269,11 @@ export async function register(formData: FormData) :
             })
 
           if (uploadError) {
-            deleteAccount(userData.user, company?.uuid)
+            deleteAccount(userData.user, isNewCompany ? companyUuid : null)
             return { error: uploadError.message }
           }
         } catch (error: any) {
-          deleteAccount(userData.user, company?.uuid)
+          deleteAccount(userData.user, isNewCompany ? companyUuid : null)
           return { error: error.message || 'Error processing image' }
         }
       }

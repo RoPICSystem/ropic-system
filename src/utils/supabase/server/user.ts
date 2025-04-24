@@ -11,48 +11,78 @@ export async function getUserProfile() {
     return { error: 'Not authenticated', data: null }
   }
 
-  // Fetch profile from profiles table
+  // First get only the current user's profile using auth.uid() equality
+  // This avoids the recursive policy issue
   const { data: profile, error } = await supabase
     .from('profiles')
     .select('*')
     .eq('uuid', user.id)
-    .single()
+    .maybeSingle()
 
   if (error) {
     console.error('Error fetching profile:', error)
     return { error: error.message, data: null }
   }
+  
+  if (!profile) {
+    return { error: 'Profile not found', data: null }
+  }
 
-  const profile_image = await getImageUrl(profile.profile_image)
+  // Get profile image URL if available
+  let profileImageData = null
+  if (profile.profile_image) {
+    try {
+      // Construct the full path according to storage policy structure
+      const fullPath = profile.profile_image 
+      
+      const { data } = supabase
+        .storage
+        .from('profile-images')
+        .getPublicUrl(fullPath)
+        
+      profileImageData = data?.publicUrl || null
+    } catch (err) {
+      console.error('Error getting image URL:', err)
+    }
+  }
 
-  return { data: { ...profile, email: user.email, profile_image }, error: null }
+  return { 
+    data: { 
+      ...profile, 
+      email: user.email, 
+      profile_image_url: profileImageData,
+      profile_image_path: profile.profile_image || null 
+    }, 
+    error: null 
+  }
 }
 
 // Generate download image URL
 export async function getImageUrl(path: string, isThumbnail: boolean = false) {
+  if (!path) return { data: null, error: 'No image path provided' }
+  
   const supabase = await createClient()
 
-  const { data } = supabase
-    .storage
-    .from('profile-images')
-    .getPublicUrl(path, {
-      ...(!isThumbnail ? {} : {
-        transform: {
-          width: 120,
-          height: 120,
-          quality: 80
-        }
+  try {
+    const { data } = supabase
+      .storage
+      .from('profile-images')
+      .getPublicUrl(path, {
+        ...(!isThumbnail ? {} : {
+          transform: {
+            width: 120,
+            height: 120,
+            quality: 80
+          }
+        })
       })
-    })
 
-  if (!data) {
-    console.error('Error fetching image URL:', data)
+    return { data: { url: data.publicUrl, baseUrl: path }, error: null }
+  } catch (err) {
+    console.error('Error fetching image URL:', err)
     return { error: 'Error fetching image URL', data: null }
   }
-
-  return { data: { url: data.publicUrl, baseUrl: path }, error: null }
 }
-
 
 export async function signOut() {
   const supabase = await createClient()
@@ -65,4 +95,39 @@ export async function signOut() {
   }
 
   return { data: 'Signed out successfully', error: null }
+}
+
+// New function to get user's company data separately, avoiding the recursion
+export async function getUserCompany() {
+  const supabase = await createClient()
+  
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return { error: 'Not authenticated', data: null }
+  }
+
+  // First get the user's profile to get company_uuid
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('company_uuid')
+    .eq('uuid', user.id)
+    .single()
+    
+  if (!profile?.company_uuid) {
+    return { error: 'No company found', data: null }
+  }
+    
+  // Then get the company details directly using UUID
+  const { data: company, error } = await supabase
+    .from('companies')
+    .select('*')
+    .eq('uuid', profile.company_uuid)
+    .single()
+    
+  if (error) {
+    console.error('Error fetching company:', error)
+    return { error: error.message, data: null }
+  }
+    
+  return { data: company, error: null }
 }

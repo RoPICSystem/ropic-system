@@ -1,53 +1,32 @@
 "use client";
 
-import { useState, useEffect } from 'react';
 import {
-  Link,
+  getUserProfile,
+  signOut
+} from '@/utils/supabase/server/user';
+import {
   Button,
-  ScrollShadow,
-  Image,
   Dropdown,
-  DropdownTrigger,
-  DropdownMenu,
   DropdownItem,
-  Skeleton,
-  User,
+  DropdownMenu,
+  DropdownTrigger,
+  Image,
+  Link,
   Modal,
   ModalBody,
   ModalContent,
   ModalFooter,
   ModalHeader,
+  ScrollShadow,
+  Skeleton,
   useDisclosure,
+  User,
 } from '@heroui/react';
+import { Icon } from "@iconify-icon/react";
+import { AnimatePresence, motion } from 'framer-motion';
 import { usePathname } from 'next/navigation';
-import {
-  getUserProfile,
-  getImageUrl,
-  signOut
-} from '@/utils/supabase/server/user'
-import {
-  XMarkIcon,
-  Bars3Icon,
-  HomeIcon,
-  UserGroupIcon,
-  ChevronUpIcon,
-  ArrowLeftEndOnRectangleIcon,
-  UserIcon,
-  TruckIcon,
-  ShoppingCartIcon,
-  BellAlertIcon,
-  ChartBarIcon,
-  CogIcon,
-} from '@heroicons/react/24/solid';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useEffect, useState } from 'react';
 
-let navigation = [
-  { name: 'Dashboard', href: '/home/dashboard', icon: HomeIcon },
-  { name: 'Notifications', href: '/home/notifications', icon: BellAlertIcon },
-  // { name: 'Users', href: '/users', icon: UserGroupIcon },
-  { name: 'Reports', href: '/home/reports', icon: ChartBarIcon },
-  { name: 'Settings', href: '/home/settings', icon: CogIcon },
-];
 
 export default function SideBar({ children }: { children: React.ReactNode }) {
   const [userData, setUserData] = useState<any>(null)
@@ -58,6 +37,7 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
   const [userProfile, setUserProfile] = useState<any>(null);
   const [imageIcon, setImageIcon] = useState<string | null>(null);
   const { isOpen: isSignOut, onOpen: onSignOut, onOpenChange: onSignOutChange } = useDisclosure();
+  const [navigation, setNavigation] = useState<{ name: string; href: string; icon: any }[]>([]);
   const pathname = usePathname();
 
   useEffect(() => {
@@ -66,37 +46,37 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
         setIsLoading(true)
         const { data, error } = await getUserProfile()
 
-        setUserData(data)
-
         if (error) {
           console.error('Error fetching user profile:', error)
           return
         }
 
+        setUserData(data)
+
         // if user is admin add Inventory to navigation next to dashboard
         if (data?.is_admin) {
-          navigation = [
-            { name: 'Dashboard', href: '/home/dashboard', icon: HomeIcon },
-            { name: 'Inventory', href: '/home/inventory', icon: ShoppingCartIcon },
-            { name: 'Deliveries', href: '/home/deliveries', icon: TruckIcon },
-            { name: 'Notifications', href: '/home/notifications', icon: BellAlertIcon },
-            // { name: 'Users', href: '/users', icon: UserGroupIcon },
-            { name: 'Reports', href: '/home/reports', icon: ChartBarIcon },
-            { name: 'Settings', href: '/home/settings', icon: CogIcon },
-          ]
+          setNavigation([
+            { name: 'Dashboard', href: '/home/dashboard', icon: "heroicons:home-solid" },
+            { name: 'Inventory', href: '/home/inventory', icon: "fluent:box-20-filled" },
+            { name: 'Delivery', href: '/home/delivery', icon: "heroicons:truck-20-solid" },
+            { name: 'Warehouses', href: '/home/warehouses', icon: 'material-symbols:warehouse-rounded' },
+            { name: 'Notifications', href: '/home/notifications', icon: "heroicons:bell-alert-20-solid" },
+            { name: 'Reports', href: '/home/reports', icon: "heroicons:chart-bar-20-solid" },
+            { name: 'Settings', href: '/home/settings', icon: "heroicons:cog-8-tooth-20-solid" },
+          ])
         } else {
-          navigation = [
-            { name: 'Dashboard', href: '/home/dashboard', icon: HomeIcon },
-            { name: 'Deliveries', href: '/home/deliveries', icon: TruckIcon },
-            { name: 'Notifications', href: '/home/notifications', icon: BellAlertIcon },
-            // { name: 'Users', href: '/users', icon: UserGroupIcon },
-            { name: 'Reports', href: '/home/reports', icon: ChartBarIcon },
-            { name: 'Settings', href: '/home/settings', icon: CogIcon },
-          ]
+          setNavigation([
+            { name: 'Dashboard', href: '/home/dashboard', icon: "heroicons:home-solid" },
+            { name: 'Delivery', href: '/home/delivery', icon: "heroicons:truck-20-solid" },
+            { name: 'Notifications', href: '/home/notifications', icon: "heroicons:bell-alert-20-solid" },
+            { name: 'Reports', href: '/home/reports', icon: "heroicons:chart-bar-20-solid" },
+            { name: 'Settings', href: '/home/settings', icon: "heroicons:cog-8-tooth-20-solid" },
+          ])
         }
 
-        if (!data?.profile_image.error) {
-          await setImageIcon((await getImageUrl(data.profile_image.data.baseUrl, true)).data?.url || '')
+        // Set image icon directly from the profile_image_url
+        if (data?.profile_image_url) {
+          setImageIcon(data.profile_image_url)
         }
       } catch (err) {
         console.error('Error fetching user profile:', err)
@@ -169,7 +149,7 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
                 className="md:hidden min-w-10 h-10 p-2 focus:outline-none text-default-600"
                 onPress={() => setIsOpen(false)}
               >
-                <XMarkIcon className="h-6 w-6" />
+                <Icon icon="heroicons:x-mark-solid" width={20} className="w-6 h-6" />
               </Button>
             </div>
 
@@ -177,29 +157,42 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
             <div className="flex-grow flex flex-col overflow-hidden">
               <ScrollShadow className="flex-1 overflow-y-auto py-4">
                 <nav className="px-4 space-y-1 flex flex-col">
-                  {navigation.map((item) => {
-                    const isActive = pathname === item.href;
-                    return (
-                      <Button
-                        as={Link}
-                        key={item.name}
-                        href={item.href}
-                        color={isActive ? 'primary' : 'default'}
-                        variant={isActive ? 'shadow' : 'light'}
-                        startContent={
-                          <item.icon
-                            className="h-5 w-8 mr-1"
-                            aria-hidden="true"
-                          />
-                        }
-                        className="flex items-center justify-start w-full p-2 text-sm my-1 font-medium"
-                        aria-current={isActive ? 'page' : undefined}
-                        onPress={() => isMobile && setIsOpen(false)} // Close on navigation only on mobile
-                      >
-                        {item.name}
-                      </Button>
-                    );
-                  })}
+                  {isLoading ? (
+                    // Skeleton loaders while loading
+                    <div className="space-y-2 mt-1 h-full relative">
+                      {Array(10).fill(0).map((_, index) => (
+                        <Skeleton key={index} className="h-10 rounded-xl w-full" />
+                      ))}
+                      <div className="absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-background to-transparent pointer-events-none" />
+                    </div>
+                  ) : (
+                    // Actual navigation items
+                    navigation.map((item) => {
+                      const isActive = pathname === item.href;
+                      return (
+                        <Button
+                          as={Link}
+                          key={item.name}
+                          href={item.href}
+                          color={isActive ? 'primary' : 'default'}
+                          variant={isActive ? 'shadow' : 'light'}
+                          startContent={
+                            <Icon
+                              icon={item.icon}
+                              width={20}
+                              className=" mx-2"
+                              aria-hidden="true"
+                            />
+                          }
+                          className="flex items-center justify-start w-full p-2 text-sm my-1 font-medium"
+                          aria-current={isActive ? 'page' : undefined}
+                          onPress={() => isMobile && setIsOpen(false)} // Close on navigation only on mobile
+                        >
+                          {item.name}
+                        </Button>
+                      );
+                    })
+                  )}
                 </nav>
               </ScrollShadow>
             </div>
@@ -214,7 +207,7 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
                     variant="light"
                     color='primary'
                     endContent={
-                      <ChevronUpIcon className="h-4 w-4" />
+                      <Icon icon="heroicons:chevron-up-solid" width={16} className="w-4 h-4" />
                     }
                     className='flex w-full h-14 p-2 items-center'>
                     {
@@ -236,11 +229,9 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
                           classNames={{
                             base: 'flex items-start gap-4 justify-start w-full',
                             name: 'text-sm font-semibold text-default-600',
-
                           }}
                           name={userData?.full_name || 'User'}
                         />
-
 
                     }
 
@@ -253,13 +244,13 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
                   }}>
                   <DropdownItem key="logout" as={Link} onPress={onSignOut}>
                     <div className="flex items-center gap-2">
-                      <ArrowLeftEndOnRectangleIcon className="w-4 h-4" />
+                      <Icon icon="heroicons:arrow-left-on-rectangle-solid" width={16} className="w-4 h-4" />
                       Sign out
                     </div>
                   </DropdownItem>
                   <DropdownItem key="profile" as={Link} href="/home/profile">
                     <div className="flex items-center gap-2">
-                      <UserIcon className="w-4 h-4" />
+                      <Icon icon="heroicons:user-solid" width={16} className="w-4 h-4" />
                       View Profile
                     </div>
                   </DropdownItem>
@@ -294,7 +285,7 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
             onPress={() => setIsOpen(!isOpen)}
             aria-expanded={isOpen}
           >
-            <Bars3Icon className="h-6 w-6" aria-hidden="true" />
+            <Icon icon="heroicons:bars-3-solid" width={20} className="w-6 h-6" />
           </Button>
         </div>
         {children}

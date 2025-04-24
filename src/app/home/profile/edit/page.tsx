@@ -5,6 +5,8 @@ import { useEffect, useState, useRef, Key } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { updateProfile } from './actions'
 import { getUserProfile } from '@/utils/supabase/server/user'
+import { getUserCompanyDetails } from '@/utils/supabase/server/companies'
+
 import {
   Card,
   CardHeader,
@@ -272,18 +274,29 @@ export default function ProfilePage() {
     async function fetchUserData() {
       try {
         setIsLoading(true)
-        const { data, error } = await getUserProfile()
+        const { data, error } = await getUserProfile();
+        const { data: companyData, error: companyError } = await getUserCompanyDetails(data?.uuid)
+
 
         if (error) {
           setError(error)
           return
         }
 
-        setUserData(data)
+        if (companyError) {
+          setError(`${companyError}`)
+          return
+        } else {
+          setUserData({
+            ...data,
+            company: companyData
+          })
+        }
+
         setOriginalUserData(JSON.parse(JSON.stringify(data))) // Create a deep copy for reset
 
         if (!data?.profile_image.error) {
-          await setImagePreview(data.profile_image.data.url)
+          await setImagePreview(data.profile_image_url)
         }
       } catch (err) {
         console.error('Error fetching user profile:', err)
@@ -370,8 +383,8 @@ export default function ProfilePage() {
   }, [selectedExistingCompany, existingCompanies]);
 
   const fetchExistingCompanies = async () => {
-    const companies = await getExistingCompanies();
-    setExistingCompanies(companies);
+    const { data, error } = await getExistingCompanies();
+    setExistingCompanies(data);
   }
 
   // Fetch address data based on selected region, province, city/municipality, and barangay

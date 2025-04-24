@@ -11,7 +11,7 @@ export default function Layout({ children }: LayoutProps) {
   return (
     <div className="flex h-screen max-w-screen-2xl mx-auto 2xl:p-5 transition-[padding] duration-300 ease-in-out">
       <div className='flex w-full 2xl:border-1 2xl:border-default-200 
-        2xl:rounded-lg 2xl:shadow-2xl 2xl:shadow-primary/50 overflow-hidden'>
+        2xl:rounded-lg 2xl:shadow-2xl 2xl:shadow-primary/50 overflow-hidden' suppressHydrationWarning>
         {/* Sidebar */}
         <SideBar>
           <main className="flex-1 bg-default-100 relative w-full h-full">
@@ -25,7 +25,7 @@ export default function Layout({ children }: LayoutProps) {
             ">
                 <NavigationBread />
               </header>
-              <div className="p-4 overflow-auto w-full h-full pt-[5.5rem] z-10">
+              <div className="p-4 overflow-auto w-full h-full pt-[5.5rem] z-10" suppressHydrationWarning>
                 {/* Main content */}
                 {children}
               </div>
