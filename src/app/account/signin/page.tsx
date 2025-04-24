@@ -1,40 +1,29 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { signin } from './actions'
-import { useTheme } from "next-themes";
 import { hslToRgb } from '@/utils/colors';
 import { AnimatePresence, motion } from 'framer-motion';
+import { useTheme } from "next-themes";
+import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { signin } from './actions';
 
-import {
-  Card,
-  Form,
-  Input,
-  Select,
-  SelectItem,
-  Link,
-  Checkbox,
-  Button,
-  Image,
-  Alert,
-  CardBody,
-  DatePicker,
-  Tab,
-  Tabs,
-  Accordion,
-  AccordionItem,
-  NumberInput,
-  Divider
-} from "@heroui/react";
-import {
-  EyeSlashIcon,
-  EyeIcon,
-  XMarkIcon,
-  UserIcon,
-} from '@heroicons/react/24/solid';
-import CardList from '@/components/card-list';
 import { motionTransition } from '@/utils/anim';
+import {
+  EyeIcon,
+  EyeSlashIcon,
+  XMarkIcon
+} from '@heroicons/react/24/solid';
+import {
+  Alert,
+  Button,
+  Card,
+  CardBody,
+  Checkbox,
+  Form,
+  Image,
+  Input,
+  Link
+} from "@heroui/react";
 
 
 export default function SigninPage() {

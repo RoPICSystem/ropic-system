@@ -142,7 +142,7 @@ export async function getDeliveryItems(companyUuid?: string, search: string = ""
       .from("delivery_items")
       .select(`
         *,
-        inventory_item:inventory_item_uuid (
+        inventory_item:inventory_item_uuid!inner(
           uuid,
           item_code,
           item_name,
@@ -163,7 +163,7 @@ export async function getDeliveryItems(companyUuid?: string, search: string = ""
     // Apply search filter if provided
     if (search) {
       query = query.or(
-        `recipient_name.ilike.%${search}%,recipient_contact.ilike.%${search}%,delivery_address.ilike.%${search}%,status.ilike.%${search}%`
+        `item_name.ilike.%${search}%,description.ilike.%${search}%,item_code.ilike.%${search}%,location_code.ilike.%${search}%`, { referencedTable: "inventory_item" }
       );
     }
 

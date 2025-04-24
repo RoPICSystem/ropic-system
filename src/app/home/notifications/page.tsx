@@ -18,9 +18,10 @@ import {
 } from "@heroui/react";
 import { Icon } from "@iconify-icon/react";
 import { formatDistanceToNow } from "date-fns";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, useState } from "react";
 import { getNotifications, markAllNotificationsAsRead, markNotificationAsRead } from "./actions";
+import { motionTransition } from '@/utils/anim';
 
 // Define notification types based on our database schema
 interface Notification {
@@ -213,7 +214,13 @@ export default function NotificationsPage() {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(notif =>
         notif.entity_name.toLowerCase().includes(query) ||
-        notif.user_name.toLowerCase().includes(query)
+        notif.user_name.toLowerCase().includes(query) ||
+        notif.type.toLowerCase().includes(query) ||
+        notif.action.toLowerCase().includes(query) ||
+        notif.details?.status?.toLowerCase().includes(query) ||
+        notif.details?.location_code?.toLowerCase().includes(query) ||
+        notif.details?.recipient_name?.toLowerCase().includes(query) ||
+        notif.details?.item_code?.toLowerCase().includes(query)
       );
     }
 
@@ -413,7 +420,7 @@ export default function NotificationsPage() {
       <CardList className="bg-background flex flex-col">
         <div>
           {/* Fixed header */}
-          <div className="sticky top-0 z-20 w-full bg-background/80 border-b border-default-200 backdrop-blur-lg shadow-sm rounded-t-2xl p-4">
+          <div className="sticky -top-4 z-20 w-full bg-background/80 border-b border-default-200 backdrop-blur-lg shadow-sm rounded-t-2xl p-4">
             <div className="flex flex-col xl:flex-row justify-between gap-4">
               <Input
                 placeholder="Search notifications..."
@@ -448,140 +455,150 @@ export default function NotificationsPage() {
 
           {/* Scrollable content */}
           <div className="flex-1 overflow-y-auto">
-            <div className="p-4">
+            <div className="p-4 overflow-hidden">
 
-              {loading ? (
-                <div className="space-y-4 h-full relative">
-                  {[...Array(10)].map((_, i) => (
-                    <Skeleton key={i} className="w-full min-h-28 rounded-xl" />
-                  ))}
-                  <div className="absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-background to-transparent pointer-events-none" />
-                  <div className="py-4 flex absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
-                    <Spinner />
-                  </div>
-                </div>
-              ) :
+              <AnimatePresence>
+                {loading && (
+                  <motion.div
+                    {...motionTransition}>
+                    <div className="space-y-4 h-full relative">
+                      {[...Array(10)].map((_, i) => (
+                        <Skeleton key={i} className="w-full min-h-28 rounded-xl" />
+                      ))}
+                      <div className="absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-background to-transparent pointer-events-none" />
+                      <div className="py-4 flex absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
+                        <Spinner />
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              <AnimatePresence>
+                {!loading && filteredNotifications.length === 0 && (
+                  <motion.div
+                    {...motionTransition}
+                  >
+                    <div className="flex flex-col items-center justify-center h-[300px] p-32">
+                      <Icon icon="mdi:bell-off" className="text-5xl text-default-300" />
+                      <p className="mt-4 text-default-500">No notifications found</p>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
-              filteredNotifications.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16">
-                  <Icon icon="mdi:bell-off" className="text-5xl text-default-300" />
-                  <p className="mt-4 text-default-500">No notifications found</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {filteredNotifications.map((notification) => (
-                    <motion.div
-                      key={notification.id}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.3 }}
-                    >
-                      <Card
-                        className={`${notification.read ? 'bg-default-50' : 'bg-default-100'} overflow-hidden ${notification.is_admin_only ? 'border border-warning' : ''}`}
-                      >
-                        <CardBody>
-                          <div className="flex items-start gap-4">
-                            <div className={`p-3 rounded-full h-12 w-12 bg-${getNotificationColor(notification.type, notification.is_admin_only)}-100 text-${getNotificationColor(notification.type, notification.is_admin_only)}-500`}>
-                              <Icon
-                                icon={getNotificationIcon(notification.type, notification.action)}
-                                width={24}
-                                height={24}
-                              />
-                            </div>
+              <AnimatePresence>
+                {!loading && filteredNotifications.length > 0 && (
+                  <motion.div
+                    {...motionTransition}>
+                    <div className="space-y-4">
+                      {filteredNotifications.map((notification) => (
 
-                            <div className="flex-1">
-                              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center">
-                                <div className="font-medium text-lg flex items-center gap-2">
-                                  {notification.type.charAt(0).toUpperCase() + notification.type.slice(1)} {notification.action}
-
-                                  {notification.is_admin_only && (
-                                    <Badge color="warning" variant="flat">Admin Only</Badge>
-                                  )}
-                                </div>
-
-                                <div className="flex items-center gap-2 text-sm text-default-500">
-                                  <span>{formatDistanceToNow(new Date(notification.created_at), { addSuffix: true })}</span>
-
-                                  {!notification.read && (
-                                    <Chip
-                                      color="primary"
-                                      size="sm"
-                                      variant="flat"
-                                    >
-                                      New
-                                    </Chip>
-                                  )}
-                                </div>
+                        <Card
+                          className={`${notification.read ? 'bg-default-50' : 'bg-default-100'} overflow-hidden ${notification.is_admin_only ? 'border border-warning' : ''}`}
+                        >
+                          <CardBody>
+                            <div className="flex items-start gap-4">
+                              <div className={`p-3 rounded-full h-12 w-12 bg-${getNotificationColor(notification.type, notification.is_admin_only)}-100 text-${getNotificationColor(notification.type, notification.is_admin_only)}-500`}>
+                                <Icon
+                                  icon={getNotificationIcon(notification.type, notification.action)}
+                                  width={24}
+                                  height={24}
+                                />
                               </div>
 
-                              <p className="mt-1">
-                                {getNotificationDetails(notification)}
-                              </p>
+                              <div className="flex-1">
+                                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center">
+                                  <div className="font-medium text-lg flex items-center gap-2">
+                                    {notification.type.charAt(0).toUpperCase() + notification.type.slice(1)} {notification.action}
 
-                              <div className="flex justify-end mt-2">
-                                {!notification.read && (
+                                    {notification.is_admin_only && (
+                                      <Badge color="warning" variant="flat">Admin Only</Badge>
+                                    )}
+                                  </div>
+
+                                  <div className="flex items-center gap-2 text-sm text-default-500">
+                                    <span>{formatDistanceToNow(new Date(notification.created_at), { addSuffix: true })}</span>
+
+                                    {!notification.read && (
+                                      <Chip
+                                        color="primary"
+                                        size="sm"
+                                        variant="flat"
+                                      >
+                                        New
+                                      </Chip>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <p className="mt-1">
+                                  {getNotificationDetails(notification)}
+                                </p>
+
+                                <div className="flex justify-end mt-2">
+                                  {!notification.read && (
+                                    <Button
+                                      size="sm"
+                                      variant="light"
+                                      color="primary"
+                                      onPress={() => handleMarkAsRead(notification.id)}
+                                    >
+                                      Mark as read
+                                    </Button>
+                                  )}
+
                                   <Button
                                     size="sm"
                                     variant="light"
-                                    color="primary"
-                                    onPress={() => handleMarkAsRead(notification.id)}
+                                    onPress={() => {
+                                      // Navigate to the relevant page based on notification type
+                                      const entityId = notification.entity_id;
+                                      switch (notification.type) {
+                                        case 'inventory':
+                                          window.location.href = `/home/inventory?itemId=${entityId}`;
+                                          break;
+                                        case 'delivery':
+                                          window.location.href = `/home/delivery?deliveryId=${entityId}`;
+                                          break;
+                                        case 'warehouse':
+                                          window.location.href = `/home/warehouses?warehouseId=${entityId}`;
+                                          break;
+                                        case 'profile':
+                                          window.location.href = `/home/users?userId=${entityId}`;
+                                          break;
+                                        case 'company':
+                                          window.location.href = `/home/companies?companyId=${entityId}`;
+                                          break;
+                                      }
+                                    }}
                                   >
-                                    Mark as read
+                                    View details
                                   </Button>
-                                )}
-
-                                <Button
-                                  size="sm"
-                                  variant="light"
-                                  onPress={() => {
-                                    // Navigate to the relevant page based on notification type
-                                    const entityId = notification.entity_id;
-                                    switch (notification.type) {
-                                      case 'inventory':
-                                        window.location.href = `/home/inventory?itemId=${entityId}`;
-                                        break;
-                                      case 'delivery':
-                                        window.location.href = `/home/delivery?deliveryId=${entityId}`;
-                                        break;
-                                      case 'warehouse':
-                                        window.location.href = `/home/warehouses?warehouseId=${entityId}`;
-                                        break;
-                                      case 'profile':
-                                        window.location.href = `/home/users?userId=${entityId}`;
-                                        break;
-                                      case 'company':
-                                        window.location.href = `/home/companies?companyId=${entityId}`;
-                                        break;
-                                    }
-                                  }}
-                                >
-                                  View details
-                                </Button>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        </CardBody>
-                      </Card>
-                    </motion.div>
-                  ))}
+                          </CardBody>
+                        </Card>
+                      ))}
 
-                  {totalPages > 1 && (
-                    <div className="flex justify-center mt-6">
-                      <Pagination
-                        total={totalPages}
-                        initialPage={1}
-                        page={page}
-                        onChange={setPage}
-                        classNames={{
-                          cursor: "bg-primary",
-                        }}
-                      />
+                      {totalPages > 1 && (
+                        <div className="flex justify-center mt-6">
+                          <Pagination
+                            total={totalPages}
+                            initialPage={1}
+                            page={page}
+                            onChange={setPage}
+                            classNames={{
+                              cursor: "bg-primary",
+                            }}
+                          />
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
-               
             </div>
           </div>
         </div>

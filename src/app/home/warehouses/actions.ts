@@ -241,7 +241,7 @@ export async function getWarehousesPage(options: {
 
     // Add search if provided
     if (search) {
-      query = query.or(`name.ilike.%${search}%,address->fullAddress.ilike.%${search}%`);
+      query = query.or(`name.ilike.%${search}%`);
     }
 
     // Execute the query
