@@ -57,9 +57,6 @@ export default function Dashboard() {
           <p className="text-default-500">Welcome back! Here's an overview of your system.</p>
         </div>
         <div className="flex gap-4">
-          <Button color="secondary" variant="flat">
-            Export Data
-          </Button>
           <Button color="primary">
             Create New Project
           </Button>

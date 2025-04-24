@@ -816,6 +816,7 @@ export default function InventoryPage() {
       return;
     }
 
+
     setIsLoading(true);
 
     try {
@@ -827,6 +828,7 @@ export default function InventoryPage() {
         result = await updateInventoryItem(selectedItemId, formData as any);
       } else {
         // Create new item
+        delete formData.uuid; // Remove uuid for new item creation
         result = await createInventoryItem(formData as any);
       }
 

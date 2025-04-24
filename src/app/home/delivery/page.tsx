@@ -257,8 +257,11 @@ export default function DeliveryPage() {
 
     try {
       // Update form data with the new status
-      const updatedFormData = { ...formData, status };
+      const {inventory_item, filteredFormData} = formData as any; 
+      const updatedFormData = { ...filteredFormData, status };
       setFormData(updatedFormData);
+
+      console.log("Updating status to:", updatedFormData);
 
       // Update the delivery item with the new status
       const result = await updateDeliveryItem(selectedDeliveryId, updatedFormData as any);

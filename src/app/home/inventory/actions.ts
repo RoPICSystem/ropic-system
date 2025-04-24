@@ -60,6 +60,7 @@ export async function createInventoryItem(formData: InventoryItemData) {
   const supabase = await createClient();
 
   try {
+    // remove uuid from formData if it exists
     const { data, error } = await supabase
       .from("inventory_items")
       .insert(formData)

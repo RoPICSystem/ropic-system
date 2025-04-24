@@ -4,16 +4,20 @@ import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
 
 interface DeliveryItemData {
-  admin_uuid: string;
-  company_uuid: string;
-  inventory_item_uuid: string;
-  recipient_name: string;
-  recipient_contact: string;
+  uuid: string;
+  admin_uuid: string | null;
+  company_uuid: string | null;
+  inventory_item_uuid: string | null;
+  warehouse_uuid: string | null; // New field for warehouse
   delivery_address: string;
-  quantity: number;
   delivery_date: string;
-  notes: string | null;
+  notes: string;
   status: string;
+  operator_uuid?: string; // New field for operator assignment
+  recipient_name?: string;
+  recipient_contact?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 /**

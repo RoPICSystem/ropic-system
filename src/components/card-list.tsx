@@ -6,11 +6,11 @@ import {
 } from "@heroui/react";
 import React from "react";
 
-export default function CardList({ children, className = 'bg-background p-4', innerClass = "space-y-[0.1rem] p-0" }: { children: React.ReactNode; className?: string, innerClass?: string }) {
+export default function CardList({ children, className = 'bg-background p-4', innerClass = "space-y-[0.1rem] p-0", style }: { children: React.ReactNode; className?: string, innerClass?: string, style?: React.CSSProperties }) {
   const childrenArray = React.Children.toArray(children);
 
   return (
-    <div className={innerClass}>
+    <div className={innerClass} style={style}>
       {childrenArray.map((child, index) => {
         const classNameProps = React.isValidElement<{ className?: string }>(child)
           ? child.props.className ?? ''
