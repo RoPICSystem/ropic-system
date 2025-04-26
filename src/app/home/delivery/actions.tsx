@@ -26,25 +26,33 @@ interface DeliveryItemData {
 export async function checkAdminStatus() {
   const supabase = await createClient();
 
-  // Get current user
-  const { data: { user } } = await supabase.auth.getUser();
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
 
-  if (!user) {
-    redirect("/login");
+    if (!user) {
+      redirect("/auth/signin");
+    }
+
+    // Get the profile data
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("uuid", user.id)
+      .single();
+
+    if (profileError || !profile) {
+      redirect("/auth/signin");
+    }
+
+    return {
+      ...profile,
+      // Make sure is_admin is available in the profile data
+      is_admin: profile.is_admin ?? true
+    };
+  } catch (error) {
+    console.error("Error checking admin status:", error);
+    redirect("/auth/signin");
   }
-
-  // Check if user is admin
-  const { data: adminData, error } = await supabase
-    .from("profiles")
-    .select("uuid, company_uuid")
-    .eq("is_admin", true)
-    .single();
-
-  if (error || !adminData) {
-    console.error("Not an admin or error:", error);
-    redirect("/home/dashboard");
-  }
-  return adminData;
 }
 
 /**
@@ -300,3 +308,4 @@ export async function getWarehouses(companyUuid: string) {
     return { success: false, error: 'Failed to fetch warehouses' };
   }
 }
+

@@ -1,50 +1,55 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { format } from "date-fns";
 import { motionTransition } from '@/utils/anim';
-import { motion, AnimatePresence } from "framer-motion";
+import { format } from "date-fns";
+import { AnimatePresence, motion } from "framer-motion";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 import { getDashboardData } from "./actions";
+import { useTheme } from "next-themes";
 
 import {
+  Badge,
   Button,
   Card,
   CardBody,
   CardHeader,
-  CardFooter,
-  Badge,
-  Progress,
-  Skeleton,
-  Spinner,
-  Tab,
-  Tabs,
   Chip,
-  Divider
+  Divider,
+  Progress,
+  Skeleton
 } from "@heroui/react";
 
 import { Icon } from "@iconify-icon/react";
 
 // Charts
 import {
-  BarChart,
   Bar,
-  PieChart,
-  Pie,
+  BarChart,
+  CartesianGrid,
   Cell,
-  LineChart,
-  Line,
+  LabelList,
+  Legend,
+  Pie,
+  PieChart,
   ResponsiveContainer,
-  XAxis,
-  YAxis,
   Tooltip,
-  Legend
+  XAxis,
+  YAxis
 } from "recharts";
 
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dashboardData, setDashboardData] = useState<any>(null);
+  const { theme } = useTheme()
+
+  const isDark = () => {
+    if (theme === "system") {
+      return window.matchMedia("(prefers-color-scheme: dark)").matches;
+    }
+    return theme === "dark";
+  }
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -106,7 +111,7 @@ export default function DashboardPage() {
           </div>
           <Button
             color="primary"
-            variant="light"
+            variant="shadow"
             startContent={<Icon icon="fluent:arrow-sync-16-filled" />}
             onPress={() => window.location.reload()}
           >
@@ -125,254 +130,118 @@ export default function DashboardPage() {
         </Card>
       )}
 
-      <AnimatePresence>
-        {loading ? (
-          <motion.div {...motionTransition}>
-            {/* Loading skeleton for key metrics cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-              {[...Array(4)].map((_, i) => (
-                <Card key={`metric-${i}`} className={`shadow-xl bg-${['secondary', 'success', 'warning', 'danger'][i]}-50`}>
-                  <CardBody className="p-4">
-                    <div className="flex justify-between items-center mb-3 gap-4">
-                      <Skeleton className="h-5 w-24" />
-                      <Skeleton className="h-12 w-12 rounded-full" />
-                    </div>
-                    <Skeleton className="h-8 w-24 mb-4" />
-                    {i === 0 && (
-                      <div className="grid grid-cols-2 gap-2 mb-4">
-                        {[...Array(4)].map((_, j) => (
-                          <Skeleton key={`metric-detail-${j}`} className="h-4 w-full" />
-                        ))}
-                      </div>
-                    )}
-                    {i === 1 && (
-                      <div className="mb-4">
-                        <div className="flex justify-between mb-2">
-                          <Skeleton className="h-4 w-20" />
-                          <Skeleton className="h-4 w-20" />
-                        </div>
-                        <Skeleton className="h-3 w-full rounded-full" />
-                      </div>
-                    )}
-                    {i === 2 && (
-                      <div className="grid grid-cols-3 gap-2 mb-4">
-                        {[...Array(3)].map((_, j) => (
-                          <div key={`perf-${j}`} className="text-center py-2 bg-warning-100 rounded-md">
-                            <Skeleton className="h-5 w-12 mx-auto mb-1" />
-                            <Skeleton className="h-3 w-8 mx-auto" />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {i === 3 && (
-                      <>
-                        <Skeleton className="h-5 w-32 mb-4" />
-                        <Skeleton className="h-4 w-full" />
-                      </>
-                    )}
-                    <Skeleton className={`h-9 w-${i === 0 || i === 1 ? 'full' : '32'} mt-2`} />
-                  </CardBody>
-                </Card>
-              ))}
-            </div>
-
-            {/* Skeleton for charts section */}
-            <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 mt-6">
-              {/* Delivery Status Chart Skeleton */}
-              <Card className="lg:col-span-3">
-                <CardHeader className="px-4 py-3 flex justify-between items-center">
-                  <div>
-                    <Skeleton className="h-6 w-48 mb-2" />
-                    <Skeleton className="h-4 w-40" />
-                  </div>
-                  <Skeleton className="h-6 w-24" />
-                </CardHeader>
-                <Divider />
-                <div className="p-4">
-                  <Skeleton className="h-72 w-full rounded-lg" />
+      <div>
+        {/* Key metrics */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+          {/* Delivery counts card */}
+          <Card className='bg-secondary-50 shadow-secondary-500/30 shadow-xl border-secondary-100 border'>
+            <CardBody className="p-4">
+              <div className="flex justify-between items-center mb-3 gap-4">
+                <div className="text-lg font-medium text-secondary-800">
+                  Deliveries
                 </div>
-              </Card>
-
-              {/* Notifications Skeleton */}
-              <Card className="lg:col-span-2">
-                <CardHeader className="px-4 py-3 flex justify-between items-center">
-                  <Skeleton className="h-6 w-40" />
-                  <Skeleton className="h-8 w-20 rounded-lg" />
-                </CardHeader>
-                <Divider />
-                <div className="p-4">
-                  <div className="space-y-3">
-                    {[...Array(4)].map((_, i) => (
-                      <Card key={`notification-${i}`} className="bg-default-50 border-none shadow-sm">
-                        <CardBody className="p-3">
-                          <div className="flex items-start gap-3">
-                            <Skeleton className="h-10 w-10 rounded-full flex-shrink-0" />
-                            <div className="w-full">
-                              <div className="flex items-center gap-2 mb-1">
-                                <Skeleton className="h-5 w-4/5" />
-                                {i === 0 && <Skeleton className="h-5 w-12 rounded-full" />}
-                              </div>
-                              <Skeleton className="h-3.5 w-3/5" />
-                            </div>
-                          </div>
-                        </CardBody>
-                      </Card>
-                    ))}
-                  </div>
-                </div>
-              </Card>
-            </div>
-
-            {/* Delivery Performance Skeleton */}
-            <Card className="mt-4">
-              <CardHeader className="px-4 py-3 flex justify-between items-center">
-                <div>
-                  <Skeleton className="h-6 w-56 mb-2" />
-                  <Skeleton className="h-4 w-40" />
-                </div>
-                <Skeleton className="h-6 w-24 rounded-lg" />
-              </CardHeader>
-              <Divider />
-              <div className="p-4">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <Skeleton className="h-72 w-full rounded-lg" />
-                  <div>
-                    {[...Array(3)].map((_, i) => (
-                      <div key={`perf-bar-${i}`} className="mb-6">
-                        <div className="flex justify-between items-center mb-2">
-                          <Skeleton className="h-5 w-36" />
-                          <Skeleton className="h-5 w-24" />
-                        </div>
-                        <Skeleton className="h-8 w-full rounded-full" />
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                <Icon icon="fluent-emoji:delivery-truck"
+                  className="absolute right-4 top-0 text-secondary-500 blur-3xl"
+                  width={110} height={110} />
+                <Icon icon="fluent-emoji:delivery-truck"
+                  className="absolute right-4 top-0 text-secondary-500"
+                  width={110} height={110} />
               </div>
-            </Card>
 
-            {/* Revenue Comparison Skeleton */}
-            <Card className="mt-4">
-              <CardHeader className="px-4 py-3">
-                <div>
-                  <Skeleton className="h-6 w-48 mb-2" />
-                  <Skeleton className="h-4 w-40" />
+              {loading ? (
+                <Skeleton className="h-8 w-24 mb-3 rounded-lg" />
+              ) : (
+                <div className="text-4xl font-bold mb-3 text-secondary-900">
+                  {dashboardData?.deliveryCounts?.total || 0}
                 </div>
-              </CardHeader>
-              <Divider />
-              <div className="p-4">
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  <div className="lg:col-span-2">
-                    <Skeleton className="h-60 w-full rounded-lg" />
-                  </div>
-                  <div className="flex flex-col justify-center gap-4">
-                    <Card className="bg-default-50">
-                      <CardBody>
-                        <Skeleton className="h-4 w-28 mb-2" />
-                        <Skeleton className="h-7 w-36" />
-                      </CardBody>
-                    </Card>
-                    <Card className="bg-default-50">
-                      <CardBody>
-                        <Skeleton className="h-4 w-28 mb-2" />
-                        <Skeleton className="h-7 w-36" />
-                      </CardBody>
-                    </Card>
-                  </div>
-                </div>
-              </div>
-            </Card>
+              )}
 
-            {/* Quick Actions Skeleton */}
-            <Card className="mt-6">
-              <CardHeader className="px-4 py-3">
-                <Skeleton className="h-6 w-32" />
-              </CardHeader>
-              <Divider />
-              <div className="p-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:sm:grid-cols-4 gap-4">
-                  {[...Array(4)].map((_, i) => (
-                    <Skeleton key={`action-${i}`} className="h-16 rounded-lg" />
-                  ))}
-                </div>
-              </div>
-            </Card>
-          </motion.div>
-        ) : (
-          <motion.div {...motionTransition}>
-            {/* Key metrics */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-              {/* Delivery counts card */}
-              <Card className="bg-secondary-50 shadow-secondary-50/50 shadow-xl">
-                <CardBody className="p-4">
-                  <div className="flex justify-between items-center mb-3 gap-4">
-                    <div className="text-sm font-medium text-secondary-800">
-                      Deliveries
-                    </div>
-                    <Icon icon="fluent-emoji:delivery-truck"
-                      width={48} height={48} />
-                  </div>
-
-                  <div className="text-3xl font-bold mb-3">
-                    {dashboardData?.deliveryCounts?.total || 0}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 text-xs mb-4">
+              <div className="grid grid-cols-2 gap-2 text-xs mb-4">
+                {loading ? (
+                  <>
+                    <Skeleton className="h-5 w-24 rounded-md" />
+                    <Skeleton className="h-5 w-24 rounded-md" />
+                    <Skeleton className="h-5 w-24 rounded-md" />
+                    <Skeleton className="h-5 w-24 rounded-md" />
+                  </>
+                ) : (
+                  <>
                     <div className="flex items-center">
                       <span className="w-2.5 h-2.5 rounded-full bg-amber-500 mr-1.5"></span>
-                      <span className="text-secondary-500">
+                      <span className="text-secondary-600">
                         {dashboardData?.deliveryCounts?.PENDING || 0} pending
                       </span>
                     </div>
                     <div className="flex items-center">
                       <span className="w-2.5 h-2.5 rounded-full bg-blue-500 mr-1.5"></span>
-                      <span className="text-secondary-500">
+                      <span className="text-secondary-600">
                         {dashboardData?.deliveryCounts?.PROCESSING || 0} processing
                       </span>
                     </div>
                     <div className="flex items-center">
                       <span className="w-2.5 h-2.5 rounded-full bg-purple-500 mr-1.5"></span>
-                      <span className="text-secondary-500">
+                      <span className="text-secondary-600">
                         {dashboardData?.deliveryCounts?.IN_TRANSIT || 0} in transit
                       </span>
                     </div>
                     <div className="flex items-center">
                       <span className="w-2.5 h-2.5 rounded-full bg-green-500 mr-1.5"></span>
-                      <span className="text-secondary-500">
+                      <span className="text-secondary-600">
                         {(dashboardData?.deliveryCounts?.DELIVERED || 0) +
                           (dashboardData?.deliveryCounts?.CONFIRMED || 0)} delivered
                       </span>
                     </div>
-                  </div>
+                  </>
+                )}
+              </div>
 
-                  <Button
-                    as={Link}
-                    variant="shadow"
-                    color="secondary"
-                    href="/home/delivery"
-                  >
-                    View all deliveries <Icon icon="fluent:arrow-right-16-filled" className="ml-1.5 h-3.5 w-3.5" />
-                  </Button>
-                </CardBody>
-              </Card>
+              {loading ? (
+                <Skeleton className="h-10 w-full rounded-xl" />
+              ) : (
+                <Button
+                  as={Link}
+                  variant="shadow"
+                  color="secondary"
+                  href="/home/delivery"
+                >
+                  View all deliveries <Icon icon="fluent:arrow-right-16-filled" className="ml-1.5 h-3.5 w-3.5" />
+                </Button>
+              )}
+            </CardBody>
+          </Card>
 
-              {/* Inventory stats card */}
-              <Card className="bg-success-50 shadow-success-50/50 shadow-xl">
-                <CardBody className="p-4">
-                  <div className="flex justify-between items-center mb-3 gap-4">
-                    <div className="text-sm font-medium text-success-800">
-                      Inventory
-                    </div>
-                    <Icon icon="fluent-emoji:package"
-                      width={48} height={48} />
-                  </div>
+          {/* Inventory stats card */}
+          <Card className="bg-success-50 shadow-success-500/30 shadow-xl border-success-100 border">
+            <CardBody className="p-4">
+              <div className="flex justify-between items-end mb-3 gap-4">
+                <div className="text-lg font-medium text-success-800">
+                  Inventory
+                </div>
+                <Icon icon="fluent-emoji:package"
+                  className="absolute right-2 top-4 text-secondary-500 blur-3xl"
+                  width={90} height={90} />
+                <Icon icon="fluent-emoji:package"
+                  className="absolute right-2 top-4 text-secondary-500"
+                  width={90} height={90} />
+              </div>
 
-                  <div className="text-3xl font-bold mb-3">
-                    {dashboardData?.inventoryStats?.total || 0}
-                  </div>
+              {loading ? (
+                <Skeleton className="h-8 w-24 mb-3 rounded-lg" />
+              ) : (
+                <div className="text-4xl font-bold mb-3 text-success-900">
+                  {dashboardData?.inventoryStats?.total || 0}
+                </div>
+              )}
 
-                  <div className="mb-4">
-                    <div className="flex justify-between text-xs text-success-500 mb-2">
+              <div className="mb-4">
+                {loading ? (
+                  <>
+                    <Skeleton className="h-5 w-full mb-2 rounded-md" />
+                    <Skeleton className="h-3 w-full rounded-md" />
+                  </>
+                ) : (
+                  <>
+                    <div className="flex justify-between text-xs text-success-600 mb-2">
                       <span>Available ({dashboardData?.inventoryStats?.available || 0})</span>
                       <span>Reserved ({dashboardData?.inventoryStats?.reserved || 0})</span>
                     </div>
@@ -384,34 +253,57 @@ export default function DashboardPage() {
                       size="md"
                       className="h-3"
                     />
-                  </div>
+                  </>
+                )}
+              </div>
 
-                  <Button
-                    as={Link}
-                    variant="shadow"
-                    color="success"
-                    href="/home/inventory"
-                  >
-                    Manage inventory <Icon icon="fluent:arrow-right-16-filled" className="ml-1.5 h-3.5 w-3.5" />
-                  </Button>
-                </CardBody>
-              </Card>
+              {loading ? (
+                <Skeleton className="h-10 w-full rounded-xl" />
+              ) : (
+                <Button
+                  as={Link}
+                  variant="shadow"
+                  color="success"
+                  href="/home/inventory"
+                >
+                  Manage inventory <Icon icon="fluent:arrow-right-16-filled" className="ml-1.5 h-3.5 w-3.5" />
+                </Button>
+              )}
+            </CardBody>
+          </Card>
 
-              {/* Delivery performance card */}
-              <Card className="bg-warning-50 shadow-warning-50/50 shadow-xl">
-                <CardBody className="p-4">
-                  <div className="flex justify-between items-center mb-3 gap-4">
-                    <div className="text-sm font-medium text-warning-800">
-                      Performance
-                    </div>
-                    <Icon icon="fluent-color:data-area-24" width={48} height={48} />
-                  </div>
+          {/* Delivery performance card */}
+          <Card className="bg-warning-50 shadow-warning-500/30 shadow-xl border-warning-100 border">
+            <CardBody className="p-4">
+              <div className="flex justify-between items-end mb-3 gap-4">
+                <div className="text-lg font-medium text-warning-800">
+                  Performance
+                </div>
+                <Icon icon="fluent-color:data-area-24"
+                  className="absolute right-2 top-2 text-secondary-500 blur-3xl"
+                  width={90} height={90} />
+                <Icon icon="fluent-color:data-area-24"
+                  className="absolute right-2 top-2 text-secondary-500"
+                  width={90} height={90} />
+              </div>
 
-                  <div className="text-3xl font-bold mb-3">
-                    {dashboardData?.deliveryPerformance?.monthly || 0}%
-                  </div>
+              {loading ? (
+                <Skeleton className="h-10 w-24 mb-3 rounded-lg" />
+              ) : (
+                <div className="text-4xl font-bold mb-3 text-warning-900">
+                  {dashboardData?.deliveryPerformance?.monthly || 0}%
+                </div>
+              )}
 
-                  <div className="grid grid-cols-3 gap-2 text-xs text-warning-500 mb-4">
+              <div className="grid grid-cols-3 gap-2 text-xs text-warning-600 mb-4">
+                {loading ? (
+                  <>
+                    <Skeleton className="h-[3.25rem] rounded-md" />
+                    <Skeleton className="h-[3.25rem] rounded-md" />
+                    <Skeleton className="h-[3.25rem] rounded-md" />
+                  </>
+                ) : (
+                  <>
                     <div className="text-center py-2 bg-warning-100 rounded-md">
                       <div className="font-medium text-sm">{dashboardData?.deliveryPerformance?.daily || 0}%</div>
                       <div>Today</div>
@@ -424,292 +316,83 @@ export default function DashboardPage() {
                       <div className="font-medium text-sm">{dashboardData?.deliveryPerformance?.monthly || 0}%</div>
                       <div>Month</div>
                     </div>
-                  </div>
-
-                  <div className="text-xs text-warning-500">
-                    Complete/total delivery rates
-                  </div>
-                </CardBody>
-              </Card>
-
-              {/* Monthly revenue card */}
-              <Card className="bg-danger-50 shadow-danger-50/50 shadow-xl">
-                <CardBody className="p-4">
-                  <div className="flex justify-between items-center mb-3 gap-4">
-                    <div className="text-sm font-medium text-danger-800">
-                      Monthly Revenue
-                    </div>
-                    <Icon icon="fluent-emoji:money-bag"
-                      width={48} height={48} />
-                  </div>
-
-                  <div className="text-3xl font-bold mb-3">
-                    ₱{parseFloat(dashboardData?.monthlyRevenue?.current_month || 0).toLocaleString()}
-                  </div>
-
-                  {dashboardData?.monthlyRevenue?.percent_change !== null ? (
-                    <div className={`flex items-center text-xs mb-4 ${parseFloat(dashboardData?.monthlyRevenue?.percent_change) >= 0
-                      ? 'text-success'
-                      : 'text-danger'
-                      }`}>
-                      {parseFloat(dashboardData?.monthlyRevenue?.percent_change) >= 0 ? (
-                        <Icon icon="fluent:arrow-trending-24-filled" className="h-4.5 w-4.5 mr-1.5" />
-                      ) : (
-                        <Icon icon="fluent:arrow-trending-down-24-filled" className="h-4.5 w-4.5 mr-1.5" />
-                      )}
-                      <span>{Math.abs(parseFloat(dashboardData?.monthlyRevenue?.percent_change) || 0)}% vs last month</span>
-                    </div>
-                  ) : (
-                    <div className="text-xs text-danger-500 mb-4">No previous data</div>
-                  )}
-
-                  <div className="text-xs text-danger-500">
-                    Value of delivered items
-                  </div>
-                </CardBody>
-              </Card>
-            </div>
-
-            {/* Tab section */}
-            <div className="mt-6">
-              <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 mt-6">
-                {/* Delivery Status Distribution Chart */}
-                <Card className="lg:col-span-3 bg-background">
-                  <CardHeader className="px-4 py-3 flex justify-between items-center">
-                    <div>
-                      <h2 className="text-lg font-semibold">Delivery Status Distribution</h2>
-                      <p className="text-xs text-default-500">Breakdown of current delivery statuses</p>
-                    </div>
-                    <Badge color="primary" variant="flat">
-                      {dashboardData?.deliveryCounts?.total || 0} Total
-                    </Badge>
-                  </CardHeader>
-                  <Divider />
-                  <div className="p-4">
-                    <div className="h-72">
-                      {deliveryStatusData.length > 0 && deliveryStatusData.some(d => d.value > 0) ? (
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={deliveryStatusData} margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
-                            <XAxis dataKey="name" angle={-45} textAnchor="end" height={50} />
-                            <YAxis />
-                            <Tooltip formatter={(value) => [`${value} items`, 'Count']} />
-                            <Legend />
-                            <Bar dataKey="value" name="Count">
-                              {deliveryStatusData.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={entry.color} />
-                              ))}
-                            </Bar>
-                          </BarChart>
-                        </ResponsiveContainer>
-                      ) : (
-                        <div className="h-full flex items-center justify-center text-default-500">
-                          <div className="text-center">
-                            <Icon icon="fluent:box-dismiss-24-filled" className="mx-auto text-5xl text-default-300" />
-                            <p className="mt-2">No delivery data available</p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </Card>
-
-                {/* Latest Notifications */}
-                <Card className="lg:col-span-2 bg-background">
-                  <CardHeader className="px-4 py-3 flex justify-between items-center">
-                    <h2 className="text-lg font-semibold">Latest Notifications</h2>
-                    <Button as={Link} variant="flat" href="/home/notifications">
-                      View all
-                    </Button>
-                  </CardHeader>
-                  <Divider />
-                  <div className="p-4">
-                    {dashboardData?.notifications?.length > 0 ? (
-                      <div className="space-y-3 overflow-y-auto max-h-[300px] pr-1">
-                        {dashboardData.notifications.map((notification: any) => (
-                          <Card
-                            key={notification.id}
-                            className={`${notification.read ? 'bg-default-50' : 'bg-default-100'} border-none shadow-sm`}
-                          >
-                            <CardBody className="p-3">
-                              <div className="flex items-start gap-3 ">
-                                <div className={`rounded-full p-2 flex-shrink-0 h-10 w-10 mt-1 ${getNotificationIconBg(notification.type)}`}>
-                                  <Icon icon={getNotificationIcon(notification.type, notification.action)} width={24} height={24} />
-                                </div>
-                                <div>
-                                  <div className="flex items-center gap-2">
-                                    <p className="font-medium text-sm">
-                                      {formatNotificationAction(notification.action)} {notification.entity_name}
-                                    </p>
-                                    {!notification.read && (
-                                      <Chip size="sm" color="primary" variant="flat">New</Chip>
-                                    )}
-                                  </div>
-                                  <div className="text-xs text-default-500 mt-1">
-                                    by {notification.user_name} • {formatNotificationTime(notification.created_at)}
-                                  </div>
-                                </div>
-                              </div>
-                            </CardBody>
-                          </Card>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="py-10 text-center text-default-500">
-                        <Icon icon="fluent:alert-24-regular" className="mx-auto text-4xl text-default-300" />
-                        <p className="mt-2">No recent notifications</p>
-                      </div>
-                    )}
-                  </div>
-                </Card>
+                  </>
+                )}
               </div>
 
-              {/* Delivery Performance Chart */}
-              <Card className="mt-4 bg-background">
-                <CardHeader className="px-4 py-3 flex justify-between items-center">
-                  <div>
-                    <h2 className="text-lg font-semibold">Delivery Performance Analysis</h2>
-                    <p className="text-xs text-default-500">Daily, weekly, and monthly completion rates</p>
-                  </div>
-                  <Badge color="secondary" variant="flat">
-                    Target: 95%
-                  </Badge>
-                </CardHeader>
-                <Divider />
-                <div className="p-4">
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div className="h-72">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={performanceData}
-                            cx="50%"
-                            cy="50%"
-                            innerRadius={60}
-                            outerRadius={90}
-                            paddingAngle={5}
-                            dataKey="value"
-                            label={({ name, value }) => `${name}: ${value}%`}
-                          >
-                            {performanceData.map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={entry.color} />
-                            ))}
-                          </Pie>
-                          <Tooltip formatter={(value) => `${value}%`} />
-                          <Legend />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
+              <div className="text-xs text-warning-600">
+                Complete/total delivery rates
+              </div>
+            </CardBody>
+          </Card>
 
-                    <div>
-                      <div className="mb-6">
-                        <div className="flex justify-between items-center mb-2">
-                          <p className="text-sm font-medium">Daily Performance</p>
-                          <Badge color={dashboardData?.deliveryPerformance?.daily >= 90 ? "success" : "warning"}>
-                            {dashboardData?.deliveryPerformance?.daily_completed || 0} / {dashboardData?.deliveryPerformance?.daily_total || 0}
-                          </Badge>
-                        </div>
-                        <Progress
-                          value={dashboardData?.deliveryPerformance?.daily || 0}
-                          color={dashboardData?.deliveryPerformance?.daily >= 90 ? "success" : "warning"}
-                          showValueLabel={true}
-                          size="lg"
-                        />
-                      </div>
-
-                      <div className="mb-6">
-                        <div className="flex justify-between items-center mb-2">
-                          <p className="text-sm font-medium">Weekly Performance</p>
-                          <Badge color={dashboardData?.deliveryPerformance?.weekly >= 90 ? "success" : "warning"}>
-                            {dashboardData?.deliveryPerformance?.weekly_completed || 0} / {dashboardData?.deliveryPerformance?.weekly_total || 0}
-                          </Badge>
-                        </div>
-                        <Progress
-                          value={dashboardData?.deliveryPerformance?.weekly || 0}
-                          color={dashboardData?.deliveryPerformance?.weekly >= 90 ? "success" : "warning"}
-                          showValueLabel={true}
-                          size="lg"
-                        />
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between items-center mb-2">
-                          <p className="text-sm font-medium">Monthly Performance</p>
-                          <Badge color={dashboardData?.deliveryPerformance?.monthly >= 90 ? "success" : "warning"}>
-                            {dashboardData?.deliveryPerformance?.monthly_completed || 0} / {dashboardData?.deliveryPerformance?.monthly_total || 0}
-                          </Badge>
-                        </div>
-                        <Progress
-                          value={dashboardData?.deliveryPerformance?.monthly || 0}
-                          color={dashboardData?.deliveryPerformance?.monthly >= 90 ? "success" : "warning"}
-                          showValueLabel={true}
-                          size="lg"
-                        />
-                      </div>
-                    </div>
-                  </div>
+          {/* Monthly revenue card */}
+          <Card className="bg-danger-50 shadow-danger-500/30 shadow-xl border-danger-100 border">
+            <CardBody className="p-4">
+              <div className="flex justify-between items-end mb-3 gap-4">
+                <div className="text-lg font-medium text-danger-800">
+                  Monthly Revenue
                 </div>
-              </Card>
+                <Icon icon="fluent-emoji:money-bag"
+                  className="absolute right-2 top-4 text-secondary-500 blur-3xl"
+                  width={90} height={90} />
+                <Icon icon="fluent-emoji:money-bag"
+                  className="absolute right-2 top-4 text-secondary-500"
+                  width={90} height={90} />
+              </div>
 
-              {/* Revenue Comparison Card */}
-              <Card className="mt-4 bg-background">
-                <CardHeader className="px-4 py-3">
-                  <div>
-                    <h2 className="text-lg font-semibold">Monthly Revenue Comparison</h2>
-                    <p className="text-xs text-default-500">Current vs. previous month revenue</p>
-                  </div>
-                </CardHeader>
-                <Divider />
-                <div className="p-4">
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div className="lg:col-span-2 h-60">
-                      {monthlyRevenueData.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={monthlyRevenueData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                            <XAxis dataKey="name" />
-                            <YAxis />
-                            <Tooltip formatter={(value) => [`₱${value}`, 'Revenue']} />
-                            <Legend />
-                            <Bar dataKey="value" name="Revenue" fill="#f59e0b" />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      ) : (
-                        <div className="h-full flex items-center justify-center text-default-500">
-                          <div className="text-center">
-                            <Icon icon="fluent:money-24-regular" className="mx-auto text-5xl text-default-300" />
-                            <p className="mt-2">No revenue data available</p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex flex-col justify-center">
-                      <Card className="bg-default-50 mb-4">
-                        <CardBody>
-                          <p className="text-sm text-default-500">Current Month</p>
-                          <p className="text-2xl font-bold">₱{parseFloat(dashboardData?.monthlyRevenue?.current_month || 0).toLocaleString()}</p>
-                        </CardBody>
-                      </Card>
-
-                      <Card className="bg-default-50">
-                        <CardBody>
-                          <p className="text-sm text-default-500">Previous Month</p>
-                          <p className="text-2xl font-bold">₱{parseFloat(dashboardData?.monthlyRevenue?.previous_month || 0).toLocaleString()}</p>
-                        </CardBody>
-                      </Card>
-                    </div>
-                  </div>
+              {loading ? (
+                <Skeleton className="h-8 w-36 mb-3 rounded-lg" />
+              ) : (
+                <div className="text-4xl font-bold mb-3 text-danger-900">
+                  ₱{parseFloat(dashboardData?.monthlyRevenue?.current_month || 0).toLocaleString()}
                 </div>
-              </Card>
-            </div>
+              )}
 
-            {/* Quick Actions Section */}
-            <Card className="mt-6 bg-background">
-              <CardHeader className="px-4 py-3">
-                <h2 className="text-lg font-semibold">Quick Actions</h2>
-              </CardHeader>
-              <Divider />
-              <div className="p-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:sm:grid-cols-4 gap-4">
+              {loading ? (
+                <Skeleton className="h-5 w-44 mb-4 rounded-md" />
+              ) : dashboardData?.monthlyRevenue?.percent_change !== null ? (
+                <div className={`flex items-center text-xs mb-4 ${parseFloat(dashboardData?.monthlyRevenue?.percent_change) >= 0
+                  ? 'text-success'
+                  : 'text-danger'
+                  }`}>
+                  {parseFloat(dashboardData?.monthlyRevenue?.percent_change) >= 0 ? (
+                    <Icon icon="fluent:arrow-trending-24-filled" className="h-4.5 w-4.5 mr-1.5" />
+                  ) : (
+                    <Icon icon="fluent:arrow-trending-down-24-filled" className="h-4.5 w-4.5 mr-1.5" />
+                  )}
+                  <span>{Math.abs(parseFloat(dashboardData?.monthlyRevenue?.percent_change) || 0)}% vs last month</span>
+                </div>
+              ) : (
+                <div className="text-xs text-danger-600 mb-4">No previous data</div>
+              )}
+
+              <div className="text-xs text-danger-600">
+                Value of delivered items
+              </div>
+            </CardBody>
+          </Card>
+        </div>
+
+
+        {/* Quick Actions Section */}
+        <Card className="mt-4 bg-background">
+          <CardHeader className="px-4 py-3">
+            <h2 className="text-lg font-semibold">Quick Actions</h2>
+          </CardHeader>
+          <Divider />
+          <div className="p-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:sm:grid-cols-4 gap-4">
+
+              {loading ? (
+                <>
+                  <Skeleton className="h-16 rounded-xl" />
+                  <Skeleton className="h-16 rounded-xl" />
+                  <Skeleton className="h-16 rounded-xl" />
+                  <Skeleton className="h-16 rounded-xl" />
+                </>
+              ) : (
+                <>
                   <Button
                     color="primary"
                     variant="flat"
@@ -765,12 +448,389 @@ export default function DashboardPage() {
                       <p className="text-xs opacity-70">Configure your account</p>
                     </div>
                   </Button>
+                </>
+              )}
+            </div>
+          </div>
+        </Card>
+
+        <div className="mt-4">
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 mt-6">
+            {/* Delivery Status Distribution Chart */}
+            <Card className="lg:col-span-3 bg-background">
+              <CardHeader className="px-4 py-3 flex justify-between items-center">
+                <div>
+                  <h2 className="text-lg font-semibold">Delivery Status Distribution</h2>
+                  <p className="text-xs text-default-500">Breakdown of current delivery statuses</p>
+                </div>
+                {loading ? (
+                  <Skeleton className="h-6 w-20 rounded-md" />
+                ) : (
+                  <Badge color="primary" variant="flat">
+                    {dashboardData?.deliveryCounts?.total || 0} Total
+                  </Badge>
+                )}
+              </CardHeader>
+              <Divider />
+              <div>
+                <div className="h-[325px]">
+                  {loading ? (
+                    <div className="h-full flex items-center justify-center">
+                      <div className="w-full px-6">
+                        <div className="flex justify-between mb-4">
+                          {[...Array(6)].map((_, i) => (
+                            <Skeleton key={i} className="h-5 w-16 rounded-md" />
+                          ))}
+                        </div>
+                        <div className="flex items-end justify-between h-[240px]">
+                          {[...Array(6)].map((_, i) => (
+                            <Skeleton key={i} className={`w-12 rounded-t-md`} style={{ height: `${Math.max(20, Math.random() * 200)}px` }} />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : deliveryStatusData.length > 0 && deliveryStatusData.some(d => d.value > 0) ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={deliveryStatusData}
+                        margin={{ left: 0, right: 0, top: 30 }}
+                        barSize={36}
+                      >
+                        {/* use theme primary.DEFAULT for gradient fill, default.DEFAULT for stroke */}
+                        <defs>
+                          <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#d7ac82" stopOpacity={0.9} />
+                            <stop offset="95%" stopColor="#d7ac82" stopOpacity={0.6} />
+                          </linearGradient>
+                        </defs>
+                        <XAxis
+                          dataKey="name"
+                          angle={-35}
+                          textAnchor="end"
+                          height={60}
+                          tick={{
+                            fill: 'hsl(var(--heroui-primary-500))',
+                            fontSize: 12, fontWeight: 500
+                          }}
+                          tickMargin={10}
+                          padding={{ left: 30, right: 30 }}
+                        />
+                        <Tooltip
+                          formatter={(value) => [`${value} items`, 'Count']}
+                          contentStyle={{
+                            borderRadius: 8,
+                            padding: '10px',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                            border: '1px solid #f0f0f0'
+                          }}
+                          cursor={{ fill: 'rgba(0,0,0,0.05)' }}
+                        />
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          vertical={false}
+                          stroke='hsl(var(--heroui-primary-100))'
+                        />
+                        <Bar
+                          dataKey="value"
+                          name="Count"
+                          radius={[4, 4, 0, 0]}
+                          fill="url(#barGradient)"
+                          stroke="#c7b098"
+                          strokeWidth={1}
+                        >
+                          {/* show value on top of each bar */}
+                          <LabelList
+                            dataKey="value"
+                            position="top"
+                            formatter={(val: number) => val.toString()}
+                            style={{
+                              fill: 'hsl(var(--heroui-primary-500))',
+                              fontSize: 12, fontWeight: 500
+                            }}
+                          />
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-default-500">
+                      <div className="text-center">
+                        <Icon icon="fluent:box-dismiss-24-filled" className="mx-auto text-5xl text-default-300" />
+                        <p className="mt-2">No delivery data available</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </Card>
-          </motion.div>
-        )}
-      </AnimatePresence>
+
+            {/* Latest Notifications */}
+            <Card className="lg:col-span-2 bg-background">
+              <CardHeader className="px-4 py-3 flex justify-between items-center">
+                <h2 className="text-lg font-semibold">Latest Notifications</h2>
+              </CardHeader>
+              <Divider />
+              <div className="p-4">
+                {loading ? (
+                  <div className="space-y-3 max-h-[330px]">
+                    {[...Array(4)].map((_, i) => (
+                      <Card key={i} className="border-none shadow-sm">
+                        <CardBody className="p-3">
+                          <div className="flex items-start gap-3">
+                            <Skeleton className="h-10 w-10 rounded-full flex-shrink-0" />
+                            <div className="w-full">
+                              <div className="flex items-center justify-between">
+                                <Skeleton className="h-5 w-1/2 rounded-md" />
+                                <Skeleton className="h-5 w-12 rounded-md" />
+                              </div>
+                              <Skeleton className="h-4 w-3/4 mt-1 rounded-md" />
+                            </div>
+                          </div>
+                        </CardBody>
+                      </Card>
+                    ))}
+                  </div>
+                ) : dashboardData?.notifications?.length > 0 ? (
+                  <div className="space-y-3 overflow-hidden max-h-[330px]">
+                    {dashboardData.notifications.map((notification: any) => (
+                      <Card
+                        key={notification.id}
+                        className={`${notification.read ? 'bg-default-50' : 'bg-default-100'} border-none shadow-sm`}
+                      >
+                        <CardBody className="p-3">
+                          <div className="flex items-start gap-3">
+                            <div className={`rounded-full p-2 flex-shrink-0 h-10 w-10 mt-1 ${getNotificationIconBg(notification.type)}`}>
+                              <Icon icon={getNotificationIcon(notification.type, notification.action)} width={24} height={24} />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2 justify-between">
+                                <p className="font-medium text-sm">
+                                  {formatNotificationAction(notification.action)} {notification.entity_name}
+                                </p>
+                                {!notification.read && (
+                                  <Chip size="sm" color="primary" variant="flat">New</Chip>
+                                )}
+                              </div>
+                              <div className="text-xs text-default-500 mt-1">
+                                by {notification.user_name} • {formatNotificationTime(notification.created_at)}
+                              </div>
+                            </div>
+                          </div>
+                        </CardBody>
+                      </Card>
+                    ))}
+
+                    <Button as={Link} variant="flat" href="/home/notifications" className="w-full mt-4">
+                      View all
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="py-10 text-center text-default-500">
+                    <Icon icon="fluent:alert-24-regular" className="mx-auto text-4xl text-default-300" />
+                    <p className="mt-2">No recent notifications</p>
+                  </div>
+                )}
+              </div>
+            </Card>
+          </div>
+
+          {/* Delivery Performance Chart */}
+          <Card className="mt-4 bg-background">
+            <CardHeader className="px-4 py-3 flex justify-between items-center">
+              <div>
+                <h2 className="text-lg font-semibold">Delivery Performance Analysis</h2>
+                <p className="text-xs text-default-500">Daily, weekly, and monthly completion rates</p>
+              </div>
+              <Badge color="secondary" variant="flat">
+                Target: 95%
+              </Badge>
+            </CardHeader>
+            <Divider />
+            <div className="p-4">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="h-72">
+                  {loading ? (
+                    <div className="h-full flex items-center justify-center">
+                      <div className="relative w-full h-full flex items-center justify-center">
+                        <Skeleton className="h-[180px] w-[180px] rounded-full absolute" />
+                        <Skeleton className="h-[120px] w-[120px] rounded-full absolute" />
+                        {[...Array(3)].map((_, i) => (
+                          <Skeleton key={i} className="h-5 w-24 absolute bottom-4" style={{ left: `${25 + i * 30}%` }} />
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={performanceData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={90}
+                          paddingAngle={5}
+                          dataKey="value"
+                          label={({ name, value }) => `${name}: ${value}%`}
+                        >
+                          {performanceData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(value) => `${value}%`} />
+                        <Legend />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+
+                <div>
+                  <div className="mb-6">
+                    <div className="flex justify-between items-center mb-2">
+                      <p className="text-sm font-medium">Daily Performance</p>
+                      {loading ? (
+                        <Skeleton className="h-5 w-16 rounded-md" />
+                      ) : (
+                        <Badge color={dashboardData?.deliveryPerformance?.daily >= 90 ? "success" : "warning"}>
+                          {dashboardData?.deliveryPerformance?.daily_completed || 0} / {dashboardData?.deliveryPerformance?.daily_total || 0}
+                        </Badge>
+                      )}
+                    </div>
+                    {loading ? (
+                      <Skeleton className="h-8 w-full rounded-md" />
+                    ) : (
+                      <Progress
+                        value={dashboardData?.deliveryPerformance?.daily || 0}
+                        color={dashboardData?.deliveryPerformance?.daily >= 90 ? "success" : "warning"}
+                        showValueLabel={true}
+                        size="lg"
+                      />
+                    )}
+                  </div>
+
+                  <div className="mb-6">
+                    <div className="flex justify-between items-center mb-2">
+                      <p className="text-sm font-medium">Weekly Performance</p>
+                      {loading ? (
+                        <Skeleton className="h-5 w-16 rounded-md" />
+                      ) : (
+                        <Badge color={dashboardData?.deliveryPerformance?.weekly >= 90 ? "success" : "warning"}>
+                          {dashboardData?.deliveryPerformance?.weekly_completed || 0} / {dashboardData?.deliveryPerformance?.weekly_total || 0}
+                        </Badge>
+                      )}
+                    </div>
+                    {loading ? (
+                      <Skeleton className="h-8 w-full rounded-md" />
+                    ) : (
+                      <Progress
+                        value={dashboardData?.deliveryPerformance?.weekly || 0}
+                        color={dashboardData?.deliveryPerformance?.weekly >= 90 ? "success" : "warning"}
+                        showValueLabel={true}
+                        size="lg"
+                      />
+                    )}
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <p className="text-sm font-medium">Monthly Performance</p>
+                      {loading ? (
+                        <Skeleton className="h-5 w-16 rounded-md" />
+                      ) : (
+                        <Badge color={dashboardData?.deliveryPerformance?.monthly >= 90 ? "success" : "warning"}>
+                          {dashboardData?.deliveryPerformance?.monthly_completed || 0} / {dashboardData?.deliveryPerformance?.monthly_total || 0}
+                        </Badge>
+                      )}
+                    </div>
+                    {loading ? (
+                      <Skeleton className="h-8 w-full rounded-md" />
+                    ) : (
+                      <Progress
+                        value={dashboardData?.deliveryPerformance?.monthly || 0}
+                        color={dashboardData?.deliveryPerformance?.monthly >= 90 ? "success" : "warning"}
+                        showValueLabel={true}
+                        size="lg"
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          {/* Revenue Comparison Card */}
+          <Card className="mt-4 bg-background">
+            <CardHeader className="px-4 py-3">
+              <div>
+                <h2 className="text-lg font-semibold">Monthly Revenue Comparison</h2>
+                <p className="text-xs text-default-500">Current vs. previous month revenue</p>
+              </div>
+            </CardHeader>
+            <Divider />
+            <div className="p-4">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 h-60">
+                  {loading ? (
+                    <div className="h-full flex items-center justify-center">
+                      <div className="w-full px-12">
+                        <div className="flex justify-between mb-4">
+                          {[...Array(2)].map((_, i) => (
+                            <Skeleton key={i} className="h-5 w-20 rounded-md" />
+                          ))}
+                        </div>
+                        <div className="flex items-end justify-around h-[180px]">
+                          {[...Array(2)].map((_, i) => (
+                            <Skeleton key={i} className="w-24 rounded-t-md" style={{ height: `${100 + (i * 50)}px` }} />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : monthlyRevenueData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={monthlyRevenueData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                        <XAxis dataKey="name" />
+                        <YAxis />
+                        <Tooltip formatter={(value) => [`₱${value}`, 'Revenue']} />
+                        <Legend />
+                        <Bar dataKey="value" name="Revenue" fill="#f59e0b" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-default-500">
+                      <div className="text-center">
+                        <Icon icon="fluent:money-24-regular" className="mx-auto text-5xl text-default-300" />
+                        <p className="mt-2">No revenue data available</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-col justify-center">
+                  <Card className="bg-default-50 mb-4">
+                    <CardBody>
+                      <p className="text-sm text-default-500">Current Month</p>
+                      {loading ? (
+                        <Skeleton className="h-8 w-40 mt-1 rounded-md" />
+                      ) : (
+                        <p className="text-2xl font-bold">₱{parseFloat(dashboardData?.monthlyRevenue?.current_month || 0).toLocaleString()}</p>
+                      )}
+                    </CardBody>
+                  </Card>
+
+                  <Card className="bg-default-50">
+                    <CardBody>
+                      <p className="text-sm text-default-500">Previous Month</p>
+                      {loading ? (
+                        <Skeleton className="h-8 w-40 mt-1 rounded-md" />
+                      ) : (
+                        <p className="text-2xl font-bold">₱{parseFloat(dashboardData?.monthlyRevenue?.previous_month || 0).toLocaleString()}</p>
+                      )}
+                    </CardBody>
+                  </Card>
+                </div>
+              </div>
+            </div>
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }

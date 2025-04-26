@@ -493,8 +493,8 @@ export default function WarehousePage() {
 
   return (
     <div className="container mx-auto p-2 max-w-4xl">
-      <div className="flex justify-between items-center mb-6">
-        <div>
+      <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
+        <div className="flex flex-col w-full xl:text-left text-center">
           <h1 className="text-2xl font-bold">Warehouse Management</h1>
           <p className="text-default-500">Manage your warehouses efficiently.</p>
         </div>
@@ -551,25 +551,19 @@ export default function WarehousePage() {
                   </div>
                 </div>
               ) : !listLoading && warehouses.length > 0 ? (
-                <Listbox
-                  classNames={{ list: 'space-y-4 p-3 overflow-y-auto pt-32', base: 'xl:h-full h-[42rem]' }}
-                  onSelectionChange={(item) => handleSelectWarehouse((item as Set<string>).values().next().value || "")}
-                  selectedKeys={[selectedWarehouseId || ""]}
-                  selectionMode="single"
-                >
+                <div
+                className='space-y-4 p-4 overflow-y-auto pt-[8.25rem] xl:h-full h-[42rem]'>
                   {warehouses.map((warehouse) => (
-                    <ListboxItem
+                    <Button
                       key={warehouse.uuid}
-                      as={Button}
                       onPress={() => handleSelectWarehouse(warehouse.uuid)}
                       variant="shadow"
-                      className={`w-full min-h-28 !transition-all duration-200 rounded-xl px-0 py-4 ${selectedWarehouseId === warehouse.uuid ?
-                        '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' :
-                        '!bg-default-100/50 hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'
-                        }`}
-                      hideSelectedIcon
+                      className={`w-full min-h-28 !transition-all duration-200 rounded-xl px-0 py-4 ${
+                        selectedWarehouseId === warehouse.uuid ?
+                          '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' :
+                          '!bg-default-100/50 shadow-none hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
                     >
-                      <div className="flex justify-between items-start px-0">
+                      <div className="w-full flex justify-between items-start px-0">
                         <div className="flex-1">
                           <div className="flex items-center justify-between px-4">
                             <span className="font-semibold">{warehouse.name}</span>
@@ -592,9 +586,9 @@ export default function WarehousePage() {
                           </div>
                         </div>
                       </div>
-                    </ListboxItem>
+                    </Button>
                   ))}
-                </Listbox>
+                </div>
               ) : null}
 
               {!isLoading && !listLoading && warehouses.length === 0 && (
@@ -778,28 +772,36 @@ export default function WarehousePage() {
                   </div>
                 </div>
 
-                {selectedWarehouseId && currentWarehouse?.created_at && (
-                  <div>
-                    <h2 className="text-xl font-semibold mb-4 w-full text-center">Additional Information</h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <Input
-                        label="Created"
-                        value={formatDate(currentWarehouse.created_at)}
-                        isReadOnly
-                        classNames={inputStyle}
-                        startContent={<Icon icon="mdi:calendar" className="text-default-500 pb-[0.1rem]" />}
-                      />
+                <div {...(selectedWarehouseId && currentWarehouse?.created_at ? {} : { className: '!min-h-0 !p-0 !h-0 collapse border-none z-0'})}>
+                  <AnimatePresence>
+                    {selectedWarehouseId && currentWarehouse?.created_at && (
+                      <motion.div
+                        {...motionTransition}>
+                        <div className="">
+                          <h2 className="text-xl font-semibold mb-4 w-full text-center">Additional Information</h2>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <Input
+                              label="Created"
+                              value={formatDate(currentWarehouse.created_at)}
+                              isReadOnly
+                              classNames={inputStyle}
+                              startContent={<Icon icon="mdi:calendar" className="text-default-500 pb-[0.1rem]" />}
+                            />
 
-                      <Input
-                        label="Last Updated"
-                        value={formatDate(currentWarehouse.updated_at || new Date().toISOString())}
-                        isReadOnly
-                        classNames={inputStyle}
-                        startContent={<Icon icon="mdi:calendar-clock" className="text-default-500 pb-[0.1rem]" />}
-                      />
-                    </div>
-                  </div>
-                )}
+                            <Input
+                              label="Last Updated"
+                              value={formatDate(currentWarehouse.updated_at || new Date().toISOString())}
+                              isReadOnly
+                              classNames={inputStyle}
+                              startContent={<Icon icon="mdi:calendar-clock" className="text-default-500 pb-[0.1rem]" />}
+                            />
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
 
                 <div>
                   <div className="flex justify-center items-center gap-4">

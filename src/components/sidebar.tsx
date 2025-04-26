@@ -61,15 +61,16 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
             { name: 'Delivery', href: '/home/delivery', icon: "heroicons:truck-20-solid" },
             { name: 'Warehouses', href: '/home/warehouses', icon: 'material-symbols:warehouse-rounded' },
             { name: 'Notifications', href: '/home/notifications', icon: "heroicons:bell-alert-20-solid" },
-            { name: 'Reports', href: '/home/reports', icon: "heroicons:chart-bar-20-solid" },
+            // { name: 'Reports', href: '/home/reports', icon: "heroicons:chart-bar-20-solid" },
             { name: 'Settings', href: '/home/settings', icon: "heroicons:cog-8-tooth-20-solid" },
           ])
         } else {
           setNavigation([
             { name: 'Dashboard', href: '/home/dashboard', icon: "heroicons:home-solid" },
+            { name: 'Warehouse Items', href: '/home/warehouse-items', icon: "fluent:box-20-filled" },
             { name: 'Delivery', href: '/home/delivery', icon: "heroicons:truck-20-solid" },
             { name: 'Notifications', href: '/home/notifications', icon: "heroicons:bell-alert-20-solid" },
-            { name: 'Reports', href: '/home/reports', icon: "heroicons:chart-bar-20-solid" },
+            // { name: 'Reports', href: '/home/reports', icon: "heroicons:chart-bar-20-solid" },
             { name: 'Settings', href: '/home/settings', icon: "heroicons:cog-8-tooth-20-solid" },
           ])
         }

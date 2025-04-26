@@ -48,9 +48,6 @@ export async function register(formData: FormData) :
       return { error: deleteError }
     }
   }
-  
-  console.log('Form Data:', formData);
-
   // return { error: 'Not implemented' }
 
   // Extract basic user data

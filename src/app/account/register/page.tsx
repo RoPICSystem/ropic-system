@@ -19,7 +19,7 @@ import {
 
 import CardList from '@/components/card-list';
 import { motionTransition } from '@/utils/anim';
-import { getExistingCompanies } from '@/utils/supabase/server/companies';
+import { getCompaniesForRegistration } from '@/utils/supabase/server/companies';
 import {
   EyeIcon,
   EyeSlashIcon,
@@ -101,7 +101,7 @@ export default function RegisterPage() {
 
   // Company infos
   const [existingCompanies, setExistingCompanies] = useState<{ uuid: string, name: string, address: any }[]>([]);
-  const [isNewCompany, setIsNewCompany] = useState<boolean>(true);
+  const [isNewCompany, setIsNewCompany] = useState<boolean>(false);
   const [selectedExistingCompany, setSelectedExistingCompany] = useState<string>('');
 
   // Company address state
@@ -265,8 +265,12 @@ export default function RegisterPage() {
   useEffect(() => {
     async function fetchExistingCompanies() {
       if (!isNewCompany) {
-        const { data, error } = await getExistingCompanies();
-        setExistingCompanies(data);
+        const { data, error } = await getCompaniesForRegistration();
+        if (!error && data) {
+          setExistingCompanies(data);
+        } else {
+          console.error('Could not load existing companies');
+        }
       }
     }
     fetchExistingCompanies();

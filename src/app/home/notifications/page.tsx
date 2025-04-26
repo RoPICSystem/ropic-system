@@ -396,18 +396,41 @@ export default function NotificationsPage() {
         <div className="flex gap-2">
           {admin?.is_admin && (
             <Button
-              color="warning"
-              variant="flat"
+              color="danger"
+              variant="shadow"
               onPress={() => setShowAdminOnly(!showAdminOnly)}
-              endContent={<Icon icon={showAdminOnly ? "mdi:eye" : "mdi:eye-off"} />}
             >
-              {showAdminOnly ? "Show All" : "Admin Only"}
+              <div className="w-32">
+                <AnimatePresence>
+                  {showAdminOnly ? (
+                    <motion.div
+                      {...motionTransition}
+                      key="show-admin-only"
+                    >
+                      <div className="w-32 flex items-center gap-2 justify-center">
+                        Show all
+                        <Icon icon={showAdminOnly ? "mdi:eye" : "mdi:eye-off"} width={18} />
+                      </div>
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      {...motionTransition}
+                      key="hide-admin-only"
+                    >
+                      <div className="w-32 flex items-center gap-2 justify-center">
+                        Admin only
+                        <Icon icon={showAdminOnly ? "mdi:eye" : "mdi:eye-off"} width={18} />
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             </Button>
           )}
 
           <Button
             color="primary"
-            variant="light"
+            variant="shadow"
             onPress={handleMarkAllAsRead}
             isDisabled={!filteredNotifications.some(n => !n.read)}
           >

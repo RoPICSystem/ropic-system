@@ -19,6 +19,8 @@ export async function getExistingCompanies() {
       { user_id: user.id }
     )
 
+    console.log('Fetched companies:', data)
+
     if (error) {
       console.error('Error fetching companies:', error)
       return { error: error.message }
@@ -49,6 +51,27 @@ export async function getUserCompanyDetails(userId: string) {
     return { data: data[0] }
   } catch (error) {
     console.error(`Error fetching company details for user ${userId}:`, error)
+    return { error }
+  }
+}
+
+// Add this new function specifically for registration page
+export async function getCompaniesForRegistration() {
+  const supabase = await createClient()
+
+  try {
+    const { data, error } = await supabase.rpc(
+      'get_companies_for_registration'
+    )
+
+    if (error) {
+      console.error('Error fetching companies for registration:', error)
+      return { error: error.message }
+    }
+
+    return { data }
+  } catch (error) {
+    console.error('Error fetching companies for registration:', error)
     return { error }
   }
 }

@@ -29,7 +29,7 @@ import { format } from "date-fns";
 import { AnimatePresence, motion } from 'framer-motion';
 import { useRouter, useSearchParams } from "next/navigation";
 import { QRCodeCanvas } from 'qrcode.react';
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 
@@ -46,6 +46,9 @@ import {
   updateInventoryItemStatus,
 } from "./actions";
 import CardList from '@/components/card-list';
+
+// Import the QR code scanner library
+import jsQR from "jsqr";
 
 interface DeliveryItem {
   uuid: string;
@@ -107,6 +110,7 @@ export default function DeliveryPage() {
   const [isLoading, setIsLoading] = useState(false);
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [showQrCode, setShowQrCode] = useState(false);
+  const [showAcceptForm, setShowAcceptForm] = useState(false);
 
   // Delivery list state
   const [deliveryItems, setDeliveryItems] = useState<DeliveryItem[]>([]);
@@ -122,6 +126,13 @@ export default function DeliveryPage() {
   const [operators, setOperators] = useState<Operator[]>([]);
   const [assignOperator, setAssignOperator] = useState<boolean>(false);
   const [selectedOperator, setSelectedOperator] = useState<Operator | null>(null);
+
+  // QR Code generation
+  const [showAcceptDeliveryModal, setShowAcceptDeliveryModal] = useState(false);
+  const [deliveryJson, setDeliveryJson] = useState("");
+  const [jsonValidationError, setJsonValidationError] = useState("");
+  const [jsonValidationSuccess, setJsonValidationSuccess] = useState(false);
+
 
   // Warehouse options
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -140,6 +151,88 @@ export default function DeliveryPage() {
     notes: "",
     status: "PENDING",
   });
+
+  const handleDeliveryJsonValidation = async (jsonData = deliveryJson) => {
+    // Reset states
+    setJsonValidationError("");
+    setJsonValidationSuccess(false);
+    setIsLoading(true);
+
+    try {
+      // Parse the entered JSON
+      const parsedJson = JSON.parse(jsonData.trim());
+
+      // Find the delivery that matches this JSON
+      const matchingDelivery = deliveryItems.find(
+        delivery => delivery.uuid === parsedJson.uuid
+      );
+
+      if (!matchingDelivery) {
+        setJsonValidationError("No matching delivery found with this code");
+        setIsLoading(false);
+        return;
+      }
+
+      // Check if the delivery status is IN_TRANSIT
+      if (matchingDelivery.status !== "IN_TRANSIT") {
+        setJsonValidationError("This delivery cannot be accepted because it is not in transit");
+        setIsLoading(false);
+        return;
+      }
+
+      // If the operator is assigned to this delivery, select it
+      if (matchingDelivery.operator_uuid === admin?.uuid || matchingDelivery.operator_uuid === null) {
+        // Set as the selected delivery
+        handleSelectDelivery(matchingDelivery.uuid);
+
+        console.log("Selected Delivery:", matchingDelivery);
+
+        // Update the form data with the delivery details
+        setFormData({ ...matchingDelivery, status: "DELIVERED" });
+
+        // Directly update the delivery status without using handleStatusChange
+        const updatedFormData = { status: "DELIVERED" };
+        const result = await updateDeliveryItem(matchingDelivery.uuid, updatedFormData);
+
+        if (result.success && matchingDelivery.inventory_item_uuid) {
+          // Change status to IN_WAREHOUSE when delivery is DELIVERED
+          console.log("Updating inventory item status to IN_WAREHOUSE");
+
+          const inventoryResult = await updateInventoryItemStatus(
+            matchingDelivery.inventory_item_uuid,
+            "IN_WAREHOUSE"
+          );
+
+          console.log("Inventory status update result:", inventoryResult);
+
+          if (inventoryResult.success) {
+            setJsonValidationSuccess(true);
+
+            // Wait for a moment before closing the modal
+            setTimeout(() => {
+              setShowAcceptDeliveryModal(false);
+              setJsonValidationSuccess(false);
+              setDeliveryJson("");
+            }, 1000);
+
+            // Refresh delivery items to show updated status
+            const refreshedItems = await getDeliveryItems(admin?.company_uuid);
+            setDeliveryItems(refreshedItems.data || []);
+          } else {
+            console.error("Failed to update inventory status:", inventoryResult.error);
+            setJsonValidationError("Delivery accepted but failed to update inventory status");
+          }
+        }
+      } else {
+        setJsonValidationError("You are not assigned to this delivery");
+      }
+    } catch (error) {
+      console.error("Error parsing delivery JSON:", error);
+      setJsonValidationError("Invalid delivery code format");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const inputStyle = {
     inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
@@ -228,6 +321,13 @@ export default function DeliveryPage() {
     }
   };
 
+  const handleViewInventory = () => {
+    if (formData.inventory_item_uuid) {
+      // Navigate to inventory page with the item ID
+      router.push(`/home/inventory?itemId=${formData.inventory_item_uuid}`);
+    }
+  };
+
   // Handle operator selection
   const handleOperatorChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const operatorUuid = e.target.value;
@@ -251,30 +351,57 @@ export default function DeliveryPage() {
 
   // Handle status change
   const handleStatusChange = async (status: string) => {
-    if (!selectedDeliveryId) return;
+    if (!selectedDeliveryId) return { error: "No delivery selected" };
+
+    // For operators, only allow changing to DELIVERED status when item is IN_TRANSIT
+    if (!admin?.is_admin) {
+      if (formData.status !== "IN_TRANSIT" || status !== "DELIVERED") {
+        return { error: "You can only change the status to DELIVERED when the item is IN_TRANSIT." };
+      }
+    }
 
     setIsLoading(true);
 
     try {
       // Update form data with the new status
-      const {inventory_item, filteredFormData} = formData as any; 
+      const { inventory_item, ...filteredFormData } = formData as any;
       const updatedFormData = { ...filteredFormData, status };
       setFormData(updatedFormData);
-
-      console.log("Updating status to:", updatedFormData);
 
       // Update the delivery item with the new status
       const result = await updateDeliveryItem(selectedDeliveryId, updatedFormData as any);
 
-      // Update inventory item status
-      if (result.success && updatedFormData.inventory_item_uuid) {
-        // Set inventory status to ON_DELIVERY when delivery status is IN_TRANSIT
-        const inventoryStatus = status === "IN_TRANSIT" ? "ON_DELIVERY" : status;
-        await updateInventoryItemStatus(updatedFormData.inventory_item_uuid, inventoryStatus);
+      // Update inventory item status as well
+      if (updatedFormData.inventory_item_uuid) {
+        // Determine the inventory status based on delivery status
+        let inventoryStatus: string;
+        if (status === "DELIVERED") {
+          inventoryStatus = "IN_WAREHOUSE";
+        } else if (status === "CANCELLED") {
+          inventoryStatus = "AVAILABLE";
+        } else if (status === "IN_TRANSIT") {
+          inventoryStatus = "ON_DELIVERY";
+        } else {
+          inventoryStatus = status;
+        }
+
+        const inventoryResult = await updateInventoryItemStatus(updatedFormData.inventory_item_uuid, inventoryStatus);
+
+        console.log("Inventory status update result:", inventoryResult);
+
+        if (!inventoryResult.success) {
+          return { error: "Failed to update inventory item status" };
+        }
       }
 
+      // Refresh the delivery items list
+      const refreshedItems = await getDeliveryItems(admin?.company_uuid || "", searchQuery);
+      setDeliveryItems(refreshedItems.data || []);
+
+      return { error: null };
     } catch (error) {
       console.error("Error updating status:", error);
+      return { error: `Failed to update status: ${(error as Error).message}` };
     } finally {
       setIsLoading(false);
     }
@@ -301,6 +428,11 @@ export default function DeliveryPage() {
   // Form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Only allow admins to submit form changes
+    if (!admin?.is_admin) {
+      return;
+    }
 
     const newErrors: Record<string, string> = {};
     if (!formData.inventory_item_uuid) newErrors.inventory_item_uuid = "Please select an inventory item";
@@ -413,29 +545,55 @@ export default function DeliveryPage() {
       }
 
     } else if (setInventoryId) {
-      // Creating a new delivery with pre-selected inventory item
-      setSelectedDeliveryId(null);
+      // First check if there's already a delivery for this inventory item
+      const existingDelivery = deliveryItems.find(item => item.inventory_item_uuid === setInventoryId);
+      
+      if (existingDelivery) {
+        // If delivery exists for this inventory item, select it
+        setSelectedDeliveryId(existingDelivery.uuid);
+        setFormData({ ...existingDelivery });
+        setSelectedItem(existingDelivery.inventory_item_uuid || "");
+        
+        // Check if there's an operator assigned
+        const hasOperator = !!existingDelivery.operator_uuid;
+        setAssignOperator(hasOperator);
+        
+        if (hasOperator && existingDelivery.operator_uuid) {
+          const operator = operators.find(op => op.uuid === existingDelivery.operator_uuid);
+          setSelectedOperator(operator || null);
+        } else {
+          setSelectedOperator(null);
+        }
+        
+        // Update URL with the found delivery ID
+        const params = new URLSearchParams(searchParams.toString());
+        params.delete("setInventory");
+        params.set("deliveryId", existingDelivery.uuid);
+        router.push(`?${params.toString()}`, { scroll: false });
+      } else {
+        // Creating a new delivery with pre-selected inventory item
+        setSelectedDeliveryId(null);
 
-      // Find the inventory item
-      const inventoryItem = inventoryItems.find(item => item.uuid === setInventoryId);
-      if (!inventoryItem) return;
+        // Find the inventory item
+        const inventoryItem = inventoryItems.find(item => item.uuid === setInventoryId);
+        if (!inventoryItem) return;
 
-      // Set up the form with the selected inventory item
-      setFormData({
-        company_uuid: admin.company_uuid,
-        admin_uuid: admin.uuid,
-        inventory_item_uuid: setInventoryId,
-        delivery_address: "",
-        delivery_date: today(getLocalTimeZone()).toString(),
-        notes: "",
-        status: "PENDING",
-        warehouse_uuid: null
-      });
+        // Set up the form with the selected inventory item
+        setFormData({
+          company_uuid: admin.company_uuid,
+          admin_uuid: admin.uuid,
+          inventory_item_uuid: setInventoryId,
+          delivery_address: "",
+          delivery_date: today(getLocalTimeZone()).toString(),
+          notes: "",
+          status: "PENDING",
+          warehouse_uuid: null
+        });
 
-      setSelectedItem(setInventoryId);
-      setAssignOperator(false);
-      setSelectedOperator(null);
-
+        setSelectedItem(setInventoryId);
+        setAssignOperator(false);
+        setSelectedOperator(null);
+      }
     } else {
       // Reset form for new delivery
       setSelectedDeliveryId(null);
@@ -551,19 +709,105 @@ export default function DeliveryPage() {
   // Helper function to determine chip color based on status
   function getStatusColor(status: string): "default" | "primary" | "secondary" | "success" | "warning" | "danger" {
     switch (status?.toUpperCase()) {
-      case "PENDING": return "default";
+      case "PENDING": return "primary";
       case "PROCESSING": return "warning";
-      case "IN_TRANSIT": return "primary";
+      case "IN_TRANSIT": return "secondary";
       case "DELIVERED": return "success";
       case "CANCELLED": return "danger";
       default: return "default";
     }
   }
 
+  // Add these new state variables
+  const [isProcessingImage, setIsProcessingImage] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // New function to handle QR code image upload and scanning
+  const handleQrImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsProcessingImage(true);
+
+    try {
+      // Create an image from the file
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+
+      img.onload = () => {
+        // Create canvas to process the image
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        if (!ctx) {
+          setJsonValidationError("Failed to process image");
+          setIsProcessingImage(false);
+          URL.revokeObjectURL(objectUrl);
+          return;
+        }
+
+        // Set canvas size to match image
+        canvas.width = img.width;
+        canvas.height = img.height;
+
+        // Draw image onto canvas
+        ctx.drawImage(img, 0, 0);
+
+        // Get image data for QR processing
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+        // Process with jsQR
+        const code = jsQR(imageData.data, imageData.width, imageData.height);
+
+        if (code) {
+          // Set the extracted data to the textarea
+          setDeliveryJson(code.data);
+
+          // Automatically validate the code
+          setTimeout(() => {
+            handleDeliveryJsonValidation(code.data);
+          }, 300);
+        } else {
+          setJsonValidationError("No QR code found in the image");
+        }
+
+        setIsProcessingImage(false);
+        URL.revokeObjectURL(objectUrl);
+      };
+
+      img.onerror = () => {
+        setJsonValidationError("Failed to load image");
+        setIsProcessingImage(false);
+        URL.revokeObjectURL(objectUrl);
+      };
+
+      img.src = objectUrl;
+    } catch (error) {
+      console.error("Error processing QR image:", error);
+      setJsonValidationError("Failed to process the uploaded image");
+      setIsProcessingImage(false);
+    }
+  };
+
+  // Function to automatically validate when text is pasted
+  const handleDeliveryJsonPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const pastedText = e.clipboardData.getData('text');
+
+    if (pastedText.trim()) {
+      // Set the pasted text
+      setDeliveryJson(pastedText);
+
+      // Wait for state to update then validate
+      setTimeout(() => {
+        handleDeliveryJsonValidation(pastedText);
+      }, 100);
+    }
+  };
+
   return (
     <div className="container mx-auto p-2 max-w-4xl">
-      <div className="flex justify-between items-center mb-6">
-        <div>
+      <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
+        <div className="flex flex-col w-full xl:text-left text-center">
           <h1 className="text-2xl font-bold">Delivery Management</h1>
           <p className="text-default-500">Track and manage your deliveries efficiently.</p>
         </div>
@@ -571,7 +815,7 @@ export default function DeliveryPage() {
           <div className="mt-4 text-center">
             {!admin ? (
               <Skeleton className="h-10 w-32 rounded-xl" />
-            ) : (
+            ) : admin.is_admin ? (
               <Button
                 color="primary"
                 variant="shadow"
@@ -580,7 +824,16 @@ export default function DeliveryPage() {
                 <Icon icon="mdi:plus" className="mr-2" />
                 New Delivery
               </Button>
-            )}
+            ) : selectedDeliveryId ? (
+              <Button
+                color="primary"
+                variant="shadow"
+                onPress={() => setShowAcceptDeliveryModal(true)}
+              >
+                <Icon icon="mdi:qrcode-scan" className="mr-1" />
+                Accept Delivery
+              </Button>
+            ) : null}
           </div>
         </div>
       </div>
@@ -619,23 +872,18 @@ export default function DeliveryPage() {
                   </div>
                 </div>
               ) : !isLoadingItems && deliveryItems.length !== 0 ? (
-                <Listbox
-                  classNames={{ list: 'space-y-4 p-3 overflow-y-auto pt-32', base: 'xl:h-full h-[42rem]' }}
-                  onSelectionChange={(item) => handleSelectDelivery((item as Set<string>).values().next().value || "")}
-                  selectedKeys={[selectedDeliveryId || ""]}
-                  selectionMode="single">
+                <div
+                  className='space-y-4 p-4 overflow-y-auto pt-[8.25rem] xl:h-full h-[42rem]'>
                   {deliveryItems.map((delivery) => (
-                    <ListboxItem
+                    <Button
                       key={delivery.uuid}
-                      as={Button}
                       onPress={() => handleSelectDelivery(delivery.uuid)}
                       variant="shadow"
                       className={`w-full min-h-28 !transition-all duration-200 rounded-xl px-0 py-4 ${selectedDeliveryId === delivery.uuid ?
                         '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' :
-                        '!bg-default-100/50 hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
-                      hideSelectedIcon
+                        '!bg-default-100/50 shadow-none hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
                     >
-                      <div className="flex justify-between items-start px-0">
+                      <div className="w-full flex justify-between items-start px-0">
                         <div className="flex-1">
                           <div className="flex items-center justify-between px-4">
                             <span className="font-semibold">
@@ -654,7 +902,7 @@ export default function DeliveryPage() {
                             <Chip color={getStatusColor(delivery.status)} variant={selectedDeliveryId === delivery.uuid ? "shadow" : "flat"} size="sm">
                               {delivery.status}
                             </Chip>
-                            <Chip color="secondary" variant={selectedDeliveryId === delivery.uuid ? "shadow" : "flat"} size="sm">
+                            <Chip color="default" variant={selectedDeliveryId === delivery.uuid ? "shadow" : "flat"} size="sm">
                               {new Date(delivery.delivery_date).toLocaleDateString()}
                             </Chip>
                             {delivery.operator_uuid && (
@@ -666,9 +914,9 @@ export default function DeliveryPage() {
                           </div>
                         </div>
                       </div>
-                    </ListboxItem>
+                    </Button>
                   ))}
-                </Listbox>
+                </div>
               ) : null}
 
               {admin && !isLoadingItems && deliveryItems.length === 0 && (
@@ -688,406 +936,507 @@ export default function DeliveryPage() {
 
         {/* Right side: Delivery Form */}
         <div className="xl:w-2/3">
-          <Form id="deliveryForm" onSubmit={handleSubmit} className="items-stretch space-y-4">
-            <CardList>
-
-
-              <div>
-                <h2 className="text-xl font-semibold mb-4 w-full text-center">Delivery Information</h2>
-                <div className="space-y-4">
-                  {/* Inventory Item Selection */}
-                  <div>
-                    {!admin ? (
-                      <Skeleton className="h-16 w-full rounded-xl" />
-                    ) : (
-                      <Autocomplete
-                        selectedKey={formData.inventory_item_uuid || ""}
-                        name="inventory_item_uuid"
-                        label="Inventory Item"
-                        placeholder="Select an inventory item"
-                        onSelectionChange={(e) => {
-                          handleAutoSelectChange(`inventory_item_uuid`, `${e}`)
-                          if (searchParams.get("setInventory")) {
-                            // remove the setInventory query param
-                            const params = new URLSearchParams(searchParams.toString());
-                            params.delete("setInventory");
-                            router.push(`?${params.toString()}`, { scroll: false });
-                          }
-                        }}
-                        isRequired
-                        inputProps={autoCompleteStyle}
-                        classNames={{ clearButton: "text-default-800" }}
-                        isInvalid={!!errors.inventory_item_uuid}
-                        errorMessage={errors.inventory_item_uuid}
-                        isDisabled={!!selectedDeliveryId}
-                        startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
-                      >
-                        {inventoryItems
-                          .filter(item => item.status !== "DELIVERED" && item.status !== "ON_DELIVERY") // Only show available items
-                          .map((item) => (
-                            <AutocompleteItem key={item.uuid}>
-                              {`${item.item_name} (${item.item_code})`}
-                            </AutocompleteItem>
-                          ))}
-                      </Autocomplete>
-                    )}
-                  </div>
-
-                  <div className="space-y-0">
-                    {/* Operator Assignment Toggle */}
-                    <div className="flex items-center justify-between">
+          {/* Only show the form if admin is creating new delivery or any user has selected a delivery */}
+          {admin === null || admin.is_admin ? (
+            <Form id="deliveryForm" onSubmit={handleSubmit} className="items-stretch space-y-4">
+              <CardList>
+                <div>
+                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Delivery Information</h2>
+                  <div className="space-y-4">
+                    {/* Inventory Item Selection */}
+                    <div>
                       {!admin ? (
-                        <Skeleton className="h-10 w-full rounded-xl" />
+                        <Skeleton className="h-16 w-full rounded-xl" />
                       ) : (
-                        <>
-                          <span className="text-default-700 font-medium">Assign Operator</span>
-                          <Switch
-                            isSelected={assignOperator}
-                            onValueChange={handleAssignOperatorToggle}
-                            color="primary"
-                          />
-                        </>
+                        <Autocomplete
+                          selectedKey={formData.inventory_item_uuid || ""}
+                          name="inventory_item_uuid"
+                          label="Inventory Item"
+                          placeholder="Select an inventory item"
+                          onSelectionChange={(e) => {
+                            handleAutoSelectChange(`inventory_item_uuid`, `${e}`)
+                            if (searchParams.get("setInventory")) {
+                              // remove the setInventory query param
+                              const params = new URLSearchParams(searchParams.toString());
+                              params.delete("setInventory");
+                              router.push(`?${params.toString()}`, { scroll: false });
+                            }
+                          }}
+                          isRequired
+                          inputProps={autoCompleteStyle}
+                          classNames={{ clearButton: "text-default-800" }}
+                          isInvalid={!!errors.inventory_item_uuid}
+                          errorMessage={errors.inventory_item_uuid}
+                          isDisabled={!!selectedDeliveryId}
+                          startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
+                        >
+                          {inventoryItems
+                            .filter(item => item.status !== "DELIVERED" && item.status !== "ON_DELIVERY") // Only show available items
+                            .map((item) => (
+                              <AutocompleteItem key={item.uuid}>
+                                {`${item.item_name} (${item.item_code})`}
+                              </AutocompleteItem>
+                            ))}
+                        </Autocomplete>
                       )}
                     </div>
 
-                    {/* Operator Selection (shown only when assignOperator is true) */}
-                    <AnimatePresence>
-                      {assignOperator && (
-                        <motion.div
-                          {...motionTransition}>
-                          {!admin ? (
-                            <Skeleton className="h-16 w-full rounded-xl mt-4" />
-                          ) : (
-                            <Autocomplete
-                              name="operator_uuid"
-                              label="Select Operator"
-                              placeholder="Choose an operator"
-                              selectedKey={formData.operator_uuid || ""}
-                              onSelectionChange={(e) => handleAutoSelectChange(`operator_uuid`, `${e}`)}
-                              isRequired={assignOperator}
-                              inputProps={autoCompleteStyle}
-                              classNames={{ clearButton: "text-default-800" }}
-                              isInvalid={!!errors.operator_uuid}
-                              errorMessage={errors.operator_uuid}
-                              startContent={<Icon icon="mdi:account" className="text-default-500 mb-[0.2rem]" />}
-                              className='mt-4'
-                            >
-                              {operators.map((operator) => (
-                                <AutocompleteItem key={operator.uuid}>
-                                  {`${operator.full_name} (${operator.email})`}
-                                </AutocompleteItem>
-                              ))}
-                            </Autocomplete>
-                          )}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-
-                    {/* Show operator name if selected */}
-                    {selectedOperator && (
-                      <div className="flex items-center py-2 px-4 bg-primary-50 rounded-xl">
-                        <Icon icon="mdi:account-check" className="text-primary text-xl mr-2" />
-                        <div>
-                          <p className="text-sm text-default-600">Selected Operator</p>
-                          <p className="font-medium">{selectedOperator.full_name}</p>
-                        </div>
+                    <div className="space-y-0">
+                      {/* Operator Assignment Toggle */}
+                      <div className="flex items-center justify-between">
+                        {!admin ? (
+                          <Skeleton className="h-10 w-full rounded-xl" />
+                        ) : (
+                          <>
+                            <span className="text-default-700 font-medium">Assign Operator</span>
+                            <Switch
+                              isSelected={assignOperator}
+                              onValueChange={handleAssignOperatorToggle}
+                              color="primary"
+                            />
+                          </>
+                        )}
                       </div>
-                    )}
-                  </div>
+
+                      {/* Operator Selection (shown only when assignOperator is true) */}
+                      <AnimatePresence>
+                        {assignOperator && (
+                          <motion.div
+                            {...motionTransition}>
+                            {!admin ? (
+                              <Skeleton className="h-16 w-full rounded-xl mt-4" />
+                            ) : (
+                              <Autocomplete
+                                name="operator_uuid"
+                                label="Select Operator"
+                                placeholder="Choose an operator"
+                                selectedKey={formData.operator_uuid || ""}
+                                onSelectionChange={(e) => handleAutoSelectChange(`operator_uuid`, `${e}`)}
+                                isRequired={assignOperator}
+                                inputProps={autoCompleteStyle}
+                                classNames={{ clearButton: "text-default-800" }}
+                                isInvalid={!!errors.operator_uuid}
+                                errorMessage={errors.operator_uuid}
+                                startContent={<Icon icon="mdi:account" className="text-default-500 mb-[0.2rem]" />}
+                                className='mt-4'
+                              >
+                                {operators.map((operator) => (
+                                  <AutocompleteItem key={operator.uuid}>
+                                    {`${operator.full_name} (${operator.email})`}
+                                  </AutocompleteItem>
+                                ))}
+                              </Autocomplete>
+                            )}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                      {/* Show operator name if selected */}
+                      {selectedOperator && (
+                        <div className="flex items-center py-2 px-4 bg-primary-50 rounded-xl">
+                          <Icon icon="mdi:account-check" className="text-primary text-xl mr-2" />
+                          <div>
+                            <p className="text-sm text-default-600">Selected Operator</p>
+                            <p className="font-medium">{selectedOperator.full_name}</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
 
 
+                    {/* Warehouse Selection */}
+                    <div>
+                      {!admin ? (
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                      ) : (
+                        <Autocomplete
+                          id="warehouse_uuid"
+                          name="warehouse_uuid"
+                          label="Warehouse"
+                          isReadOnly={formData.status?.toUpperCase() === "DELIVERED"}
+                          placeholder="Select warehouse"
+                          selectedKey={formData.warehouse_uuid || ""}
+                          onSelectionChange={(e) => {
+                            handleAutoSelectChange(`warehouse_uuid`, `${e}`)
+                            // get warehouse details
+                            const selectedWarehouse = warehouses.find(w => w.uuid === e);
+                            if (selectedWarehouse) {
+                              setFormData(prev => ({
+                                ...prev,
+                                delivery_address: selectedWarehouse.address.fullAddress
+                              }));
+                            }
+                          }}
+                          isRequired
+                          inputProps={autoCompleteStyle}
+                          classNames={{ clearButton: "text-default-800" }}
+                          isInvalid={!!errors.warehouse_uuid}
+                          errorMessage={errors.warehouse_uuid}
+                          startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
+                        >
+                          {warehouses.map((warehouse) => (
+                            <AutocompleteItem key={warehouse.uuid}>
+                              {`${warehouse.name} (${warehouse.address.municipality.desc}, ${warehouse.address.barangay.desc})`}
+                            </AutocompleteItem>
+                          ))}
+                        </Autocomplete>
+                      )}
+                    </div>
 
-                  {/* Warehouse Selection */}
-                  <div>
-                    {!admin ? (
-                      <Skeleton className="h-16 w-full rounded-xl" />
-                    ) : (
-                      <Autocomplete
-                        id="warehouse_uuid"
-                        name="warehouse_uuid"
-                        label="Warehouse"
-                        placeholder="Select warehouse"
-                        selectedKey={formData.warehouse_uuid || ""}
-                        onSelectionChange={(e) => {
-                          handleAutoSelectChange(`warehouse_uuid`, `${e}`)
-                          // get warehouse details
-                          const selectedWarehouse = warehouses.find(w => w.uuid === e);
-                          if (selectedWarehouse) {
+                    <div>
+                      {!admin ? (
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                      ) : (
+                        <DatePicker
+                          name="delivery_date"
+                          label="Delivery Date"
+                          defaultValue={formData.delivery_date ?
+                            parseDate(formData.delivery_date) :
+                            today(getLocalTimeZone())}
+                          onChange={(date: any) => {
                             setFormData(prev => ({
                               ...prev,
-                              delivery_address: selectedWarehouse.address.fullAddress
+                              delivery_date: date.toString()
                             }));
-                          }
-                        }}
-                        isRequired
-                        inputProps={autoCompleteStyle}
-                        classNames={{ clearButton: "text-default-800" }}
-                        isInvalid={!!errors.warehouse_uuid}
-                        errorMessage={errors.warehouse_uuid}
-                        startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
-                      >
-                        {warehouses.map((warehouse) => (
-                          <AutocompleteItem key={warehouse.uuid}>
-                            {`${warehouse.name} (${warehouse.address.municipality.desc}, ${warehouse.address.barangay.desc})`}
-                          </AutocompleteItem>
-                        ))}
-                      </Autocomplete>
-                    )}
+                          }}
+                          isRequired
+                          classNames={{
+                            base: "w-full",
+                            inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
+                            selectorButton: "w-12 h-10 mb-4 mr-[-0.4rem]",
+                          }}
+                          isInvalid={!!errors.delivery_date}
+                          errorMessage={errors.delivery_date}
+                        />
+                      )}
+                    </div>
                   </div>
+                </div>
 
-                  <div>
+                <div {...(!assignOperator ? { className: '!min-h-0 !p-0 !h-0 collapse border-none z-0' } : {})}>
+                  {/* Recipient Details (shown only when assignOperator is true) */}
+                  <AnimatePresence>
+                    {assignOperator && (
+                      <motion.div
+                        {...motionTransition}>
+                        <div>
+                          <h2 className="text-xl font-semibold mb-4 w-full text-center">
+                            Recipient Details
+                          </h2>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
+                            {!admin ? (
+                              <>
+                                <Skeleton className="h-16 w-full rounded-xl" />
+                                <Skeleton className="h-16 w-full rounded-xl" />
+                              </>
+                            ) : (
+                              <>
+                                <Input
+                                  name="recipient_name"
+                                  label="Recipient Name"
+                                  classNames={inputStyle}
+                                  placeholder="Enter recipient name"
+                                  value={formData.recipient_name || ""}
+                                  onChange={handleInputChange}
+                                  isRequired={assignOperator}
+                                  isInvalid={!!errors.recipient_name}
+                                  errorMessage={errors.recipient_name}
+                                  startContent={<Icon icon="mdi:account" className="text-default-500 mb-[0.2rem]" />}
+                                />
+
+                                <Input
+                                  name="recipient_contact"
+                                  label="Contact Number"
+                                  classNames={inputStyle}
+                                  placeholder="Enter contact number"
+                                  value={formData.recipient_contact || ""}
+                                  onChange={handleInputChange}
+                                  isRequired={assignOperator}
+                                  isInvalid={!!errors.recipient_contact}
+                                  errorMessage={errors.recipient_contact}
+                                  startContent={<Icon icon="mdi:phone" className="text-default-500 mb-[0.2rem]" />}
+                                />
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                </div>
+
+                <div>
+                  <h2 className="text-xl font-semibold mb-4 w-full text-center">
+                    Delivery Details
+                  </h2>
+                  <div className="space-y-4">
+                    {/* Only show recipient details when an operator is assigned */}
                     {!admin ? (
                       <Skeleton className="h-16 w-full rounded-xl" />
                     ) : (
-                      <DatePicker
-                        name="delivery_date"
-                        label="Delivery Date"
-                        defaultValue={formData.delivery_date ?
-                          parseDate(formData.delivery_date) :
-                          today(getLocalTimeZone())}
-                        onChange={(date: any) => {
-                          setFormData(prev => ({
-                            ...prev,
-                            delivery_date: date.toString()
-                          }));
-                        }}
+                      <Input
+                        name="delivery_address"
+                        label="Delivery Address"
+                        classNames={inputStyle}
+                        placeholder="Enter complete delivery address"
+                        value={formData.delivery_address || ""}
+                        onChange={handleInputChange}
                         isRequired
-                        classNames={{
-                          base: "w-full",
-                          inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
-                          selectorButton: "w-12 h-10 mb-4 mr-[-0.4rem]",
-                        }}
-                        isInvalid={!!errors.delivery_date}
-                        errorMessage={errors.delivery_date}
+                        isReadOnly
+                        isInvalid={!!errors.delivery_address}
+                        errorMessage={errors.delivery_address}
+                        startContent={<Icon icon="mdi:map-marker" className="text-default-500 mb-[0.2rem]" />}
+                      />
+                    )}
+
+                    {!admin ? (
+                      <Skeleton className="h-16 w-full rounded-xl" />
+                    ) : (
+                      <Textarea
+                        name="notes"
+                        label="Additional Notes"
+                        maxRows={5}
+                        minRows={1}
+                        classNames={inputStyle}
+                        placeholder="Enter any special instructions or notes"
+                        value={formData.notes || ""}
+                        onChange={handleInputChange}
+                        startContent={<Icon icon="mdi:note-text" className="text-default-500 mt-[0.1rem]" />}
                       />
                     )}
                   </div>
                 </div>
-              </div>
 
-              <div {...(!assignOperator ? { className: '!min-h-0 !p-0 !h-0 collapse border-none z-0' } : {})}>
-                {/* Recipient Details (shown only when assignOperator is true) */}
-                <AnimatePresence>
-                  {assignOperator && (
-                    <motion.div
-                      {...motionTransition}>
-                      <div>
-                        <h2 className="text-xl font-semibold mb-4 w-full text-center">
-                          Recipient Details
-                        </h2>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
-                          {!admin ? (
-                            <>
-                              <Skeleton className="h-16 w-full rounded-xl" />
-                              <Skeleton className="h-16 w-full rounded-xl" />
-                            </>
-                          ) : (
-                            <>
-                              <Input
-                                name="recipient_name"
-                                label="Recipient Name"
-                                classNames={inputStyle}
-                                placeholder="Enter recipient name"
-                                value={formData.recipient_name || ""}
-                                onChange={handleInputChange}
-                                isRequired={assignOperator}
-                                isInvalid={!!errors.recipient_name}
-                                errorMessage={errors.recipient_name}
-                                startContent={<Icon icon="mdi:account" className="text-default-500 mb-[0.2rem]" />}
-                              />
-
-                              <Input
-                                name="recipient_contact"
-                                label="Contact Number"
-                                classNames={inputStyle}
-                                placeholder="Enter contact number"
-                                value={formData.recipient_contact || ""}
-                                onChange={handleInputChange}
-                                isRequired={assignOperator}
-                                isInvalid={!!errors.recipient_contact}
-                                errorMessage={errors.recipient_contact}
-                                startContent={<Icon icon="mdi:phone" className="text-default-500 mb-[0.2rem]" />}
-                              />
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-              </div>
-
-              <div>
-                <h2 className="text-xl font-semibold mb-4 w-full text-center">
-                  Delivery Details
-                </h2>
-                <div className="space-y-4">
-                  {/* Only show recipient details when an operator is assigned */}
-                  {!admin ? (
-                    <Skeleton className="h-16 w-full rounded-xl" />
-                  ) : (
-                    <Input
-                      name="delivery_address"
-                      label="Delivery Address"
-                      classNames={inputStyle}
-                      placeholder="Enter complete delivery address"
-                      value={formData.delivery_address || ""}
-                      onChange={handleInputChange}
-                      isRequired
-                      isInvalid={!!errors.delivery_address}
-                      errorMessage={errors.delivery_address}
-                      startContent={<Icon icon="mdi:map-marker" className="text-default-500 mb-[0.2rem]" />}
-                    />
-                  )}
-
-                  {!admin ? (
-                    <Skeleton className="h-16 w-full rounded-xl" />
-                  ) : (
-                    <Textarea
-                      name="notes"
-                      label="Additional Notes"
-                      maxRows={5}
-                      minRows={1}
-                      classNames={inputStyle}
-                      placeholder="Enter any special instructions or notes"
-                      value={formData.notes || ""}
-                      onChange={handleInputChange}
-                      startContent={<Icon icon="mdi:note-text" className="text-default-500 mt-[0.1rem]" />}
-                    />
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <h2 className="text-xl font-semibold mb-4 w-full text-center">Delivery Status</h2>
-                <div className="space-y-4">
-                  {!admin ? (
-                    <Skeleton className="h-16 w-full rounded-xl" />
-                  ) : (
-                    <Autocomplete
+                <div>
+                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Delivery Status</h2>
+                  <div>
+                    {!admin ? (
+                      <Skeleton className="h-16 w-full rounded-xl" />
+                    ) : (
+                      <Input
                       name="status"
                       label="Status"
-                      placeholder="Select status"
-                      selectedKey={formData.status || "PENDING"}
-                      onSelectionChange={(e) => handleAutoSelectChange(`status`, `${e}`)}
+                      placeholder="Status"
+                      value={formData.status || "PENDING"}
+                      isReadOnly={!selectedDeliveryId}  // Make it readonly when creating new delivery
+                      classNames={inputStyle}
                       isRequired
-                      inputProps={autoCompleteStyle}
-                      classNames={{ clearButton: "text-default-800" }}
                       isInvalid={!!errors.status}
                       errorMessage={errors.status}
-                      startContent={<Icon icon="mdi:truck-delivery" className="text-default-500" />}
-                    >
-                      <AutocompleteItem key="PENDING">PENDING</AutocompleteItem>
-                      <AutocompleteItem key="PROCESSING">PROCESSING</AutocompleteItem>
-                      <AutocompleteItem key="IN_TRANSIT">IN TRANSIT</AutocompleteItem>
-                      <AutocompleteItem key="DELIVERED">DELIVERED</AutocompleteItem>
-                      <AutocompleteItem key="CANCELLED">CANCELLED</AutocompleteItem>
-                    </Autocomplete>
-                  )}
+                      startContent={<Icon icon="mdi:truck-delivery" className="text-default-500 mb-[0.2rem]" />}
+                    />
+                    )}
 
+                    <AnimatePresence>
+                      {admin && selectedDeliveryId && formData.status !== "DELIVERED" && formData.status !== "CANCELLED" && (
+                        <motion.div
+                          {...motionTransition}>
+                          <div className="flex flex-col gap-4 pt-4">
+                            <hr className="border-default-200" />
+                            <h3 className="text-lg font-semibold w-full text-center">Quick Status Update</h3>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                              <Button
+                                color="warning"
+                                variant="flat"
+                                className="w-full"
+                                isDisabled={formData.status === "PROCESSING" || formData.status === "IN_TRANSIT" || formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading}
+                                onPress={() => handleStatusChange("PROCESSING")}
+                              >
+                                <Icon icon="mdi:clock-start" className="mr-1" />
+                                Processing
+                              </Button>
+                              <Button
+                                color="primary"
+                                variant="flat"
+                                className="w-full"
+                                isDisabled={formData.status === "IN_TRANSIT" || formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading}
+                                onPress={() => handleStatusChange("IN_TRANSIT")}
+                              >
+                                <Icon icon="mdi:truck-fast" className="mr-1" />
+                                In Transit
+                              </Button>
+                              <Button
+                                color="success"
+                                variant="flat"
+                                className="w-full"
+                                isDisabled={formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading}
+                                onPress={() => handleStatusChange("DELIVERED")}
+                              >
+                                <Icon icon="mdi:check-circle" className="mr-1" />
+                                Delivered
+                              </Button>
+                              <Button
+                                color="danger"
+                                variant="flat"
+                                className="w-full"
+                                isDisabled={formData.status === "CANCELLED" || formData.status === "DELIVERED" || isLoading}
+                                onPress={() => handleStatusChange("CANCELLED")}
+                              >
+                                <Icon icon="mdi:close-circle" className="mr-1" />
+                                Cancel
+                              </Button>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </div>
 
+                <div>
+                  <div className="flex flex-col md:flex-row justify-center items-center gap-4">
+                    {!admin ? (
+                      <Skeleton className="h-10 w-full rounded-xl" />
+                    ) : (
+                      <>
+                        {selectedDeliveryId && admin.is_admin && (
+                          <>
+                            <Button
+                              color="secondary"
+                              variant="shadow"
+                              className="w-full"
+                              onPress={() => setShowQrCode(true)}
+                            >
+                              <Icon icon="mdi:qrcode" className="mr-1" />
+                              Show Delivery QR
+                            </Button>
+                            {formData.status === "DELIVERED" && (
+                              <Button
+                                color="success"
+                                variant="shadow"
+                                className="w-full"
+                                onPress={handleViewInventory}
+                              >
+                                <Icon icon="mdi:package-variant" className="mr-1" />
+                                Show Inventory
+                              </Button>
+                            )}
 
-                  {admin && selectedDeliveryId && (
-                    <div className="flex flex-col gap-4">
-                      <hr className="border-default-200" />
-                      <h3 className="text-lg font-semibold w-full text-center">Quick Status Update</h3>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                        <Button
-                          color="warning"
-                          variant="flat"
-                          className="w-full"
-                          isDisabled={formData.status === "PROCESSING" || isLoading}
-                          onPress={() => handleStatusChange("PROCESSING")}
-                        >
-                          <Icon icon="mdi:clock-start" className="mr-1" />
-                          Processing
-                        </Button>
-                        <Button
-                          color="primary"
-                          variant="flat"
-                          className="w-full"
-                          isDisabled={formData.status === "IN_TRANSIT" || isLoading}
-                          onPress={() => handleStatusChange("IN_TRANSIT")}
-                        >
-                          <Icon icon="mdi:truck-fast" className="mr-1" />
-                          In Transit
-                        </Button>
-                        <Button
-                          color="success"
-                          variant="flat"
-                          className="w-full"
-                          isDisabled={formData.status === "DELIVERED" || isLoading}
-                          onPress={() => handleStatusChange("DELIVERED")}
-                        >
-                          <Icon icon="mdi:check-circle" className="mr-1" />
-                          Delivered
-                        </Button>
-                        <Button
-                          color="danger"
-                          variant="flat"
-                          className="w-full"
-                          isDisabled={formData.status === "CANCELLED" || isLoading}
-                          onPress={() => handleStatusChange("CANCELLED")}
-                        >
-                          <Icon icon="mdi:close-circle" className="mr-1" />
-                          Cancel
-                        </Button>
+                          </>
+                        )}
+
+                        {/* Show submit button only for admins creating/updating or operators with selected delivery */}
+                        {((admin.is_admin || selectedDeliveryId) && formData.status !== "DELIVERED") && (
+                          <Button
+                            type="submit"
+                            form="deliveryForm"
+                            color="primary"
+                            variant="shadow"
+                            className="w-full"
+                            isLoading={isLoading}
+                          >
+                            <Icon icon="mdi:content-save" className="mr-1" />
+                            {selectedDeliveryId ? "Update Delivery" : "Create Delivery"}
+                          </Button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </CardList>
+            </Form>
+          ) : selectedDeliveryId ? (
+            <CardList>
+              <div>
+                <h2 className="text-xl font-semibold mb-4 w-full text-center">Delivery Information</h2>
+                <div className="space-y-4">
+                  {/* Read-only view for operators */}
+                  <div className="space-y-4">
+                    <div className="p-4 border border-default-200 rounded-xl">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-default-500">Item</span>
+                        <Chip color="default" size="sm">
+                          {inventoryItems.find(i => i.uuid === formData.inventory_item_uuid)?.item_code || 'N/A'}
+                        </Chip>
+                      </div>
+                      <p className="font-semibold">
+                        {inventoryItems.find(i => i.uuid === formData.inventory_item_uuid)?.item_name || 'Unknown Item'}
+                      </p>
+                    </div>
+
+                    <div className="p-4 border border-default-200 rounded-xl">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-default-500">Status</span>
+                        <Chip color={getStatusColor(formData.status as string)} size="sm">
+                          {formData.status}
+                        </Chip>
+                      </div>
+                      <div className="flex justify-between items-center mt-2">
+                        <span className="text-default-500">Delivery Date</span>
+                        <span>{new Date(formData.delivery_date as string).toLocaleDateString()}</span>
                       </div>
                     </div>
-                  )}
-                </div>
-              </div>
 
-              <div>
-                <div className="flex flex-col md:flex-row justify-center items-center gap-4">
-                  {!admin ? (
-                    <Skeleton className="h-10 w-full rounded-xl" />
-                  ) : (
-                    <>
-                      {selectedDeliveryId && (
-                        <Button
-                          color="secondary"
-                          variant="shadow"
-                          className="w-full"
-                          onPress={() => setShowQrCode(true)}
-                        >
-                          <Icon icon="mdi:qrcode" className="mr-1" />
-                          Show Delivery QR
-                        </Button>
-                      )}
+                    <div className="p-4 border border-default-200 rounded-xl">
+                      <span className="text-default-500">Delivery Address</span>
+                      <p className="mt-1">{formData.delivery_address}</p>
+                    </div>
+
+                    {formData.notes && (
+                      <div className="p-4 border border-default-200 rounded-xl">
+                        <span className="text-default-500">Notes</span>
+                        <p className="mt-1">{formData.notes}</p>
+                      </div>
+                    )}
+
+                    {formData.recipient_name && (
+                      <div className="p-4 border border-default-200 rounded-xl">
+                        <span className="text-default-500">Recipient</span>
+                        <p className="font-medium mt-1">{formData.recipient_name}</p>
+                        <p className="text-default-500">{formData.recipient_contact}</p>
+                      </div>
+                    )}
+
+                    {formData.status === "DELIVERED" && (
                       <Button
-                        type="submit"
-                        form="deliveryForm"
-                        color="primary"
+                        color="secondary"
                         variant="shadow"
                         className="w-full"
-                        isLoading={isLoading}
+                        onPress={() => setShowQrCode(true)}
                       >
-                        <Icon icon="mdi:content-save" className="mr-1" />
-                        {selectedDeliveryId ? "Update Delivery" : "Create Delivery"}
+                        <Icon icon="mdi:qrcode" className="mr-1" />
+                        Show Delivery QR
                       </Button>
-                    </>
-                  )}
+                    )}
+
+                  </div>
                 </div>
-
               </div>
-
             </CardList>
-
-          </Form>
+          ) : (
+            /* Show message for operators when no delivery is selected */
+            <div className="flex flex-col items-center justify-center p-12 border border-dashed border-default-300 rounded-2xl bg-background">
+              <Icon icon="mdi:truck-delivery" className="text-default-300" width={64} height={64} />
+              <h3 className="text-xl font-semibold text-default-800">No Delivery Selected</h3>
+              <p className="text-default-500 text-center mt-2 mb-6">
+                Select a delivery from the list to view details, or click the "Accept Delivery" button to scan a QR code.
+              </p>
+              <Button
+                color="primary"
+                variant="shadow"
+                className="mb-4"
+                onPress={() => setShowAcceptDeliveryModal(true)}
+              >
+                <Icon icon="mdi:qrcode-scan" className="mr-2" />
+                Accept Delivery
+              </Button>
+            </div>
+          )}
         </div>
       </div >
 
       {/* QR Code Modal */}
       < Modal
         isOpen={showQrCode}
-        onClose={() => setShowQrCode(false)
-        }
+        onClose={() => setShowQrCode(false)}
         placement="auto"
         backdrop="blur"
         size="lg"
+        classNames={{
+          backdrop: "bg-background/50"
+        }}
       >
         <ModalContent>
           <ModalHeader>Delivery QR Code</ModalHeader>
@@ -1147,6 +1496,113 @@ export default function DeliveryPage() {
           </ModalFooter>
         </ModalContent>
       </Modal >
+
+      <Modal
+        isOpen={showAcceptDeliveryModal}
+        onClose={() => {
+          setShowAcceptDeliveryModal(false);
+          setDeliveryJson("");
+          setJsonValidationError("");
+          setJsonValidationSuccess(false);
+        }}
+        isDismissable={!isLoading && !isProcessingImage}
+        placement="auto"
+        backdrop="blur"
+        size="lg"
+        classNames={{
+          backdrop: "bg-background/50"
+        }}
+      >
+        <ModalContent>
+          <ModalHeader>Accept Delivery</ModalHeader>
+          <ModalBody className="flex flex-col items-center">
+            <div className="w-full space-y-4">
+              <p className="text-default-700">
+                Scan the delivery QR code or enter the delivery code provided by the admin:
+              </p>
+
+              {/* QR Code Image Upload */}
+              <div className="flex flex-col items-center w-full">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleQrImageUpload}
+                  className="hidden"
+                  ref={fileInputRef}
+                />
+
+                <Button
+                  color="primary"
+                  variant="flat"
+                  className="w-full mb-4"
+                  onPress={() => fileInputRef.current?.click()}
+                  startContent={<Icon icon="mdi:camera" />}
+                  isLoading={isProcessingImage}
+                  isDisabled={isLoading || jsonValidationSuccess}
+                >
+                  Upload QR Code Image
+                </Button>
+
+                <div className="w-full border-t border-default-200 my-4 relative">
+                  <span className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-content1 px-4 text-default-400 text-sm">
+                    OR
+                  </span>
+                </div>
+              </div>
+
+              <Textarea
+                label="Delivery Code"
+                placeholder="Paste the delivery JSON code here"
+                value={deliveryJson}
+                onChange={(e) => setDeliveryJson(e.target.value)}
+                onPaste={handleDeliveryJsonPaste}
+                minRows={4}
+                maxRows={6}
+                classNames={{
+                  base: "w-full",
+                  inputWrapper: `border-2 ${jsonValidationError ? 'border-danger' : jsonValidationSuccess ? 'border-success' : 'border-default-200'} hover:border-default-400 !transition-all duration-200`
+                }}
+                isInvalid={!!jsonValidationError}
+                errorMessage={jsonValidationError}
+                startContent={<Icon icon="mdi:code-json" className="text-default-500 mt-[0.15rem]" />}
+              />
+
+              {jsonValidationSuccess && (
+                <div className="flex items-center py-2 px-4 bg-success-50 rounded-xl">
+                  <Icon icon="mdi:check-circle" className="text-success text-xl mr-2" />
+                  <div>
+                    <p className="font-medium text-success">Delivery accepted successfully!</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </ModalBody>
+          <ModalFooter className="flex justify-end p-4 gap-4">
+            <Button
+              color="default"
+              onPress={() => {
+                setShowAcceptDeliveryModal(false);
+                setDeliveryJson("");
+                setJsonValidationError("");
+                setJsonValidationSuccess(false);
+              }}
+              isDisabled={isLoading || isProcessingImage}
+            >
+              Cancel
+            </Button>
+            <Button
+              {...isLoading ? {} : { startContent: <Icon icon="mdi:check" className="mr-1" /> }}
+              color="primary"
+              variant="shadow"
+              onPress={(e) => handleDeliveryJsonValidation()}
+              isLoading={isLoading || isProcessingImage}
+              isDisabled={jsonValidationSuccess || isLoading || isProcessingImage || !deliveryJson.trim()}
+            >
+              Validate & Accept
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </div >
   );
 }

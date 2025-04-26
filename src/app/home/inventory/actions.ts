@@ -158,47 +158,48 @@ export async function getFloorOptions() {
  * Fetches available shelf locations for a specific company
  * @param companyUuid The company's UUID
  * @param search Optional search term to filter locations
+ * @param status Optional status to filter locations
  * @returns Array of shelf locations
  */
-export async function getInventoryItems(companyUuid?: string, search: string = "") {
+export async function getInventoryItems(
+  companyUuid: string,
+  searchQuery: string = "",
+  status?: string
+) {
   const supabase = await createClient();
 
   try {
-    // Start building the query
     let query = supabase
       .from("inventory_items")
       .select("*")
+      .eq("company_uuid", companyUuid)
       .order("created_at", { ascending: false });
 
-    // Apply company filter if provided
-    if (companyUuid) {
-      query = query.eq("company_uuid", companyUuid);
-    }
-
-    // Apply search filter if provided
-    if (search) {
+    // Add search filter if provided
+    if (searchQuery) {
       query = query.or(
-        `item_code.ilike.%${search}%,item_name.ilike.%${search}%,description.ilike.%${search}%,location_code.ilike.%${search}%`
+        `item_code.ilike.%${searchQuery}%,item_name.ilike.%${searchQuery}%`
       );
     }
 
-    // Execute the query
-    const { data, error, count } = await query;
+    // Add status filter if provided
+    if (status) {
+      query = query.eq("status", status);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       throw error;
     }
 
-    return {
-      success: true,
-      data: data || []
-    };
+    return { success: true, data };
   } catch (error) {
     console.error("Error fetching inventory items:", error);
     return {
       success: false,
-      data: [],
       error: error instanceof Error ? error.message : "Unknown error occurred",
+      data: []
     };
   }
 }

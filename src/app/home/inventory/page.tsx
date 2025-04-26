@@ -8,8 +8,6 @@ import {
   Chip,
   Form,
   Input,
-  Listbox,
-  ListboxItem,
   Modal,
   ModalBody,
   ModalContent,
@@ -229,6 +227,9 @@ export default function InventoryPage() {
   const [maxRow, setMaxRow] = useState(0);
   const [maxColumn, setMaxColumn] = useState(0);
   const [maxDepth, setMaxDepth] = useState(0);
+
+  const [warehouseOnly, setWarehouseOnly] = useState(false);
+
 
   // Validation state
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -557,7 +558,7 @@ export default function InventoryPage() {
 
 
   // Handle item search
-  const handleSearch = async (query: string) => {
+  const handleSearch = async (query: string, filterByWarehouse = warehouseOnly) => {
     setSearchQuery(query);
 
     try {
@@ -566,6 +567,7 @@ export default function InventoryPage() {
       const result = await getInventoryItems(
         admin.company_uuid,
         query,
+        filterByWarehouse ? "IN_WAREHOUSE" : undefined
       );
 
       setInventoryItems(result.data || []);
@@ -574,6 +576,13 @@ export default function InventoryPage() {
     } finally {
       setIsLoadingItems(false);
     }
+  };
+
+  // Add a function to toggle warehouse filter
+  const toggleWarehouseFilter = () => {
+    const newFilterState = !warehouseOnly;
+    setWarehouseOnly(newFilterState);
+    handleSearch(searchQuery, newFilterState);
   };
 
 
@@ -693,13 +702,57 @@ export default function InventoryPage() {
     initPage();
   }, []);
 
+  // Fetch admin status and options when component mounts
+  useEffect(() => {
+    const initPage = async () => {
+      try {
+        const adminData = await checkAdminStatus();
+        setAdmin(adminData);
+
+        setFormData(prev => ({
+          ...prev,
+          admin_uuid: adminData.uuid,
+          company_uuid: adminData.company_uuid
+        }));
+
+        const unitOptions = await getUnitOptions();
+        setUnitOptions(unitOptions);
+
+        const floorOptions = await getFloorOptions();
+        setFloorOptions(floorOptions);
+
+        // Fetch inventory items with filter applied
+        if (adminData.company_uuid) {
+          const result = await getInventoryItems(
+            adminData.company_uuid,
+            searchQuery,
+            warehouseOnly ? "IN_WAREHOUSE" : undefined
+          );
+          setInventoryItems(result.data || []);
+          setIsLoadingItems(false);
+        }
+
+        // Fetch occupied locations
+        if (adminData.company_uuid) {
+          const locationsResult = await getOccupiedShelfLocations(adminData.company_uuid);
+          if (locationsResult.success) {
+            setOccupiedLocations(locationsResult.data);
+          }
+        }
+      } catch (error) {
+        console.error("Error initializing page:", error);
+      }
+    };
+
+    initPage();
+  }, [warehouseOnly]); // Add warehouseOnly as a dependency
+
   useEffect(() => {
     if (!admin?.company_uuid) return;
 
     // Create a client-side Supabase client for real-time subscriptions
     const supabase = createClient();
 
-    // Set up the real-time subscription
     const channel = supabase
       .channel('inventory-changes')
       .on(
@@ -713,10 +766,11 @@ export default function InventoryPage() {
         async (payload) => {
           console.log('Real-time update received:', payload);
 
-          // Refresh inventory items
+          // Refresh inventory items with the current filter state
           const refreshedItems = await getInventoryItems(
             admin.company_uuid,
             searchQuery,
+            warehouseOnly ? "IN_WAREHOUSE" : undefined
           );
 
           setInventoryItems(refreshedItems.data || []);
@@ -734,7 +788,7 @@ export default function InventoryPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [admin?.company_uuid, searchQuery]);
+  }, [admin?.company_uuid, searchQuery, warehouseOnly]);
 
   // Form change handler
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -908,24 +962,62 @@ export default function InventoryPage() {
 
   return (
     <div className="container mx-auto p-2 max-w-4xl">
-      <div className="flex justify-between items-center mb-6">
-        <div>
+      <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
+        <div className="flex flex-col w-full xl:text-left text-center">
           <h1 className="text-2xl font-bold">Inventory Management</h1>
           <p className="text-default-500">Manage your inventory items efficiently.</p>
         </div>
         <div className="flex gap-4">
           <div className="mt-4 text-center">
             {!admin ? (
-              <Skeleton className="h-10 w-32 rounded-xl" />
+              <div className="flex gap-2">
+                <Skeleton className="h-10 w-32 rounded-xl" />
+                <Skeleton className="h-10 w-32 rounded-xl" />
+              </div>
             ) : (
-              <Button
-                color="primary"
-                variant="shadow"
-                onPress={handleNewItem}
-              >
-                <Icon icon="mdi:plus" className="mr-2" />
-                New Item
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  color="secondary"
+                  variant="shadow"
+                  onPress={toggleWarehouseFilter}
+                >
+                  <div className="w-32">
+                    <AnimatePresence>
+                      {warehouseOnly ? (
+                        <motion.div
+                          {...motionTransition}
+                          key="show-admin-only"
+                        >
+                          <div className="w-32 flex items-center gap-2 justify-center">
+                            Show all
+                            <Icon icon={warehouseOnly ? "mdi:eye" : "mdi:eye-off"} width={18} />
+                          </div>
+                        </motion.div>
+                      ) : (
+                        <motion.div
+                          {...motionTransition}
+                          key="hide-admin-only"
+                        >
+                          <div className="w-32 flex items-center gap-2 justify-center">
+                            Warehouse only
+                            <Icon icon={warehouseOnly ? "mdi:eye" : "mdi:eye-off"} width={18} />
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </Button>
+
+
+                <Button
+                  color="primary"
+                  variant="shadow"
+                  onPress={handleNewItem}
+                >
+                  <Icon icon="mdi:plus" className="mr-2" />
+                  New Item
+                </Button>
+              </div>
             )}
           </div>
         </div>
@@ -965,23 +1057,18 @@ export default function InventoryPage() {
                   </div>
                 </div>
               ) : !isLoadingItems && inventoryItems.length !== 0 ? (
-                <Listbox
-                  classNames={{ list: 'space-y-4 p-3 overflow-y-auto pt-32', base: 'xl:h-full h-[42rem]' }}
-                  onSelectionChange={(item) => handleSelectItem((item as Set<string>).values().next().value || "")}
-                  selectedKeys={[selectedItemId || ""]}
-                  selectionMode="single">
+                <div
+                  className='space-y-4 p-4 overflow-y-auto pt-[8.25rem] xl:h-full h-[42rem]'>
                   {inventoryItems.map((item) => (
-                    <ListboxItem
+                    <Button
                       key={item.uuid}
-                      as={Button}
                       onPress={() => handleSelectItem(item.uuid)}
                       variant="shadow"
-                      className={`w-full min-h-28 !transition-all duration-200 rounded-xl px-0 py-4 ${selectedItemId === item.uuid ?
+                      className={`w-full min-h-28 !transition-all duration-200 rounded-xl px-0 py-4  ${selectedItemId === item.uuid ?
                         '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' :
-                        '!bg-default-100/50 hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
-                      hideSelectedIcon
+                        '!bg-default-100/50 shadow-none hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
                     >
-                      <div className="flex justify-between items-start px-0">
+                      <div className="w-full flex justify-between items-start px-0">
                         <div className="flex-1">
                           <div className="flex items-center justify-between px-4">
                             <span className="font-semibold">{item.item_name}</span>
@@ -1005,9 +1092,9 @@ export default function InventoryPage() {
                           </div>
                         </div>
                       </div>
-                    </ListboxItem>
+                    </Button>
                   ))}
-                </Listbox>
+                </div>
               ) : null}
 
               {admin && !isLoadingItems && inventoryItems.length === 0 && (
@@ -1328,17 +1415,26 @@ export default function InventoryPage() {
                 </div>
               </div>
 
-              {admin && selectedItemId && (
-                <div>
-                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Item Status</h2>
-                  <Input
-                    name="variance"
-                    classNames={{ inputWrapper: `${inputStyle.inputWrapper} h-10` }}
-                    isReadOnly
-                    value={formData.status?.toUpperCase() || "UNKNOWN"}
-                  />
-                </div>
-              )}
+              <div {...(admin && selectedItemId ? {} : { className: '!min-h-0 !p-0 !h-0  border-none z-0' })}>
+                <AnimatePresence>
+                  {admin && selectedItemId && (
+                    <motion.div
+                      {...motionTransition}>
+                      <div className="flex flex-col">
+                        <h2 className="text-xl font-semibold mb-4 w-full text-center">Item Status</h2>
+                        <Input
+                          name="variance"
+                          classNames={{ inputWrapper: `${inputStyle.inputWrapper} h-10 w-full` }}
+                          isReadOnly
+                          className="w-full"
+                          value={formData.status?.toUpperCase() || "UNKNOWN"}
+                        />
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
 
               <div>
 
@@ -1358,7 +1454,7 @@ export default function InventoryPage() {
                             if (formData.status?.toUpperCase() === "PENDING") {
                               params.set("deliveryId", selectedItemId);
                               router.replace(`/home/delivery?${params.toString()}`, { scroll: false });
-                            } else {                            
+                            } else {
                               params.set("setInventory", selectedItemId);
                               router.replace(`/home/delivery?${params.toString()}`, { scroll: false });
                             }
@@ -1366,32 +1462,18 @@ export default function InventoryPage() {
                           isDisabled={formData.status?.toUpperCase() === "DELIVERED"}
                         >
                           {(() => {
-                            if (formData.status?.toUpperCase() === "DELIVERED") {
+                            if (formData.status?.toUpperCase() === "AVAILABLE") {
                               return (
                                 <div className="flex items-center gap-2">
-                                  <Icon icon="mdi:check" />
-                                  <span>Item Delivered</span>
-                                </div>
-                              );
-                            } else if (formData.status?.toUpperCase() === "RECEIVED") {
-                              return (
-                                <div className="flex items-center gap-2">
-                                  <Icon icon="mdi:check" />
-                                  <span>Item Received</span>
-                                </div>
-                              );
-                            } else if (formData.status?.toUpperCase() === "PENDING") {
-                              return (
-                                <div className="flex items-center gap-2">
-                                  <Icon icon="mdi:clock-time-four-outline" />
-                                  <span>Delivery Status</span>
+                                  <Icon icon="mdi:truck-delivery" />
+                                  <span>Deliver Item</span>
                                 </div>
                               );
                             } else {
                               return (
                                 <div className="flex items-center gap-2">
-                                  <Icon icon="mdi:truck-delivery" />
-                                  <span>Deliver Item</span>
+                                  <Icon icon="mdi:clock-time-four-outline" />
+                                  <span>Check Delivery</span>
                                 </div>
                               );
                             }
@@ -1419,6 +1501,7 @@ export default function InventoryPage() {
       </div>
 
 
+      {/* Modal for QR Code */}
       <Modal
         isOpen={showQrCode}
         onClose={() => setShowQrCode(false)}
@@ -1491,6 +1574,7 @@ export default function InventoryPage() {
         </ModalContent>
       </Modal>
 
+      {/* Modal for the 3D shelf selector */}
       <Modal
         isOpen={isOpen}
         onClose={handleCancelLocation}
