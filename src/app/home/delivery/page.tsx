@@ -152,6 +152,19 @@ export default function DeliveryPage() {
     status: "PENDING",
   });
 
+  // Add this ref at the top with your other refs
+  const deliveryJsonTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Add this useEffect to focus on the textarea when modal opens
+  useEffect(() => {
+    if (showAcceptDeliveryModal && deliveryJsonTextareaRef.current) {
+      // Short timeout to ensure the modal is rendered before focusing
+      setTimeout(() => {
+        deliveryJsonTextareaRef.current?.focus();
+      }, 100);
+    }
+  }, [showAcceptDeliveryModal]);
+
   const handleDeliveryJsonValidation = async (jsonData = deliveryJson) => {
     // Reset states
     setJsonValidationError("");
@@ -1551,6 +1564,7 @@ export default function DeliveryPage() {
               </div>
 
               <Textarea
+                ref={deliveryJsonTextareaRef}
                 label="Delivery Code"
                 placeholder="Paste the delivery JSON code here"
                 value={deliveryJson}
@@ -1558,6 +1572,7 @@ export default function DeliveryPage() {
                 onPaste={handleDeliveryJsonPaste}
                 minRows={4}
                 maxRows={6}
+                
                 classNames={{
                   base: "w-full",
                   inputWrapper: `border-2 ${jsonValidationError ? 'border-danger' : jsonValidationSuccess ? 'border-success' : 'border-default-200'} hover:border-default-400 !transition-all duration-200`
