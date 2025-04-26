@@ -5,7 +5,7 @@ import { format } from "date-fns";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { getDashboardData } from "./actions";
+import { getDashboardData, getUser } from "./actions";
 import { useTheme } from "next-themes";
 
 import {
@@ -42,6 +42,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dashboardData, setDashboardData] = useState<any>(null);
+  const [user, setUser] = useState<any>(null);
   const { theme } = useTheme()
 
   const isDark = () => {
@@ -55,6 +56,15 @@ export default function DashboardPage() {
     async function loadDashboardData() {
       try {
         setLoading(true);
+        // Get user data
+        const { data: userData, error: userError } = await getUser();
+        if (userError) {
+          setError(userError.toString());
+          return;
+        }
+
+        setUser(userData);
+
         const { data, error } = await getDashboardData();
 
         if (error) {
@@ -215,7 +225,7 @@ export default function DashboardPage() {
             <CardBody className="p-4">
               <div className="flex justify-between items-end mb-3 gap-4">
                 <div className="text-lg font-medium text-success-800">
-                  Inventory
+                  {user?.is_admin ? "Inventory" : "Warehouse Items"}
                 </div>
                 <Icon icon="fluent-emoji:package"
                   className="absolute right-2 top-4 text-secondary-500 blur-3xl"
@@ -229,7 +239,10 @@ export default function DashboardPage() {
                 <Skeleton className="h-8 w-24 mb-3 rounded-lg" />
               ) : (
                 <div className="text-4xl font-bold mb-3 text-success-900">
-                  {dashboardData?.inventoryStats?.total || 0}
+                  {user?.is_admin ?
+                    (dashboardData?.inventoryStats?.total || 0) :
+                    (dashboardData?.inventoryStats?.in_warehouse || 0)
+                  }
                 </div>
               )}
 
@@ -242,8 +255,16 @@ export default function DashboardPage() {
                 ) : (
                   <>
                     <div className="flex justify-between text-xs text-success-600 mb-2">
-                      <span>Available ({dashboardData?.inventoryStats?.available || 0})</span>
-                      <span>Reserved ({dashboardData?.inventoryStats?.reserved || 0})</span>
+                      <span>
+                        {user?.is_admin ?
+                          `Available (${(dashboardData?.inventoryStats?.available || 0)})` :
+                          `Items in Warehouse (${(dashboardData?.inventoryStats?.in_warehouse || 0)})`}
+                      </span>
+                      <span>
+                        {user?.is_admin ?
+                          `Reserved (${(dashboardData?.inventoryStats?.reserved || 0)})` :
+                          `Undelivered (${(dashboardData?.inventoryStats?.total || 0) - (dashboardData?.inventoryStats?.in_warehouse || 0)})`}
+                      </span>
                     </div>
                     <Progress
                       value={dashboardData?.inventoryStats?.total > 0
@@ -264,9 +285,14 @@ export default function DashboardPage() {
                   as={Link}
                   variant="shadow"
                   color="success"
-                  href="/home/inventory"
+                  href={user?.is_admin ? "/home/inventory" : "/home/warehouse-items"}
                 >
-                  Manage inventory <Icon icon="fluent:arrow-right-16-filled" className="ml-1.5 h-3.5 w-3.5" />
+                  {user?.is_admin ?
+                    "Manage inventory" :
+                    "View warehouse items"
+                  }
+
+                  <Icon icon="fluent:arrow-right-16-filled" className="ml-1.5 h-3.5 w-3.5" />
                 </Button>
               )}
             </CardBody>
@@ -394,20 +420,6 @@ export default function DashboardPage() {
               ) : (
                 <>
                   <Button
-                    color="primary"
-                    variant="flat"
-                    className="h-16 text-left justify-start"
-                    startContent={<Icon icon="fluent:box-checkmark-20-filled" width={20} height={20} className="mr-2" />}
-                    as={Link}
-                    href="/home/inventory"
-                  >
-                    <div>
-                      <p>Add Inventory</p>
-                      <p className="text-xs opacity-70">Create new inventory</p>
-                    </div>
-                  </Button>
-
-                  <Button
                     color="secondary"
                     variant="flat"
                     className="h-16 text-left justify-start"
@@ -416,8 +428,12 @@ export default function DashboardPage() {
                     href="/home/delivery"
                   >
                     <div>
-                      <p>Create Delivery</p>
-                      <p className="text-xs opacity-70">Schedule a new delivery</p>
+                      <p>
+                        {user?.is_admin ? "Manage Deliveries" : "View Deliveries"}
+                      </p>
+                      <p className="text-xs opacity-70">
+                        {user?.is_admin ? "Schedule a new delivery" : "Show all deliveries"}
+                      </p>
                     </div>
                   </Button>
 
@@ -425,15 +441,50 @@ export default function DashboardPage() {
                     color="success"
                     variant="flat"
                     className="h-16 text-left justify-start"
-                    startContent={<Icon icon="fluent:building-shop-24-filled" width={20} height={20} className="mr-2" />}
+                    startContent={<Icon icon="fluent:box-checkmark-20-filled" width={20} height={20} className="mr-2" />}
                     as={Link}
-                    href="/home/warehouses"
+                    href="/home/inventory"
                   >
                     <div>
-                      <p>Manage Warehouses</p>
-                      <p className="text-xs opacity-70">View or add warehouses</p>
+                      <p>
+                        {user?.is_admin ? "Manage Inventory" : "View Warehouse"}
+                      </p>
+                      <p className="text-xs opacity-70">
+                        {user?.is_admin ? "Create new inventory" : "Show items in warehouse"}
+                      </p>
                     </div>
                   </Button>
+
+                  {user?.is_admin ? (
+                    <Button
+                      color="danger"
+                      variant="flat"
+                      className="h-16 text-left justify-start"
+                      startContent={<Icon icon="fluent:building-shop-24-filled" width={20} height={20} className="mr-2" />}
+                      as={Link}
+                      href="/home/warehouses"
+                    >
+                      <div>
+                        <p>Manage Warehouses</p>
+                        <p className="text-xs opacity-70">View or add warehouses</p>
+                      </div>
+                    </Button>
+                  ) : (
+                    <Button
+                      color="danger"
+                      variant="flat"
+                      className="h-16 text-left justify-start"
+                      startContent={
+                      <Icon icon="heroicons:bell-alert-20-solid" width={20} height={20} className="mr-2" />}
+                      as={Link}
+                      href="/home/warehouse-items"
+                    >
+                      <div>
+                        <p>View Notifications</p>
+                        <p className="text-xs opacity-70">Show all notifications</p>
+                      </div>
+                    </Button>
+                  )}
 
                   <Button
                     color="warning"

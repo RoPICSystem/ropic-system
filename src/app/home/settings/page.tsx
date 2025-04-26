@@ -83,7 +83,7 @@ export default function SettingsPage() {
             </Button>
           </div>
         </CardList>
-        <CardList>
+        {/* <CardList>
           <div className="flex items-center justify-between h-full w-full">
             <span>Language</span>
             <Button className="my-1">
@@ -96,7 +96,7 @@ export default function SettingsPage() {
               UTC (GMT+0)
             </Button>
           </div>
-        </CardList>
+        </CardList> */}
 
         <CardList>
           <div className="flex items-center justify-between h-full w-full">

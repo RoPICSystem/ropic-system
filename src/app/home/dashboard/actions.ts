@@ -4,6 +4,34 @@ import { createClient } from "@/utils/supabase/server";
 import { getUserCompany } from "@/utils/supabase/server/user";
 
 /**
+ * Checks if the current user is an admin and returns admin data
+ */
+export async function getUser() {
+  const supabase = await createClient();
+
+  try {
+    // Get session data
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (!session) {
+      return { data: null, error: "No session found" };
+    }
+
+    // Get user profile from the database
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("uuid", session.user.id)
+      .single();
+   
+    return { data: profile, error: profileError };
+  } catch (error) {
+    console.error("Error checking getting data:", error);
+    return { data: null, error: "Error checking getting data" };
+  }
+}
+
+/**
  * Fetches all dashboard data from Supabase
  */
 export async function getDashboardData() {
