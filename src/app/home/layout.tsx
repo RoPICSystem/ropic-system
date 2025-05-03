@@ -1,17 +1,20 @@
 import { ReactNode } from 'react';
 import SideBar from '@/components/sidebar';
 import NavigationBread from '@/components/breadcrumbs';
+import NotificationListener from '@/components/notification-listener';
 
 type LayoutProps = {
   children: ReactNode;
 };
-
 
 export default function Layout({ children }: LayoutProps) {
   return (
     <div className="flex h-screen max-w-screen-2xl mx-auto 2xl:p-5 transition-[padding] duration-300 ease-in-out">
       <div className='flex w-full 2xl:border-1 2xl:border-default-200 
         2xl:rounded-lg 2xl:shadow-2xl 2xl:shadow-primary/50 overflow-hidden' suppressHydrationWarning>
+        {/* Notification listener for real-time toasts */}
+        <NotificationListener />
+        
         {/* Sidebar */}
         <SideBar>
           <main className="flex-1 bg-default-100 relative w-full h-full">

@@ -542,7 +542,7 @@ export default function NotificationsPage() {
                                     {notification.type.charAt(0).toUpperCase() + notification.type.slice(1)} {notification.action}
 
                                     {notification.is_admin_only && (
-                                      <Badge color="warning" variant="flat">Admin Only</Badge>
+                                      <Chip color="warning" variant="flat">Admin Only</Chip>
                                     )}
                                   </div>
 
