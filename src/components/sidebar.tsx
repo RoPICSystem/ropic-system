@@ -229,7 +229,7 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
                           description={userData?.is_admin ? 'Administrator' : 'Operator'}
                           classNames={{
                             base: 'flex items-start gap-4 justify-start w-full',
-                            name: 'text-sm font-semibold text-default-600',
+                            name: 'text-sm font-semibold text-default-600 truncate max-w-[200px]',
                           }}
                           name={userData?.full_name || 'User'}
                         />
