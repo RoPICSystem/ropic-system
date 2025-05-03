@@ -81,6 +81,7 @@ interface Operator {
   uuid: string;
   email: string;
   full_name: string;
+  phone_number: string;
 }
 
 interface Address {
@@ -431,7 +432,23 @@ export default function DeliveryPage() {
   // Handle form changes
   const handleAutoSelectChange = (name: string, value: string) => {
     setFormData(prev => ({ ...prev, [name]: value }));
-  };
+
+  // If operator is selected, auto-populate recipient fields
+  if (name === "operator_uuid" && value) {
+    const selectedOperator = operators.find(op => op.uuid === value);
+    if (selectedOperator) {
+      // Set the selected operator state
+      setSelectedOperator(selectedOperator);
+      
+      // Auto-populate recipient name and contact with operator details
+      setFormData(prev => ({
+        ...prev,
+        recipient_name: selectedOperator.full_name,
+        recipient_contact: selectedOperator.phone_number // Assuming email is the contact, update if you have phone field
+      }));
+    }
+  }
+};
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -477,10 +494,26 @@ export default function DeliveryPage() {
 
     try {
       let result;
+      const newData =  {
+        admin_uuid: admin.uuid,
+        company_uuid: admin.company_uuid,
+        inventory_item_uuid: formData.inventory_item_uuid,
+        warehouse_uuid: formData.warehouse_uuid,
+        delivery_address: formData.delivery_address,
+        delivery_date: formData.delivery_date,
+        notes: formData.notes,
+        status: formData.status,
+        ...(assignOperator ?
+          {
+            operator_uuid: formData.operator_uuid,
+            recipient_name: formData.recipient_name,
+            recipient_contact: formData.recipient_contact,
+          } : {}),
+      };
 
       if (selectedDeliveryId) {
         // Update existing delivery
-        result = await updateDeliveryItem(selectedDeliveryId, formData as any);
+        result = await updateDeliveryItem(selectedDeliveryId, newData);
 
         // Update inventory item status to match delivery status
         if (result.success && formData.status) {
@@ -490,7 +523,7 @@ export default function DeliveryPage() {
         }
       } else {
         // Create new delivery
-        result = await createDeliveryItem(formData as any);
+        result = await createDeliveryItem(newData as any);
 
         // Update inventory item status to match delivery status
         if (result.success && formData.inventory_item_uuid && formData.status) {
@@ -1044,16 +1077,6 @@ export default function DeliveryPage() {
                         )}
                       </AnimatePresence>
 
-                      {/* Show operator name if selected */}
-                      {selectedOperator && (
-                        <div className="flex items-center py-2 px-4 bg-primary-50 rounded-xl">
-                          <Icon icon="mdi:account-check" className="text-primary text-xl mr-2" />
-                          <div>
-                            <p className="text-sm text-default-600">Selected Operator</p>
-                            <p className="font-medium">{selectedOperator.full_name}</p>
-                          </div>
-                        </div>
-                      )}
                     </div>
 
 

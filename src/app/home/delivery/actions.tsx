@@ -277,7 +277,7 @@ export async function getOperators(companyUuid: string) {
   try {
     const { data, error } = await supabase
       .from('profiles')
-      .select('uuid, email, full_name')
+      .select('uuid, email, full_name, phone_number')
       .eq('company_uuid', companyUuid)
       .eq('is_admin', false);
     
