@@ -229,7 +229,7 @@ export default function NotificationListener() {
             description: (
               <div className="flex flex-col gap-1 w-full mt-2">
                 <p className="text-sm w-full">{getNotificationDetails(notification)}</p>
-                <div className="flex gap-2 mt-1 justify-end">
+                <div className="flex gap-2 mt-1">
                   <Button
                     size="sm"
                     variant="light"
