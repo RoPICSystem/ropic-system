@@ -255,6 +255,13 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
                       View Profile
                     </div>
                   </DropdownItem>
+                  <DropdownItem key="company" as={Link} href="/home/company">
+                    <div className="flex items-center gap-2">
+                      <Icon icon="heroicons:building-office-20-solid" width={16} className="w-4 h-4" />
+                      View Company Profile
+                    </div>
+                  </DropdownItem>
+
                 </DropdownMenu>
               </Dropdown>
             </div>

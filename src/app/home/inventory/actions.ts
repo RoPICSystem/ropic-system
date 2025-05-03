@@ -2,6 +2,8 @@
 
 import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
+import { FloorConfig } from "@/components/shelf-selector-3d-v4";
+import { revalidatePath } from "next/cache";
 
 interface LocationData {
   floor: number;
@@ -80,7 +82,6 @@ export async function createInventoryItem(formData: InventoryItemData) {
   }
 }
 
-
 /**
  * Updates an existing inventory item in the database
  */
@@ -152,7 +153,6 @@ export async function getFloorOptions() {
   // You could fetch this from a database table if needed
   return ["Floor 1", "Floor 2", "Floor 3"];
 }
-
 
 /**
  * Fetches available shelf locations for a specific company
@@ -319,5 +319,82 @@ export async function getOccupiedShelfLocations(companyUuid: string) {
       data: [],
       error: error instanceof Error ? error.message : "Unknown error occurred"
     };
+  }
+}
+
+/**
+ * Fetches company layout data
+ * @param companyUuid The company's UUID
+ * @returns Object containing success status, layout data, and error message if any
+ */
+export async function getCompanyLayout(companyUuid: string): Promise<{ success: boolean, data: FloorConfig[] | null, error?: string }> {
+  try {
+    const supabase = await createClient();
+
+    const { data, error } = await supabase
+      .from("companies")
+      .select("company_layout")
+      .eq("uuid", companyUuid)
+      .single();
+
+    if (error) {
+      return { success: false, data: null, error: error.message };
+    }
+
+    if (!data || !data.company_layout) {
+      // If no layout exists, return a default layout
+      return {
+        success: false,
+        data: null,
+        error: "No layout found, returning default layout",
+      };
+    }
+
+    // Transform the company_layout into the format expected by ShelfSelector3D
+    const floorConfigs: FloorConfig[] = data.company_layout.map((floor: any) => {
+      if (typeof floor.height !== "number" || floor.height <= 0) {
+        throw new Error("Invalid layout format: each floor must have a positive height");
+      }
+
+      if (!Array.isArray(floor.matrix)) {
+        throw new Error("Invalid layout format: each floor must have a matrix");
+      }
+
+      return {
+        height: floor.height,
+        matrix: floor.matrix.map((row: any) => {
+          if (!Array.isArray(row)) {
+            throw new Error("Invalid layout format: each row must be an array");
+          }
+          return row;
+        })
+      };
+    });
+    
+    // Validate the transformed layout
+    for (const floor of floorConfigs) {
+      if (typeof floor.height !== "number" || floor.height <= 0) {
+        return { success: false, data: null, error: "Invalid layout format: each floor must have a positive height" };
+      }
+      if (!Array.isArray(floor.matrix)) {
+        return { success: false, data: null, error: "Invalid layout format: each floor must have a matrix" };
+      }
+      for (const row of floor.matrix) {
+        if (!Array.isArray(row)) {
+          return { success: false, data: null, error: "Invalid layout format: each row must be an array" };
+        }
+        for (const cell of row) {
+          if (typeof cell !== "number" || cell < 0 || cell > 100) {
+            return { success: false, data: null, error: "Invalid layout format: each cell must be a number between 0 and 100" };
+          }
+        }
+      }
+    }
+    // Return the transformed layout
+
+    return { success: true, data: floorConfigs };
+  } catch (error: any) {
+    console.error("Error fetching company layout:", error);
+    return { success: false, data: null, error: error.message };
   }
 }
