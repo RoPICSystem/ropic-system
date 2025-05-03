@@ -3,14 +3,20 @@
 import { herouiColor } from "@/utils/colors";
 import { createClient } from "@/utils/supabase/client";
 import {
+  Accordion,
+  AccordionItem,
   Button,
   Chip,
   Input,
+  Kbd,
   Modal,
   ModalBody,
   ModalContent,
   ModalFooter,
   ModalHeader,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
   Skeleton,
   Spinner,
   useDisclosure
@@ -321,7 +327,7 @@ export default function WarehouseItemsPage() {
           matrix: Array(16).fill(0).map(() => Array(32).fill(0))
         }
       ];
-      
+
       try {
         const { data, error } = await getUser();
         setUser(data);
@@ -727,7 +733,155 @@ export default function WarehouseItemsPage() {
               </AnimatePresence>
             </div>
           </ModalBody>
-          <ModalFooter>
+          <ModalFooter className="flex justify-between gap-4 p-4">
+            <Popover showArrow offset={10} placement="bottom-end">
+              <PopoverTrigger>
+                <Button className="capitalize" color="warning" variant="flat">
+                  <Icon
+                    icon="heroicons:question-mark-circle-solid"
+                    className="w-4 h-4 mr-1"
+                  />
+                  Help
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="p-4 max-w-sm">
+                <div className="flex items-center gap-2 mb-4">
+                  <Icon icon="heroicons:lifebuoy" className="w-5 h-5 text-warning-500" width={20} />
+                  <h3 className="font-semibold text-lg">3D Navigation Controls</h3>
+                </div>
+
+                <Accordion variant="splitted">
+                  <AccordionItem key="mouse" aria-label="Mouse Controls" title="Mouse Controls" className="text-sm overflow-hidden bg-primary-50">
+                    <div className="space-y-2 pb-2">
+                      <div className="flex items-start gap-2">
+                        <Icon icon="heroicons:cursor-arrow-ripple" className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary-600" />
+                        <p><strong>Left Click</strong>: Select a shelf</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Icon icon="heroicons:hand-raised" className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary-600" />
+                        <p><strong>Click + Drag</strong>: Rotate camera around scene</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Icon icon="heroicons:cursor-arrow-rays" className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary-600" />
+                        <p><strong>Right Click + Drag</strong>: Pan camera</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Icon icon="heroicons:view-columns" className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary-600" />
+                        <p><strong>Mouse Wheel</strong>: Zoom in/out</p>
+                      </div>
+                    </div>
+                  </AccordionItem>
+
+                  <AccordionItem key="keyboard" aria-label="Keyboard Controls" title="Keyboard Controls" className="text-sm overflow-hidden bg-primary-50">
+                    <div className="space-y-2 pb-2">
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300">W</Kbd>
+                        <p className="my-auto">Move camera forward</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300">S</Kbd>
+                        <p className="my-auto">Move camera backward</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300">A</Kbd>
+                        <p className="my-auto">Move camera left</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300">D</Kbd>
+                        <p className="my-auto">Move camera right</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300" keys={['shift']}>W</Kbd>
+                        <p className="my-auto">Move camera up</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300" keys={['shift']}>S</Kbd>
+                        <p className="my-auto">Move camera down</p>
+                      </div>
+                    </div>
+                  </AccordionItem>
+
+                  <AccordionItem key="shelf-navigation" aria-label="Shelf Navigation" title="Shelf Navigation" className="text-sm overflow-hidden bg-primary-50">
+                    <div className="space-y-2 pb-2">
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300" keys={['left']}></Kbd>
+                        <p>Move to previous shelf or group</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300" keys={['right']}></Kbd>
+                        <p>Move to next shelf or group</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300" keys={['up']}></Kbd>
+                        <p>Move to shelf above</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300" keys={['down']}></Kbd>
+                        <p>Move to shelf below</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="flex">
+                          <Kbd className="border border-default-300" keys={['shift']}></Kbd>
+                          <span className="mx-1">+</span>
+                          <Kbd className="border border-default-300" keys={['up', 'down', 'left', 'right']}></Kbd>
+                        </div>
+                        <p>Navigate between shelf groups</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="flex">
+                          <Kbd className="border border-default-300" keys={['ctrl']}></Kbd>
+                          <span className="mx-1">+</span>
+                          <Kbd className="border border-default-300" keys={['up', 'down']}></Kbd>
+                        </div>
+                        <p>Navigate shelf depth (front/back)</p>
+                      </div>
+                    </div>
+                  </AccordionItem>
+                </Accordion>
+
+                <div className="mt-4 border-t pt-3 border-default-200 w-full px-4">
+                  <h4 className="font-medium mb-2">Color Legend:</h4>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: customColors.floorColor }}></div>
+                      <span className="text-xs">Floor</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: customColors.floorHighlightedColor }}></div>
+                      <span className="text-xs">Selected Floor</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: customColors.groupColor }}></div>
+                      <span className="text-xs">Group</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: customColors.groupSelectedColor }}></div>
+                      <span className="text-xs">Selected Group</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: customColors.shelfColor }}></div>
+                      <span className="text-xs">Shelf</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: customColors.shelfHoverColor }}></div>
+                      <span className="text-xs">Hovered Shelf</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: customColors.shelfSelectedColor }}></div>
+                      <span className="text-xs">Selected Shelf</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: customColors.occupiedShelfColor }}></div>
+                      <span className="text-xs">Occupied Shelf</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 text-xs text-default-500">
+                  Tip: Use WASD and arrow keys for easiest navigation through the warehouse.
+                </div>
+              </PopoverContent>
+            </Popover>
             <Button
               color="default"
               onPress={onClose}
