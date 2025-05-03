@@ -17,7 +17,8 @@ import {
   Chip,
   Divider,
   Progress,
-  Skeleton
+  Skeleton,
+  Spinner
 } from "@heroui/react";
 
 import { Icon } from "@iconify-icon/react";
@@ -112,8 +113,15 @@ export default function DashboardPage() {
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold">Dashboard</h1>
-          <p className="text-default-500">Welcome to RoPIC System inventory and delivery operations</p>
-        </div>
+          {loading ? (
+            <div className="text-default-500 flex items-center">
+              <p className='my-auto mr-1'>Loading dashboard data</p>
+              <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default"/>
+            </div>
+          ) : (
+            <p className="text-default-500">Welcome to RoPIC System inventory and delivery operations.</p>
+          )}
+            </div>
         <div className="flex gap-4 items-center">
           <div className="flex items-center gap-2 text-default-500">
             <Icon icon="fluent:calendar-20-filled" width={20} height={20} />

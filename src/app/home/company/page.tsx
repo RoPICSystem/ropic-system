@@ -143,9 +143,9 @@ export default function CompanyPage() {
     }
 
     // Check if we have the new format with height property
-    if (companyData.company_layout.length > 0 && 
-        'height' in companyData.company_layout[0] &&
-        'matrix' in companyData.company_layout[0]) {
+    if (companyData.company_layout.length > 0 &&
+      'height' in companyData.company_layout[0] &&
+      'matrix' in companyData.company_layout[0]) {
       return companyData.company_layout;
     }
 
@@ -294,7 +294,14 @@ export default function CompanyPage() {
           <div className="flex justify-between items-center">
             <div>
               <h1 className="text-2xl font-bold">Company Profile</h1>
-              <p className="text-default-500">Listed below is your company information.</p>
+              {isLoading ? (
+                <div className="text-default-500 flex items-center">
+                  <p className='my-auto mr-1'>Loading company data</p>
+                  <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
+                </div>
+              ) : (
+                <p className="text-default-500">Listed below is your company information.</p>
+              )}
             </div>
           </div>
 
@@ -419,7 +426,7 @@ export default function CompanyPage() {
             <div>
               <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouse Layout</h2>
               {renderLayoutPreview()}
-              
+
               {/* Add 3D Preview button if layout exists */}
               {companyData?.company_layout && Array.isArray(companyData.company_layout) && companyData.company_layout.length > 0 && (
                 <div className="flex justify-end mt-4">

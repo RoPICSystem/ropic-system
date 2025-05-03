@@ -433,22 +433,22 @@ export default function DeliveryPage() {
   const handleAutoSelectChange = (name: string, value: string) => {
     setFormData(prev => ({ ...prev, [name]: value }));
 
-  // If operator is selected, auto-populate recipient fields
-  if (name === "operator_uuid" && value) {
-    const selectedOperator = operators.find(op => op.uuid === value);
-    if (selectedOperator) {
-      // Set the selected operator state
-      setSelectedOperator(selectedOperator);
-      
-      // Auto-populate recipient name and contact with operator details
-      setFormData(prev => ({
-        ...prev,
-        recipient_name: selectedOperator.full_name,
-        recipient_contact: selectedOperator.phone_number // Assuming email is the contact, update if you have phone field
-      }));
+    // If operator is selected, auto-populate recipient fields
+    if (name === "operator_uuid" && value) {
+      const selectedOperator = operators.find(op => op.uuid === value);
+      if (selectedOperator) {
+        // Set the selected operator state
+        setSelectedOperator(selectedOperator);
+
+        // Auto-populate recipient name and contact with operator details
+        setFormData(prev => ({
+          ...prev,
+          recipient_name: selectedOperator.full_name,
+          recipient_contact: selectedOperator.phone_number // Assuming email is the contact, update if you have phone field
+        }));
+      }
     }
-  }
-};
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -494,7 +494,7 @@ export default function DeliveryPage() {
 
     try {
       let result;
-      const newData =  {
+      const newData = {
         admin_uuid: admin.uuid,
         company_uuid: admin.company_uuid,
         inventory_item_uuid: formData.inventory_item_uuid,
@@ -593,24 +593,24 @@ export default function DeliveryPage() {
     } else if (setInventoryId) {
       // First check if there's already a delivery for this inventory item
       const existingDelivery = deliveryItems.find(item => item.inventory_item_uuid === setInventoryId);
-      
+
       if (existingDelivery) {
         // If delivery exists for this inventory item, select it
         setSelectedDeliveryId(existingDelivery.uuid);
         setFormData({ ...existingDelivery });
         setSelectedItem(existingDelivery.inventory_item_uuid || "");
-        
+
         // Check if there's an operator assigned
         const hasOperator = !!existingDelivery.operator_uuid;
         setAssignOperator(hasOperator);
-        
+
         if (hasOperator && existingDelivery.operator_uuid) {
           const operator = operators.find(op => op.uuid === existingDelivery.operator_uuid);
           setSelectedOperator(operator || null);
         } else {
           setSelectedOperator(null);
         }
-        
+
         // Update URL with the found delivery ID
         const params = new URLSearchParams(searchParams.toString());
         params.delete("setInventory");
@@ -855,7 +855,14 @@ export default function DeliveryPage() {
       <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
         <div className="flex flex-col w-full xl:text-left text-center">
           <h1 className="text-2xl font-bold">Delivery Management</h1>
-          <p className="text-default-500">Track and manage your deliveries efficiently.</p>
+          {(isLoading || isLoadingItems) ? (
+            <div className="text-default-500 flex items-center">
+              <p className='my-auto mr-1'>Loading delivery data</p>
+              <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
+            </div>
+          ) : (
+            <p className="text-default-500">Track and manage your deliveries efficiently.</p>
+          )}
         </div>
         <div className="flex gap-4">
           <div className="mt-4 text-center">
@@ -1252,17 +1259,17 @@ export default function DeliveryPage() {
                       <Skeleton className="h-16 w-full rounded-xl" />
                     ) : (
                       <Input
-                      name="status"
-                      label="Status"
-                      placeholder="Status"
-                      value={formData.status || "PENDING"}
-                      isReadOnly={!selectedDeliveryId}  // Make it readonly when creating new delivery
-                      classNames={inputStyle}
-                      isRequired
-                      isInvalid={!!errors.status}
-                      errorMessage={errors.status}
-                      startContent={<Icon icon="mdi:truck-delivery" className="text-default-500 mb-[0.2rem]" />}
-                    />
+                        name="status"
+                        label="Status"
+                        placeholder="Status"
+                        value={formData.status || "PENDING"}
+                        isReadOnly={!selectedDeliveryId}  // Make it readonly when creating new delivery
+                        classNames={inputStyle}
+                        isRequired
+                        isInvalid={!!errors.status}
+                        errorMessage={errors.status}
+                        startContent={<Icon icon="mdi:truck-delivery" className="text-default-500 mb-[0.2rem]" />}
+                      />
                     )}
 
                     <AnimatePresence>
@@ -1595,7 +1602,7 @@ export default function DeliveryPage() {
                 onPaste={handleDeliveryJsonPaste}
                 minRows={4}
                 maxRows={6}
-                
+
                 classNames={{
                   base: "w-full",
                   inputWrapper: `border-2 ${jsonValidationError ? 'border-danger' : jsonValidationSuccess ? 'border-success' : 'border-default-200'} hover:border-default-400 !transition-all duration-200`

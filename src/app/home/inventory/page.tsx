@@ -944,7 +944,14 @@ export default function InventoryPage() {
       <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
         <div className="flex flex-col w-full xl:text-left text-center">
           <h1 className="text-2xl font-bold">Inventory Management</h1>
-          <p className="text-default-500">Manage your inventory items efficiently.</p>
+          {(isLoading || isLoadingItems) ? (
+            <div className="text-default-500 flex items-center">
+              <p className='my-auto mr-1'>Loading inventory data</p>
+              <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
+            </div>
+          ) : (
+            <p className="text-default-500">Manage your inventory items efficiently.</p>
+          )}
         </div>
         <div className="flex gap-4">
           <div className="mt-4 text-center">

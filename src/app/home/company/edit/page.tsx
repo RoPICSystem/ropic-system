@@ -856,7 +856,14 @@ export default function CompanyEditPage() {
           <div className="flex justify-between items-center">
             <div>
               <h1 className="text-2xl font-bold">Profile</h1>
-              <p className="text-default-500">Listed below is your profile information.</p>
+              {isLoading ? (
+                <div className="text-default-500 flex items-center">
+                  <p className='my-auto mr-1'>Loading company editing components</p>
+                  <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
+                </div>
+              ) : (
+                <p className="text-default-500">Listed below is your profile information.</p>
+              )}
             </div>
             <div className="flex gap-4">
 

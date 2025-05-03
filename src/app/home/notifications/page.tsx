@@ -390,7 +390,14 @@ export default function NotificationsPage() {
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold">Notifications</h1>
+          {loading ? (
+            <div className="text-default-500 flex items-center">
+              <p className='my-auto mr-1'>Loading notification data</p>
+              <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default"/>
+            </div>
+          ) : (
           <p className="text-default-500">Track changes across your system</p>
+          )}
         </div>
 
         <div className="flex gap-2">

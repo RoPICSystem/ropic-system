@@ -376,7 +376,14 @@ export default function WarehouseItemsPage() {
       <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
         <div className="flex flex-col w-full xl:text-left text-center">
           <h1 className="text-2xl font-bold">Warehouse Items</h1>
+          {(isLoading || isLoadingItems || !user) ? (
+            <div className="text-default-500 flex items-center">
+              <p className='my-auto mr-1'>Loading warehouse items data</p>
+              <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default"/>
+            </div>
+          ) : (
           <p className="text-default-500">View items currently in your warehouse.</p>
+          )}
         </div>
       </div>
 

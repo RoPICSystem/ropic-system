@@ -20,7 +20,8 @@ import {
   Image,
   Input,
   NumberInput,
-  Skeleton
+  Skeleton,
+  Spinner
 } from "@heroui/react"
 import { getLocalTimeZone, parseDate, today } from '@internationalized/date'
 
@@ -197,12 +198,12 @@ export default function ProfilePage() {
       try {
         setIsLoading(true)
         const { data, error } = await getUserProfile();
-        
+
         if (error) {
           setError(error)
           return
         }
-        
+
         setUserData(data)
         setSelectedGender(data.gender)
         setOriginalUserData(JSON.parse(JSON.stringify(data))) // Create a deep copy for reset
@@ -364,7 +365,10 @@ export default function ProfilePage() {
           <div className="flex justify-between items-center">
             <div>
               <h1 className="text-2xl font-bold">Edit Profile</h1>
-              <p className="text-default-500">Update your profile information.</p>
+              <div className="text-default-500 flex items-center">
+                <p className='my-auto mr-1'>Loading profile editing components</p>
+                <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
+              </div>
             </div>
           </div>
           {/* Profile Image Skeleton */}
@@ -378,7 +382,7 @@ export default function ProfilePage() {
               </div>
             </div>
           </CardList>
-  
+
           {/* Basic Information Skeleton */}
           <CardList>
             <div>
@@ -400,7 +404,7 @@ export default function ProfilePage() {
               </div>
             </div>
           </CardList>
-  
+
           {/* Address Information Skeleton */}
           <CardList>
             <div>
@@ -425,7 +429,7 @@ export default function ProfilePage() {
               </div>
             </div>
           </CardList>
-  
+
           {/* Account Information Skeleton */}
           <CardList>
             <div>
@@ -433,7 +437,7 @@ export default function ProfilePage() {
               <Skeleton className="h-14 rounded-lg" /> {/* Email field */}
             </div>
           </CardList>
-  
+
           {/* Profile Update Options Skeleton */}
           <CardList>
             <div>
