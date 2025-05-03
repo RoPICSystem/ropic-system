@@ -722,8 +722,8 @@ export default function WarehouseItemsPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-center border-t border-default-200 pt-3 pb-2">
-                      <span className="font-semibold">Location Code: </span>
+                    <div className="flex items-center justify-between border-t border-default-200 p-4 gap-4">
+                      <span className="font-semibold">Code:</span>
                       <span className="ml-2 bg-primary-100 px-2 py-1 rounded-md font-mono">
                         {formData.location_code}
                       </span>
