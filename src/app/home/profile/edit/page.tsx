@@ -1,7 +1,6 @@
 'use client'
 
 
-import { getUserCompanyDetails } from '@/utils/supabase/server/companies'
 import { getUserProfile } from '@/utils/supabase/server/user'
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
@@ -12,8 +11,6 @@ import {
   XMarkIcon
 } from '@heroicons/react/24/solid'
 import {
-  Accordion,
-  AccordionItem,
   Alert,
   Autocomplete,
   AutocompleteItem,
@@ -23,7 +20,6 @@ import {
   Image,
   Input,
   NumberInput,
-  Selection,
   Skeleton
 } from "@heroui/react"
 import { getLocalTimeZone, parseDate, today } from '@internationalized/date'
@@ -37,7 +33,6 @@ import {
   getProvinces,
   getRegions
 } from '@/utils/supabase/server/address'
-import { getExistingCompanies } from '@/utils/supabase/server/companies'
 import { AnimatePresence, motion } from 'framer-motion'
 
 // Types for address data
@@ -80,8 +75,6 @@ interface Company {
   }
 }
 
-
-
 export default function ProfilePage() {
   const [userData, setUserData] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -96,11 +89,6 @@ export default function ProfilePage() {
   // Router
   const router = useRouter()
 
-  // Company infos
-  const [existingCompanies, setExistingCompanies] = useState<Company[]>([]);
-  const [isNewCompany, setIsNewCompany] = useState<boolean>(false);
-  const [selectedExistingCompany, setSelectedExistingCompany] = useState<string>('');
-
   const [selectedGender, setSelectedGender] = useState<string>('');
 
   // Address form state
@@ -108,11 +96,6 @@ export default function ProfilePage() {
   const [provinces, setProvinces] = useState<Province[]>([])
   const [cityMunicipalities, setCityMunicipalities] = useState<CityMunicipality[]>([])
   const [barangays, setBarangays] = useState<Barangay[]>([])
-
-  // Company address state
-  const [companyProvinces, setCompanyProvinces] = useState<Province[]>([])
-  const [companyCityMunicipalities, setCompanyCityMunicipalities] = useState<CityMunicipality[]>([])
-  const [companyBarangays, setCompanyBarangays] = useState<Barangay[]>([])
 
   // Selected values state
   const [selectedRegion, setSelectedRegion] = useState<string>('')
@@ -122,17 +105,6 @@ export default function ProfilePage() {
   const [inputStreetAddress, setInputStreetAddress] = useState<string>('')
   const [inputPostalCode, setInputPostalCode] = useState<number | undefined>()
   const [fullAddress, setFullAddress] = useState<string>('')
-
-  // Company address form state
-  const [selectedCompanyRegion, setSelectedCompanyRegion] = useState<string>('')
-  const [selectedCompanyProvince, setSelectedCompanyProvince] = useState<string>('')
-  const [selectedCompanyCityMunicipality, setSelectedCompanyCityMunicipality] = useState<string>('')
-  const [selectedCompanyBarangay, setSelectedCompanyBarangay] = useState<string>('')
-  const [inputCompanyStreetAddress, setInputCompanyStreetAddress] = useState<string>('')
-  const [inputCompanyPostalCode, setInputCompanyPostalCode] = useState<number | undefined>()
-  const [fullCompanyAddress, setFullCompanyAddress] = useState<string>('');
-
-  const [existingCompany, setExistingCompany] = useState<Company | null>();
 
   const inputStyle = { inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200" }
   const autoCompleteStyle = { classNames: inputStyle }
@@ -175,27 +147,6 @@ export default function ProfilePage() {
     setSelectedBarangay('')
   }
 
-  // Handle company region selection change
-  function handleCompanyRegionChange(value: string) {
-    setSelectedCompanyRegion(value)
-    setSelectedCompanyProvince('')
-    setSelectedCompanyCityMunicipality('')
-    setSelectedCompanyBarangay('')
-  }
-
-  // Handle company province selection change
-  function handleCompanyProvinceChange(value: string) {
-    setSelectedCompanyProvince(value)
-    setSelectedCompanyCityMunicipality('')
-    setSelectedCompanyBarangay('')
-  }
-
-  // Handle company city/municipality selection change
-  function handleCompanyCityMunicipalityChange(value: string) {
-    setSelectedCompanyCityMunicipality(value)
-    setSelectedCompanyBarangay('')
-  }
-
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setIsSaving(true)
@@ -211,21 +162,9 @@ export default function ProfilePage() {
     formData.append('address.municipality.code', selectedCityMunicipality)
     formData.append('address.barangay.code', selectedBarangay)
 
-    // check if the company changed
-    const updateCompany = existingCompany?.uuid !== selectedExistingCompany
-    formData.append('updateCompany', `${updateCompany}`)
-
-    formData.append('isNewCompany', `${isNewCompany}`)
-
-    if (isNewCompany) {
-      formData.append('newCompany.address.country.code', '1')
-      formData.append('newCompany.address.region.code', selectedCompanyRegion)
-      formData.append('newCompany.address.province.code', selectedCompanyProvince)
-      formData.append('newCompany.address.municipality.code', selectedCompanyCityMunicipality)
-      formData.append('newCompany.address.barangay.code', selectedCompanyBarangay)
-    } else {
-      formData.append('newCompany.uuid', selectedExistingCompany)
-    }
+    // Set updateCompany to false since we're removing company profile
+    formData.append('updateCompany', 'false')
+    formData.append('isNewCompany', 'false')
 
     const { error, success } = await updateProfile(formData)
 
@@ -252,37 +191,20 @@ export default function ProfilePage() {
     router.back()
   }
 
-  // Modified function to handle existing company selection and update the existingCompany state
-  function handleExistingCompanyChange(key: any) {
-    const selectedCompany = existingCompanies.find(company => company.uuid === key);
-    setSelectedExistingCompany(key);
-    setExistingCompany(selectedCompany);
-  }
-
   // Load user data on initial render
   useEffect(() => {
     async function fetchUserData() {
       try {
         setIsLoading(true)
         const { data, error } = await getUserProfile();
-        const { data: companyData, error: companyError } = await getUserCompanyDetails(data?.uuid)
-
-
+        
         if (error) {
           setError(error)
           return
         }
-
-        if (companyError) {
-          setError(`${companyError}`)
-          return
-        } else {
-          setUserData({
-            ...data,
-            company: companyData
-          })
-        }
-
+        
+        setUserData(data)
+        setSelectedGender(data.gender)
         setOriginalUserData(JSON.parse(JSON.stringify(data))) // Create a deep copy for reset
 
         if (!data?.profile_image.error) {
@@ -304,13 +226,6 @@ export default function ProfilePage() {
     fetchRegions()
   }, [])
 
-
-  // Add this effect to fetch existing companies
-  useEffect(() => {
-    fetchExistingCompanies();
-  }, []);
-
-
   // Set form values when userData is loaded
   useEffect(() => {
     async function initializeUserData() {
@@ -323,59 +238,17 @@ export default function ProfilePage() {
           }
         }
 
-        // Handle company address
-        if (userData.company?.address?.region?.code) {
-          const region = regions.find(r => compare(r.regCode, userData.company?.address.region.code))
-          if (region) {
-            setSelectedCompanyRegion(region.regCode)
-          }
-        }
-
         // Set street address and postal code
         setInputStreetAddress(userData.address?.streetAddress || '')
         setInputPostalCode(userData.address?.postalCode ? Number(userData.address.postalCode) : undefined)
 
-        setInputCompanyStreetAddress(userData.company?.address?.streetAddress || '')
-        setInputCompanyPostalCode(userData.company?.address?.postalCode ? Number(userData.company?.address.postalCode) : undefined)
-
         // Set full addresses
         setFullAddress(userData.full_address || '')
-        setFullCompanyAddress(userData.full_company?.address || '')
       }
     }
 
     initializeUserData()
   }, [userData, regions])
-
-  useEffect(() => {
-    async function initializeUserData() {
-      if (userData && existingCompanies.length) {
-        if (userData.company?.uuid) {
-          const company = existingCompanies.find(r => compare(r.uuid, userData.company.uuid))
-          if (company) {
-            setSelectedExistingCompany(company.uuid)
-            setExistingCompany(company)
-          }
-        }
-      }
-    }
-
-    initializeUserData()
-  }, [userData, existingCompanies])
-
-
-  // Update existingCompany whenever selectedExistingCompany changes
-  useEffect(() => {
-    if (selectedExistingCompany && existingCompanies.length > 0) {
-      const company = existingCompanies.find(c => c.uuid === selectedExistingCompany);
-      setExistingCompany(company);
-    }
-  }, [selectedExistingCompany, existingCompanies]);
-
-  const fetchExistingCompanies = async () => {
-    const { data, error } = await getExistingCompanies();
-    setExistingCompanies(data);
-  }
 
   // Fetch address data based on selected region, province, city/municipality, and barangay
   const fetchRegions = async () => {
@@ -399,7 +272,6 @@ export default function ProfilePage() {
       }
       setCityMunicipalities([])
       setBarangays([])
-
     }
   }
 
@@ -459,80 +331,6 @@ export default function ProfilePage() {
     }
   }, [selectedCityMunicipality, userData])
 
-
-
-  // Fetch company address data based on selected region, province, city/municipality, and barangay
-  const fetchCompanyProvinces = async () => {
-    if (selectedCompanyRegion) {
-      const provincesData = await getProvinces(selectedCompanyRegion)
-      setCompanyProvinces(provincesData)
-
-      if (userData?.company?.address?.province?.code) {
-        const province = provincesData.find(p => compare(p.provCode, userData.company?.address.province.code))
-        if (province) {
-          setSelectedCompanyProvince(province.provCode)
-        }
-      } else {
-        setSelectedCompanyProvince('')
-      }
-      setCompanyCityMunicipalities([])
-      setCompanyBarangays([])
-
-    }
-  }
-
-  const fetchCompanyCityMunicipalities = async () => {
-    if (selectedCompanyProvince) {
-      const cityMunData = await getCityMunicipalities(selectedCompanyProvince)
-      setCompanyCityMunicipalities(cityMunData)
-
-      if (userData?.company?.address?.municipality?.code) {
-        const cityMun = cityMunData.find(c => compare(c.citymunCode, userData.company?.address.municipality.code))
-        if (cityMun) {
-          setSelectedCompanyCityMunicipality(cityMun.citymunCode)
-        }
-      } else {
-        setSelectedCompanyCityMunicipality('')
-      }
-      setCompanyBarangays([])
-    }
-  }
-
-  const fetchCompanyBarangays = async () => {
-    if (selectedCompanyCityMunicipality) {
-      const barangaysData = await getBarangays(selectedCompanyCityMunicipality)
-      setCompanyBarangays(barangaysData)
-
-      if (userData?.company?.address?.barangay?.code) {
-        const barangay = barangaysData.find(b => compare(b.brgyCode, userData.company?.address.barangay.code))
-        if (barangay) {
-          setSelectedCompanyBarangay(barangay.brgyCode)
-        }
-      } else {
-        setSelectedCompanyBarangay('')
-      }
-    }
-  }
-
-  // Company address handling
-  useEffect(() => {
-    if (selectedCompanyRegion && userData?.company?.address?.province?.code) {
-      fetchCompanyProvinces()
-    }
-  }, [selectedCompanyRegion, userData])
-
-  useEffect(() => {
-    if (selectedCompanyProvince && userData?.company?.address?.municipality?.code) {
-      fetchCompanyCityMunicipalities()
-    }
-  }, [selectedCompanyProvince, userData])
-
-  useEffect(() => {
-    if (selectedCompanyCityMunicipality && userData?.company?.address?.barangay?.code) {
-      fetchCompanyBarangays()
-    }
-  }, [selectedCompanyCityMunicipality, userData])
-
   // Update the full address when components change
   useEffect(() => {
     if (!regions.length) return
@@ -558,31 +356,6 @@ export default function ProfilePage() {
     selectedBarangay, inputStreetAddress, inputPostalCode,
     regions, provinces, cityMunicipalities, barangays]);
 
-  // Similar logic for company address
-  useEffect(() => {
-    if (!regions.length) return
-
-    const regionName = regions.find(r => r.regCode === selectedCompanyRegion)?.regDesc || '';
-    const provinceName = companyProvinces.find(p => p.provCode === selectedCompanyProvince)?.provDesc || '';
-    const cityMunName = companyCityMunicipalities.find(c => c.citymunCode === selectedCompanyCityMunicipality)?.citymunDesc || '';
-    const barangayName = companyBarangays.find(b => b.brgyCode === selectedCompanyBarangay)?.brgyDesc || '';
-
-    const addressParts = [
-      inputCompanyStreetAddress,
-      barangayName,
-      cityMunName,
-      provinceName,
-      regionName,
-      'PHILIPPINES',
-      inputCompanyPostalCode?.toString()
-    ].filter(Boolean);
-
-    setFullCompanyAddress(addressParts.join(', '));
-
-  }, [selectedCompanyRegion, selectedCompanyProvince, selectedCompanyCityMunicipality,
-    selectedCompanyBarangay, inputCompanyStreetAddress, inputCompanyPostalCode,
-    regions, companyProvinces, companyCityMunicipalities, companyBarangays]);
-
   // Update the skeleton loading state in your existing code
   if (isLoading && !userData) {
     return (
@@ -593,26 +366,23 @@ export default function ProfilePage() {
               <h1 className="text-2xl font-bold">Edit Profile</h1>
               <p className="text-default-500">Update your profile information.</p>
             </div>
-            <div className="flex gap-4">
-
-            </div>
           </div>
           {/* Profile Image Skeleton */}
           <CardList>
-            <div className="flex flex-col items-center justify-center w-full mb-1">
-              <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-4" /> {/* "Profile Image" title */}
-              <div className="flex flex-col items-center justify-center p-4 bg-default-100 mt-1 border border-default-200 rounded-xl w-full">
+            <div className="flex flex-col items-center justify-center w-full">
+              <Skeleton className="h-6 w-36 rounded-lg mb-4" /> {/* "Profile Image" title */}
+              <div className="flex flex-col items-center justify-center p-4 bg-default-100 border border-default-200 rounded-xl w-full">
                 <Skeleton className="rounded-full w-48 h-48 mb-4" /> {/* Profile Image */}
                 <Skeleton className="h-4 w-52 rounded-lg mb-1 mt-2" /> {/* "Click to upload" text */}
                 <Skeleton className="h-3 w-32 rounded-lg" /> {/* "Max size: 2MB" text */}
               </div>
             </div>
           </CardList>
-
+  
           {/* Basic Information Skeleton */}
           <CardList>
             <div>
-              <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-4" /> {/* "Basic Information" title */}
+              <Skeleton className="h-6 w-36 rounded-lg mb-4 mx-auto" /> {/* "Basic Information" title */}
               <div className="space-y-4">
                 <div className="grid sm:grid-cols-2 gap-4">
                   <Skeleton className="h-14 rounded-lg" /> {/* First Name */}
@@ -630,11 +400,11 @@ export default function ProfilePage() {
               </div>
             </div>
           </CardList>
-
+  
           {/* Address Information Skeleton */}
           <CardList>
             <div>
-              <Skeleton className="h-6 w-52 mx-auto rounded-lg mb-6" /> {/* "Personal Address" title */}
+              <Skeleton className="h-6 w-36 rounded-lg mb-4 mx-auto" /> {/* "Personal Address" title */}
               <div className="space-y-4">
                 <div className="grid sm:grid-cols-2 gap-4">
                   <Skeleton className="h-14 rounded-lg" /> {/* Country */}
@@ -650,74 +420,24 @@ export default function ProfilePage() {
                 </div>
                 <div className="flex sm:flex-row flex-col gap-4">
                   <Skeleton className="h-14 w-full sm:w-[10rem] rounded-lg" /> {/* Postal Code */}
-                  <Skeleton className="h-14 w-full rounded-lg" /> {/* Full Address */}
+                  <Skeleton className="h-14 w-full flex-1 rounded-lg" /> {/* Full Address */}
                 </div>
               </div>
             </div>
           </CardList>
-
-          {/* Company Information Skeleton with Accordion-like appearance */}
-          <CardList>
-            <div>
-              <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-6" /> {/* "Company Profile" title */}
-
-              {/* Accordion-like skeleton */}
-              <div className="border border-default-200 rounded-lg overflow-hidden mb-4">
-                {/* Accordion header */}
-                <div className="h-14 px-4 flex items-center border-b border-default-200 bg-default-50">
-                  <div className="flex items-center justify-between w-full">
-                    <Skeleton className="h-5 w-32 rounded-lg" /> {/* "Existing Company" */}
-                    <Skeleton className="h-5 w-5 rounded-lg" /> {/* Accordion indicator */}
-                  </div>
-                </div>
-
-                {/* Accordion content */}
-                <div className="p-4 space-y-4">
-                  <Skeleton className="h-14 rounded-lg" /> {/* Existing Company Name */}
-
-                  <Skeleton className="h-5 w-48 mx-auto rounded-lg my-4" /> {/* "Company Address" title */}
-
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <Skeleton className="h-14 rounded-lg" /> {/* Country */}
-                    <Skeleton className="h-14 rounded-lg" /> {/* Region */}
-                  </div>
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <Skeleton className="h-14 rounded-lg" /> {/* Province */}
-                    <Skeleton className="h-14 rounded-lg" /> {/* Municipality/City */}
-                  </div>
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <Skeleton className="h-14 rounded-lg" /> {/* Barangay */}
-                    <Skeleton className="h-14 rounded-lg" /> {/* Street Address */}
-                  </div>
-                  <div className="flex sm:flex-row flex-col gap-4">
-                    <Skeleton className="h-14 w-full sm:w-[10rem] rounded-lg" /> {/* Postal Code */}
-                    <Skeleton className="h-14 w-full rounded-lg" /> {/* Full Address */}
-                  </div>
-                </div>
-              </div>
-
-              {/* Second accordion item (collapsed) */}
-              <div className="border border-default-200 rounded-lg overflow-hidden">
-                <div className="h-14 px-4 flex items-center justify-between">
-                  <Skeleton className="h-5 w-28 rounded-lg" /> {/* "New Company" */}
-                  <Skeleton className="h-5 w-5 rounded-lg" /> {/* Accordion indicator */}
-                </div>
-              </div>
-            </div>
-          </CardList>
-
+  
           {/* Account Information Skeleton */}
           <CardList>
             <div>
-              <Skeleton className="h-6 w-52 mx-auto rounded-lg mb-6" /> {/* "Account Information" title */}
+              <Skeleton className="h-6 w-40 rounded-lg mb-4 mx-auto" /> {/* "Account Information" title */}
               <Skeleton className="h-14 rounded-lg" /> {/* Email field */}
             </div>
           </CardList>
-
+  
           {/* Profile Update Options Skeleton */}
           <CardList>
             <div>
-              <Skeleton className="h-6 w-56 mx-auto rounded-lg mb-6" /> {/* "Profile Update Options" title */}
+              <Skeleton className="h-6 w-48 rounded-lg mb-4 mx-auto" /> {/* "Profile Update Options" title */}
               <div className="flex justify-center gap-4">
                 <Skeleton className="h-12 w-full rounded-lg" /> {/* Discard Changes button */}
                 <Skeleton className="h-12 w-full rounded-lg" /> {/* Save Changes button */}
@@ -1007,7 +727,6 @@ export default function ProfilePage() {
                     isDisabled={isLoading}
                   />
                   <Input
-
                     id="address.fullAddress"
                     name="address.fullAddress"
                     label="Full Address"
@@ -1023,302 +742,6 @@ export default function ProfilePage() {
             </div>
           </CardList>
 
-          {/* Company Address */}
-          <CardList>
-            <div className="space-y-4">
-              {/* Company Information */}
-              <h2 className="text-xl font-semibold text-center pb-2">Company Profile</h2>
-              <Accordion
-                variant="bordered"
-                defaultExpandedKeys={["existingCompany"]}
-                disallowEmptySelection
-                itemClasses={
-                  {
-                    base: "p-0 w-full",
-                    title: "font-normal text-lg font-semibold",
-                    trigger: "p-4 data-[hover=true]:bg-default-100 h-14 flex items-center transition-colors",
-                    indicator: "text-medium",
-                    content: "text-small p-4",
-                  }
-                }
-                onSelectionChange={(selection: Selection) => {
-                  const sel = (selection as Set<string>).values().next().value as string === 'newCompany';
-                  setIsNewCompany(sel)
-
-                  setSelectedCompanyRegion('')
-                  setSelectedCompanyProvince('')
-                  setSelectedCompanyCityMunicipality('')
-                  setSelectedCompanyBarangay('')
-
-                  setFullCompanyAddress('')
-                  setExistingCompany(null)
-
-
-                  setSelectedExistingCompany('')
-                }}
-                className="w-full p-0  overflow-hidden">
-                <AccordionItem
-                  key="newCompany"
-                  aria-label="New Company"
-                  title="New Company">
-                  <div className="space-y-4">
-                    <Input
-                      id="newCompany.name"
-                      name="newCompanyName"
-                      label="New Company Name"
-                      type="text"
-                      classNames={inputStyle}
-                      isRequired={isNewCompany}
-                      isDisabled={isLoading}
-                    />
-
-                    <h2 className="text-lg font-semibold text-center">Company Address</h2>
-                    <div className="grid sm:grid-cols-2 gap-4">
-                      <Input
-                        id="newCompany.address.country.desc"
-                        name="newCompany.address.country.desc"
-                        label="Country"
-                        defaultValue="PHILIPPINES"
-                        classNames={inputStyle}
-                        isRequired={isNewCompany}
-                        isDisabled={isLoading}
-                      />
-                      <Autocomplete
-                        id="newCompany.address.region.desc"
-                        name="newCompany.address.region.desc"
-                        label="Region"
-                        isRequired={isNewCompany}
-                        inputProps={autoCompleteStyle}
-                        classNames={{ clearButton: "text-default-800" }}
-                        onSelectionChange={(e) => handleCompanyRegionChange(`${e}`)}
-                        isDisabled={isLoading}
-                      >
-                        {regions.map(region => (
-                          <AutocompleteItem key={region.regCode}>
-                            {region.regDesc}
-                          </AutocompleteItem>
-                        ))}
-                      </Autocomplete>
-                    </div>
-
-                    <div className="grid sm:grid-cols-2 gap-4">
-                      <Autocomplete
-                        id="newCompany.address.province.desc"
-                        name="newCompany.address.province.desc"
-                        label="Province"
-                        isRequired={isNewCompany}
-                        inputProps={autoCompleteStyle}
-                        classNames={{ clearButton: "text-default-800" }}
-                        onSelectionChange={(e) => handleCompanyProvinceChange(`${e}`)}
-                        isDisabled={!selectedCompanyRegion || isLoading}
-                      >
-                        {companyProvinces.map(province => (
-                          <AutocompleteItem key={province.provCode} >
-                            {province.provDesc}
-                          </AutocompleteItem>
-                        ))}
-                      </Autocomplete>
-                      <Autocomplete
-
-                        id="newCompany.address.municipality.desc"
-                        name="newCompany.address.municipality.desc"
-                        label="Municipality/City"
-                        isRequired={isNewCompany}
-                        inputProps={autoCompleteStyle}
-                        classNames={{ clearButton: "text-default-800" }}
-                        onSelectionChange={(e) => handleCompanyCityMunicipalityChange(`${e}`)}
-                        isDisabled={!selectedCompanyProvince || isLoading}
-                      >
-                        {companyCityMunicipalities.map(city => (
-                          <AutocompleteItem key={city.citymunCode} >
-                            {city.citymunDesc}
-                          </AutocompleteItem>
-                        ))}
-                      </Autocomplete>
-                    </div>
-
-                    <div className="grid sm:grid-cols-2 gap-4">
-                      <Autocomplete
-                        id="newCompany.address.barangay.desc"
-                        name="newCompany.address.barangay.desc"
-                        label="Barangay"
-                        isRequired={isNewCompany}
-                        inputProps={autoCompleteStyle}
-                        classNames={{ clearButton: "text-default-800" }}
-                        onSelectionChange={(e) => setSelectedCompanyBarangay(`${e}`)}
-                        isDisabled={!selectedCompanyCityMunicipality || isLoading}
-                      >
-                        {companyBarangays.map(barangay => (
-                          <AutocompleteItem key={barangay.brgyCode}>
-                            {barangay.brgyDesc}
-                          </AutocompleteItem>
-                        ))}
-                      </Autocomplete>
-                      <Input
-                        id="newCompany.address.streetAddress"
-                        name="newCompany.address.streetAddress"
-                        label="Street Address"
-                        type="text"
-                        classNames={inputStyle}
-                        onValueChange={setInputCompanyStreetAddress}
-                        isRequired={isNewCompany}
-                        isDisabled={isLoading}
-                      />
-                    </div>
-
-                    <div className="flex sm:flex-row flex-col gap-4">
-                      <NumberInput
-                        id="newCompany.address.postalCode"
-                        name="newCompany.address.postalCode"
-                        label="Postal Code"
-                        type="text"
-                        className="sm:w-[10rem]"
-                        minValue={0}
-                        classNames={inputStyle}
-                        onValueChange={setInputCompanyPostalCode}
-                        formatOptions={{ useGrouping: false }}
-                        hideStepper
-                        isRequired={isNewCompany}
-                        isDisabled={isLoading}
-                      />
-                      <Input
-                        id="newCompany.address.fullAddress"
-                        name="newCompany.address.fullAddress"
-                        label="Full Company Address"
-                        type="text"
-                        value={fullCompanyAddress}
-                        classNames={inputStyle}
-                        isReadOnly
-                        isRequired={isNewCompany}
-                        isDisabled={isLoading}
-                      />
-                    </div>
-                  </div>
-                </AccordionItem>
-                <AccordionItem
-                  key="existingCompany"
-                  aria-label="Existing Company"
-                  title="Existing Company">
-                  <div>
-                    <Autocomplete
-                      id="existingCompany.name"
-                      name="existingCompany.name"
-                      label="Existing Company Name"
-                      inputProps={autoCompleteStyle}
-                      classNames={{ clearButton: "text-default-800" }}
-                      selectedKey={selectedExistingCompany || userData?.company?.uuid || ''}
-                      isRequired={!isNewCompany}
-                      isDisabled={isLoading}
-                      onSelectionChange={handleExistingCompanyChange}
-                    >
-                      {existingCompanies.map(company => (
-                        <AutocompleteItem key={company.uuid} textValue={company.name}>
-                          {company.name}
-                        </AutocompleteItem>
-                      ))}
-                    </Autocomplete>
-                    <Input
-                      type="hidden"
-                      id="existingCompany.id"
-                      name="existingCompany.id"
-                      value={selectedExistingCompany}
-                    />
-                    <AnimatePresence>
-                      {existingCompany &&
-                        <motion.div
-                          {...motionTransition}>
-                          <div className="space-y-4">
-                            <h2 className="text-lg font-semibold text-center pt-4">Company Address</h2>
-                            <div className="grid sm:grid-cols-2 gap-4">
-                              <Input
-                                label="Country"
-                                defaultValue="PHILIPPINES"
-                                classNames={inputStyle}
-                                isRequired={!isNewCompany}
-                                isDisabled={isLoading}
-                                isReadOnly
-                              />
-                              <Input
-                                label="Region"
-                                value={existingCompany?.address?.region?.desc || ''}
-                                classNames={inputStyle}
-                                isRequired={!isNewCompany}
-                                isDisabled={isLoading}
-                                isReadOnly
-                              />
-                            </div>
-
-                            <div className="grid sm:grid-cols-2 gap-4">
-                              <Input
-                                label="Province"
-                                value={existingCompany?.address?.province?.desc || ''}
-                                classNames={inputStyle}
-                                isRequired={!isNewCompany}
-                                isDisabled={isLoading}
-                                isReadOnly
-                              />
-                              <Input
-                                label="Municipality/City"
-                                value={existingCompany?.address?.municipality?.desc || ''}
-                                classNames={inputStyle}
-                                isRequired={!isNewCompany}
-                                isDisabled={isLoading}
-                                isReadOnly
-                              />
-                            </div>
-
-                            <div className="grid sm:grid-cols-2 gap-4">
-                              <Input
-                                label="Barangay"
-                                value={existingCompany?.address?.barangay?.desc || ''}
-                                classNames={inputStyle}
-                                isRequired={!isNewCompany}
-                                isDisabled={isLoading}
-                                isReadOnly
-                              />
-                              <Input
-                                label="Street Address"
-                                value={existingCompany?.address?.streetAddress || ''}
-                                classNames={inputStyle}
-                                isRequired={!isNewCompany}
-                                isDisabled={isLoading}
-                                isReadOnly
-                              />
-                            </div>
-
-                            <div className="flex sm:flex-row flex-col gap-4">
-                              <NumberInput
-                                label="Postal Code"
-                                type="text"
-                                className="sm:w-[10rem]"
-                                classNames={inputStyle}
-                                formatOptions={{ useGrouping: false }}
-                                hideStepper
-                                value={existingCompany?.address?.postalCode || 0}
-                                isRequired={!isNewCompany}
-                                isDisabled={isLoading}
-                                isReadOnly
-                              />
-                              <Input
-                                label="Full Company Address"
-                                type="text"
-                                value={existingCompany?.address?.fullAddress || ''}
-                                classNames={inputStyle}
-                                isRequired={!isNewCompany}
-                                isReadOnly
-                                isDisabled={isLoading}
-                              />
-                            </div>
-                          </div>
-                        </motion.div>
-                      }
-                    </AnimatePresence>
-                  </div>
-                </AccordionItem>
-              </Accordion>
-            </div>
-
-          </CardList>
           {/* Account Information */}
           <CardList>
             <div>
@@ -1336,7 +759,6 @@ export default function ProfilePage() {
               />
             </div>
           </CardList>
-
 
           <CardList>
             <div>
@@ -1385,7 +807,6 @@ export default function ProfilePage() {
                 )}
               </AnimatePresence>
 
-
               <div className="flex justify-center gap-4">
                 <Button
                   type="button"
@@ -1413,7 +834,7 @@ export default function ProfilePage() {
             </div>
           </CardList>
         </div>
-      </Form >
-    </div >
+      </Form>
+    </div>
   )
 }

@@ -849,51 +849,104 @@ export default function CompanyEditPage() {
   };
 
   // Show loading state
-  if (isLoading && !companyData) {
+  if (isLoading) {
     return (
       <div className="container mx-auto max-w-4xl p-2">
         <div className='space-y-4'>
           <div className="flex justify-between items-center">
             <div>
-              <h1 className="text-2xl font-bold">Edit Company</h1>
-              <p className="text-default-500">Loading company information...</p>
+              <h1 className="text-2xl font-bold">Profile</h1>
+              <p className="text-default-500">Listed below is your profile information.</p>
+            </div>
+            <div className="flex gap-4">
+
             </div>
           </div>
-
-          {/* Loading Skeletons */}
-          <CardList>
-            <div className="flex justify-center">
-              <Skeleton className="h-10 w-64 rounded-lg" />
-            </div>
-          </CardList>
-
-          {/* Company Logo Skeleton */}
-          <CardList>
-            <div className="flex flex-col items-center justify-center w-full mb-1">
-              <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-4" />
-              <div className="flex flex-col items-center justify-center p-4 bg-default-100 mt-1 border border-default-200 rounded-xl w-full">
-                <Skeleton className="rounded-xl w-48 h-48 mb-4" />
-                <Skeleton className="h-4 w-52 rounded-lg mb-1 mt-2" />
-                <Skeleton className="h-3 w-32 rounded-lg" />
-              </div>
-            </div>
-          </CardList>
-
-          {/* Other Skeletons */}
+          {/* Basic Information Skeleton */}
           <CardList>
             <div>
-              <Skeleton className="h-6 w-48 mx-auto rounded-lg mb-4" />
-              <div className="space-y-4">
-                <Skeleton className="h-14 rounded-lg" />
-                <Skeleton className="h-14 rounded-lg" />
+              <Skeleton className="h-6 w-48 mx-auto rounded-xl mb-4" /> {/* Section Title */}
+              <div className="flex flex-col items-center justify-center pb-4">
+                <Skeleton className="flex rounded-full w-48 h-48 m-1" /> {/* Profile Image */}
+              </div>
+              <div className="space-y-4 mt-3">
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Skeleton className="h-14 rounded-xl" /> {/* First Name */}
+                  <Skeleton className="h-14 rounded-xl" /> {/* Middle Name */}
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Skeleton className="h-14 rounded-xl" /> {/* Last Name */}
+                  <Skeleton className="h-14 rounded-xl" /> {/* Suffix */}
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Skeleton className="h-14 rounded-xl" /> {/* Gender */}
+                  <Skeleton className="h-14 rounded-xl" /> {/* Birthday */}
+                </div>
+                <div className="grid grid-cols-1 gap-4">
+                  <Skeleton className="h-14 rounded-xl" /> {/* Phone Number */}
+                </div>
               </div>
             </div>
           </CardList>
 
+          {/* Address Information Skeleton */}
           <CardList>
-            <div className="flex justify-center gap-4">
-              <Skeleton className="h-12 w-full rounded-lg" />
-              <Skeleton className="h-12 w-full rounded-lg" />
+            <div>
+              <Skeleton className="h-6 w-48 rounded-xl m-1 mx-auto" /> {/* Section Title */}
+              <div className="space-y-4 mt-4">
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Skeleton className="h-14 rounded-xl" /> {/* Country */}
+                  <Skeleton className="h-14 rounded-xl" /> {/* Region */}
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Skeleton className="h-14 rounded-xl" /> {/* Province */}
+                  <Skeleton className="h-14 rounded-xl" /> {/* Municipality/City */}
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Skeleton className="h-14 rounded-xl" /> {/* Barangay */}
+                  <Skeleton className="h-14 rounded-xl" /> {/* Street Address */}
+                </div>
+                <div className="flex sm:flex-row flex-col gap-4">
+                  <Skeleton className="h-14 sm:w-[10rem] w-full rounded-xl" /> {/* Postal Code */}
+                  <Skeleton className="h-14 w-full rounded-xl" /> {/* Full Address */}
+                </div>
+              </div>
+            </div>
+          </CardList>
+
+          {/* Company Information Skeleton */}
+          <CardList>
+            <div>
+              <Skeleton className="h-6 w-48 rounded-xl m-1 mx-auto" /> {/* Section Title */}
+              <Skeleton className="h-14 rounded-xl my-4" /> {/* Company Name */}
+            </div>
+            <div className="flex items-center justify-between h-full w-full py-1">
+              <Skeleton className="h-5 w-[60%] rounded-xl" /> {/* View company text */}
+              <Skeleton className="h-10 w-10 rounded-xl" /> {/* Button */}
+            </div>
+            <div className="flex items-center justify-between h-full w-full py-1">
+              <Skeleton className="h-5 w-[60%] rounded-xl" /> {/* Change company text */}
+              <Skeleton className="h-10 w-10 rounded-xl" /> {/* Button */}
+            </div>
+          </CardList>
+
+          {/* Account Information Skeleton */}
+          <CardList>
+            <div>
+              <Skeleton className="h-6 w-48 rounded-xl m-1 mx-auto" /> {/* Section Title */}
+              <Skeleton className="h-14 rounded-xl mt-4" /> {/* Email Field */}
+            </div>
+          </CardList>
+
+          {/* Action Items Skeleton */}
+          <CardList>
+            <div className="flex items-center justify-between h-full w-full py-1">
+              <Skeleton className="h-5 w-[60%] rounded-xl" /> {/* Change profile information */}
+              <Skeleton className="h-10 w-10 rounded-xl" /> {/* Button */}
+            </div>
+            <div className="flex items-center justify-between h-full w-full py-1">
+              <Skeleton className="h-5 w-[40%] rounded-xl" /> {/* Change password */}
+              <Skeleton className="h-10 w-10 rounded-xl" /> {/* Button */}
             </div>
           </CardList>
         </div>

@@ -70,6 +70,7 @@ export default function ProfilePage() {
   const autoCompleteStyle = { classNames: inputStyle }
 
   const [userData, setUserData] = useState<any>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
@@ -95,7 +96,7 @@ export default function ProfilePage() {
             ...data,
             company: companyData
           })
-
+          setIsAdmin(data?.is_admin)
         }
 
         if (!data?.profile_image.error) {
@@ -183,26 +184,10 @@ export default function ProfilePage() {
             <div>
               <Skeleton className="h-6 w-48 rounded-xl m-1 mx-auto" /> {/* Section Title */}
               <Skeleton className="h-14 rounded-xl my-4" /> {/* Company Name */}
-
-              <div className="space-y-4 border-2 border-default-200 p-4 rounded-2xl">
-                <Skeleton className="h-5 w-36 mx-auto rounded-xl mb-4 mt-2" /> {/* Company Address Title */}
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <Skeleton className="h-14 rounded-xl" /> {/* Country */}
-                  <Skeleton className="h-14 rounded-xl" /> {/* Region */}
-                </div>
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <Skeleton className="h-14 rounded-xl" /> {/* Province */}
-                  <Skeleton className="h-14 rounded-xl" /> {/* Municipality/City */}
-                </div>
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <Skeleton className="h-14 rounded-xl" /> {/* Barangay */}
-                  <Skeleton className="h-14 rounded-xl" /> {/* Street Address */}
-                </div>
-                <div className="flex sm:flex-row flex-col gap-4">
-                  <Skeleton className="h-14 sm:w-[10rem] w-full rounded-xl" /> {/* Postal Code */}
-                  <Skeleton className="h-14 w-full rounded-xl" /> {/* Full Address */}
-                </div>
-              </div>
+            </div>
+            <div className="flex items-center justify-between h-full w-full py-1">
+              <Skeleton className="h-5 w-[60%] rounded-xl" /> {/* Change profile information */}
+              <Skeleton className="h-10 w-10 rounded-xl" /> {/* Button */}
             </div>
           </CardList>
 
@@ -423,79 +408,30 @@ export default function ProfilePage() {
                   value={userData?.company?.name || ''}
                   isReadOnly
                 />
-                <div className="space-y-4 border-2 border-default-200 p-4 rounded-2xl">
-                  <h2 className="text-lg font-semibold text-center">Company Address</h2>
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <Input
-                      label="Country"
-                      type="text"
-                      classNames={inputStyle}
-                      value="PHILIPPINES"
-                      isReadOnly
-                    />
-                    <Input
-                      label="Region"
-                      type="text"
-                      classNames={inputStyle}
-                      value={userData?.company?.address?.region?.desc || ''}
-                      isReadOnly
-                    />
-                  </div>
-
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <Input
-                      label="Province"
-                      type="text"
-                      classNames={inputStyle}
-                      value={userData?.company?.address?.province?.desc || ''}
-                      isReadOnly
-                    />
-                    <Input
-                      label="Municipality/City"
-                      type="text"
-                      classNames={inputStyle}
-                      value={userData?.company?.address?.municipality?.desc || ''}
-                      isReadOnly
-                    />
-                  </div>
-
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <Input
-                      label="Barangay"
-                      type="text"
-                      classNames={inputStyle}
-                      value={userData?.company?.address?.barangay?.desc || ''}
-                      isReadOnly
-                    />
-                    <Input
-                      label="Street Address"
-                      type="text"
-                      classNames={inputStyle}
-                      value={userData?.company?.address?.streetAddress || ''}
-                      isReadOnly
-                    />
-                  </div>
-
-                  <div className="flex sm:flex-row flex-col gap-4">
-                    <Input
-                      label="Postal Code"
-                      type="text"
-                      classNames={inputStyle}
-                      className="md:w-[10rem]"
-                      value={userData?.company?.address?.postalCode || ''}
-                      isReadOnly
-                    />
-                    <Input
-                      label="Full Address"
-                      type="text"
-                      classNames={inputStyle}
-                      value={userData?.company?.address?.fullAddress || ''}
-                      isReadOnly
-                    />
-                  </div>
-                </div>
               </div>
             </div>
+            <div className="flex items-center justify-between h-full w-full">
+              <span>View more about your company</span>
+              <Button
+                variant="shadow"
+                color="primary"
+                onPress={() => router.push('/home/company')}
+                className="my-1">
+                <ChevronRightIcon className="w-4 h-4" />
+              </Button>
+            </div>
+            {isAdmin && (
+              <div className="flex items-center justify-between h-full w-full">
+                <span>Change company information</span>
+                <Button
+                  variant="shadow"
+                  color="primary"
+                  onPress={() => router.push('/home/company/edit')}
+                  className="my-1">
+                  <ChevronRightIcon className="w-4 h-4" />
+                </Button>
+              </div>
+            )}
           </CardList>
           {/* Account Information */}
           <CardList>
