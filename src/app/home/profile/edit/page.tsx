@@ -21,7 +21,8 @@ import {
   Input,
   NumberInput,
   Skeleton,
-  Spinner
+  Spinner,
+  Textarea
 } from "@heroui/react"
 import { getLocalTimeZone, parseDate, today } from '@internationalized/date'
 
@@ -695,13 +696,15 @@ export default function ProfilePage() {
                     isRequired
                     isDisabled={isLoading}
                   />
-                  <Input
+                  <Textarea
                     id="address.fullAddress"
                     name="address.fullAddress"
                     label="Full Address"
                     type="text"
                     value={fullAddress}
                     classNames={inputStyle}
+                    maxRows={5}
+                    minRows={1}
                     isReadOnly
                     isRequired
                     isDisabled={isLoading}

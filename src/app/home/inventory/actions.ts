@@ -25,33 +25,6 @@ export type InventoryItem = {
 }
 
 /**
- * Checks if the current user is an admin and returns admin data
- */
-export async function checkAdminStatus() {
-  const supabase = await createClient();
-
-  // Get current user
-  const { data: { user } } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
-
-  // Check if user is admin
-  const { data: adminData, error } = await supabase
-    .from("profiles")
-    .select("uuid, company_uuid")
-    .eq("is_admin", true)
-    .single();
-
-  if (error || !adminData) {
-    console.error("Not an admin or error:", error);
-    redirect("/home/dashboard");
-  }
-  return adminData;
-}
-
-/**
  * Creates a new inventory item in the database
  */
 export async function createInventoryItem(formData: InventoryItem) {

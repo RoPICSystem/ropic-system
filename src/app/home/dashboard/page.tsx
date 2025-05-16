@@ -61,14 +61,7 @@ export default function DashboardPage() {
     async function loadDashboardData() {
       try {
         setLoading(true);
-        // Get user data
-        const { data: userData, error: userError } = await getUserProfile();
-        if (userError) {
-          setError(userError.toString());
-          return;
-        }
-
-        setUser(userData);
+        setUser(window.adminData || null);
 
         const { data, error } = await getDashboardData();
 

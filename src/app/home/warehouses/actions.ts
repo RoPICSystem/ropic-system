@@ -1,6 +1,6 @@
 'use server'
 
-import { FloorConfig } from '@/components/shelf-selector-3d-v4';
+import { FloorConfig } from '@/components/shelf-selector-3d';
 import { createClient } from '@/utils/supabase/server'
 import { Address } from '@/utils/supabase/server/address';
 import { getUserCompany } from '@/utils/supabase/server/user'

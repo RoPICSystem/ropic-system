@@ -1,20 +1,15 @@
 "use client";
 
-import { ThemeSwitcher } from "@/components/theme-switcher";
-import {
-  Button,
-  Card,
-  CardBody,
-  CardHeader,
-  Divider,
-  ButtonGroup,
-  Switch
-} from "@heroui/react";
 import CardList from "@/components/card-list";
+import { ThemeSwitcher } from "@/components/theme-switcher";
 import {
   ChevronRightIcon,
 } from '@heroicons/react/24/solid';
-import { useSearchParams, useRouter } from 'next/navigation'
+import {
+  Button,
+  Switch
+} from "@heroui/react";
+import { useRouter } from 'next/navigation';
 
 export default function SettingsPage() {
   const router = useRouter()

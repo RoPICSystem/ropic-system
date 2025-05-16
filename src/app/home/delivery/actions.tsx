@@ -1,6 +1,6 @@
 "use server";
 
-import { FloorConfig } from "@/components/shelf-selector-3d-v4";
+import { FloorConfig } from "@/components/shelf-selector-3d";
 import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
 
@@ -55,40 +55,6 @@ export interface Warehouse {
   warehouse_layout: FloorConfig[];
 }
 
-/**
- * Checks if the current user is an admin and returns admin data
- */
-export async function checkAdminStatus() {
-  const supabase = await createClient();
-
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
-      redirect("/auth/signin");
-    }
-
-    // Get the profile data
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("uuid", user.id)
-      .single();
-
-    if (profileError || !profile) {
-      redirect("/auth/signin");
-    }
-
-    return {
-      ...profile,
-      // Make sure is_admin is available in the profile data
-      is_admin: profile.is_admin ?? true
-    };
-  } catch (error) {
-    console.error("Error checking admin status:", error);
-    redirect("/auth/signin");
-  }
-}
 
 /**
  * Creates a new delivery item in the database
@@ -349,6 +315,7 @@ export async function getWarehouses(companyUuid: string) {
 export async function createWarehouseInventoryItem(itemData: {
   admin_uuid: string;
   warehouse_uuid: string;
+  delivery_uuid: string;
   company_uuid: string;
   inventory_uuid: string;
   item_code: string;

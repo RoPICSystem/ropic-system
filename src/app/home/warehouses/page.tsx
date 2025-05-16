@@ -1,20 +1,30 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import CardList from '@/components/card-list';
+import { FloorConfig } from '@/components/shelf-selector-3d';
+import { motionTransition } from '@/utils/anim';
+import { Barangay, CityMunicipality, getBarangays, getCityMunicipalities, getProvinces, getRegions, Province, Region } from '@/utils/supabase/server/address';
 import {
-  Button, Input, Modal, ModalContent, ModalHeader, ModalBody, ModalFooter,
-  useDisclosure, Autocomplete, AutocompleteItem, Spinner,
-  Chip, Listbox, ListboxItem, Form, Skeleton, Card, CardBody
+  Autocomplete, AutocompleteItem,
+  Button,
+  Card, CardBody,
+  Chip,
+  Form,
+  Input, Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+  Skeleton,
+  Spinner,
+  Textarea,
+  useDisclosure
 } from "@heroui/react";
 import { Icon } from "@iconify-icon/react";
-import { getWarehouses, getWarehousesPage, createWarehouse, updateWarehouse, deleteWarehouse, getWarehouseByUuid, Warehouse, getWarehouseLayout } from './actions';
-import { getRegions, getProvinces, getCityMunicipalities, getBarangays, Address, Barangay, CityMunicipality, Province, Region } from '@/utils/supabase/server/address';
-import { getUserCompany } from '@/utils/supabase/server/user';
-import { useRouter, useSearchParams } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
-import { motionTransition } from '@/utils/anim';
-import CardList from '@/components/card-list';
-import { FloorConfig } from '@/components/shelf-selector-3d-v4';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { createWarehouse, deleteWarehouse, getWarehouseByUuid, getWarehouseLayout, getWarehousesPage, updateWarehouse, Warehouse } from './actions';
 import WarehouseLayoutEditorModal from './layout-editor-modal';
 
 function generateFullAddress(
@@ -141,20 +151,8 @@ export default function WarehousePage() {
 
   // Fetch company UUID
   useEffect(() => {
-    const fetchCompanyUuid = async () => {
-      try {
-        const { data: company } = await getUserCompany();
-        if (company) {
-          setCompanyUuid(company.uuid);
-        }
-      } catch (error) {
-        console.error("Error fetching company:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchCompanyUuid();
+    setCompanyUuid(window.adminData.uuid);
+    setIsLoading(false);
   }, []);
 
   // Fetch address data
@@ -181,7 +179,7 @@ export default function WarehousePage() {
     if (warehouseId !== selectedWarehouseId) {
       setSelectedWarehouseId(warehouseId);
       fetchWarehouseDetails(warehouseId);
-      fetchWarehouseLayout(warehouseId); 
+      fetchWarehouseLayout(warehouseId);
     }
   }, [searchParams]);
 
@@ -640,8 +638,8 @@ export default function WarehousePage() {
                       onPress={() => { if (warehouse.uuid) handleSelectWarehouse(warehouse.uuid) }}
                       variant="shadow"
                       className={`w-full min-h-28 !transition-all duration-200 rounded-xl px-0 py-4 ${selectedWarehouseId === warehouse.uuid ?
-                          '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' :
-                          '!bg-default-100/50 shadow-none hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
+                        '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' :
+                        '!bg-default-100/50 shadow-none hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
                     >
                       <div className="w-full flex justify-between items-start px-0">
                         <div className="flex-1">
@@ -661,7 +659,7 @@ export default function WarehousePage() {
                             } px-4 pt-4`}>
                             <Chip color="default" variant={selectedWarehouseId === warehouse.uuid ? "shadow" : "flat"} size="sm">
                               <Icon icon="material-symbols:warehouse-rounded" className="mr-1" size={14} />
-                              Warehouse
+                              {warehouse.warehouse_layout?.length ?? 0} floor{(warehouse.warehouse_layout?.length ?? 0) > 1 ? 's' : ''}
                             </Chip>
                           </div>
                         </div>
@@ -839,12 +837,14 @@ export default function WarehousePage() {
                       />
                     </div>
 
-                    <Input
+                    <Textarea
                       label="Full Address"
                       placeholder="Complete address"
                       value={manualFullAddress}
                       onChange={(e) => setManualFullAddress(e.target.value)}
                       isRequired
+                      maxRows={5}
+                      minRows={1}
                       classNames={inputStyle}
                       isReadOnly
                       startContent={<Icon icon="mdi:map-marker" className="text-default-500 pb-[0.1rem]" />}
@@ -877,10 +877,10 @@ export default function WarehousePage() {
                       >
                         View 3D Layout
                       </Button>
-                      
+
                     </div>
                   </div>
-                </div>  
+                </div>
 
                 <div {...(selectedWarehouseId && currentWarehouse?.created_at ? {} : { className: '!min-h-0 !p-0 !h-0 collapse border-none z-0' })}>
                   <AnimatePresence>

@@ -1,13 +1,13 @@
 // app/providers.tsx
 "use client";
 
-import { useRouter } from "next/navigation";
-import { HeroUIProvider, Spinner } from "@heroui/react";
-import { ThemeProvider as NextThemesProvider, useTheme } from "next-themes";
-import { ToastProvider } from "@heroui/toast";
+import { ShelfSelectorColors } from "@/components/shelf-selector-3d";
 import { herouiColor } from "@/utils/colors";
-import { useEffect } from "react";
-import { ShelfSelectorColors } from "@/components/shelf-selector-3d-v4";
+import { HeroUIProvider, Spinner } from "@heroui/react";
+import { ToastProvider } from "@heroui/toast";
+import { useTheme } from "next-themes";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
 // Only if using TypeScript
 declare module "@react-types/shared" {
@@ -20,12 +20,15 @@ declare global {
   interface Window {
     shelfSelectorColors?: ShelfSelectorColors;
     currentTheme?: string;
+    resolveTheme?: string;
   }
 }
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { theme, resolvedTheme } = useTheme()
+  const [ adminTempData, setAdminTempData ] = useState<any>(null);
+
   const getDefaultTheme = () => {
     return {
       backgroundColor: herouiColor('primary-50', 'hex') as string,
@@ -41,23 +44,27 @@ export function Providers({ children }: { children: React.ReactNode }) {
       textColor: herouiColor('text', 'hex') as string,
     };
   }
-
   useEffect(() => {
     setTimeout(() => {
       window.shelfSelectorColors = getDefaultTheme();
     }, 100);
-
   }, []);
 
   useEffect(() => {
     setTimeout(() => {
       window.shelfSelectorColors = getDefaultTheme();
     }, 100);
-    console.log('Theme changed:', theme);
-    console.log('Resolved theme:', resolvedTheme);
-
-    window.currentTheme = resolvedTheme;
+    window.currentTheme = theme;
   }, [theme])
+
+  useEffect(() => {
+    setTimeout(() => {
+      window.shelfSelectorColors = getDefaultTheme();
+    }, 100);
+    window.resolveTheme = resolvedTheme;
+  }, [resolvedTheme])
+
+
 
   if (typeof window === "undefined") {
     return (

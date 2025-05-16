@@ -38,13 +38,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { QRCodeCanvas } from 'qrcode.react';
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
+import { materialDark, materialLight } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 
 
 // Import server actions
 import CardList from '@/components/card-list';
 import {
-  checkAdminStatus,
   createDeliveryItem,
   createWarehouseInventoryItem,
   DeliveryItem,
@@ -56,7 +55,7 @@ import {
   Operator,
   updateDeliveryItem,
   updateInventoryItemStatus,
-  Warehouse,
+  Warehouse
 } from "./actions";
 
 // Import the QR code scanner library
@@ -66,7 +65,7 @@ import { InventoryItem } from '../inventory/actions';
 
 // Import the ShelfSelector3D component
 const ShelfSelector3D = lazy(() =>
-  import("@/components/shelf-selector-3d-v4").then(mod => ({
+  import("@/components/shelf-selector-3d").then(mod => ({
     default: mod.ShelfSelector3D
   }))
 );
@@ -427,6 +426,7 @@ export default function DeliveryPage() {
             // Call a new action to create warehouse inventory record
             await createWarehouseInventoryItem({
               admin_uuid: admin.uuid,
+              delivery_uuid: selectedDeliveryId,
               warehouse_uuid: updatedFormData.warehouse_uuid,
               company_uuid: admin.company_uuid,
               inventory_uuid: updatedFormData.inventory_item_uuid,
@@ -1008,6 +1008,7 @@ export default function DeliveryPage() {
                 // Create warehouse inventory item
                 const warehouseItemResult = await createWarehouseInventoryItem({
                   admin_uuid: admin.uuid,
+                  delivery_uuid: matchingDelivery.uuid,
                   warehouse_uuid: matchingDelivery.warehouse_uuid || "",
                   company_uuid: admin.company_uuid,
                   inventory_uuid: matchingDelivery.inventory_item_uuid,
@@ -1202,29 +1203,29 @@ export default function DeliveryPage() {
   useEffect(() => {
     const initPage = async () => {
       try {
-        const adminData = await checkAdminStatus();
-        setAdmin(adminData);
+        // const adminData = await checkAdminStatus();
+        setAdmin(window.adminData);
 
         setFormData(prev => ({
           ...prev,
-          admin_uuid: adminData.uuid,
-          company_uuid: adminData.company_uuid,
+          admin_uuid: window.adminData.uuid,
+          company_uuid: window.adminData.company_uuid,
         }));
 
         // Fetch initial delivery items
-        const deliveriesResult = await getDeliveryItems(adminData.company_uuid);
+        const deliveriesResult = await getDeliveryItems(window.adminData.company_uuid);
         setDeliveryItems(deliveriesResult.data || []);
 
         // Fetch available inventory items
-        const inventoryResult = await getInventoryItems(adminData.company_uuid);
+        const inventoryResult = await getInventoryItems(window.adminData.company_uuid);
         setInventoryItems(inventoryResult.data || []);
 
         // Fetch operators (users with isAdmin = false)
-        const operatorsResult = await getOperators(adminData.company_uuid);
+        const operatorsResult = await getOperators(window.adminData.company_uuid);
         setOperators(operatorsResult.data || []);
 
         // Fetch warehouses
-        const warehousesResult = await getWarehouses(adminData.company_uuid);
+        const warehousesResult = await getWarehouses(window.adminData.company_uuid);
         setWarehouses(warehousesResult.data || []);
 
         setIsLoadingItems(false);
@@ -1476,750 +1477,768 @@ export default function DeliveryPage() {
         <div className="xl:w-2/3">
           {/* Only show the form if admin is creating new delivery or any user has selected a delivery */}
 
-          <Form id="deliveryForm" onSubmit={handleSubmit} className="items-stretch space-y-4">
-            <CardList>
-              <div>
-                <h2 className="text-xl font-semibold mb-4 w-full text-center">Delivery Information</h2>
-                <div className="space-y-4">
-                  {/* Inventory Item Selection */}
-                  <div>
-                    {!admin ? (
-                      <Skeleton className="h-16 w-full rounded-xl" />
-                    ) : (
-                      <Autocomplete
-                        selectedKey={formData.inventory_item_uuid || ""}
-                        name="inventory_item_uuid"
-                        label="Inventory Item"
-                        placeholder="Select an inventory item"
-                        onSelectionChange={(e) => {
-                          handleAutoSelectChange(`inventory_item_uuid`, `${e}`)
-                          if (searchParams.get("setInventory")) {
-                            // remove the setInventory query param
-                            const params = new URLSearchParams(searchParams.toString());
-                            params.delete("setInventory");
-                            router.push(`?${params.toString()}`, { scroll: false });
+          {((admin && admin.is_admin) || selectedDeliveryId) ? (
+            <Form id="deliveryForm" onSubmit={handleSubmit} className="items-stretch space-y-4">
+              <CardList>
+                <div>
+                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Delivery Information</h2>
+                  <div className="space-y-4">
+                    {/* Inventory Item Selection */}
+                    <div>
+                      {!admin ? (
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                      ) : (
+                        <Autocomplete
+                          selectedKey={formData.inventory_item_uuid || ""}
+                          name="inventory_item_uuid"
+                          label="Inventory Item"
+                          placeholder="Select an inventory item"
+                          onSelectionChange={(e) => {
+                            handleAutoSelectChange(`inventory_item_uuid`, `${e}`)
+                            if (searchParams.get("setInventory")) {
+                              // remove the setInventory query param
+                              const params = new URLSearchParams(searchParams.toString());
+                              params.delete("setInventory");
+                              router.push(`?${params.toString()}`, { scroll: false });
+                            }
+                          }}
+                          disabledKeys={
+                            deliveryItems
+                              .filter(item => item.status !== "AVAILABLE")
+                              .map(item => item.inventory_item_uuid || "")
                           }
-                        }}
-                        disabledKeys={
-                          deliveryItems
-                            .filter(item => item.status !== "AVAILABLE")
-                            .map(item => item.inventory_item_uuid || "")
-                        }
-                        popoverProps={{ className: !!selectedDeliveryId ? "collapse" : "" }}
-                        isRequired={!selectedDeliveryId}
-                        inputProps={autoCompleteStyle}
-                        classNames={{ clearButton: "text-default-800" }}
-                        isInvalid={!!errors.inventory_item_uuid}
-                        errorMessage={errors.inventory_item_uuid}
-                        isReadOnly={!!selectedDeliveryId}
-                        selectorIcon={!!selectedDeliveryId ? null : <Icon icon="heroicons:chevron-down" height={15} />}
-                        startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]"
-                        />}
-                      >
-                        {inventoryItems
-                          .map((item) => (
-                            <AutocompleteItem key={item.uuid}>
-                              {`${item.item_name} (${item.item_code})`}
+                          popoverProps={{ className: !!selectedDeliveryId ? "collapse" : "" }}
+                          isRequired={!selectedDeliveryId}
+                          inputProps={autoCompleteStyle}
+                          classNames={{ clearButton: "text-default-800" }}
+                          isInvalid={!!errors.inventory_item_uuid}
+                          errorMessage={errors.inventory_item_uuid}
+                          isReadOnly={!!selectedDeliveryId}
+                          selectorIcon={!!selectedDeliveryId ? null : <Icon icon="heroicons:chevron-down" height={15} />}
+                          startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]"
+                          />}
+                        >
+                          {inventoryItems
+                            .map((item) => (
+                              <AutocompleteItem key={item.uuid}>
+                                {`${item.item_name} (${item.item_code})`}
+                              </AutocompleteItem>
+                            ))}
+                        </Autocomplete>
+                      )}
+                    </div>
+
+                    <div className="space-y-0">
+                      {/* Operator Assignment Toggle */}
+                      <AnimatePresence>
+                        {isDeliveryProcessing() && (admin === null || admin.is_admin) && (
+                          <motion.div
+                            {...motionTransition}>
+                            <div className="flex items-center justify-between mb-4">
+                              {!admin ? (
+                                <Skeleton className="h-10 w-full rounded-xl" />
+                              ) : (
+                                <>
+                                  <span className="text-default-700 font-medium">Assign Operator</span>
+                                  <Switch
+                                    isSelected={assignOperator}
+                                    onValueChange={handleAssignOperatorToggle}
+                                    color="primary"
+                                  />
+                                </>
+                              )}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                      {/* Operator Selection (shown only when assignOperator is true) */}
+                      <AnimatePresence>
+                        {assignOperator && (
+                          <motion.div
+                            {...motionTransition}>
+                            {!admin ? (
+                              <Skeleton className="h-16 w-full rounded-xl" />
+                            ) : (
+                              <Autocomplete
+                                name="operator_uuid"
+                                label="Select Operator"
+                                placeholder="Choose an operator"
+                                selectedKey={formData.operator_uuid || ""}
+                                onSelectionChange={(e) => handleAutoSelectChange(`operator_uuid`, `${e}`)}
+                                isRequired={isDeliveryProcessing() && assignOperator && (admin === null || admin.is_admin)}
+                                isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
+                                selectorIcon={(!isDeliveryProcessing() || !(admin === null || admin.is_admin)) ? null : <Icon icon="heroicons:chevron-down" height={15} />}
+                                popoverProps={{ className: (!isDeliveryProcessing() || !(admin === null || admin.is_admin)) ? "collapse" : "" }}
+                                inputProps={autoCompleteStyle}
+                                classNames={{ clearButton: "text-default-800" }}
+                                isInvalid={!!errors.operator_uuid}
+                                errorMessage={errors.operator_uuid}
+                                startContent={<Icon icon="mdi:account" className="text-default-500 mb-[0.2rem]" />}
+                              >
+                                {operators.map((operator) => (
+                                  <AutocompleteItem key={operator.uuid}>
+                                    {`${operator.full_name} (${operator.email})`}
+                                  </AutocompleteItem>
+                                ))}
+                              </Autocomplete>
+                            )}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                    </div>
+
+
+                    {/* Warehouse Selection */}
+                    <div>
+                      {!admin ? (
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                      ) : (
+                        <Autocomplete
+                          id="warehouse_uuid"
+                          name="warehouse_uuid"
+                          label="Warehouse"
+                          isRequired={isDeliveryProcessing() && (admin === null || admin.is_admin)}
+                          isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
+                          selectorIcon={(!isDeliveryProcessing() || !(admin === null || admin.is_admin)) ? null : <Icon icon="heroicons:chevron-down" height={15} />}
+                          popoverProps={{ className: (!isDeliveryProcessing() || !(admin === null || admin.is_admin)) ? "collapse" : "" }}
+                          placeholder="Select warehouse"
+                          selectedKey={formData.warehouse_uuid || ""}
+                          onSelectionChange={(e) => {
+                            // get warehouse details
+                            const selectedWarehouse = warehouses.find(w => w.uuid === e);
+                            if (selectedWarehouse) {
+                              setFormData(prev => ({
+                                ...prev,
+                                delivery_address: selectedWarehouse.address.fullAddress
+                              }));
+                              handleAutoSelectChange(`warehouse_uuid`, `${e}`)
+                            } else {
+                              setFormData(prev => ({
+                                ...prev,
+                                delivery_address: ""
+                              }));
+                              handleAutoSelectChange(`warehouse_uuid`, null)
+                            }
+                          }}
+                          inputProps={autoCompleteStyle}
+                          classNames={{ clearButton: "text-default-800" }}
+                          isInvalid={!!errors.warehouse_uuid}
+                          errorMessage={errors.warehouse_uuid}
+                          startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
+                        >
+                          {warehouses.map((warehouse) => (
+                            <AutocompleteItem key={warehouse.uuid}>
+                              {`${warehouse.name} (${warehouse.address.municipality.desc}, ${warehouse.address.barangay.desc})`}
                             </AutocompleteItem>
                           ))}
-                      </Autocomplete>
-                    )}
-                  </div>
+                        </Autocomplete>
+                      )}
+                    </div>
 
-                  <div className="space-y-0">
-                    {/* Operator Assignment Toggle */}
-                    <AnimatePresence>
-                      {isDeliveryProcessing() && (admin === null || admin.is_admin) && (
-                        <motion.div
-                          {...motionTransition}>
-                          <div className="flex items-center justify-between mb-4">
+                    <div>
+                      {!admin ? (
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                      ) : (
+                        <DatePicker
+                          name="delivery_date"
+                          label="Delivery Date"
+                          defaultValue={formData.delivery_date ?
+                            parseDate(formData.delivery_date) :
+                            today(getLocalTimeZone())}
+                          onChange={(date: any) => {
+                            setFormData(prev => ({
+                              ...prev,
+                              delivery_date: date.toString()
+                            }));
+                          }}
+                          isRequired={isDeliveryProcessing() && (admin === null || admin.is_admin)}
+                          isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
+                          classNames={{
+                            base: "w-full",
+                            inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
+                            selectorButton: "w-12 h-10 mb-4 mr-[-0.4rem]",
+                          }}
+                          isInvalid={!!errors.delivery_date}
+                          errorMessage={errors.delivery_date}
+                        />
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div {...(!assignOperator ? { className: '!min-h-0 !p-0 !h-0  border-none' } : {})}>
+                  {/* Recipient Details (shown only when assignOperator is true) */}
+                  <AnimatePresence>
+                    {assignOperator && (
+                      <motion.div
+                        {...motionTransition}>
+                        <div>
+                          <h2 className="text-xl font-semibold mb-4 w-full text-center">
+                            Recipient Details
+                          </h2>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
                             {!admin ? (
-                              <Skeleton className="h-10 w-full rounded-xl" />
+                              <>
+                                <Skeleton className="h-16 w-full rounded-xl" />
+                                <Skeleton className="h-16 w-full rounded-xl" />
+                              </>
                             ) : (
                               <>
-                                <span className="text-default-700 font-medium">Assign Operator</span>
-                                <Switch
-                                  isSelected={assignOperator}
-                                  onValueChange={handleAssignOperatorToggle}
-                                  color="primary"
+                                <Input
+                                  name="recipient_name"
+                                  label="Recipient Name"
+                                  classNames={inputStyle}
+                                  placeholder="Enter recipient name"
+                                  value={formData.recipient_name || ""}
+                                  onChange={handleInputChange}
+                                  isRequired={assignOperator && (admin === null || admin.is_admin)}
+                                  isReadOnly={!(admin === null || admin.is_admin)}
+                                  isInvalid={!!errors.recipient_name}
+                                  errorMessage={errors.recipient_name}
+                                  startContent={<Icon icon="mdi:account" className="text-default-500 mb-[0.2rem]" />}
+                                />
+
+                                <Input
+                                  name="recipient_contact"
+                                  label="Contact Number"
+                                  classNames={inputStyle}
+                                  placeholder="Enter contact number"
+                                  value={formData.recipient_contact || ""}
+                                  onChange={handleInputChange}
+                                  isRequired={assignOperator && (admin === null || admin.is_admin)}
+                                  isReadOnly={!(admin === null || admin.is_admin)}
+                                  isInvalid={!!errors.recipient_contact}
+                                  errorMessage={errors.recipient_contact}
+                                  startContent={<Icon icon="mdi:phone" className="text-default-500 mb-[0.2rem]" />}
                                 />
                               </>
                             )}
                           </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-
-                    {/* Operator Selection (shown only when assignOperator is true) */}
-                    <AnimatePresence>
-                      {assignOperator && (
-                        <motion.div
-                          {...motionTransition}>
-                          {!admin ? (
-                            <Skeleton className="h-16 w-full rounded-xl" />
-                          ) : (
-                            <Autocomplete
-                              name="operator_uuid"
-                              label="Select Operator"
-                              placeholder="Choose an operator"
-                              selectedKey={formData.operator_uuid || ""}
-                              onSelectionChange={(e) => handleAutoSelectChange(`operator_uuid`, `${e}`)}
-                              isRequired={isDeliveryProcessing() && assignOperator && (admin === null || admin.is_admin)}
-                              isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
-                              selectorIcon={(!isDeliveryProcessing() || !(admin === null || admin.is_admin)) ? null : <Icon icon="heroicons:chevron-down" height={15} />}
-                              popoverProps={{ className: (!isDeliveryProcessing() || !(admin === null || admin.is_admin)) ? "collapse" : "" }}
-                              inputProps={autoCompleteStyle}
-                              classNames={{ clearButton: "text-default-800" }}
-                              isInvalid={!!errors.operator_uuid}
-                              errorMessage={errors.operator_uuid}
-                              startContent={<Icon icon="mdi:account" className="text-default-500 mb-[0.2rem]" />}
-                            >
-                              {operators.map((operator) => (
-                                <AutocompleteItem key={operator.uuid}>
-                                  {`${operator.full_name} (${operator.email})`}
-                                </AutocompleteItem>
-                              ))}
-                            </Autocomplete>
-                          )}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-
-                  </div>
-
-
-                  {/* Warehouse Selection */}
-                  <div>
-                    {!admin ? (
-                      <Skeleton className="h-16 w-full rounded-xl" />
-                    ) : (
-                      <Autocomplete
-                        id="warehouse_uuid"
-                        name="warehouse_uuid"
-                        label="Warehouse"
-                        isRequired={isDeliveryProcessing() && (admin === null || admin.is_admin)}
-                        isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
-                        selectorIcon={(!isDeliveryProcessing() || !(admin === null || admin.is_admin)) ? null : <Icon icon="heroicons:chevron-down" height={15} />}
-                        popoverProps={{ className: (!isDeliveryProcessing() || !(admin === null || admin.is_admin)) ? "collapse" : "" }}
-                        placeholder="Select warehouse"
-                        selectedKey={formData.warehouse_uuid || ""}
-                        onSelectionChange={(e) => {
-                          // get warehouse details
-                          const selectedWarehouse = warehouses.find(w => w.uuid === e);
-                          if (selectedWarehouse) {
-                            setFormData(prev => ({
-                              ...prev,
-                              delivery_address: selectedWarehouse.address.fullAddress
-                            }));
-                            handleAutoSelectChange(`warehouse_uuid`, `${e}`)
-                          } else {
-                            setFormData(prev => ({
-                              ...prev,
-                              delivery_address: ""
-                            }));
-                            handleAutoSelectChange(`warehouse_uuid`, null)
-                          }
-                        }}
-                        inputProps={autoCompleteStyle}
-                        classNames={{ clearButton: "text-default-800" }}
-                        isInvalid={!!errors.warehouse_uuid}
-                        errorMessage={errors.warehouse_uuid}
-                        startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
-                      >
-                        {warehouses.map((warehouse) => (
-                          <AutocompleteItem key={warehouse.uuid}>
-                            {`${warehouse.name} (${warehouse.address.municipality.desc}, ${warehouse.address.barangay.desc})`}
-                          </AutocompleteItem>
-                        ))}
-                      </Autocomplete>
+                        </div>
+                      </motion.div>
                     )}
-                  </div>
+                  </AnimatePresence>
 
-                  <div>
+                </div>
+
+
+                <div>
+                  <h2 className="text-xl font-semibold mb-4 w-full text-center">
+                    Delivery Details
+                  </h2>
+                  <div className="space-y-4">
+                    {/* Only show recipient details when an operator is assigned */}
                     {!admin ? (
                       <Skeleton className="h-16 w-full rounded-xl" />
                     ) : (
-                      <DatePicker
-                        name="delivery_date"
-                        label="Delivery Date"
-                        defaultValue={formData.delivery_date ?
-                          parseDate(formData.delivery_date) :
-                          today(getLocalTimeZone())}
-                        onChange={(date: any) => {
-                          setFormData(prev => ({
-                            ...prev,
-                            delivery_date: date.toString()
-                          }));
-                        }}
+                      <Textarea
+                        name="delivery_address"
+                        label="Delivery Address"
+                        classNames={inputStyle}
+                        placeholder="Enter complete delivery address"
+                        value={formData.delivery_address || ""}
+                        onChange={handleInputChange}
+                        maxRows={5}
+                        minRows={1}
                         isRequired={isDeliveryProcessing() && (admin === null || admin.is_admin)}
+                        isReadOnly
+                        errorMessage={errors.delivery_address}
+                        startContent={<Icon icon="mdi:map-marker" className="text-default-500 mb-[0.2rem]" />}
+                      />
+                    )}
+
+                    {!admin ? (
+                      <Skeleton className="h-16 w-full rounded-xl" />
+                    ) : (
+                      <Textarea
+                        name="notes"
+                        label="Additional Notes"
+                        maxRows={5}
+                        minRows={1}
+                        classNames={inputStyle}
+                        placeholder="Enter any special instructions or notes"
+                        value={formData.notes || ""}
+                        onChange={handleInputChange}
+                        startContent={<Icon icon="mdi:note-text" className="text-default-500 mt-[0.1rem]" />}
                         isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
-                        classNames={{
-                          base: "w-full",
-                          inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
-                          selectorButton: "w-12 h-10 mb-4 mr-[-0.4rem]",
-                        }}
-                        isInvalid={!!errors.delivery_date}
-                        errorMessage={errors.delivery_date}
                       />
                     )}
                   </div>
                 </div>
-              </div>
 
-              <div {...(!assignOperator ? { className: '!min-h-0 !p-0 !h-0  border-none' } : {})}>
-                {/* Recipient Details (shown only when assignOperator is true) */}
-                <AnimatePresence>
-                  {assignOperator && (
-                    <motion.div
-                      {...motionTransition}>
-                      <div>
-                        <h2 className="text-xl font-semibold mb-4 w-full text-center">
-                          Recipient Details
-                        </h2>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
-                          {!admin ? (
-                            <>
-                              <Skeleton className="h-16 w-full rounded-xl" />
-                              <Skeleton className="h-16 w-full rounded-xl" />
-                            </>
-                          ) : (
-                            <>
-                              <Input
-                                name="recipient_name"
-                                label="Recipient Name"
-                                classNames={inputStyle}
-                                placeholder="Enter recipient name"
-                                value={formData.recipient_name || ""}
-                                onChange={handleInputChange}
-                                isRequired={assignOperator && (admin === null || admin.is_admin)}
-                                isReadOnly={!(admin === null || admin.is_admin)}
-                                isInvalid={!!errors.recipient_name}
-                                errorMessage={errors.recipient_name}
-                                startContent={<Icon icon="mdi:account" className="text-default-500 mb-[0.2rem]" />}
-                              />
-
-                              <Input
-                                name="recipient_contact"
-                                label="Contact Number"
-                                classNames={inputStyle}
-                                placeholder="Enter contact number"
-                                value={formData.recipient_contact || ""}
-                                onChange={handleInputChange}
-                                isRequired={assignOperator && (admin === null || admin.is_admin)}
-                                isReadOnly={!(admin === null || admin.is_admin)}
-                                isInvalid={!!errors.recipient_contact}
-                                errorMessage={errors.recipient_contact}
-                                startContent={<Icon icon="mdi:phone" className="text-default-500 mb-[0.2rem]" />}
-                              />
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-              </div>
-
-
-              <div>
-                <h2 className="text-xl font-semibold mb-4 w-full text-center">
-                  Delivery Details
-                </h2>
-                <div className="space-y-4">
-                  {/* Only show recipient details when an operator is assigned */}
-                  {!admin ? (
-                    <Skeleton className="h-16 w-full rounded-xl" />
-                  ) : (
-                    <Textarea
-                      name="delivery_address"
-                      label="Delivery Address"
-                      classNames={inputStyle}
-                      placeholder="Enter complete delivery address"
-                      value={formData.delivery_address || ""}
-                      onChange={handleInputChange}
-                      maxRows={5}
-                      minRows={1}
-                      isRequired={isDeliveryProcessing() && (admin === null || admin.is_admin)}
-                      isReadOnly
-                      errorMessage={errors.delivery_address}
-                      startContent={<Icon icon="mdi:map-marker" className="text-default-500 mb-[0.2rem]" />}
-                    />
-                  )}
-
-                  {!admin ? (
-                    <Skeleton className="h-16 w-full rounded-xl" />
-                  ) : (
-                    <Textarea
-                      name="notes"
-                      label="Additional Notes"
-                      maxRows={5}
-                      minRows={1}
-                      classNames={inputStyle}
-                      placeholder="Enter any special instructions or notes"
-                      value={formData.notes || ""}
-                      onChange={handleInputChange}
-                      startContent={<Icon icon="mdi:note-text" className="text-default-500 mt-[0.1rem]" />}
-                      isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
-                    />
-                  )}
-                </div>
-              </div>
-
-              {/* Warehouse Location */}
-              <div>
-                <h2 className="text-xl font-semibold mb-4 w-full text-center">
-                  Warehouse Location
-                </h2>
-                <div className="space-y-4">
-
-                  <AnimatePresence>
-                    {(!isFloorConfigNotSet() || isWarehouseNotSet()) && (
-                      <motion.div
-                        {...motionTransition} className="flex flex-col gap-4">
-                        <div className={isDeliveryProcessing() ? "space-y-4 " :
-                          "flex items-center justify-between"}>
-                          {/* Floor and Group in the first row */}
-                          <div className={`flex sm:flex-row  ${isDeliveryProcessing() && "flex-col gap-4"}`}>
-                            {!admin ? (
-                              <>
-                                <Skeleton className="h-16 w-full rounded-xl" />
-                                <Skeleton className="h-16 w-full rounded-xl" />
-                              </>
-                            ) : (
-                              <>
-                                <NumberInput
-                                  name="location.floor"
-                                  classNames={{
-                                    inputWrapper: `${inputStyle.inputWrapper} 
-                                    ${isDeliveryProcessing() ?
-                                        'rounded-xl' :
-                                        'rounded-none rounded-l-xl border-r-1'
-                                      }`
-                                  }}
-                                  label="Floor"
-                                  placeholder="e.g. 1"
-                                  maxValue={floorOptions.length - 1}
-                                  minValue={1}
-                                  // Display floor as 1-indexed but store as 0-indexed
-                                  value={selectedFloor !== null ? selectedFloor + 1 : 0}
-                                  onValueChange={(e) => setSelectedFloor(e - 1)}
-                                  isInvalid={!!errors["location.floor"]}
-                                  errorMessage={errors["location.floor"]}
-                                  isRequired={isDeliveryProcessing() && (admin === null || admin.is_admin)}
-                                  isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
-                                  hideStepper={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
-                                  startContent={
-                                    <Icon icon="mdi:floor-plan"
-                                      className={`text-default-500 pb-[0.1rem] ${!isDeliveryProcessing() || !(admin === null || admin.is_admin)
-                                        && 'collapse sm:visible md:collapse lg:visible'}`} />
-                                  }
-                                />
-
-                                <NumberInput
-                                  name="location.group"
-                                  classNames={{
-                                    inputWrapper: `${inputStyle.inputWrapper} 
-                                    ${isDeliveryProcessing() ?
-                                        'rounded-xl' :
-                                        'rounded-none border-x-1'
-                                      }`
-                                  }}
-                                  label="Group"
-                                  minValue={1}
-                                  placeholder="e.g. 1"
-                                  // Display group as 1-indexed but store as 0-indexed
-                                  value={selectedGroup !== null ? selectedGroup + 1 : 0}
-                                  onValueChange={(e) => setSelectedGroup(e - 1)}
-                                  isInvalid={!!errors["location.group"]}
-                                  errorMessage={errors["location.group"]}
-                                  isRequired={isDeliveryProcessing() && (admin === null || admin.is_admin)}
-                                  isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
-                                  hideStepper={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
-                                  startContent={
-                                    <Icon icon="mdi:floor-plan"
-                                      className={`text-default-500 pb-[0.1rem] ${!isDeliveryProcessing() || !(admin === null || admin.is_admin)
-                                        && 'collapse sm:visible md:collapse lg:visible'}`} />
-                                  }
-                                />
-                              </>
-                            )}
-                          </div>
-
-                          {/* Row, Column, and Depth grouped together in the second row */}
-                          <div className={`flex sm:flex-row  ${isDeliveryProcessing() && "flex-col gap-4"}`}>
-                            {!admin ? (
-                              <>
-                                <Skeleton className="h-16 w-full rounded-xl" />
-                                <Skeleton className="h-16 w-full rounded-xl" />
-                                <Skeleton className="h-16 w-full rounded-xl" />
-                              </>
-                            ) : (
-                              <>
-                                <NumberInput
-                                  name="location.row"
-                                  classNames={{
-                                    inputWrapper: `${inputStyle.inputWrapper} 
-                                    ${isDeliveryProcessing() ?
-                                        'rounded-xl' :
-                                        'rounded-none border-x-1'
-                                      }`
-                                  }}
-                                  label="Row"
-                                  minValue={1}
-                                  placeholder="e.g. 1"
-                                  // Display row as 1-indexed but store as 0-indexed
-                                  value={selectedRow !== null ? selectedRow + 1 : 0}
-                                  onValueChange={(e) => setSelectedRow(e - 1)}
-                                  isInvalid={!!errors["location.row"]}
-                                  errorMessage={errors["location.row"]}
-                                  isRequired={isDeliveryProcessing() && (admin === null || admin.is_admin)}
-                                  isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
-                                  hideStepper={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
-                                  startContent={
-                                    <Icon icon="mdi:floor-plan"
-                                      className={`text-default-500 pb-[0.1rem] ${!isDeliveryProcessing() || !(admin === null || admin.is_admin)
-                                        && 'collapse sm:visible md:collapse lg:visible'}`} />
-                                  }
-                                />
-
-
-                                <NumberInput
-                                  name="location.column"
-                                  classNames={{
-                                    inputWrapper: `${inputStyle.inputWrapper} 
-                                    ${isDeliveryProcessing() ?
-                                        'rounded-xl' :
-                                        'rounded-none border-x-1'
-                                      }`
-                                  }}
-                                  label="Column"
-                                  minValue={1}
-                                  placeholder="e.g. 1"
-                                  // Display depth as 1-indexed but store as 0-indexed
-                                  value={selectedColumn !== null ? selectedColumn + 1 : 0}
-                                  onValueChange={(e) => {
-                                    setSelectedColumn(e - 1);
-                                    if (e) {
-                                      setSelectedColumnCode(String.fromCharCode(65 + e - 1));
-                                    }
-                                  }}
-                                  isInvalid={!!errors["location.column"]}
-                                  errorMessage={errors["location.column"]}
-                                  isRequired={isDeliveryProcessing() && (admin === null || admin.is_admin)}
-                                  isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
-                                  hideStepper={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
-                                  startContent={
-                                    <Icon icon="mdi:floor-plan"
-                                      className={`text-default-500 pb-[0.1rem] ${!isDeliveryProcessing() || !(admin === null || admin.is_admin)
-                                        && 'collapse sm:visible md:collapse lg:visible'}`} />
-                                  }
-                                />
-
-                                <NumberInput
-                                  name="location.depth"
-                                  classNames={{
-                                    inputWrapper: `${inputStyle.inputWrapper} 
-                                      ${isDeliveryProcessing() ?
-                                        'rounded-xl' :
-                                        'rounded-none rounded-r-xl border-l-1'
-                                      }`
-                                  }}
-                                  label="Depth"
-                                  minValue={1}
-                                  placeholder="e.g. 1"
-                                  // Display depth as 1-indexed but store as 0-indexed
-                                  value={selectedDepth !== null ? selectedDepth + 1 : 0}
-                                  onValueChange={(e) => setSelectedDepth(e - 1)}
-                                  isInvalid={!!errors["location.depth"]}
-                                  errorMessage={errors["location.depth"]}
-                                  isRequired={isDeliveryProcessing() && (admin === null || admin.is_admin)}
-                                  isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
-                                  hideStepper={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
-                                  startContent={
-                                    <Icon icon="mdi:floor-plan"
-                                      className={`text-default-500 pb-[0.1rem] ${!isDeliveryProcessing() || !(admin === null || admin.is_admin)
-                                        && 'collapse sm:visible md:collapse lg:visible'}`} />
-                                  }
-                                />
-                              </>
-                            )}
-                          </div>
-
-                        </div>
-                        <div className="flex items-center justify-between">
-                          {!admin ? (
-                            <Skeleton className="h-7 w-32 rounded-xl" />
-                          ) : (
-                            <Chip className="mb-2 sm:mb-0">
-                              CODE: <b>{selectedCode}</b>
-                            </Chip>
-                          )}
-                        </div>
-
-                        <div className="flex justify-center gap-4 border-t border-default-200 pt-4 px-4 -mx-4">
-                          {!admin ? (
-                            <Skeleton className="h-10 w-full rounded-xl" />
-                          ) : (
-                            <Button
-                              variant="faded"
-                              color="primary"
-                              onPress={handleOpenModal}
-                              isDisabled={isWarehouseNotSet()}
-                              className="w-full border-default-200 text-primary-600"
-                            >
-                              <Icon icon="mdi:warehouse" className="mr-1" />
-                              {isDeliveryProcessing() && (admin === null || admin.is_admin) ?
-                                "Select Location" : "View Location"}
-                            </Button>
-                          )}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-
-                  <AnimatePresence>
-                    {isFloorConfigNotSet() && !isWarehouseNotSet() && (
-                      <motion.div
-                        {...motionTransition} className="flex flex-col gap-4">
-                        {/* The floor config is not yet set */}
-                        <div className="flex items-center justify-between">
-                          <Alert
-                            variant='faded'
-                            color="danger"
-                            className="w-full"
-                          >
-                            <span>
-                              Floor configuration is not set. Please set the floor configuration to proceed.
-                            </span>
-                          </Alert>
-                        </div>
-                        <div className="flex justify-center gap-4 border-t border-default-200 pt-4 px-4 -mx-4">
-                          {!admin ? (
-                            <Skeleton className="h-10 w-full rounded-xl" />
-                          ) : (
-                            <Button
-                              variant="faded"
-                              color="primary"
-                              onPress={(e) => {
-                                if (formData.warehouse_uuid)
-                                  handleGoToWarehouse(formData.warehouse_uuid);
-                              }}
-                              className="w-full border-default-200 text-primary-600"
-                            >
-                              <Icon icon="mdi:warehouse" className="mr-1" />
-                              Set Floor Configuration
-                            </Button>
-                          )}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-
-                </div>
-              </div>
-
-
-              <div>
-                <h2 className="text-xl font-semibold mb-4 w-full text-center">Delivery Status</h2>
+                {/* Warehouse Location */}
                 <div>
-                  {!admin ? (
-                    <Skeleton className="h-16 w-full rounded-xl" />
-                  ) : (
-                    <div className="border-2 border-default-200 rounded-xl bg-gradient-to-b from-background to-default-50/30">
-                      <div className="flex justify-between items-center border-b border-default-200 p-4">
-                        <h3 className="text-md font-medium">Current Status</h3>
-                        <Chip
-                          color={getStatusColor(formData.status || "PENDING")}
-                          size="sm"
-                          variant="shadow"
-                          className="px-3 font-medium"
-                        >
-                          {formData.status?.replace('_', ' ') || "PENDING"}
-                        </Chip>
-                      </div>
+                  <h2 className="text-xl font-semibold mb-4 w-full text-center">
+                    Warehouse Location
+                  </h2>
+                  <div className="space-y-4">
 
-                      {formData.status_history && Object.keys(formData.status_history).length > 0 ? (
-                        <div className="p-4">
-                          <h3 className="text-md font-medium mb-4">Status History</h3>
-                          <div className="relative">
-                            {/* Fixed timeline line with better alignment */}
-                            <div className="absolute left-[calc((3rem/2)-0.1rem)] top-0 bottom-1 w-0.5 bg-default-100 rounded-full"></div>
+                    <AnimatePresence>
+                      {(!isFloorConfigNotSet() || isWarehouseNotSet()) && (
+                        <motion.div
+                          {...motionTransition} className="flex flex-col gap-4">
+                          <div className={isDeliveryProcessing() ? "space-y-4 " :
+                            "flex items-center justify-between"}>
+                            {/* Floor and Group in the first row */}
+                            <div className={`flex sm:flex-row  ${isDeliveryProcessing() && "flex-col gap-4"}`}>
+                              {!admin ? (
+                                <>
+                                  <Skeleton className="h-16 w-full rounded-xl" />
+                                  <Skeleton className="h-16 w-full rounded-xl" />
+                                </>
+                              ) : (
+                                <>
+                                  <NumberInput
+                                    name="location.floor"
+                                    classNames={{
+                                      inputWrapper: `${inputStyle.inputWrapper} 
+                        ${isDeliveryProcessing() ?
+                                          'rounded-xl' :
+                                          'rounded-none rounded-l-xl border-r-1'
+                                        }`
+                                    }}
+                                    label="Floor"
+                                    placeholder="e.g. 1"
+                                    maxValue={floorOptions.length - 1}
+                                    minValue={1}
+                                    // Display floor as 1-indexed but store as 0-indexed
+                                    value={selectedFloor !== null ? selectedFloor + 1 : 0}
+                                    onValueChange={(e) => setSelectedFloor(e - 1)}
+                                    isInvalid={!!errors["location.floor"]}
+                                    errorMessage={errors["location.floor"]}
+                                    isRequired={isDeliveryProcessing() && (admin === null || admin.is_admin)}
+                                    isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
+                                    hideStepper={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
+                                    startContent={
+                                      <Icon icon="lucide-lab:floor-plan"
+                                        className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
+                                    }
+                                  />
 
-                            <div className="space-y-5">
-                              {Object.entries(formData.status_history)
-                                .sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime()) // Sort by timestamp descending
-                                .map(([timestamp, status]) => {
-                                  // Determine icon based on status
-                                  const statusIcon =
-                                    status === "PENDING" ? "mdi:clock-outline" :
-                                      status === "PROCESSING" ? "mdi:clock-start" :
-                                        status === "IN_TRANSIT" ? "mdi:truck-fast" :
-                                          status === "DELIVERED" ? "mdi:check" :
-                                            status === "CANCELLED" ? "mdi:close" :
-                                              "mdi:help-circle";
+                                  <NumberInput
+                                    name="location.group"
+                                    classNames={{
+                                      inputWrapper: `${inputStyle.inputWrapper} 
+                        ${isDeliveryProcessing() ?
+                                          'rounded-xl' :
+                                          'rounded-none border-x-1'
+                                        }`
+                                    }}
+                                    label="Group"
+                                    minValue={1}
+                                    placeholder="e.g. 1"
+                                    // Display group as 1-indexed but store as 0-indexed
+                                    value={selectedGroup !== null ? selectedGroup + 1 : 0}
+                                    onValueChange={(e) => setSelectedGroup(e - 1)}
+                                    isInvalid={!!errors["location.group"]}
+                                    errorMessage={errors["location.group"]}
+                                    isRequired={isDeliveryProcessing() && (admin === null || admin.is_admin)}
+                                    isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
+                                    hideStepper={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
+                                    startContent={
+                                      <Icon icon="heroicons:rectangle-group-16-solid"
+                                        className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
+                                    }
+                                  />
+                                </>
+                              )}
+                            </div>
 
-                                  return (
-                                    <div key={timestamp} className="flex items-start group">
-                                      <div className={`w-12 h-12 rounded-full flex-shrink-0 bg-${getStatusColor(status)}-100 flex items-center justify-center shadow-sm group-hover:shadow-md transition-all duration-200  z-10`}>
-                                        <Icon
-                                          icon={statusIcon}
-                                          className={`text-${getStatusColor(status)}-900 text-[1.25rem]`}
-                                        />
-                                      </div>
-                                      <div className="ml-4 bg-background/50 p-3 rounded-xl border border-default-200 shadow-sm flex-grow group-hover:shadow-md group-hover:border-default-300 transition-all duration-200">
-                                        <div className="flex justify-between items-center flex-wrap gap-2">
-                                          <Chip
-                                            color={getStatusColor(status)}
-                                            size="sm"
-                                            variant="flat"
-                                            className="font-medium"
-                                          >
-                                            <Icon icon={statusIcon} className="mr-1" />
-                                            {status.replace('_', ' ')}
-                                          </Chip>
-                                          <div className="text-xs text-default-500 flex items-center">
-                                            <Icon icon="mdi:calendar-clock" className="mr-1" />
-                                            {format(parseISO(timestamp), "MMM d, yyyy 'at' h:mm a")}
+                            {/* Row, Column, and Depth grouped together in the second row */}
+                            <div className={`flex sm:flex-row  ${isDeliveryProcessing() && "flex-col gap-4"}`}>
+                              {!admin ? (
+                                <>
+                                  <Skeleton className="h-16 w-full rounded-xl" />
+                                  <Skeleton className="h-16 w-full rounded-xl" />
+                                  <Skeleton className="h-16 w-full rounded-xl" />
+                                </>
+                              ) : (
+                                <>
+                                  <NumberInput
+                                    name="location.row"
+                                    classNames={{
+                                      inputWrapper: `${inputStyle.inputWrapper} 
+                        ${isDeliveryProcessing() ?
+                                          'rounded-xl' :
+                                          'rounded-none border-x-1'
+                                        }`
+                                    }}
+                                    label="Row"
+                                    minValue={1}
+                                    placeholder="e.g. 1"
+                                    // Display row as 1-indexed but store as 0-indexed
+                                    value={selectedRow !== null ? selectedRow + 1 : 0}
+                                    onValueChange={(e) => setSelectedRow(e - 1)}
+                                    isInvalid={!!errors["location.row"]}
+                                    errorMessage={errors["location.row"]}
+                                    isRequired={isDeliveryProcessing() && (admin === null || admin.is_admin)}
+                                    isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
+                                    hideStepper={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
+                                    startContent={
+                                      <Icon icon="fluent:row-triple-20-filled"
+                                        className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
+
+                                    }
+                                  />
+
+
+                                  <NumberInput
+                                    name="location.column"
+                                    classNames={{
+                                      inputWrapper: `${inputStyle.inputWrapper} 
+                        ${isDeliveryProcessing() ?
+                                          'rounded-xl' :
+                                          'rounded-none border-x-1'
+                                        }`
+                                    }}
+                                    label="Column"
+                                    minValue={1}
+                                    placeholder="e.g. 1"
+                                    // Display depth as 1-indexed but store as 0-indexed
+                                    value={selectedColumn !== null ? selectedColumn + 1 : 0}
+                                    onValueChange={(e) => {
+                                      setSelectedColumn(e - 1);
+                                      if (e) {
+                                        setSelectedColumnCode(String.fromCharCode(65 + e - 1));
+                                      }
+                                    }}
+                                    isInvalid={!!errors["location.column"]}
+                                    errorMessage={errors["location.column"]}
+                                    isRequired={isDeliveryProcessing() && (admin === null || admin.is_admin)}
+                                    isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
+                                    hideStepper={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
+                                    startContent={
+                                      <Icon icon="fluent:column-triple-20-filled"
+                                        className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
+
+                                    }
+                                  />
+
+                                  <NumberInput
+                                    name="location.depth"
+                                    classNames={{
+                                      inputWrapper: `${inputStyle.inputWrapper} 
+                          ${isDeliveryProcessing() ?
+                                          'rounded-xl' :
+                                          'rounded-none rounded-r-xl border-l-1'
+                                        }`
+                                    }}
+                                    label="Depth"
+                                    minValue={1}
+                                    placeholder="e.g. 1"
+                                    // Display depth as 1-indexed but store as 0-indexed
+                                    value={selectedDepth !== null ? selectedDepth + 1 : 0}
+                                    onValueChange={(e) => setSelectedDepth(e - 1)}
+                                    isInvalid={!!errors["location.depth"]}
+                                    errorMessage={errors["location.depth"]}
+                                    isRequired={isDeliveryProcessing() && (admin === null || admin.is_admin)}
+                                    isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
+                                    hideStepper={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
+                                    startContent={
+                                      <Icon icon="fluent:box-16-filled"
+                                        className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
+
+                                    }
+                                  />
+                                </>
+                              )}
+                            </div>
+
+                          </div>
+                          <div className="flex items-center justify-between">
+                            {!admin ? (
+                              <Skeleton className="h-7 w-32 rounded-xl" />
+                            ) : (
+                              <Chip className="mb-2 sm:mb-0">
+                                CODE: <b>{selectedCode}</b>
+                              </Chip>
+                            )}
+                          </div>
+
+                          <div className="flex justify-center gap-4 border-t border-default-200 pt-4 px-4 -mx-4">
+                            {!admin ? (
+                              <Skeleton className="h-10 w-full rounded-xl" />
+                            ) : (
+                              <Button
+                                variant="faded"
+                                color="primary"
+                                onPress={handleOpenModal}
+                                isDisabled={isWarehouseNotSet()}
+                                className="w-full border-default-200 text-primary-600"
+                              >
+                                <Icon icon="mdi:warehouse" className="mr-1" />
+                                {isDeliveryProcessing() && (admin === null || admin.is_admin) ?
+                                  "Select Location" : "View Location"}
+                              </Button>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    <AnimatePresence>
+                      {isFloorConfigNotSet() && !isWarehouseNotSet() && (
+                        <motion.div
+                          {...motionTransition} className="flex flex-col gap-4">
+                          {/* The floor config is not yet set */}
+                          <div className="flex items-center justify-between">
+                            <Alert
+                              variant='faded'
+                              color="danger"
+                              className="w-full"
+                            >
+                              <span>
+                                Floor configuration is not set. Please set the floor configuration to proceed.
+                              </span>
+                            </Alert>
+                          </div>
+                          <div className="flex justify-center gap-4 border-t border-default-200 pt-4 px-4 -mx-4">
+                            {!admin ? (
+                              <Skeleton className="h-10 w-full rounded-xl" />
+                            ) : (
+                              <Button
+                                variant="faded"
+                                color="primary"
+                                onPress={(e) => {
+                                  if (formData.warehouse_uuid)
+                                    handleGoToWarehouse(formData.warehouse_uuid);
+                                }}
+                                className="w-full border-default-200 text-primary-600"
+                              >
+                                <Icon icon="mdi:warehouse" className="mr-1" />
+                                Set Floor Configuration
+                              </Button>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                  </div>
+                </div>
+
+
+                <div>
+                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Delivery Status</h2>
+                  <div>
+                    {!admin ? (
+                      <Skeleton className="h-16 w-full rounded-xl" />
+                    ) : (
+                      <div className="border-2 border-default-200 rounded-xl bg-gradient-to-b from-background to-default-50/30">
+                        <div className="flex justify-between items-center border-b border-default-200 p-4">
+                          <h3 className="text-md font-medium">Current Status</h3>
+                          <Chip
+                            color={getStatusColor(formData.status || "PENDING")}
+                            size="sm"
+                            variant="shadow"
+                            className="px-3 font-medium"
+                          >
+                            {formData.status?.replace('_', ' ') || "PENDING"}
+                          </Chip>
+                        </div>
+
+                        {formData.status_history && Object.keys(formData.status_history).length > 0 ? (
+                          <div className="p-4">
+                            <h3 className="text-md font-medium mb-4">Status History</h3>
+                            <div className="relative">
+                              {/* Fixed timeline line with better alignment */}
+                              <div className="absolute left-[calc((3rem/2)-0.1rem)] top-0 bottom-1 w-0.5 bg-default-100 rounded-full"></div>
+
+                              <div className="space-y-5">
+                                {Object.entries(formData.status_history)
+                                  .sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime()) // Sort by timestamp descending
+                                  .map(([timestamp, status]) => {
+                                    // Determine icon based on status
+                                    const statusIcon =
+                                      status === "PENDING" ? "mdi:clock-outline" :
+                                        status === "PROCESSING" ? "mdi:clock-start" :
+                                          status === "IN_TRANSIT" ? "mdi:truck-fast" :
+                                            status === "DELIVERED" ? "mdi:check" :
+                                              status === "CANCELLED" ? "mdi:close" :
+                                                "mdi:help-circle";
+
+                                    return (
+                                      <div key={timestamp} className="flex items-start group">
+                                        <div className={`w-12 h-12 rounded-full flex-shrink-0 bg-${getStatusColor(status)}-100 flex items-center justify-center shadow-sm group-hover:shadow-md transition-all duration-200  z-10`}>
+                                          <Icon
+                                            icon={statusIcon}
+                                            className={`text-${getStatusColor(status)}-900 text-[1.25rem]`}
+                                          />
+                                        </div>
+                                        <div className="ml-4 bg-background/50 p-3 rounded-xl border border-default-200 shadow-sm flex-grow group-hover:shadow-md group-hover:border-default-300 transition-all duration-200">
+                                          <div className="flex justify-between items-center flex-wrap gap-2">
+                                            <Chip
+                                              color={getStatusColor(status)}
+                                              size="sm"
+                                              variant="flat"
+                                              className="font-medium"
+                                            >
+                                              <Icon icon={statusIcon} className="mr-1" />
+                                              {status.replace('_', ' ')}
+                                            </Chip>
+                                            <div className="text-xs text-default-500 flex items-center">
+                                              <Icon icon="mdi:calendar-clock" className="mr-1" />
+                                              {format(parseISO(timestamp), "MMM d, yyyy 'at' h:mm a")}
+                                            </div>
                                           </div>
                                         </div>
                                       </div>
-                                    </div>
-                                  );
-                                })}
+                                    );
+                                  })}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ) : (
-                        <Alert
-                          variant="faded"
-                          color="danger"
-                          className="text-center m-4 w-[calc(100%-2rem)]"
-                          icon={<Icon icon="mdi:history" className="text-default-500" />}
-                        >
-                          No status history available.
-                        </Alert>
-                      )}
-                    </div>
-                  )}
-
-                  <AnimatePresence>
-                    {(admin === null || admin.is_admin) && selectedDeliveryId && formData.status !== "DELIVERED" && formData.status !== "CANCELLED" && (
-                      <motion.div
-                        {...motionTransition}>
-                        <div className="flex flex-col gap-4 pt-4 -mx-4">
-                          <hr className="border-default-200" />
-                          <h3 className="text-lg font-semibold w-full text-center">Quick Status Update</h3>
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 px-4">
-                            <Button
-                              color="warning"
-                              variant="flat"
-                              className="w-full"
-                              isDisabled={formData.status === "PROCESSING" || formData.status === "IN_TRANSIT" || formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading}
-                              onPress={() => handleStatusChange("PROCESSING")}
-                            >
-                              <Icon icon="mdi:clock-start" className="mr-1" />
-                              Processing
-                            </Button>
-                            <Button
-                              color="primary"
-                              variant="flat"
-                              className="w-full"
-                              isDisabled={formData.status === "IN_TRANSIT" || formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading}
-                              onPress={() => handleStatusChange("IN_TRANSIT")}
-                            >
-                              <Icon icon="mdi:truck-fast" className="mr-1" />
-                              In Transit
-                            </Button>
-                            <Button
-                              color="success"
-                              variant="flat"
-                              className="w-full"
-                              isDisabled={formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading || isFloorConfigNotSet()}
-                              onPress={() => handleStatusChange("DELIVERED")}
-                            >
-                              <Icon icon="mdi:check-circle" className="mr-1" />
-                              Delivered
-                            </Button>
-                            <Button
-                              color="danger"
-                              variant="flat"
-                              className="w-full"
-                              isDisabled={formData.status === "CANCELLED" || formData.status === "DELIVERED" || isLoading}
-                              onPress={() => handleStatusChange("CANCELLED")}
-                            >
-                              <Icon icon="mdi:close-circle" className="mr-1" />
-                              Cancel
-                            </Button>
-                          </div>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              </div>
-
-                  {(admin === null || admin.is_admin || formData.status === "DELIVERED") && (
-                    <motion.div
-                      {...motionTransition}>
-                      <div className="flex flex-col md:flex-row justify-center items-center gap-4">
-                        {!admin ? (
-                          <Skeleton className="h-10 w-full rounded-xl" />
                         ) : (
-                          <>
-                            {selectedDeliveryId && (
-                              <>
-                                <Button
-                                  color="secondary"
-                                  variant="shadow"
-                                  className="w-full"
-                                  onPress={() => setShowQrCode(true)}
-                                >
-                                  <Icon icon="mdi:qrcode" className="mr-1" />
-                                  Show Delivery QR
-                                </Button>
-
-                                {formData.status === "DELIVERED" && (
-                                  <Button
-                                    color="success"
-                                    variant="shadow"
-                                    className="w-full"
-                                    onPress={handleViewInventory}
-                                  >
-                                    <Icon icon="mdi:package-variant" className="mr-1" />
-                                    {(admin === null || admin.is_admin)
-                                      ? "Show Inventory"
-                                      : "Show in Warehouse"}
-                                  </Button>
-                                )}
-
-                              </>
-                            )}
-
-                            {/* Show submit button only for admins creating/updating or operators with selected delivery */}
-                            {(admin.is_admin && formData.status !== "DELIVERED") && (
-                              <Button
-                                type="submit"
-                                form="deliveryForm"
-                                color="primary"
-                                variant="shadow"
-                                className="w-full"
-                                isLoading={isLoading}
-                              >
-                                <Icon icon="mdi:content-save" className="mr-1" />
-                                {selectedDeliveryId ? "Update Delivery" : "Create Delivery"}
-                              </Button>
-                            )}
-                          </>
+                          <Alert
+                            variant="faded"
+                            color="danger"
+                            className="text-center m-4 w-[calc(100%-2rem)]"
+                            icon={<Icon icon="mdi:history" className="text-default-500" />}
+                          >
+                            No status history available.
+                          </Alert>
                         )}
                       </div>
-                    </motion.div>
-                  )}
-                  
-            </CardList>
-          </Form>
+                    )}
 
+                    <AnimatePresence>
+                      {(admin === null || admin.is_admin) && selectedDeliveryId && formData.status !== "DELIVERED" && formData.status !== "CANCELLED" && (
+                        <motion.div
+                          {...motionTransition}>
+                          <div className="flex flex-col gap-4 pt-4 -mx-4">
+                            <hr className="border-default-200" />
+                            <h3 className="text-lg font-semibold w-full text-center">Quick Status Update</h3>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 px-4">
+                              <Button
+                                color="warning"
+                                variant="flat"
+                                className="w-full"
+                                isDisabled={formData.status === "PROCESSING" || formData.status === "IN_TRANSIT" || formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading}
+                                onPress={() => handleStatusChange("PROCESSING")}
+                              >
+                                <Icon icon="mdi:clock-start" className="mr-1" />
+                                Processing
+                              </Button>
+                              <Button
+                                color="primary"
+                                variant="flat"
+                                className="w-full"
+                                isDisabled={formData.status === "IN_TRANSIT" || formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading}
+                                onPress={() => handleStatusChange("IN_TRANSIT")}
+                              >
+                                <Icon icon="mdi:truck-fast" className="mr-1" />
+                                In Transit
+                              </Button>
+                              <Button
+                                color="success"
+                                variant="flat"
+                                className="w-full"
+                                isDisabled={formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading || isFloorConfigNotSet()}
+                                onPress={() => handleStatusChange("DELIVERED")}
+                              >
+                                <Icon icon="mdi:check-circle" className="mr-1" />
+                                Delivered
+                              </Button>
+                              <Button
+                                color="danger"
+                                variant="flat"
+                                className="w-full"
+                                isDisabled={formData.status === "CANCELLED" || formData.status === "DELIVERED" || isLoading}
+                                onPress={() => handleStatusChange("CANCELLED")}
+                              >
+                                <Icon icon="mdi:close-circle" className="mr-1" />
+                                Cancel
+                              </Button>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </div>
+
+                {(admin === null || admin.is_admin || formData.status === "DELIVERED") && (
+                  <motion.div
+                    {...motionTransition}>
+                    <div className="flex flex-col md:flex-row justify-center items-center gap-4">
+                      {!admin ? (
+                        <Skeleton className="h-10 w-full rounded-xl" />
+                      ) : (
+                        <>
+                          {selectedDeliveryId && (
+                            <>
+                              <Button
+                                color="secondary"
+                                variant="shadow"
+                                className="w-full"
+                                onPress={() => setShowQrCode(true)}
+                              >
+                                <Icon icon="mdi:qrcode" className="mr-1" />
+                                Show Delivery QR
+                              </Button>
+
+                              {formData.status === "DELIVERED" && (
+                                <Button
+                                  color="success"
+                                  variant="shadow"
+                                  className="w-full"
+                                  onPress={handleViewInventory}
+                                >
+                                  <Icon icon="mdi:package-variant" className="mr-1" />
+                                  {(admin === null || admin.is_admin)
+                                    ? "Show Inventory"
+                                    : "Show in Warehouse"}
+                                </Button>
+                              )}
+
+                            </>
+                          )}
+
+                          {/* Show submit button only for admins creating/updating or operators with selected delivery */}
+                          {(admin.is_admin && formData.status !== "DELIVERED") && (
+                            <Button
+                              type="submit"
+                              form="deliveryForm"
+                              color="primary"
+                              variant="shadow"
+                              className="w-full"
+                              isLoading={isLoading}
+                            >
+                              <Icon icon="mdi:content-save" className="mr-1" />
+                              {selectedDeliveryId ? "Update Delivery" : "Create Delivery"}
+                            </Button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+
+              </CardList>
+            </Form>
+
+          ) : (
+            <div className="flex flex-col items-center justify-center p-12 border border-dashed border-default-300 rounded-2xl bg-background">
+              <Icon icon="mdi:truck-delivery" className="text-default-300" width={64} height={64} />
+              <h3 className="text-xl font-semibold text-default-800">No Delivery Selected</h3>
+              <p className="text-default-500 text-center mt-2 mb-6">
+                Select a delivery from the list to view details, or click the "Accept Delivery" button to scan a QR code.
+              </p>
+              <Button
+                color="primary"
+                variant="shadow"
+                className="mb-4"
+                onPress={() => setShowAcceptDeliveryModal(true)}
+              >
+                <Icon icon="mdi:qrcode-scan" className="mr-2" />
+                Accept Delivery
+              </Button>
+            </div>
+
+          )}
         </div>
       </div >
 
@@ -2252,7 +2271,7 @@ export default function DeliveryPage() {
             <div className="mt-4 w-full bg-default-50 overflow-auto max-h-64 rounded-xl">
               <SyntaxHighlighter
                 language="json"
-                style={vscDarkPlus}
+                style={window.resolveTheme === 'dark' ? materialDark : materialLight}
                 customStyle={{
                   margin: 0,
                   borderRadius: '0.5rem',
@@ -2442,7 +2461,7 @@ export default function DeliveryPage() {
                 {tempSelectedCode &&
                   <motion.div
                     {...motionTransition}
-                    className="absolute bottom-4 left-4 flex flex-col gap-2 bg-background/50 rounded-2xl backdrop-blur-lg md:w-auto w-[calc(100%-2rem)]">
+                    className="!scale-75 absolute overflow-hidden bottom-0 -left-[4.25rem] flex flex-col gap-2 bg-background/50 rounded-2xl backdrop-blur-lg md:w-auto w-[calc(100%-2rem)]">
                     <div className="grid md:grid-cols-2 grid-cols-1 gap-3 p-4">
                       <div className="flex flex-col gap-2">
                         <div className="flex items-center gap-2">

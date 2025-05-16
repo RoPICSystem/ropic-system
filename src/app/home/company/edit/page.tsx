@@ -33,14 +33,15 @@ import {
   Input,
   NumberInput,
   Skeleton,
-  Spinner
+  Spinner,
+  Textarea
 } from "@heroui/react";
 
 import { AnimatePresence, motion } from 'framer-motion';
 
 // Import ShelfSelector3D component with lazy loading
 const ShelfSelector3D = memo(lazy(() =>
-  import("@/components/shelf-selector-3d-v4").then(mod => ({
+  import("@/components/shelf-selector-3d").then(mod => ({
     default: mod.ShelfSelector3D
   }))
 ));
@@ -617,11 +618,13 @@ export default function CompanyEditPage() {
                     isRequired
                     isDisabled={isLoading}
                   />
-                  <Input
+                  <Textarea
                     id="address.fullAddress"
                     name="address.fullAddress"
                     label="Full Address"
                     type="text"
+                    maxRows={5}
+                    minRows={1}
                     value={fullAddress}
                     classNames={inputStyle}
                     isReadOnly

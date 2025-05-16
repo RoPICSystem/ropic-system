@@ -33,7 +33,6 @@ import { materialDark, materialLight } from 'react-syntax-highlighter/dist/cjs/s
 import CardList from "@/components/card-list";
 import { motionTransition } from "@/utils/anim";
 import {
-  checkAuthStatus,
   getWarehouseInventoryItems,
   getWarehouseInventoryItem,
   getWarehouseItemByInventory,
@@ -43,7 +42,7 @@ import {
 
 // Lazy load 3D shelf selector
 const ShelfSelector3D = memo(lazy(() =>
-  import("@/components/shelf-selector-3d-v4").then(mod => ({
+  import("@/components/shelf-selector-3d").then(mod => ({
     default: mod.ShelfSelector3D
   }))
 ));
@@ -86,7 +85,7 @@ export default function WarehouseItemsPage() {
       location_code: formData.location_code,
       warehouse: formData.warehouse?.name,
       inventory_uuid: formData.inventory_uuid,
-      // Include inventory item details that are useful
+      delivery_uuid: formData.delivery_uuid,
       inventory_item: formData.inventory_item ? {
         item_code: formData.inventory_item.item_code,
         item_name: formData.inventory_item.item_name,
@@ -160,6 +159,14 @@ export default function WarehouseItemsPage() {
     }
   };
 
+  // Handle view delivery details
+  const handleViewDelivery = () => {
+    if (formData.delivery_uuid) {
+      router.push(`/home/delivery?deliveryId=${formData.delivery_uuid}`);
+    }
+  };
+
+
   // Add or update useEffect to watch for changes in search parameters
   useEffect(() => {
     if (!user?.company_uuid || isLoadingItems) return;
@@ -207,15 +214,14 @@ export default function WarehouseItemsPage() {
   useEffect(() => {
     const initPage = async () => {
       try {
-        const userData = await checkAuthStatus();
-        setUser(userData);
+        setUser(window.adminData);
 
         // Fetch warehouse items
-        const itemsResult = await getWarehouseInventoryItems(userData.company_uuid);
+        const itemsResult = await getWarehouseInventoryItems(window.adminData.company_uuid);
         setWarehouseItems(itemsResult.data || []);
 
         // Fetch warehouses for filtering
-        const warehousesResult = await getWarehouses(userData.company_uuid);
+        const warehousesResult = await getWarehouses(window.adminData.company_uuid);
         setWarehouses(warehousesResult.data || []);
 
         setIsLoadingItems(false);
@@ -279,37 +285,23 @@ export default function WarehouseItemsPage() {
           )}
         </div>
         <div className="flex gap-4">
-          <div className="mt-4 text-center">
-            {!user ? (
+          {!user ? (
+            <>
               <Skeleton className="h-10 w-32 rounded-xl" />
-            ) : (
-              <div className="flex gap-2">
-                <Button
-                  color="secondary"
-                  variant="shadow"
-                  onPress={() => setShowLocationModal(true)}
-                  isDisabled={!selectedItemId}
-                >
-                  <div className="flex items-center gap-2">
-                    <Icon icon="mdi:map-marker" />
-                    <span>View Location</span>
-                  </div>
-                </Button>
-
-                <Button
-                  color="primary"
-                  variant="shadow"
-                  onPress={() => setShowQrCode(true)}
-                  isDisabled={!selectedItemId}
-                >
-                  <div className="flex items-center gap-2">
-                    <Icon icon="mdi:qrcode" />
-                    <span>QR Code</span>
-                  </div>
-                </Button>
-              </div>
-            )}
-          </div>
+            </>
+          ) : (
+            <>
+              <Button
+                color="primary"
+                variant="shadow"
+              >
+                <div className="flex items-center gap-2">
+                  <Icon icon="mdi:qrcode" />
+                  <span>Find using item QR</span>
+                </div>
+              </Button>
+            </>
+          )}
         </div>
       </div>
       <div className="flex flex-col xl:flex-row gap-4">
@@ -432,204 +424,325 @@ export default function WarehouseItemsPage() {
 
         {/* Right side: Item Details */}
         <div className="xl:w-2/3">
-          <Form id="warehouseItemForm" className="items-stretch space-y-4">
-            <CardList>
-              <div>
-                <h2 className="text-xl font-semibold mb-4 w-full text-center">Item Information</h2>
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {selectedItemId ? (
+            <Form id="warehouseItemForm" className="items-stretch">
+              <CardList>
+                <div>
+                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Item Information</h2>
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {!user || !selectedItemId ? (
+                        <>
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                        </>
+                      ) : (
+                        <>
+                          <Input
+                            label="Item Code"
+                            value={formData.item_code || ""}
+                            isReadOnly
+                            classNames={inputStyle}
+                            startContent={<Icon icon="mdi:barcode" className="text-default-500 pb-[0.1rem]" />}
+                          />
+
+                          <Input
+                            label="Item Name"
+                            value={formData.item_name || ""}
+                            isReadOnly
+                            classNames={inputStyle}
+                            startContent={<Icon icon="mdi:package-variant" className="text-default-500 pb-[0.1rem]" />}
+                          />
+                        </>
+                      )}
+                    </div>
+
+                    {!user || !selectedItemId ? (
+                      <Skeleton className="h-16 w-full rounded-xl" />
+                    ) : formData.inventory_item?.description ? (
+                      <Textarea
+                        label="Description"
+                        value={formData.inventory_item?.description || ""}
+                        isReadOnly
+                        classNames={inputStyle}
+                        startContent={<Icon icon="mdi:text" className="text-default-500 pb-[0.1rem]" />}
+                      />
+                    ) : null}
+                  </div>
+                </div>
+
+                <div>
+                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Inventory Details</h2>
+                  <div className="space-y-4">
                     {!user || !selectedItemId ? (
                       <>
-                        <Skeleton className="h-16 w-full rounded-xl" />
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <Input
+                            label="Quantity per Unit"
+                            value={`${formData.inventory_item?.quantity || ""} pcs`}
+                            isReadOnly
+                            classNames={inputStyle}
+                            startContent={<Icon icon="mdi:numeric" className="text-default-500 pb-[0.1rem]" />}
+                          />
+
+                          <Input
+                            label="Bulk Quantity"
+                            value={`${formData.inventory_item?.bulk_quantity || ""} ${formData.inventory_item?.bulk_unit || ""}`}
+                            isReadOnly
+                            classNames={inputStyle}
+                            startContent={<Icon icon="mdi:package-variant" className="text-default-500 pb-[0.1rem]" />}
+                          />
+
+                          <Input
+                            label="Total Units"
+                            value={(formData.inventory_item?.quantity || 0) * (formData.inventory_item?.bulk_quantity || 0) + " " + (formData.inventory_item?.unit || "")}
+                            isReadOnly
+                            classNames={inputStyle}
+                            startContent={<Icon icon="mdi:calculator" className="text-default-500 pb-[0.1rem]" />}
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <Input
+                            label="Unit Cost"
+                            value={`₱${formData.inventory_item?.ending_inventory?.toFixed(2) || ""}`}
+                            isReadOnly
+                            classNames={inputStyle}
+                            startContent={<Icon icon="mdi:currency-php" className="text-default-500 pb-[0.1rem]" />}
+                          />
+
+                          <Input
+                            label="Bulk Cost"
+                            value={`₱${formData.inventory_item?.bulk_ending_inventory?.toFixed(2) || ""}`}
+                            isReadOnly
+                            classNames={inputStyle}
+                            startContent={<Icon icon="mdi:currency-php" className="text-default-500 pb-[0.1rem]" />}
+                          />
+
+                          <Input
+                            label="Total Cost"
+                            value={`₱${formData.inventory_item?.total_cost?.toFixed(2) || ""}`}
+                            isReadOnly
+                            classNames={inputStyle}
+                            startContent={<Icon icon="mdi:currency-php" className="text-default-500 pb-[0.1rem]" />}
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouse Location</h2>
+                  <div className="space-y-4">
+                    {!user || !selectedItemId ? (
+                      <>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                        </div>
                         <Skeleton className="h-16 w-full rounded-xl" />
                       </>
                     ) : (
                       <>
-                        <Input
-                          label="Item Code"
-                          value={formData.item_code || ""}
-                          isReadOnly
-                          classNames={inputStyle}
-                          startContent={<Icon icon="mdi:barcode" className="text-default-500 pb-[0.1rem]" />}
-                        />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <Input
+                            label="Warehouse"
+                            value={formData.warehouse?.name || ""}
+                            isReadOnly
+                            classNames={inputStyle}
+                            startContent={<Icon icon="mdi:warehouse" className="text-default-500 pb-[0.1rem]" />}
+                          />
+
+                          <Input
+                            label="Status"
+                            value={formData.status || ""}
+                            isReadOnly
+                            classNames={inputStyle}
+                            startContent={<Icon icon="mdi:tag" className="text-default-500 pb-[0.1rem]" />}
+                          />
+                        </div>
+
+                        <div className="flex flex-row">
+
+                          <Input
+                            name="location.floor"
+                            classNames={{
+                              inputWrapper: `${inputStyle.inputWrapper} rounded-none rounded-l-xl border-r-1`
+                            }}
+                            label="Floor"
+                            placeholder="e.g. 1"
+                            value={formData.location?.floor !== null ? formData.location.floor + 1 : 0}
+                            startContent={
+                              <Icon icon="lucide-lab:floor-plan"
+                                className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
+                            }
+                          />
+
+                          <Input
+                            name="location.group"
+                            classNames={{
+                              inputWrapper: `${inputStyle.inputWrapper} rounded-none border-x-1`
+                            }}
+                            label="Group"
+                            // Display group as 1-indexed but store as 0-indexed
+                            value={formData.location?.group !== null ? formData.location.group + 1 : 0}
+                            startContent={
+                              <Icon icon="heroicons:rectangle-group-16-solid"
+                                className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
+                            }
+                          />
+                          <Input
+                            name="location.row"
+                            classNames={{
+                              inputWrapper: `${inputStyle.inputWrapper} rounded-none border-x-1`
+                            }}
+                            label="Row"
+                            value={formData.location?.row !== null ? formData.location.row + 1 : 0}
+                            startContent={
+                              <Icon icon="fluent:row-triple-20-filled"
+                                className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
+                            }
+                          />
+
+
+                          <Input
+                            name="location.column"
+                            classNames={{
+                              inputWrapper: `${inputStyle.inputWrapper} rounded-none border-x-1`
+                            }}
+                            label="Column"
+                            value={formData.location?.column !== null ? formData.location.column + 1 : 0}
+                            startContent={
+                              <Icon icon="fluent:column-triple-20-filled"
+                                className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
+                            }
+                          />
+
+                          <Input
+                            name="location.depth"
+                            classNames={{
+                              inputWrapper: `${inputStyle.inputWrapper} rounded-none rounded-r-xl border-l-1`
+                            }}
+                            label="Depth"
+                            value={formData.location?.depth !== null ? formData.location.depth + 1 : 0}
+                            startContent={
+                              <Icon icon="fluent:box-48-regular"
+                                className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
+                            }
+                          />
+                        </div>
 
                         <Input
-                          label="Item Name"
-                          value={formData.item_name || ""}
+                          label="Location Code"
+                          value={formData.location_code || ""}
                           isReadOnly
                           classNames={inputStyle}
-                          startContent={<Icon icon="mdi:package-variant" className="text-default-500 pb-[0.1rem]" />}
+                          startContent={<Icon icon="mdi:map-marker" className="text-default-500 pb-[0.1rem]" />}
                         />
                       </>
                     )}
                   </div>
-
-                  {!user || !selectedItemId ? (
-                    <Skeleton className="h-16 w-full rounded-xl" />
-                  ) : formData.inventory_item?.description ? (
-                    <Textarea
-                      label="Description"
-                      value={formData.inventory_item?.description || ""}
-                      isReadOnly
-                      classNames={inputStyle}
-                      startContent={<Icon icon="mdi:text" className="text-default-500 pb-[0.1rem]" />}
-                    />
-                  ) : null}
                 </div>
-              </div>
+              </CardList>
 
-              <div>
-                <h2 className="text-xl font-semibold mb-4 w-full text-center">Inventory Details</h2>
-                <div className="space-y-4">
-                  {!user || !selectedItemId ? (
-                    <>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <Skeleton className="h-16 w-full rounded-xl" />
-                        <Skeleton className="h-16 w-full rounded-xl" />
-                        <Skeleton className="h-16 w-full rounded-xl" />
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <Skeleton className="h-16 w-full rounded-xl" />
-                        <Skeleton className="h-16 w-full rounded-xl" />
-                        <Skeleton className="h-16 w-full rounded-xl" />
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <Input
-                          label="Quantity per Unit"
-                          value={`${formData.inventory_item?.quantity || ""} ${formData.inventory_item?.unit || ""}`}
-                          isReadOnly
-                          classNames={inputStyle}
-                          startContent={<Icon icon="mdi:numeric" className="text-default-500 pb-[0.1rem]" />}
-                        />
+              <CardList>
+                {user && user.is_admin && (
+                  <div className="flex items-center justify-between h-full w-full">
+                    <span>View warehouse information</span>
+                    <Button
+                      variant="shadow"
+                      color="primary"
+                      onPress={handleViewWarehouse}
+                      className="my-1">
+                      <Icon icon="mdi:chevron-right" width={16} height={16} />
+                    </Button>
+                  </div>
+                )}
+                {user && user.is_admin && (
+                  <div className="flex items-center justify-between h-full w-full">
+                    <span>View inventory info</span>
+                    <Button
+                      variant="shadow"
+                      color="primary"
+                      onPress={handleViewInventory}
+                      className="my-1">
+                      <Icon icon="mdi:chevron-right" width={16} height={16} />
+                    </Button>
+                  </div>
+                )}
 
-                        <Input
-                          label="Bulk Quantity"
-                          value={`${formData.inventory_item?.bulk_quantity || ""} ${formData.inventory_item?.bulk_unit || ""}`}
-                          isReadOnly
-                          classNames={inputStyle}
-                          startContent={<Icon icon="mdi:package-variant" className="text-default-500 pb-[0.1rem]" />}
-                        />
-
-                        <Input
-                          label="Total Units"
-                          value={(formData.inventory_item?.quantity || 0) * (formData.inventory_item?.bulk_quantity || 0) + " " + (formData.inventory_item?.unit || "")}
-                          isReadOnly
-                          classNames={inputStyle}
-                          startContent={<Icon icon="mdi:calculator" className="text-default-500 pb-[0.1rem]" />}
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <Input
-                          label="Unit Cost"
-                          value={`₱${formData.inventory_item?.ending_inventory?.toFixed(2) || ""}`}
-                          isReadOnly
-                          classNames={inputStyle}
-                          startContent={<Icon icon="mdi:currency-php" className="text-default-500 pb-[0.1rem]" />}
-                        />
-
-                        <Input
-                          label="Bulk Cost"
-                          value={`₱${formData.inventory_item?.bulk_ending_inventory?.toFixed(2) || ""}`}
-                          isReadOnly
-                          classNames={inputStyle}
-                          startContent={<Icon icon="mdi:currency-php" className="text-default-500 pb-[0.1rem]" />}
-                        />
-
-                        <Input
-                          label="Total Cost"
-                          value={`₱${formData.inventory_item?.total_cost?.toFixed(2) || ""}`}
-                          isReadOnly
-                          classNames={inputStyle}
-                          startContent={<Icon icon="mdi:currency-php" className="text-default-500 pb-[0.1rem]" />}
-                        />
-                      </div>
-                    </>
-                  )}
+                <div className="flex items-center justify-between h-full w-full">
+                  <span>View delivery info</span>
+                  <Button
+                    variant="shadow"
+                    color="primary"
+                    onPress={handleViewDelivery}
+                    className="my-1">
+                    <Icon icon="mdi:chevron-right" width={16} height={16} />
+                  </Button>
                 </div>
-              </div>
+                <div className="w-full flex gap-2 flex-row">
+                  <Button
+                    color="primary"
+                    variant="shadow"
+                    className="flex-1 basis-0"
+                    onPress={() => setShowLocationModal(true)}
+                    isDisabled={!selectedItemId}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Icon icon="mdi:map-marker" />
+                      <span>View Location</span>
+                    </div>
+                  </Button>
 
-              <div>
-                <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouse Location</h2>
-                <div className="space-y-4">
-                  {!user || !selectedItemId ? (
-                    <>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <Skeleton className="h-16 w-full rounded-xl" />
-                        <Skeleton className="h-16 w-full rounded-xl" />
-                      </div>
-                      <Skeleton className="h-16 w-full rounded-xl" />
-                    </>
-                  ) : (
-                    <>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <Input
-                          label="Warehouse"
-                          value={formData.warehouse?.name || ""}
-                          isReadOnly
-                          classNames={inputStyle}
-                          startContent={<Icon icon="mdi:warehouse" className="text-default-500 pb-[0.1rem]" />}
-                        />
-
-                        <Input
-                          label="Status"
-                          value={formData.status || ""}
-                          isReadOnly
-                          classNames={inputStyle}
-                          startContent={<Icon icon="mdi:tag" className="text-default-500 pb-[0.1rem]" />}
-                        />
-                      </div>
-
-                      <Input
-                        label="Location Code"
-                        value={formData.location_code || ""}
-                        isReadOnly
-                        classNames={inputStyle}
-                        startContent={<Icon icon="mdi:map-marker" className="text-default-500 pb-[0.1rem]" />}
-                      />
-                    </>
-                  )}
+                  <Button
+                    color="secondary"
+                    variant="shadow"
+                    className="flex-1 basis-0"
+                    onPress={() => setShowQrCode(true)}
+                    isDisabled={!selectedItemId}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Icon icon="mdi:qrcode" />
+                      <span>Show QR Code</span>
+                    </div>
+                  </Button>
                 </div>
-              </div>
+              </CardList>
+            </Form>
+          ) : (
+            <div className="flex flex-col items-center justify-center p-12 border border-dashed border-default-300 rounded-2xl bg-background">
+              <Icon icon="mdi:package-variant" className="text-default-300" width={64} height={64} />
+              <h3 className="text-xl font-semibold text-default-800">No Item Selected</h3>
+              <p className="text-default-500 text-center mt-2 mb-6">
+                Select an item from the list on the left to view its details.
+              </p>
+              <Button
+                color="primary"
+                variant="shadow"
+                className="mb-4"
+              >
+                <Icon icon="mdi:qrcode-scan" className="mr-2" />
+                Find Item
+              </Button>
+            </div>
 
-              <div>
-                <div className="flex justify-center items-center gap-4">
-                  {!user || !selectedItemId ? (
-                    <Skeleton className="h-10 w-full rounded-xl" />
-                  ) : (
-                    <>
-                      <Button
-                        color="secondary"
-                        variant="shadow"
-                        className="w-full"
-                        onPress={handleViewInventory}
-                      >
-                        <div className="flex items-center gap-2">
-                          <Icon icon="mdi:package-variant" />
-                          <span>View Inventory Item</span>
-                        </div>
-                      </Button>
+          )}
 
-                      <Button
-                        color="primary"
-                        variant="shadow"
-                        className="w-full"
-                        onPress={handleViewWarehouse}
-                      >
-                        <div className="flex items-center gap-2">
-                          <Icon icon="mdi:warehouse" />
-                          <span>View Warehouse</span>
-                        </div>
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </CardList>
-          </Form>
         </div>
       </div>
 
@@ -662,7 +775,7 @@ export default function WarehouseItemsPage() {
             <div className="mt-4 w-full bg-default overflow-auto max-h-64 bg-default-50 rounded-xl">
               <SyntaxHighlighter
                 language="json"
-                style={window.currentTheme === 'dark' ? materialDark : materialLight}
+                style={window.resolveTheme === 'dark' ? materialDark : materialLight}
                 customStyle={{
                   margin: 0,
                   borderRadius: '0.5rem',

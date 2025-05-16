@@ -14,8 +14,6 @@ import {
   ModalFooter,
   ModalHeader,
   NumberInput,
-  Select,
-  SelectItem,
   Skeleton,
   Spinner,
   Textarea
@@ -33,18 +31,17 @@ import { materialDark, materialLight } from 'react-syntax-highlighter/dist/cjs/s
 import CardList from "@/components/card-list";
 import { motionTransition } from "@/utils/anim";
 import {
-  checkAdminStatus,
   createInventoryItem,
   getBulkUnitOptions,
   getInventoryItems,
   getUnitOptions,
   InventoryItem,
-  updateInventoryItem,
+  updateInventoryItem
 } from "./actions";
 
 
 const ShelfSelector3D = memo(lazy(() =>
-  import("@/components/shelf-selector-3d-v4").then(mod => ({
+  import("@/components/shelf-selector-3d").then(mod => ({
     default: mod.ShelfSelector3D
   }))
 ));
@@ -203,49 +200,13 @@ export default function InventoryPage() {
   // Fetch admin status and options when component mounts
   useEffect(() => {
     const initPage = async () => {
-      const defaultLayout = [
-        {
-          height: 5,
-          matrix: Array(16).fill(0).map(() => Array(32).fill(0))
-        }
-      ];
-
       try {
-        const adminData = await checkAdminStatus();
-        setAdmin(adminData);
+        setAdmin(window.adminData);
 
         setFormData(prev => ({
           ...prev,
-          admin_uuid: adminData.uuid,
-          company_uuid: adminData.company_uuid,
-        }));
-
-        // Fetch initial inventory items
-        const items = await getInventoryItems(
-          adminData.company_uuid
-        );
-
-        setInventoryItems(items.data || []);
-        setIsLoadingItems(false);
-      } catch (error) {
-        console.error("Error initializing page:", error);
-      }
-    };
-
-    initPage();
-  }, []);
-
-  // Fetch admin status and options when component mounts
-  useEffect(() => {
-    const initPage = async () => {
-      try {
-        const adminData = await checkAdminStatus();
-        setAdmin(adminData);
-
-        setFormData(prev => ({
-          ...prev,
-          admin_uuid: adminData.uuid,
-          company_uuid: adminData.company_uuid
+          admin_uuid: window.adminData.uuid,
+          company_uuid: window.adminData.company_uuid
         }));
 
         const unitOptions = await getUnitOptions();
@@ -255,9 +216,9 @@ export default function InventoryPage() {
         setBulkUnitOptions(bulkUnitOptions);
 
         // Fetch inventory items with filter applied
-        if (adminData.company_uuid) {
+        if (window.adminData.company_uuid) {
           const result = await getInventoryItems(
-            adminData.company_uuid,
+            window.adminData.company_uuid,
             searchQuery,
             warehouseOnly ? "IN_WAREHOUSE" : undefined
           );
@@ -460,6 +421,7 @@ export default function InventoryPage() {
                 <Button
                   color="secondary"
                   variant="shadow"
+                  isDisabled={isLoadingItems}
                   onPress={toggleWarehouseFilter}
                 >
                   <div className="w-32">
@@ -1130,7 +1092,7 @@ export default function InventoryPage() {
             <div className="mt-4 w-full bg-default overflow-auto max-h-64 bg-default-50 rounded-xl">
               <SyntaxHighlighter
                 language="json"
-                style={window.currentTheme === 'dark' ? materialDark : materialLight}
+                style={window.resolveTheme === 'dark' ? materialDark : materialLight}
                 customStyle={{
                   margin: 0,
                   borderRadius: '0.5rem',

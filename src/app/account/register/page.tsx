@@ -42,7 +42,8 @@ import {
   NumberInput,
   Selection,
   Tab,
-  Tabs
+  Tabs,
+  Textarea
 } from "@heroui/react";
 import { AnimatePresence, motion } from 'framer-motion';
 
@@ -755,12 +756,13 @@ export default function RegisterPage() {
                               isRequired
                               isDisabled={isLoading}
                             />
-                            <Input
-
+                            <Textarea
                               id="address.fullAddress"
                               name="address.fullAddress"
                               label="Full Address"
                               type="text"
+                              maxRows={5}
+                              minRows={1}
                               value={fullAddress}
                               classNames={inputStyle}
                               isReadOnly

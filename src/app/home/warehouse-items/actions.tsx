@@ -11,6 +11,7 @@ export type WarehouseInventoryItem = {
   warehouse_uuid: string;
   company_uuid: string;
   inventory_uuid: string;
+  delivery_uuid: string;
   item_code: string;
   item_name: string;
   location: any;
@@ -22,40 +23,6 @@ export type WarehouseInventoryItem = {
   inventory_item?: InventoryItem
 }
 
-/**
- * Checks if the current user is authenticated and returns user data
- */
-export async function checkAuthStatus() {
-  const supabase = await createClient();
-
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
-      redirect("/auth/signin");
-    }
-
-    // Get the profile data
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("uuid", user.id)
-      .single();
-
-    if (profileError || !profile) {
-      redirect("/auth/signin");
-    }
-
-    return {
-      ...profile,
-      // Make sure is_admin is available in the profile data
-      is_admin: profile.is_admin ?? false
-    };
-  } catch (error) {
-    console.error("Error checking auth status:", error);
-    redirect("/auth/signin");
-  }
-}
 
 /**
  * Gets all warehouse inventory items with optional search

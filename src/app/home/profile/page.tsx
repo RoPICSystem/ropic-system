@@ -22,7 +22,8 @@ import {
   CardFooter,
   Divider,
   Avatar,
-  NumberInput
+  NumberInput,
+  Textarea
 } from "@heroui/react"
 import {
   EyeSlashIcon,
@@ -387,9 +388,11 @@ export default function ProfilePage() {
                     value={userData?.address?.postalCode || ''}
                     isReadOnly
                   />
-                  <Input
+                  <Textarea
                     label="Full Address"
                     type="text"
+                    maxRows={5}
+                    minRows={1}
                     classNames={inputStyle}
                     value={userData?.address?.fullAddress || ''}
                     isReadOnly
@@ -469,7 +472,7 @@ export default function ProfilePage() {
               <Button
                 variant="shadow"
                 color="primary"
-                className="my-1]">
+                className="my-1">
                 <ChevronRightIcon className="w-4 h-4" />
               </Button>
             </div>

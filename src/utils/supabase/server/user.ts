@@ -3,6 +3,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { Address } from '@/utils/supabase/server/address'
 import { PostgrestFilterBuilder } from '@supabase/postgrest-js'
+import { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 
 
 export type Name = {
@@ -97,6 +98,26 @@ export async function getUserProfile() {
     }, 
     error: null 
   }
+}
+// Provides parameters needed to set up real-time profile subscription in client component
+export async function getProfileSubscription(
+  uuid: string,
+  payload: (payload: RealtimePostgresChangesPayload<{[key: string]: any;}>) => void): Promise<RealtimeChannel>  {
+  const supabase = await createClient()
+  
+  // Set up real-time subscription for delivery items
+  return supabase
+    .channel('delivery-changes')
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'profiles',
+        filter: `uuid=eq.${uuid}`
+      },
+      payload
+    );
 }
 
 // Generate download image URL

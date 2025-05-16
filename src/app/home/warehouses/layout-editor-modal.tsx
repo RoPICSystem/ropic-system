@@ -1,6 +1,6 @@
 'use client';
 
-import { FloorConfig, ShelfSelector3D } from '@/components/shelf-selector-3d-v4';
+import { FloorConfig, ShelfSelector3D } from '@/components/shelf-selector-3d';
 import { motionTransition } from '@/utils/anim';
 import { PlusIcon, TrashIcon } from '@heroicons/react/24/solid';
 import {
@@ -783,7 +783,7 @@ export default function WarehouseLayoutEditorModal({
                     </div>
                   </div>
 
-                  <div className="overflow-auto border border-default-200 rounded-lg max-h-[calc(100vh-575  px)]">
+                  <div className="overflow-auto border border-default-200 rounded-lg max-h-[calc(100vh-540px)]">
                     <div
                       style={{
                         display: 'grid',
@@ -886,7 +886,7 @@ export default function WarehouseLayoutEditorModal({
                 <h4 className="text-lg font-medium">3D Warehouse Preview</h4>
               </div>
 
-              <div className="relative h-[calc(100vh-500px)] w-full border border-default-200 rounded-lg overflow-hidden">
+              <div className="relative h-[calc(100vh-460px)] w-full border border-default-200 rounded-lg overflow-hidden">
                 <Suspense fallback={
                   <div className="flex items-center justify-center h-full">
                     <Spinner size="lg" color="primary" />
@@ -910,7 +910,7 @@ export default function WarehouseLayoutEditorModal({
                   {tempSelectedCode &&
                     <motion.div
                       {...motionTransition}
-                      className="!scale-75 absolute overflow-hidden bottom-0 -left-16 flex flex-col gap-2 bg-background/50 rounded-2xl backdrop-blur-lg md:w-auto w-[calc(100%-2rem)]">
+                      className="!scale-75 absolute overflow-hidden -bottom-[0.5rem] -left-[4.75rem] flex flex-col gap-2 bg-background/50 rounded-2xl backdrop-blur-lg md:w-auto w-[calc(100%-2rem)]">
                       <div className="grid md:grid-cols-2 grid-cols-1 gap-3 p-4">
                         <div className="flex flex-col gap-2">
                           <div className="flex items-center gap-2">

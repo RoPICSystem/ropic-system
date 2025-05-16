@@ -1,10 +1,9 @@
 "use client";
 
 import CardList from "@/components/card-list";
+import { motionTransition } from '@/utils/anim';
 import { createClient } from "@/utils/supabase/client";
-import { getUserProfile } from "@/utils/supabase/server/user";
 import {
-  Badge,
   Button,
   Card,
   CardBody,
@@ -18,10 +17,9 @@ import {
 } from "@heroui/react";
 import { Icon } from "@iconify-icon/react";
 import { formatDistanceToNow } from "date-fns";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { getNotifications, markAllNotificationsAsRead, markNotificationAsRead } from "./actions";
-import { motionTransition } from '@/utils/anim';
 
 // Define notification types based on our database schema
 interface Notification {
@@ -68,22 +66,13 @@ export default function NotificationsPage() {
 
     const initPage = async () => {
       try {
-        // Check if user is admin and get their info
-        const { data, error } = await getUserProfile();
-        if (error || !data) {
-          console.error("Error fetching user profile:", error);
-          return;
-        }
-
-        console.log("User profile data:", data);
-
-        setAdmin(data);
+        setAdmin(window.adminData);
 
         // Fetch initial notifications
         const result = await getNotifications({
-          companyUuid: data.company_uuid,
-          userUuid: data.uuid,
-          isAdmin: data.is_admin,
+          companyUuid: window.adminData.company_uuid,
+          userUuid: window.adminData.uuid,
+          isAdmin: window.adminData.is_admin,
           page: page,
           pageSize: itemsPerPage,
           type: selectedTab === "all" ? undefined : selectedTab,

@@ -44,6 +44,7 @@ export default function NavigationBread() {
             { name: 'Dashboard', href: '/home/dashboard', icon: "heroicons:home-solid" },
             { name: 'Inventory', href: '/home/inventory', icon: "fluent:box-20-filled" },
             { name: 'Delivery', href: '/home/delivery', icon: "heroicons:truck-20-solid" },
+            { name: 'Warehouse Items', href: '/home/warehouse-items', icon: "fluent:box-20-filled" },
             { name: 'Warehouses', href: '/home/warehouses', icon: 'material-symbols:warehouse-rounded' },
             { name: 'Notifications', href: '/home/notifications', icon: "heroicons:bell-alert-20-solid" },
             // { name: 'Reports', href: '/home/reports', icon: "heroicons:chart-bar-20-solid" },

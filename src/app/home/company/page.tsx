@@ -14,7 +14,8 @@ import {
   Image,
   Input,
   Skeleton,
-  Spinner
+  Spinner,
+  Textarea
 } from "@heroui/react"
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
@@ -332,9 +333,11 @@ export default function CompanyPage() {
                     value={companyData?.address?.postalCode || ''}
                     isReadOnly
                   />
-                  <Input
+                  <Textarea
                     label="Full Address"
                     type="text"
+                    maxRows={5}
+                    minRows={1}
                     classNames={inputStyle}
                     value={companyData?.address?.fullAddress || ''}
                     isReadOnly
