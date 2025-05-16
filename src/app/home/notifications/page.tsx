@@ -47,7 +47,7 @@ interface AdminUser {
 
 export default function NotificationsPage() {
   // State for authentication and notifications
-  const [admin, setAdmin] = useState<AdminUser | null>(null);
+  const [user, setUser] = useState<AdminUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [filteredNotifications, setFilteredNotifications] = useState<Notification[]>([]);
@@ -66,13 +66,13 @@ export default function NotificationsPage() {
 
     const initPage = async () => {
       try {
-        setAdmin(window.adminData);
+        setUser(window.userData);
 
         // Fetch initial notifications
         const result = await getNotifications({
-          companyUuid: window.adminData.company_uuid,
-          userUuid: window.adminData.uuid,
-          isAdmin: window.adminData.is_admin,
+          companyUuid: window.userData.company_uuid,
+          userUuid: window.userData.uuid,
+          isAdmin: window.userData.is_admin,
           page: page,
           pageSize: itemsPerPage,
           type: selectedTab === "all" ? undefined : selectedTab,
@@ -93,7 +93,7 @@ export default function NotificationsPage() {
     initPage();
 
     // Set up real-time subscription for new notifications
-    if (admin?.company_uuid) {
+    if (user?.company_uuid) {
       const channel = supabase
         .channel('notifications-changes')
         .on(
@@ -102,14 +102,14 @@ export default function NotificationsPage() {
             event: '*',
             schema: 'public',
             table: 'notifications',
-            filter: `company_uuid=eq.${admin.company_uuid}`
+            filter: `company_uuid=eq.${user.company_uuid}`
           },
           async () => {
             // Refresh notifications when changes occur
             const refreshResult = await getNotifications({
-              companyUuid: admin.company_uuid,
-              userUuid: admin.uuid,
-              isAdmin: admin.is_admin,
+              companyUuid: user.company_uuid,
+              userUuid: user.uuid,
+              isAdmin: user.is_admin,
               page: page,
               pageSize: itemsPerPage,
               type: selectedTab === "all" ? undefined : selectedTab,
@@ -133,14 +133,14 @@ export default function NotificationsPage() {
             event: '*',
             schema: 'public',
             table: 'notification_reads',
-            filter: `user_uuid=eq.${admin.uuid}`
+            filter: `user_uuid=eq.${user.uuid}`
           },
           async () => {
             // Refresh notifications when changes occur
             const refreshResult = await getNotifications({
-              companyUuid: admin.company_uuid,
-              userUuid: admin.uuid,
-              isAdmin: admin.is_admin,
+              companyUuid: user.company_uuid,
+              userUuid: user.uuid,
+              isAdmin: user.is_admin,
               page: page,
               pageSize: itemsPerPage,
               type: selectedTab === "all" ? undefined : selectedTab,
@@ -161,17 +161,17 @@ export default function NotificationsPage() {
         supabase.removeChannel(readsChannel);
       };
     }
-  }, [admin?.company_uuid, page, itemsPerPage, selectedTab]);
+  }, [user?.company_uuid, page, itemsPerPage, selectedTab]);
 
   // Reload when tab changes
   useEffect(() => {
-    if (admin) {
+    if (user) {
       const fetchNotifications = async () => {
         setLoading(true);
         const result = await getNotifications({
-          companyUuid: admin.company_uuid,
-          userUuid: admin.uuid,
-          isAdmin: admin.is_admin,
+          companyUuid: user.company_uuid,
+          userUuid: user.uuid,
+          isAdmin: user.is_admin,
           page: 1, // Reset to first page when changing tabs
           pageSize: itemsPerPage,
           type: selectedTab === "all" ? undefined : selectedTab,
@@ -213,8 +213,8 @@ export default function NotificationsPage() {
       );
     }
 
-    // Filter admin-only notifications if option is selected
-    if (showAdminOnly && admin?.is_admin) {
+    // Filter user-only notifications if option is selected
+    if (showAdminOnly && user?.is_admin) {
       filtered = filtered.filter(notif => notif.is_admin_only);
     }
 
@@ -222,10 +222,10 @@ export default function NotificationsPage() {
   };
 
   const handleMarkAsRead = async (id: string) => {
-    if (!admin?.uuid) return;
+    if (!user?.uuid) return;
 
     try {
-      await markNotificationAsRead(id, admin.uuid);
+      await markNotificationAsRead(id, user.uuid);
 
       // Update local state
       setNotifications(prev =>
@@ -239,7 +239,7 @@ export default function NotificationsPage() {
   };
 
   const handleMarkAllAsRead = async () => {
-    if (!admin?.uuid || !admin?.company_uuid) return;
+    if (!user?.uuid || !user?.company_uuid) return;
 
     try {
       const unreadIds = filteredNotifications
@@ -248,7 +248,7 @@ export default function NotificationsPage() {
 
       if (unreadIds.length === 0) return;
 
-      await markAllNotificationsAsRead(admin.company_uuid, admin.uuid, unreadIds);
+      await markAllNotificationsAsRead(user.company_uuid, user.uuid, unreadIds);
 
       // Update local state
       setNotifications(prev =>
@@ -390,7 +390,7 @@ export default function NotificationsPage() {
         </div>
 
         <div className="flex gap-2">
-          {admin?.is_admin && (
+          {user?.is_admin && (
             <Button
               color="danger"
               variant="shadow"
@@ -401,7 +401,7 @@ export default function NotificationsPage() {
                   {showAdminOnly ? (
                     <motion.div
                       {...motionTransition}
-                      key="show-admin-only"
+                      key="show-user-only"
                     >
                       <div className="w-32 flex items-center gap-2 justify-center">
                         Show all
@@ -411,7 +411,7 @@ export default function NotificationsPage() {
                   ) : (
                     <motion.div
                       {...motionTransition}
-                      key="hide-admin-only"
+                      key="hide-user-only"
                     >
                       <div className="w-32 flex items-center gap-2 justify-center">
                         Admin only

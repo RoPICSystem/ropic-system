@@ -16,7 +16,7 @@ declare module "@react-types/shared" {
 
 declare global {
   interface Window {
-    adminData?: any;
+    userData?: any;
   }
 }
 
@@ -35,7 +35,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
       if (typeof window !== "undefined") {
         setAdminTempData(data);
-        window.adminData = data;
+        window.userData = data;
       };
     }
     fetchUserProfile();
@@ -71,7 +71,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
             return;
           }
           if (typeof window !== "undefined") {
-            window.adminData = data;
+            window.userData = data;
           };
 
         }
@@ -91,7 +91,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }
   , [adminTempData]);
 
-  if (typeof window === "undefined" || window?.adminData === null || window?.adminData === undefined) {
+  if (typeof window === "undefined" || window?.userData === null || window?.userData === undefined) {
     return (
       <div className="flex items-center justify-center w-full h-screen">
         <div className="flex flex-col items-center justify-center">

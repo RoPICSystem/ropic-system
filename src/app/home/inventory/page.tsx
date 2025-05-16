@@ -20,7 +20,7 @@ import {
 } from "@heroui/react";
 import { Icon } from "@iconify-icon/react";
 import { AnimatePresence, motion } from "framer-motion";
-import { useRouter, useSearchParams } from "next/navigation";
+import { redirect, useRouter, useSearchParams } from "next/navigation";
 import { QRCodeCanvas } from "qrcode.react";
 import React, { lazy, memo, useEffect, useState } from "react";
 
@@ -39,7 +39,6 @@ import {
   updateInventoryItem
 } from "./actions";
 
-
 const ShelfSelector3D = memo(lazy(() =>
   import("@/components/shelf-selector-3d").then(mod => ({
     default: mod.ShelfSelector3D
@@ -49,7 +48,7 @@ const ShelfSelector3D = memo(lazy(() =>
 export default function InventoryPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [admin, setAdmin] = useState<any>(null);
+  const [user, setUser] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [unitOptions, setUnitOptions] = useState<string[]>([]);
   const [bulkUnitOptions, setBulkUnitOptions] = useState<string[]>([]);
@@ -107,6 +106,7 @@ export default function InventoryPage() {
   // Validation state
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+
   // Handle item search
   const handleSearch = async (query: string, filterByWarehouse = warehouseOnly) => {
     setSearchQuery(query);
@@ -115,7 +115,7 @@ export default function InventoryPage() {
       setIsLoadingItems(true);
 
       const result = await getInventoryItems(
-        admin.company_uuid,
+        user.company_uuid,
         query,
         filterByWarehouse ? "IN_WAREHOUSE" : undefined
       );
@@ -146,12 +146,12 @@ export default function InventoryPage() {
 
   const isAvailable = (item: Partial<InventoryItem>) => {
     console.log("Item status:", item.status);
-    return item.status === undefined || item.status?.toUpperCase() === "AVAILABLE" ;
+    return item.status === undefined || item.status?.toUpperCase() === "AVAILABLE";
   }
 
   // Add or update useEffect to watch for changes in search parameters
   useEffect(() => {
-    if (!admin?.company_uuid || isLoadingItems || inventoryItems.length === 0) return;
+    if (!user?.company_uuid || isLoadingItems || inventoryItems.length === 0) return;
 
     const itemId = searchParams.get("itemId");
     if (!itemId) {
@@ -159,9 +159,9 @@ export default function InventoryPage() {
       setSelectedItemId(null);
 
       setFormData({
-        uuid: admin.uuid,
-        company_uuid: admin.company_uuid,
-        admin_uuid: admin.uuid,
+        uuid: user.uuid,
+        company_uuid: user.company_uuid,
+        admin_uuid: user.uuid,
         item_code: "",
         item_name: "",
         description: "",
@@ -195,18 +195,18 @@ export default function InventoryPage() {
       ...item
     });
 
-  }, [searchParams, admin?.company_uuid, isLoadingItems, inventoryItems]);
+  }, [searchParams, user?.company_uuid, isLoadingItems, inventoryItems]);
 
-  // Fetch admin status and options when component mounts
+  // Fetch user status and options when component mounts
   useEffect(() => {
     const initPage = async () => {
       try {
-        setAdmin(window.adminData);
+        setUser(window.userData);
 
         setFormData(prev => ({
           ...prev,
-          admin_uuid: window.adminData.uuid,
-          company_uuid: window.adminData.company_uuid
+          admin_uuid: window.userData.uuid,
+          company_uuid: window.userData.company_uuid
         }));
 
         const unitOptions = await getUnitOptions();
@@ -216,9 +216,9 @@ export default function InventoryPage() {
         setBulkUnitOptions(bulkUnitOptions);
 
         // Fetch inventory items with filter applied
-        if (window.adminData.company_uuid) {
+        if (window.userData.company_uuid) {
           const result = await getInventoryItems(
-            window.adminData.company_uuid,
+            window.userData.company_uuid,
             searchQuery,
             warehouseOnly ? "IN_WAREHOUSE" : undefined
           );
@@ -235,7 +235,7 @@ export default function InventoryPage() {
   }, [warehouseOnly]); // Add warehouseOnly as a dependency
 
   useEffect(() => {
-    if (!admin?.company_uuid) return;
+    if (!user?.company_uuid) return;
 
     // Create a client-side Supabase client for real-time subscriptions
     const supabase = createClient();
@@ -248,14 +248,14 @@ export default function InventoryPage() {
           event: '*', // Listen for all events (INSERT, UPDATE, DELETE)
           schema: 'public',
           table: 'inventory_items',
-          filter: `company_uuid=eq.${admin.company_uuid}`
+          filter: `company_uuid=eq.${user.company_uuid}`
         },
         async (payload) => {
           console.log('Real-time update received:', payload);
 
           // Refresh inventory items with the current filter state
           const refreshedItems = await getInventoryItems(
-            admin.company_uuid,
+            user.company_uuid,
             searchQuery,
             warehouseOnly ? "IN_WAREHOUSE" : undefined
           );
@@ -269,7 +269,7 @@ export default function InventoryPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [admin?.company_uuid, searchQuery, warehouseOnly]);
+  }, [user?.company_uuid, searchQuery, warehouseOnly]);
 
   // Form change handler
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -302,9 +302,9 @@ export default function InventoryPage() {
 
 
     const newErrors: Record<string, string> = {};
-    if (!admin) {
-      formData.admin_uuid = admin?.uuid;
-      formData.company_uuid = admin?.company_uuid;
+    if (!user) {
+      formData.admin_uuid = user?.uuid;
+      formData.company_uuid = user?.company_uuid;
     }
     if (!formData.item_code) newErrors.item_code = "Item code is required";
     if (!formData.item_name) newErrors.item_name = "Item name is required";
@@ -359,8 +359,8 @@ export default function InventoryPage() {
       // You could add a success message here if you have a toast notification system
       else {
         setFormData({
-          company_uuid: admin.company_uuid,
-          admin_uuid: admin.uuid,
+          company_uuid: user.company_uuid,
+          admin_uuid: user.uuid,
           item_code: "",
           item_name: "",
           description: "",
@@ -411,7 +411,7 @@ export default function InventoryPage() {
         </div>
         <div className="flex gap-4">
           <div className="mt-4 text-center">
-            {!admin ? (
+            {!user ? (
               <div className="flex gap-2">
                 <Skeleton className="h-10 w-32 rounded-xl" />
                 <Skeleton className="h-10 w-32 rounded-xl" />
@@ -429,7 +429,7 @@ export default function InventoryPage() {
                       {warehouseOnly ? (
                         <motion.div
                           {...motionTransition}
-                          key="show-admin-only"
+                          key="show-user-only"
                         >
                           <div className="w-32 flex items-center gap-2 justify-center">
                             Show all
@@ -439,7 +439,7 @@ export default function InventoryPage() {
                       ) : (
                         <motion.div
                           {...motionTransition}
-                          key="hide-admin-only"
+                          key="hide-user-only"
                         >
                           <div className="w-32 flex items-center gap-2 justify-center">
                             Warehouse only
@@ -475,7 +475,7 @@ export default function InventoryPage() {
           <div className="flex flex-col h-full">
             <div className="p-4 sticky top-0 z-20 bg-background/80 border-b border-default-200 backdrop-blur-lg shadow-sm">
               <h2 className="text-xl font-semibold mb-4 w-full text-center">Inventory Items</h2>
-              {!admin ? (
+              {!user ? (
                 <Skeleton className="h-10 w-full rounded-xl" />
               ) : (
                 <Input
@@ -489,7 +489,7 @@ export default function InventoryPage() {
               )}
             </div>
             <div className="h-full absolute w-full">
-              {!admin || isLoadingItems ? (
+              {!user || isLoadingItems ? (
                 <div className="space-y-4 mt-1 p-4 pt-32 h-full relative">
                   {[...Array(10)].map((_, i) => (
                     <Skeleton key={i} className="w-full min-h-[7.5rem] rounded-xl" />
@@ -542,7 +542,7 @@ export default function InventoryPage() {
                 </div>
               ) : null}
 
-              {admin && !isLoadingItems && inventoryItems.length === 0 && (
+              {user && !isLoadingItems && inventoryItems.length === 0 && (
                 <div className="xl:h-full h-[42rem] absolute w-full">
                   <div className="py-4 flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
                     <Icon icon="fluent:box-dismiss-20-filled" className="text-5xl text-default-300" />
@@ -562,7 +562,7 @@ export default function InventoryPage() {
                 <h2 className="text-xl font-semibold mb-4 w-full text-center">Basic Information</h2>
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
-                    {!admin ? (
+                    {!user ? (
                       <>
                         <Skeleton className="h-16 w-full rounded-xl" />
                         <Skeleton className="h-16 w-full rounded-xl" />
@@ -600,7 +600,7 @@ export default function InventoryPage() {
                     )}
                   </div>
 
-                  {!admin ? (
+                  {!user ? (
                     <Skeleton className="h-16 w-full rounded-xl" />
                   ) : (
                     <Textarea
@@ -621,7 +621,7 @@ export default function InventoryPage() {
                 <h2 className="text-xl font-semibold mb-4 w-full text-center">Quantity & Costs</h2>
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-3 lg:grid-cols-3 gap-4">
-                    {!admin ? (
+                    {!user ? (
                       <>
                         <Skeleton className="h-16 w-full rounded-xl" />
                         <Skeleton className="h-16 w-full rounded-xl" />
@@ -722,7 +722,7 @@ export default function InventoryPage() {
 
 
                   <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-3 lg:grid-cols-3 gap-4">
-                    {!admin ? (
+                    {!user ? (
                       <>
                         <Skeleton className="h-16 w-full rounded-xl" />
                         <Skeleton className="h-16 w-full rounded-xl" />
@@ -837,7 +837,7 @@ export default function InventoryPage() {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-3 lg:grid-cols-3 gap-4">
-                    {!admin ? (
+                    {!user ? (
                       <>
                         <Skeleton className="h-16 w-full rounded-xl" />
                         <Skeleton className="h-16 w-full rounded-xl" />
@@ -868,7 +868,7 @@ export default function InventoryPage() {
                           isReadOnly={!isAvailable(formData)}
                           selectorIcon={!isAvailable(formData) ? null : <Icon icon="heroicons:chevron-down" height={15} />}
                           isRequired={isAvailable(formData)}
-                          inputProps={{classNames: inputStyle}}
+                          inputProps={{ classNames: inputStyle }}
                           isInvalid={!!errors.unit}
                           isClearable={false}
                           errorMessage={errors.unit}
@@ -923,7 +923,7 @@ export default function InventoryPage() {
                           isReadOnly={!isAvailable(formData)}
                           selectorIcon={!isAvailable(formData) ? null : <Icon icon="heroicons:chevron-down" height={15} />}
                           isRequired={isAvailable(formData)}
-                          inputProps={{classNames: inputStyle}}
+                          inputProps={{ classNames: inputStyle }}
                           isInvalid={!!errors.unit}
                           errorMessage={errors.unit}
                           startContent={<Icon icon="mdi:package-variant" className="text-default-500 pb-[0.1rem]" />}
@@ -940,7 +940,7 @@ export default function InventoryPage() {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
-                    {!admin ? (
+                    {!user ? (
                       <>
                         <Skeleton className="h-16 w-full rounded-xl" />
                         <Skeleton className="h-16 w-full rounded-xl" />
@@ -977,9 +977,9 @@ export default function InventoryPage() {
               </div>
 
 
-              <div {...(admin && selectedItemId ? {} : { className: '!min-h-0 !p-0 !h-0  border-none z-0' })}>
+              <div {...(user && selectedItemId ? {} : { className: '!min-h-0 !p-0 !h-0  border-none z-0' })}>
                 <AnimatePresence>
-                  {admin && selectedItemId && (
+                  {user && selectedItemId && (
                     <motion.div
                       {...motionTransition}>
                       <div className="flex flex-col">
@@ -1001,7 +1001,7 @@ export default function InventoryPage() {
               <div>
 
                 <div className="flex justify-center items-center gap-4">
-                  {!admin ? (
+                  {!user ? (
                     <Skeleton className="h-10 w-full rounded-xl" />
                   ) : (
                     <>

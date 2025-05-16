@@ -151,7 +151,7 @@ export default function WarehousePage() {
 
   // Fetch company UUID
   useEffect(() => {
-    setCompanyUuid(window.adminData.uuid);
+    setCompanyUuid(window.userData.uuid);
     setIsLoading(false);
   }, []);
 

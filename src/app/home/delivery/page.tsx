@@ -74,7 +74,7 @@ const ShelfSelector3D = lazy(() =>
 export default function DeliveryPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [admin, setAdmin] = useState<any>(null);
+  const [user, setUser] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [showQrCode, setShowQrCode] = useState(false);
@@ -311,7 +311,7 @@ export default function DeliveryPage() {
     try {
       setIsLoadingItems(true);
 
-      const result = await getDeliveryItems(admin.company_uuid, query);
+      const result = await getDeliveryItems(user.company_uuid, query);
       setDeliveryItems(result.data || []);
     } catch (error) {
       console.error("Error searching delivery items:", error);
@@ -358,7 +358,7 @@ export default function DeliveryPage() {
   const handleViewInventory = () => {
     if (formData.inventory_item_uuid) {
       // Navigate to inventory page with the item ID
-      if ((admin === null || admin.is_admin))
+      if ((user === null || user.is_admin))
         router.push(`/home/inventory?itemId=${formData.inventory_item_uuid}`);
       else
         router.push(`/home/warehouse-items?itemId=${formData.inventory_item_uuid}`);
@@ -378,7 +378,7 @@ export default function DeliveryPage() {
     if (!selectedDeliveryId) return { error: "No delivery selected" };
 
     // For operators, only allow changing to DELIVERED status when item is IN_TRANSIT
-    if (!admin?.is_admin) {
+    if (!user?.is_admin) {
       if (formData.status !== "IN_TRANSIT" || status !== "DELIVERED") {
         return { error: "You can only change the status to DELIVERED when the item is IN_TRANSIT." };
       }
@@ -425,10 +425,10 @@ export default function DeliveryPage() {
           if (formData.location && formData.location_code) {
             // Call a new action to create warehouse inventory record
             await createWarehouseInventoryItem({
-              admin_uuid: admin.uuid,
+              admin_uuid: user.uuid,
               delivery_uuid: selectedDeliveryId,
               warehouse_uuid: updatedFormData.warehouse_uuid,
-              company_uuid: admin.company_uuid,
+              company_uuid: user.company_uuid,
               inventory_uuid: updatedFormData.inventory_item_uuid,
               item_code: inventory_item?.item_code || "UNKNOWN",
               item_name: inventory_item?.item_name || "UNKNOWN",
@@ -456,7 +456,7 @@ export default function DeliveryPage() {
       }
 
       // Refresh the delivery items list
-      const refreshedItems = await getDeliveryItems(admin?.company_uuid || "", searchQuery);
+      const refreshedItems = await getDeliveryItems(user?.company_uuid || "", searchQuery);
       setDeliveryItems(refreshedItems.data || []);
 
       return { error: null };
@@ -539,7 +539,7 @@ export default function DeliveryPage() {
     e.preventDefault();
 
     // Only allow admins to submit form changes
-    if (!admin?.is_admin) {
+    if (!user?.is_admin) {
       return;
     }
 
@@ -575,8 +575,8 @@ export default function DeliveryPage() {
       let result;
       const timestamp = new Date().toISOString();
       const newData = {
-        admin_uuid: admin.uuid,
-        company_uuid: admin.company_uuid,
+        admin_uuid: user.uuid,
+        company_uuid: user.company_uuid,
         inventory_item_uuid: formData.inventory_item_uuid,
         warehouse_uuid: formData.warehouse_uuid,
         delivery_address: formData.delivery_address,
@@ -965,7 +965,7 @@ export default function DeliveryPage() {
       }
 
       // If the operator is assigned to this delivery, select it
-      if (matchingDelivery.operator_uuid === admin?.uuid || matchingDelivery.operator_uuid === null) {
+      if (matchingDelivery.operator_uuid === user?.uuid || matchingDelivery.operator_uuid === null) {
         // Set as the selected delivery
         handleSelectDelivery(matchingDelivery.uuid);
 
@@ -1007,10 +1007,10 @@ export default function DeliveryPage() {
 
                 // Create warehouse inventory item
                 const warehouseItemResult = await createWarehouseInventoryItem({
-                  admin_uuid: admin.uuid,
+                  admin_uuid: user.uuid,
                   delivery_uuid: matchingDelivery.uuid,
                   warehouse_uuid: matchingDelivery.warehouse_uuid || "",
-                  company_uuid: admin.company_uuid,
+                  company_uuid: user.company_uuid,
                   inventory_uuid: matchingDelivery.inventory_item_uuid,
                   item_code: inventoryItem?.item_code || matchingDelivery.item_code || "UNKNOWN",
                   item_name: inventoryItem?.item_name || matchingDelivery.item_name || "UNKNOWN",
@@ -1043,7 +1043,7 @@ export default function DeliveryPage() {
             }, 1000);
 
             // Refresh delivery items to show updated status
-            const refreshedItems = await getDeliveryItems(admin?.company_uuid);
+            const refreshedItems = await getDeliveryItems(user?.company_uuid);
             setDeliveryItems(refreshedItems.data || []);
           } else {
             console.error("Failed to update inventory status:", inventoryResult.error);
@@ -1074,7 +1074,7 @@ export default function DeliveryPage() {
 
   // Effect to handle URL params (deliveryId and setInventory)
   useEffect(() => {
-    if (!admin?.company_uuid || isLoadingItems) return;
+    if (!user?.company_uuid || isLoadingItems) return;
 
     // Check if we have a deliveryId in the URL
     const deliveryId = searchParams.get("deliveryId");
@@ -1157,8 +1157,8 @@ export default function DeliveryPage() {
 
         // Set up the form with the selected inventory item
         setFormData({
-          company_uuid: admin.company_uuid,
-          admin_uuid: admin.uuid,
+          company_uuid: user.company_uuid,
+          admin_uuid: user.uuid,
           inventory_item_uuid: setInventoryId,
           delivery_address: "",
           delivery_date: today(getLocalTimeZone()).toString(),
@@ -1179,8 +1179,8 @@ export default function DeliveryPage() {
       // Reset form for new delivery
       setSelectedDeliveryId(null);
       setFormData({
-        company_uuid: admin.company_uuid,
-        admin_uuid: admin.uuid,
+        company_uuid: user.company_uuid,
+        admin_uuid: user.uuid,
         inventory_item_uuid: null,
         delivery_address: "",
         delivery_date: format(new Date(), "yyyy-MM-dd"),
@@ -1197,35 +1197,34 @@ export default function DeliveryPage() {
 
       resetWarehouseLocation();
     }
-  }, [searchParams, admin?.company_uuid, isLoadingItems, deliveryItems, inventoryItems, operators]);
+  }, [searchParams, user?.company_uuid, isLoadingItems, deliveryItems, inventoryItems, operators]);
 
   // Initialize page data
   useEffect(() => {
     const initPage = async () => {
       try {
-        // const adminData = await checkAdminStatus();
-        setAdmin(window.adminData);
+        setUser(window.userData);
 
         setFormData(prev => ({
           ...prev,
-          admin_uuid: window.adminData.uuid,
-          company_uuid: window.adminData.company_uuid,
+          admin_uuid: window.userData.uuid,
+          company_uuid: window.userData.company_uuid,
         }));
 
         // Fetch initial delivery items
-        const deliveriesResult = await getDeliveryItems(window.adminData.company_uuid);
+        const deliveriesResult = await getDeliveryItems(window.userData.company_uuid);
         setDeliveryItems(deliveriesResult.data || []);
 
         // Fetch available inventory items
-        const inventoryResult = await getInventoryItems(window.adminData.company_uuid);
+        const inventoryResult = await getInventoryItems(window.userData.company_uuid);
         setInventoryItems(inventoryResult.data || []);
 
         // Fetch operators (users with isAdmin = false)
-        const operatorsResult = await getOperators(window.adminData.company_uuid);
+        const operatorsResult = await getOperators(window.userData.company_uuid);
         setOperators(operatorsResult.data || []);
 
         // Fetch warehouses
-        const warehousesResult = await getWarehouses(window.adminData.company_uuid);
+        const warehousesResult = await getWarehouses(window.userData.company_uuid);
         setWarehouses(warehousesResult.data || []);
 
         setIsLoadingItems(false);
@@ -1239,7 +1238,7 @@ export default function DeliveryPage() {
 
   // Set up real-time updates
   useEffect(() => {
-    if (!admin?.company_uuid) return;
+    if (!user?.company_uuid) return;
 
     const supabase = createClient();
 
@@ -1252,13 +1251,13 @@ export default function DeliveryPage() {
           event: '*',
           schema: 'public',
           table: 'delivery_items',
-          filter: `company_uuid=eq.${admin.company_uuid}`
+          filter: `company_uuid=eq.${user.company_uuid}`
         },
         async (payload) => {
           console.log('Real-time delivery update received:', payload);
 
           // Refresh delivery items
-          const refreshedItems = await getDeliveryItems(admin.company_uuid, searchQuery);
+          const refreshedItems = await getDeliveryItems(user.company_uuid, searchQuery);
           setDeliveryItems(refreshedItems.data || []);
         }
       )
@@ -1273,13 +1272,13 @@ export default function DeliveryPage() {
           event: '*',
           schema: 'public',
           table: 'inventory_items',
-          filter: `company_uuid=eq.${admin.company_uuid}`
+          filter: `company_uuid=eq.${user.company_uuid}`
         },
         async (payload) => {
           console.log('Real-time inventory update received:', payload);
 
           // Refresh inventory items
-          const refreshedItems = await getInventoryItems(admin.company_uuid);
+          const refreshedItems = await getInventoryItems(user.company_uuid);
           setInventoryItems(refreshedItems.data || []);
         }
       )
@@ -1290,7 +1289,7 @@ export default function DeliveryPage() {
       supabase.removeChannel(deliveryChannel);
       supabase.removeChannel(inventoryChannel);
     };
-  }, [admin?.company_uuid, searchQuery]);
+  }, [user?.company_uuid, searchQuery]);
 
   useEffect(() => {
     // When the delivery status changes to DELIVERED, we want to ensure location fields are ready
@@ -1340,9 +1339,9 @@ export default function DeliveryPage() {
         </div>
         <div className="flex gap-4">
           <div className="mt-4 text-center">
-            {!admin ? (
+            {!user ? (
               <Skeleton className="h-10 w-32 rounded-xl" />
-            ) : admin.is_admin ? (
+            ) : user.is_admin ? (
               <Button
                 color="primary"
                 variant="shadow"
@@ -1375,7 +1374,7 @@ export default function DeliveryPage() {
           <div className="flex flex-col h-full">
             <div className="p-4 sticky top-0 z-20 bg-background/80 border-b border-default-200 backdrop-blur-lg shadow-sm">
               <h2 className="text-xl font-semibold mb-4 w-full text-center">Delivery Items</h2>
-              {!admin ? (
+              {!user ? (
                 <Skeleton className="h-10 w-full rounded-xl" />
               ) : (
                 <Input
@@ -1389,7 +1388,7 @@ export default function DeliveryPage() {
               )}
             </div>
             <div className="h-full absolute w-full">
-              {!admin || isLoadingItems ? (
+              {!user || isLoadingItems ? (
                 <div className="space-y-4 p-4 mt-1 pt-32 h-full relative">
                   {[...Array(10)].map((_, i) => (
                     <Skeleton key={i} className="w-full min-h-[7.5rem] rounded-xl" />
@@ -1458,7 +1457,7 @@ export default function DeliveryPage() {
                 </div>
               ) : null}
 
-              {admin && !isLoadingItems && deliveryItems.length === 0 && (
+              {user && !isLoadingItems && deliveryItems.length === 0 && (
                 <div className="xl:h-full h-[42rem] absolute w-full">
                   <div className="py-4 flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
                     <Icon icon="fluent:box-dismiss-20-filled" className="text-5xl text-default-300" />
@@ -1475,9 +1474,9 @@ export default function DeliveryPage() {
 
         {/* Right side: Delivery Form */}
         <div className="xl:w-2/3">
-          {/* Only show the form if admin is creating new delivery or any user has selected a delivery */}
+          {/* Only show the form if user is creating new delivery or any user has selected a delivery */}
 
-          {((admin && admin.is_admin) || selectedDeliveryId) ? (
+          {((user && user.is_admin) || selectedDeliveryId) ? (
             <Form id="deliveryForm" onSubmit={handleSubmit} className="items-stretch space-y-4">
               <CardList>
                 <div>
@@ -1485,7 +1484,7 @@ export default function DeliveryPage() {
                   <div className="space-y-4">
                     {/* Inventory Item Selection */}
                     <div>
-                      {!admin ? (
+                      {!user ? (
                         <Skeleton className="h-16 w-full rounded-xl" />
                       ) : (
                         <Autocomplete
@@ -1531,11 +1530,11 @@ export default function DeliveryPage() {
                     <div className="space-y-0">
                       {/* Operator Assignment Toggle */}
                       <AnimatePresence>
-                        {isDeliveryProcessing() && (admin === null || admin.is_admin) && (
+                        {isDeliveryProcessing() && (user === null || user.is_admin) && (
                           <motion.div
                             {...motionTransition}>
                             <div className="flex items-center justify-between mb-4">
-                              {!admin ? (
+                              {!user ? (
                                 <Skeleton className="h-10 w-full rounded-xl" />
                               ) : (
                                 <>
@@ -1557,7 +1556,7 @@ export default function DeliveryPage() {
                         {assignOperator && (
                           <motion.div
                             {...motionTransition}>
-                            {!admin ? (
+                            {!user ? (
                               <Skeleton className="h-16 w-full rounded-xl" />
                             ) : (
                               <Autocomplete
@@ -1566,10 +1565,10 @@ export default function DeliveryPage() {
                                 placeholder="Choose an operator"
                                 selectedKey={formData.operator_uuid || ""}
                                 onSelectionChange={(e) => handleAutoSelectChange(`operator_uuid`, `${e}`)}
-                                isRequired={isDeliveryProcessing() && assignOperator && (admin === null || admin.is_admin)}
-                                isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
-                                selectorIcon={(!isDeliveryProcessing() || !(admin === null || admin.is_admin)) ? null : <Icon icon="heroicons:chevron-down" height={15} />}
-                                popoverProps={{ className: (!isDeliveryProcessing() || !(admin === null || admin.is_admin)) ? "collapse" : "" }}
+                                isRequired={isDeliveryProcessing() && assignOperator && (user === null || user.is_admin)}
+                                isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
+                                selectorIcon={(!isDeliveryProcessing() || !(user === null || user.is_admin)) ? null : <Icon icon="heroicons:chevron-down" height={15} />}
+                                popoverProps={{ className: (!isDeliveryProcessing() || !(user === null || user.is_admin)) ? "collapse" : "" }}
                                 inputProps={autoCompleteStyle}
                                 classNames={{ clearButton: "text-default-800" }}
                                 isInvalid={!!errors.operator_uuid}
@@ -1592,17 +1591,17 @@ export default function DeliveryPage() {
 
                     {/* Warehouse Selection */}
                     <div>
-                      {!admin ? (
+                      {!user ? (
                         <Skeleton className="h-16 w-full rounded-xl" />
                       ) : (
                         <Autocomplete
                           id="warehouse_uuid"
                           name="warehouse_uuid"
                           label="Warehouse"
-                          isRequired={isDeliveryProcessing() && (admin === null || admin.is_admin)}
-                          isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
-                          selectorIcon={(!isDeliveryProcessing() || !(admin === null || admin.is_admin)) ? null : <Icon icon="heroicons:chevron-down" height={15} />}
-                          popoverProps={{ className: (!isDeliveryProcessing() || !(admin === null || admin.is_admin)) ? "collapse" : "" }}
+                          isRequired={isDeliveryProcessing() && (user === null || user.is_admin)}
+                          isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
+                          selectorIcon={(!isDeliveryProcessing() || !(user === null || user.is_admin)) ? null : <Icon icon="heroicons:chevron-down" height={15} />}
+                          popoverProps={{ className: (!isDeliveryProcessing() || !(user === null || user.is_admin)) ? "collapse" : "" }}
                           placeholder="Select warehouse"
                           selectedKey={formData.warehouse_uuid || ""}
                           onSelectionChange={(e) => {
@@ -1638,7 +1637,7 @@ export default function DeliveryPage() {
                     </div>
 
                     <div>
-                      {!admin ? (
+                      {!user ? (
                         <Skeleton className="h-16 w-full rounded-xl" />
                       ) : (
                         <DatePicker
@@ -1653,8 +1652,8 @@ export default function DeliveryPage() {
                               delivery_date: date.toString()
                             }));
                           }}
-                          isRequired={isDeliveryProcessing() && (admin === null || admin.is_admin)}
-                          isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
+                          isRequired={isDeliveryProcessing() && (user === null || user.is_admin)}
+                          isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
                           classNames={{
                             base: "w-full",
                             inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
@@ -1680,7 +1679,7 @@ export default function DeliveryPage() {
                           </h2>
 
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
-                            {!admin ? (
+                            {!user ? (
                               <>
                                 <Skeleton className="h-16 w-full rounded-xl" />
                                 <Skeleton className="h-16 w-full rounded-xl" />
@@ -1694,8 +1693,8 @@ export default function DeliveryPage() {
                                   placeholder="Enter recipient name"
                                   value={formData.recipient_name || ""}
                                   onChange={handleInputChange}
-                                  isRequired={assignOperator && (admin === null || admin.is_admin)}
-                                  isReadOnly={!(admin === null || admin.is_admin)}
+                                  isRequired={assignOperator && (user === null || user.is_admin)}
+                                  isReadOnly={!(user === null || user.is_admin)}
                                   isInvalid={!!errors.recipient_name}
                                   errorMessage={errors.recipient_name}
                                   startContent={<Icon icon="mdi:account" className="text-default-500 mb-[0.2rem]" />}
@@ -1708,8 +1707,8 @@ export default function DeliveryPage() {
                                   placeholder="Enter contact number"
                                   value={formData.recipient_contact || ""}
                                   onChange={handleInputChange}
-                                  isRequired={assignOperator && (admin === null || admin.is_admin)}
-                                  isReadOnly={!(admin === null || admin.is_admin)}
+                                  isRequired={assignOperator && (user === null || user.is_admin)}
+                                  isReadOnly={!(user === null || user.is_admin)}
                                   isInvalid={!!errors.recipient_contact}
                                   errorMessage={errors.recipient_contact}
                                   startContent={<Icon icon="mdi:phone" className="text-default-500 mb-[0.2rem]" />}
@@ -1731,7 +1730,7 @@ export default function DeliveryPage() {
                   </h2>
                   <div className="space-y-4">
                     {/* Only show recipient details when an operator is assigned */}
-                    {!admin ? (
+                    {!user ? (
                       <Skeleton className="h-16 w-full rounded-xl" />
                     ) : (
                       <Textarea
@@ -1743,14 +1742,14 @@ export default function DeliveryPage() {
                         onChange={handleInputChange}
                         maxRows={5}
                         minRows={1}
-                        isRequired={isDeliveryProcessing() && (admin === null || admin.is_admin)}
+                        isRequired={isDeliveryProcessing() && (user === null || user.is_admin)}
                         isReadOnly
                         errorMessage={errors.delivery_address}
                         startContent={<Icon icon="mdi:map-marker" className="text-default-500 mb-[0.2rem]" />}
                       />
                     )}
 
-                    {!admin ? (
+                    {!user ? (
                       <Skeleton className="h-16 w-full rounded-xl" />
                     ) : (
                       <Textarea
@@ -1763,7 +1762,7 @@ export default function DeliveryPage() {
                         value={formData.notes || ""}
                         onChange={handleInputChange}
                         startContent={<Icon icon="mdi:note-text" className="text-default-500 mt-[0.1rem]" />}
-                        isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
+                        isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
                       />
                     )}
                   </div>
@@ -1784,7 +1783,7 @@ export default function DeliveryPage() {
                             "flex items-center justify-between"}>
                             {/* Floor and Group in the first row */}
                             <div className={`flex sm:flex-row  ${isDeliveryProcessing() && "flex-col gap-4"}`}>
-                              {!admin ? (
+                              {!user ? (
                                 <>
                                   <Skeleton className="h-16 w-full rounded-xl" />
                                   <Skeleton className="h-16 w-full rounded-xl" />
@@ -1809,9 +1808,9 @@ export default function DeliveryPage() {
                                     onValueChange={(e) => setSelectedFloor(e - 1)}
                                     isInvalid={!!errors["location.floor"]}
                                     errorMessage={errors["location.floor"]}
-                                    isRequired={isDeliveryProcessing() && (admin === null || admin.is_admin)}
-                                    isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
-                                    hideStepper={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
+                                    isRequired={isDeliveryProcessing() && (user === null || user.is_admin)}
+                                    isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
+                                    hideStepper={!isDeliveryProcessing() || !(user === null || user.is_admin)}
                                     startContent={
                                       <Icon icon="lucide-lab:floor-plan"
                                         className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
@@ -1835,9 +1834,9 @@ export default function DeliveryPage() {
                                     onValueChange={(e) => setSelectedGroup(e - 1)}
                                     isInvalid={!!errors["location.group"]}
                                     errorMessage={errors["location.group"]}
-                                    isRequired={isDeliveryProcessing() && (admin === null || admin.is_admin)}
-                                    isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
-                                    hideStepper={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
+                                    isRequired={isDeliveryProcessing() && (user === null || user.is_admin)}
+                                    isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
+                                    hideStepper={!isDeliveryProcessing() || !(user === null || user.is_admin)}
                                     startContent={
                                       <Icon icon="heroicons:rectangle-group-16-solid"
                                         className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
@@ -1849,7 +1848,7 @@ export default function DeliveryPage() {
 
                             {/* Row, Column, and Depth grouped together in the second row */}
                             <div className={`flex sm:flex-row  ${isDeliveryProcessing() && "flex-col gap-4"}`}>
-                              {!admin ? (
+                              {!user ? (
                                 <>
                                   <Skeleton className="h-16 w-full rounded-xl" />
                                   <Skeleton className="h-16 w-full rounded-xl" />
@@ -1874,9 +1873,9 @@ export default function DeliveryPage() {
                                     onValueChange={(e) => setSelectedRow(e - 1)}
                                     isInvalid={!!errors["location.row"]}
                                     errorMessage={errors["location.row"]}
-                                    isRequired={isDeliveryProcessing() && (admin === null || admin.is_admin)}
-                                    isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
-                                    hideStepper={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
+                                    isRequired={isDeliveryProcessing() && (user === null || user.is_admin)}
+                                    isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
+                                    hideStepper={!isDeliveryProcessing() || !(user === null || user.is_admin)}
                                     startContent={
                                       <Icon icon="fluent:row-triple-20-filled"
                                         className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
@@ -1907,9 +1906,9 @@ export default function DeliveryPage() {
                                     }}
                                     isInvalid={!!errors["location.column"]}
                                     errorMessage={errors["location.column"]}
-                                    isRequired={isDeliveryProcessing() && (admin === null || admin.is_admin)}
-                                    isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
-                                    hideStepper={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
+                                    isRequired={isDeliveryProcessing() && (user === null || user.is_admin)}
+                                    isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
+                                    hideStepper={!isDeliveryProcessing() || !(user === null || user.is_admin)}
                                     startContent={
                                       <Icon icon="fluent:column-triple-20-filled"
                                         className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
@@ -1934,9 +1933,9 @@ export default function DeliveryPage() {
                                     onValueChange={(e) => setSelectedDepth(e - 1)}
                                     isInvalid={!!errors["location.depth"]}
                                     errorMessage={errors["location.depth"]}
-                                    isRequired={isDeliveryProcessing() && (admin === null || admin.is_admin)}
-                                    isReadOnly={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
-                                    hideStepper={!isDeliveryProcessing() || !(admin === null || admin.is_admin)}
+                                    isRequired={isDeliveryProcessing() && (user === null || user.is_admin)}
+                                    isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
+                                    hideStepper={!isDeliveryProcessing() || !(user === null || user.is_admin)}
                                     startContent={
                                       <Icon icon="fluent:box-16-filled"
                                         className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
@@ -1949,7 +1948,7 @@ export default function DeliveryPage() {
 
                           </div>
                           <div className="flex items-center justify-between">
-                            {!admin ? (
+                            {!user ? (
                               <Skeleton className="h-7 w-32 rounded-xl" />
                             ) : (
                               <Chip className="mb-2 sm:mb-0">
@@ -1959,7 +1958,7 @@ export default function DeliveryPage() {
                           </div>
 
                           <div className="flex justify-center gap-4 border-t border-default-200 pt-4 px-4 -mx-4">
-                            {!admin ? (
+                            {!user ? (
                               <Skeleton className="h-10 w-full rounded-xl" />
                             ) : (
                               <Button
@@ -1970,7 +1969,7 @@ export default function DeliveryPage() {
                                 className="w-full border-default-200 text-primary-600"
                               >
                                 <Icon icon="mdi:warehouse" className="mr-1" />
-                                {isDeliveryProcessing() && (admin === null || admin.is_admin) ?
+                                {isDeliveryProcessing() && (user === null || user.is_admin) ?
                                   "Select Location" : "View Location"}
                               </Button>
                             )}
@@ -1996,7 +1995,7 @@ export default function DeliveryPage() {
                             </Alert>
                           </div>
                           <div className="flex justify-center gap-4 border-t border-default-200 pt-4 px-4 -mx-4">
-                            {!admin ? (
+                            {!user ? (
                               <Skeleton className="h-10 w-full rounded-xl" />
                             ) : (
                               <Button
@@ -2024,7 +2023,7 @@ export default function DeliveryPage() {
                 <div>
                   <h2 className="text-xl font-semibold mb-4 w-full text-center">Delivery Status</h2>
                   <div>
-                    {!admin ? (
+                    {!user ? (
                       <Skeleton className="h-16 w-full rounded-xl" />
                     ) : (
                       <div className="border-2 border-default-200 rounded-xl bg-gradient-to-b from-background to-default-50/30">
@@ -2105,7 +2104,7 @@ export default function DeliveryPage() {
                     )}
 
                     <AnimatePresence>
-                      {(admin === null || admin.is_admin) && selectedDeliveryId && formData.status !== "DELIVERED" && formData.status !== "CANCELLED" && (
+                      {(user === null || user.is_admin) && selectedDeliveryId && formData.status !== "DELIVERED" && formData.status !== "CANCELLED" && (
                         <motion.div
                           {...motionTransition}>
                           <div className="flex flex-col gap-4 pt-4 -mx-4">
@@ -2160,11 +2159,11 @@ export default function DeliveryPage() {
                   </div>
                 </div>
 
-                {(admin === null || admin.is_admin || formData.status === "DELIVERED") && (
+                {(user === null || user.is_admin || formData.status === "DELIVERED") && (
                   <motion.div
                     {...motionTransition}>
                     <div className="flex flex-col md:flex-row justify-center items-center gap-4">
-                      {!admin ? (
+                      {!user ? (
                         <Skeleton className="h-10 w-full rounded-xl" />
                       ) : (
                         <>
@@ -2188,7 +2187,7 @@ export default function DeliveryPage() {
                                   onPress={handleViewInventory}
                                 >
                                   <Icon icon="mdi:package-variant" className="mr-1" />
-                                  {(admin === null || admin.is_admin)
+                                  {(user === null || user.is_admin)
                                     ? "Show Inventory"
                                     : "Show in Warehouse"}
                                 </Button>
@@ -2198,7 +2197,7 @@ export default function DeliveryPage() {
                           )}
 
                           {/* Show submit button only for admins creating/updating or operators with selected delivery */}
-                          {(admin.is_admin && formData.status !== "DELIVERED") && (
+                          {(user.is_admin && formData.status !== "DELIVERED") && (
                             <Button
                               type="submit"
                               form="deliveryForm"
@@ -2334,7 +2333,7 @@ export default function DeliveryPage() {
           <ModalBody className="flex flex-col items-center">
             <div className="w-full space-y-4">
               <p className="text-default-700">
-                Scan the delivery QR code or enter the delivery code provided by the admin:
+                Scan the delivery QR code or enter the delivery code provided by the user:
               </p>
 
               {/* QR Code Image Upload */}
@@ -2696,10 +2695,10 @@ export default function DeliveryPage() {
 
             <div className="flex items-center gap-2">
               <Button color="danger" variant="shadow" onPress={handleCancelLocation}>
-                {isDeliveryProcessing() && (admin === null || admin.is_admin) ?
+                {isDeliveryProcessing() && (user === null || user.is_admin) ?
                   "Cancel" : "Close"}
               </Button>
-              {isDeliveryProcessing() && (admin === null || admin.is_admin) && (
+              {isDeliveryProcessing() && (user === null || user.is_admin) && (
                 <Button
                   color="primary"
                   variant="shadow"

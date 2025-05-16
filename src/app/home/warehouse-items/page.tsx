@@ -214,14 +214,14 @@ export default function WarehouseItemsPage() {
   useEffect(() => {
     const initPage = async () => {
       try {
-        setUser(window.adminData);
+        setUser(window.userData);
 
         // Fetch warehouse items
-        const itemsResult = await getWarehouseInventoryItems(window.adminData.company_uuid);
+        const itemsResult = await getWarehouseInventoryItems(window.userData.company_uuid);
         setWarehouseItems(itemsResult.data || []);
 
         // Fetch warehouses for filtering
-        const warehousesResult = await getWarehouses(window.adminData.company_uuid);
+        const warehousesResult = await getWarehouses(window.userData.company_uuid);
         setWarehouses(warehousesResult.data || []);
 
         setIsLoadingItems(false);

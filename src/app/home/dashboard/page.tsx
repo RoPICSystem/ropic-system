@@ -61,7 +61,7 @@ export default function DashboardPage() {
     async function loadDashboardData() {
       try {
         setLoading(true);
-        setUser(window.adminData || null);
+        setUser(window.userData || null);
 
         const { data, error } = await getDashboardData();
 
