@@ -373,7 +373,7 @@ export default function ProfilePage() {
                     label="Street Address"
                     type="text"
                     classNames={inputStyle}
-                    value={userData?.address?.streetAddress || ''}
+                    value={userData?.address?.street || ''}
                     isReadOnly
                   />
                 </div>

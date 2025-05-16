@@ -1,6 +1,48 @@
 'use server'
 
 import { createClient } from '@/utils/supabase/server'
+import { Address } from '@/utils/supabase/server/address'
+import { PostgrestFilterBuilder } from '@supabase/postgrest-js'
+
+
+export type Name = {
+  suffix: string | null
+  last_name: string
+  first_name: string
+  middle_name: string | null
+}
+
+// Define types for the user data
+export type UserProfile = {
+  uuid: string
+  email: string
+  full_name: string
+  is_admin: boolean
+  name: Map<string, string> 
+  profile_image: string
+  gender: string
+  birthday: string
+  phonenumber: string
+  address: Address
+  company_uuid: string
+  full_address: string
+  role: string
+  created_at: string
+  updated_at: string
+  [key: string]: any // For any additional fields
+}
+
+export type UserCompany = {
+  uuid: string
+  name: string
+  address: Address
+  description: string | null
+  logo_image: string | null
+  created_at: string
+  updated_at: string
+  [key: string]: any // For any additional fields
+}
+
 
 // Fetch user profile data
 export async function getUserProfile() {

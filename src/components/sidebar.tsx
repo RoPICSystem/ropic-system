@@ -53,9 +53,9 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
 
         setUserData(data)
 
-        // if user is admin add Inventory to navigation next to dashboard
-        if (data?.is_admin) {
-          setNavigation([
+        // Memoize navigation to avoid unnecessary re-renders
+        const newNavigation = data?.is_admin 
+        ? [
             { name: 'Dashboard', href: '/home/dashboard', icon: "heroicons:home-solid" },
             { name: 'Inventory', href: '/home/inventory', icon: "fluent:box-20-filled" },
             { name: 'Delivery', href: '/home/delivery', icon: "heroicons:truck-20-solid" },
@@ -63,17 +63,17 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
             { name: 'Notifications', href: '/home/notifications', icon: "heroicons:bell-alert-20-solid" },
             // { name: 'Reports', href: '/home/reports', icon: "heroicons:chart-bar-20-solid" },
             { name: 'Settings', href: '/home/settings', icon: "heroicons:cog-8-tooth-20-solid" },
-          ])
-        } else {
-          setNavigation([
+          ]
+        : [
             { name: 'Dashboard', href: '/home/dashboard', icon: "heroicons:home-solid" },
             { name: 'Warehouse Items', href: '/home/warehouse-items', icon: "fluent:box-20-filled" },
             { name: 'Delivery', href: '/home/delivery', icon: "heroicons:truck-20-solid" },
             { name: 'Notifications', href: '/home/notifications', icon: "heroicons:bell-alert-20-solid" },
             // { name: 'Reports', href: '/home/reports', icon: "heroicons:chart-bar-20-solid" },
             { name: 'Settings', href: '/home/settings', icon: "heroicons:cog-8-tooth-20-solid" },
-          ])
-        }
+          ];
+      
+        setNavigation(newNavigation);
 
         // Set image icon directly from the profile_image_url
         if (data?.profile_image_url) {

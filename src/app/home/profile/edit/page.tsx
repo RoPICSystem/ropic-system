@@ -29,52 +29,17 @@ import { getLocalTimeZone, parseDate, today } from '@internationalized/date'
 import CardList from '@/components/card-list'
 import { motionTransition } from '@/utils/anim'
 import {
+  Barangay,
+  CityMunicipality,
   getBarangays,
   getCityMunicipalities,
   getProvinces,
-  getRegions
+  getRegions,
+  Province,
+  Region
 } from '@/utils/supabase/server/address'
 import { AnimatePresence, motion } from 'framer-motion'
 
-// Types for address data
-interface Region {
-  regCode: string;
-  regDesc: string;
-}
-
-interface Province {
-  provCode: string;
-  provDesc: string;
-}
-
-interface CityMunicipality {
-  citymunCode: string;
-  citymunDesc: string;
-}
-
-interface Barangay {
-  brgyCode: string;
-  brgyDesc: string;
-}
-
-interface CompanyAddress {
-  code: string;
-  desc: string;
-}
-
-interface Company {
-  uuid: string;
-  name: string;
-  address: {
-    region: CompanyAddress;
-    province: CompanyAddress;
-    municipality: CompanyAddress;
-    barangay: CompanyAddress;
-    streetAddress: string;
-    postalCode: number;
-    fullAddress: string;
-  }
-}
 
 export default function ProfilePage() {
   const [userData, setUserData] = useState<any>(null)
@@ -240,7 +205,7 @@ export default function ProfilePage() {
         }
 
         // Set street address and postal code
-        setInputStreetAddress(userData.address?.streetAddress || '')
+        setInputStreetAddress(userData.address?.street || '')
         setInputPostalCode(userData.address?.postalCode ? Number(userData.address.postalCode) : undefined)
 
         // Set full addresses
@@ -703,8 +668,8 @@ export default function ProfilePage() {
                     ))}
                   </Autocomplete>
                   <Input
-                    id="address.streetAddress"
-                    name="address.streetAddress"
+                    id="address.street"
+                    name="address.street"
                     label="Street Address"
                     type="text"
                     classNames={inputStyle}

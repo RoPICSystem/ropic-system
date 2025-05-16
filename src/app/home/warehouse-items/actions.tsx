@@ -1,60 +1,110 @@
 "use server";
 
-import { FloorConfig } from "@/components/shelf-selector-3d-v4";
 import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
+import { Warehouse } from "../warehouses/actions";
+import { InventoryItem } from "../inventory/actions";
+
+export type WarehouseInventoryItem = {
+  uuid: string;
+  admin_uuid: string;
+  warehouse_uuid: string;
+  company_uuid: string;
+  inventory_uuid: string;
+  item_code: string;
+  item_name: string;
+  location: any;
+  location_code: string;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
+  warehouse?: Warehouse;
+  inventory_item?: InventoryItem
+}
 
 /**
- * Checks if the current user is an admin and returns admin data
+ * Checks if the current user is authenticated and returns user data
  */
-export async function getUser() {
+export async function checkAuthStatus() {
   const supabase = await createClient();
 
   try {
-    // Get session data
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { user } } = await supabase.auth.getUser();
 
-    if (!session) {
-      return { data: null, error: "No session found" };
+    if (!user) {
+      redirect("/auth/signin");
     }
 
-    // Get user profile from the database
+    // Get the profile data
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("*")
-      .eq("uuid", session.user.id)
+      .eq("uuid", user.id)
       .single();
-   
-    return { data: profile, error: profileError };
+
+    if (profileError || !profile) {
+      redirect("/auth/signin");
+    }
+
+    return {
+      ...profile,
+      // Make sure is_admin is available in the profile data
+      is_admin: profile.is_admin ?? false
+    };
   } catch (error) {
-    console.error("Error checking getting data:", error);
-    return { data: null, error: "Error checking getting data" };
+    console.error("Error checking auth status:", error);
+    redirect("/auth/signin");
   }
 }
 
 /**
- * Fetches available inventory items with IN_WAREHOUSE status
+ * Gets all warehouse inventory items with optional search
  */
-export async function getWarehouseItems(companyUuid?: string, search: string = "") {
+export async function getWarehouseInventoryItems(
+  companyUuid: string, 
+  warehouseUuid?: string,
+  search: string = ""
+) {
   const supabase = await createClient();
 
   try {
     // Start building the query
     let query = supabase
-      .from("inventory_items")
-      .select("*")
-      .eq("status", "IN_WAREHOUSE")
+      .from("warehouse_inventory_items")
+      .select(`
+        *,
+        warehouse:warehouse_uuid(
+          uuid,
+          name,
+          warehouse_layout
+        ),
+        inventory_item:inventory_uuid(
+          uuid,
+          item_code,
+          item_name,
+          description,
+          quantity,
+          unit,
+          unit_value,
+          bulk_quantity,
+          bulk_unit,
+          ending_inventory,
+          bulk_ending_inventory,
+          total_cost
+        )
+      `)
+      .eq("company_uuid", companyUuid)
       .order("created_at", { ascending: false });
 
-    // Apply company filter if provided
-    if (companyUuid) {
-      query = query.eq("company_uuid", companyUuid);
+    // Apply warehouse filter if provided
+    if (warehouseUuid) {
+      query = query.eq("warehouse_uuid", warehouseUuid);
     }
 
     // Apply search filter if provided
     if (search) {
       query = query.or(
-        `item_code.ilike.%${search}%,item_name.ilike.%${search}%,description.ilike.%${search}%,location_code.ilike.%${search}%`
+        `item_code.ilike.%${search}%,item_name.ilike.%${search}%,location_code.ilike.%${search}%`
       );
     }
 
@@ -70,135 +120,195 @@ export async function getWarehouseItems(companyUuid?: string, search: string = "
       data: data || []
     };
   } catch (error) {
-    console.error("Error fetching warehouse items:", error);
+    console.error("Error fetching warehouse inventory items:", error);
     return {
       success: false,
       data: [],
-      error: error instanceof Error ? error.message : "Unknown error occurred",
+      error: error instanceof Error ? error.message : "Unknown error occurred"
     };
   }
 }
 
 /**
- * Fetches only occupied shelf locations for visualization
+ * Gets a specific warehouse inventory item by UUID
  */
-export async function getOccupiedShelfLocations(companyUuid: string) {
+export async function getWarehouseInventoryItem(uuid: string) {
   const supabase = await createClient();
 
   try {
     const { data, error } = await supabase
-      .from("inventory_items")
-      .select("location")
-      .eq("company_uuid", companyUuid)
-      .eq("status", "IN_WAREHOUSE")
-      .not("location", "is", null);
+      .from("warehouse_inventory_items")
+      .select(`
+        *,
+        warehouse:warehouse_uuid(
+          uuid,
+          name,
+          warehouse_layout
+        ),
+        inventory_item:inventory_uuid(
+          uuid,
+          item_code,
+          item_name,
+          description,
+          quantity,
+          unit,
+          unit_value,
+          bulk_quantity,
+          bulk_unit,
+          ending_inventory,
+          bulk_ending_inventory,
+          total_cost
+        )
+      `)
+      .eq("uuid", uuid)
+      .single();
 
     if (error) {
       throw error;
     }
 
-    // Map data to the expected ShelfLocation format
-    const occupiedLocations = data
-      .filter(item => item.location && 
-        item.location.floor !== null &&
-        item.location.column !== null &&
-        item.location.row !== null)
-      .map(item => ({
-        floor: item.location.floor,
-        column: item.location.column,
-        row: item.location.row,
-        group: item.location.group || 0,
-        depth: item.location.depth || 0,
-      }));
-
     return {
       success: true,
-      data: occupiedLocations
+      data
     };
   } catch (error) {
-    console.error("Error fetching occupied shelf locations:", error);
+    console.error("Error fetching warehouse inventory item:", error);
     return {
       success: false,
-      data: [],
-      error: error instanceof Error ? error.message : "Unknown error occurred",
+      error: error instanceof Error ? error.message : "Unknown error occurred"
     };
   }
 }
 
-
 /**
- * Fetches company layout data
- * @param companyUuid The company's UUID
- * @returns Object containing success status, layout data, and error message if any
+ * Gets a warehouse inventory item by inventory_uuid
  */
-export async function getCompanyLayout(companyUuid: string): Promise<{ success: boolean, data: FloorConfig[] | null, error?: string }> {
-  try {
-    const supabase = await createClient();
+export async function getWarehouseItemByInventory(inventoryUuid: string) {
+  const supabase = await createClient();
 
+  try {
     const { data, error } = await supabase
-      .from("companies")
-      .select("company_layout")
-      .eq("uuid", companyUuid)
-      .single();
+      .from("warehouse_inventory_items")
+      .select(`
+        *,
+        warehouse:warehouse_uuid(
+          uuid,
+          name,
+          warehouse_layout
+        ),
+        inventory_item:inventory_uuid(
+          uuid,
+          item_code,
+          item_name,
+          description,
+          quantity,
+          unit,
+          unit_value,
+          bulk_quantity,
+          bulk_unit,
+          ending_inventory,
+          bulk_ending_inventory,
+          total_cost
+        )
+      `)
+      .eq("inventory_uuid", inventoryUuid)
+      .order("created_at", { ascending: false })
+      .limit(1);
 
     if (error) {
-      return { success: false, data: null, error: error.message };
+      throw error;
     }
 
-    if (!data || !data.company_layout) {
-      // If no layout exists, return a default layout
-      return {
-        success: false,
-        data: null,
-        error: "No layout found, returning default layout",
-      };
-    }
+    return {
+      success: true,
+      data: data && data.length > 0 ? data[0] : null
+    };
+  } catch (error) {
+    console.error("Error fetching warehouse item by inventory:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error occurred"
+    };
+  }
+}
 
-    // Transform the company_layout into the format expected by ShelfSelector3D
-    const floorConfigs: FloorConfig[] = data.company_layout.map((floor: any) => {
-      if (typeof floor.height !== "number" || floor.height <= 0) {
-        throw new Error("Invalid layout format: each floor must have a positive height");
-      }
-
-      if (!Array.isArray(floor.matrix)) {
-        throw new Error("Invalid layout format: each floor must have a matrix");
-      }
-
-      return {
-        height: floor.height,
-        matrix: floor.matrix.map((row: any) => {
-          if (!Array.isArray(row)) {
-            throw new Error("Invalid layout format: each row must be an array");
-          }
-          return row;
-        })
-      };
-    });
+/**
+ * Gets all warehouses for a company
+ */
+export async function getWarehouses(companyUuid: string) {
+  const supabase = await createClient();
+  
+  try {
+    const { data, error } = await supabase
+      .from('warehouses')
+      .select('*')
+      .eq('company_uuid', companyUuid);
     
-    // Validate the transformed layout
-    for (const floor of floorConfigs) {
-      if (typeof floor.height !== "number" || floor.height <= 0) {
-        return { success: false, data: null, error: "Invalid layout format: each floor must have a positive height" };
-      }
-      if (!Array.isArray(floor.matrix)) {
-        return { success: false, data: null, error: "Invalid layout format: each floor must have a matrix" };
-      }
-      for (const row of floor.matrix) {
-        if (!Array.isArray(row)) {
-          return { success: false, data: null, error: "Invalid layout format: each row must be an array" };
-        }
-        for (const cell of row) {
-          if (typeof cell !== "number" || cell < 0 || cell > 100) {
-            return { success: false, data: null, error: "Invalid layout format: each cell must be a number between 0 and 100" };
-          }
-        }
-      }
-    }
-    // Return the transformed layout
+    if (error) throw error;
+    
+    return { success: true, data };
+  } catch (error) {
+    console.error('Error fetching warehouses:', error);
+    return { success: false, error: 'Failed to fetch warehouses', data: [] };
+  }
+}
 
-    return { success: true, data: floorConfigs };
-  } catch (error: any) {
-    console.error("Error fetching company layout:", error);
-    return { success: false, data: null, error: error.message };
+/**
+ * Updates a warehouse inventory item
+ */
+export async function updateWarehouseInventoryItem(uuid: string, updates: Partial<WarehouseInventoryItem>) {
+  const supabase = await createClient();
+
+  try {
+    const { data, error } = await supabase
+      .from("warehouse_inventory_items")
+      .update(updates)
+      .eq("uuid", uuid)
+      .select();
+
+    if (error) {
+      throw error;
+    }
+
+    return {
+      success: true,
+      data
+    };
+  } catch (error) {
+    console.error("Error updating warehouse inventory item:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error occurred"
+    };
+  }
+}
+
+/**
+ * Deletes a warehouse inventory item
+ */
+export async function deleteWarehouseInventoryItem(uuid: string) {
+  const supabase = await createClient();
+
+  try {
+    const { data, error } = await supabase
+      .from("warehouse_inventory_items")
+      .delete()
+      .eq("uuid", uuid)
+      .select();
+
+    if (error) {
+      throw error;
+    }
+
+    return {
+      success: true,
+      data
+    };
+  } catch (error) {
+    console.error("Error deleting warehouse inventory item:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error occurred"
+    };
   }
 }

@@ -131,7 +131,7 @@ export default function RegisterPage() {
     province: { code: '', desc: '' },
     municipality: { code: '', desc: '' },
     barangay: { code: '', desc: '' },
-    streetAddress: '',
+    street: '',
     postalCode: 0,
     fullAddress: '',
   }
@@ -140,7 +140,7 @@ export default function RegisterPage() {
     province: CompanyAddress;
     municipality: CompanyAddress;
     barangay: CompanyAddress;
-    streetAddress: string;
+    street: string;
     postalCode: number;
     fullAddress: string;
   }>(addressReset);
@@ -153,7 +153,7 @@ export default function RegisterPage() {
 
 
   const generateFullAddress = (
-    streetAddress: string,
+    street: string,
     barangay: string,
     municipality: string,
     province: string,
@@ -162,7 +162,7 @@ export default function RegisterPage() {
     postalCode?: string
   ) => {
     const addressParts = [
-      streetAddress,
+      street,
       barangay,
       municipality,
       province,
@@ -728,8 +728,8 @@ export default function RegisterPage() {
                             </Autocomplete>
                             <Input
 
-                              id="address.streetAddress"
-                              name="address.streetAddress"
+                              id="address.street"
+                              name="address.street"
                               label="Street Address"
                               type="text"
                               classNames={inputStyle}
@@ -908,8 +908,8 @@ export default function RegisterPage() {
                                   ))}
                                 </Autocomplete>
                                 <Input
-                                  id="newCompany.address.streetAddress"
-                                  name="newCompany.address.streetAddress"
+                                  id="newCompany.address.street"
+                                  name="newCompany.address.street"
                                   label="Street Address"
                                   type="text"
                                   classNames={inputStyle}
@@ -1037,7 +1037,7 @@ export default function RegisterPage() {
                                       />
                                       <Input
                                         label="Street Address"
-                                        value={existingCompanyAddress.streetAddress || ''}
+                                        value={existingCompanyAddress.street || ''}
                                         classNames={inputStyle}
                                         isRequired={!isNewCompany}
                                         isDisabled={isLoading}

@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
-    "@heroui/react": "^2.7.6",
+    "@heroui/react": "^2.7.8",
     "@heroui/use-infinite-scroll": "^2.2.7",
     "@heroui/use-theme": "^2.1.6",
     "@react-three/drei": "^10.0.6",

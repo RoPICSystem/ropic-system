@@ -2,6 +2,51 @@
 
 import { createClient } from '@/utils/supabase/server'
 
+
+// Define address types (inside the Supabase Database for the address table)
+export type Region = {
+  regCode: string
+  regDesc: string
+}
+
+export type Province = {
+  provCode: string
+  provDesc: string
+}
+
+export type CityMunicipality = {
+  citymunCode: string
+  citymunDesc: string
+}
+
+export type Barangay = {
+  brgyCode: string
+  brgyDesc: string
+}
+
+export type Country = {
+  countryCode: string
+  countryDesc: string
+}
+
+
+// Define address types
+export type AddressType = {
+  code: string
+  desc: string
+}
+
+export type Address = {
+  region: AddressType
+  country: AddressType
+  barangay: AddressType
+  province: AddressType
+  postalCode: string
+  fullAddress: string
+  street: string
+  municipality: AddressType
+}
+
 export async function getRegions() {
   const supabase = await createClient()
 
@@ -62,7 +107,7 @@ export async function getBarangays(citymunCode: string) {
     .order('brgyDesc')
 
   // Transform brgyDesc to uppercase
-  const data = rawData?.map(item => ({
+  const data = rawData?.map((item: Barangay) => ({
     ...item,
     brgyDesc: item.brgyDesc.toUpperCase()
   })) || []

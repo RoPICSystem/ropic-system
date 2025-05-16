@@ -2,30 +2,26 @@
 
 import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
-import { FloorConfig } from "@/components/shelf-selector-3d-v4";
-import { revalidatePath } from "next/cache";
 
-interface LocationData {
-  floor: number;
-  column: number;
-  row: number;
-  depth: number;
-  group: number;
-}
-
-interface InventoryItemData {
+export type InventoryItem = {
+  uuid: string;
   admin_uuid: string;
   company_uuid: string;
   item_code: string;
   item_name: string;
   description: string | null;
+  total_quantity: number;
+  bulk_quantity: number;
   quantity: number;
+  bulk_unit: string;
   unit: string;
+  unit_value: number;
+  bulk_ending_inventory: number;
   ending_inventory: number;
+  total_cost: number;
   netsuite: number | null;
   variance: number | null;
-  location: LocationData;
-  location_code: string | null;
+  status: string | null;
 }
 
 /**
@@ -58,7 +54,7 @@ export async function checkAdminStatus() {
 /**
  * Creates a new inventory item in the database
  */
-export async function createInventoryItem(formData: InventoryItemData) {
+export async function createInventoryItem(formData: InventoryItem) {
   const supabase = await createClient();
 
   try {
@@ -85,8 +81,10 @@ export async function createInventoryItem(formData: InventoryItemData) {
 /**
  * Updates an existing inventory item in the database
  */
-export async function updateInventoryItem(uuid: string, formData: Partial<InventoryItemData>) {
+export async function updateInventoryItem(uuid: string, formData: Partial<InventoryItem>) {
   const supabase = await createClient();
+  console.log("Updating inventory item with UUID:", uuid);
+  console.log("Form data:", formData);
 
   try {
     const { data, error } = await supabase
@@ -142,7 +140,18 @@ export async function deleteInventoryItem(uuid: string) {
 export async function getUnitOptions() {
   // You could fetch this from a database table if needed
   return [
-    "piece", "kg", "g", "mg", "L", "mL", "m", "cm", "mm", "box", "carton", "pack", "set"
+    "kg", "g", "lb", "oz", "l", "ml", "m", "cm", "ft", "in",
+    "pcs", "units", "each", "dozen", "gross"
+  ];
+}
+
+/**
+ * Fetches available bulk units from the database or returns default ones
+ */
+export async function getBulkUnitOptions() {
+  // You could fetch this from a database table if needed
+  return [
+    "box", "carton", "pack", "set", "pallet", "container", "drum", "bag", "crate"
   ];
 }
 
@@ -282,119 +291,3 @@ export async function getInventoryItemsPage(options: {
   }
 }
 
-/**
- * Fetches only occupied shelf locations for a specific company
- * @param companyUuid The company's UUID
- * @returns Array of occupied shelf locations
- */
-export async function getOccupiedShelfLocations(companyUuid: string) {
-  const supabase = await createClient();
-
-  try {
-    // Only select the location fields we need
-    const { data, error } = await supabase
-      .from("inventory_items")
-      .select("location")
-      .eq("company_uuid", companyUuid);
-
-    if (error) {
-      throw error;
-    }
-
-    // Transform database location format to ShelfLocation format
-    const occupiedLocations = data
-      .filter(item => item.location)
-      .map(item => {
-        return item.location;
-      });
-
-    return {
-      success: true,
-      data: occupiedLocations
-    };
-  } catch (error) {
-    console.error("Error fetching occupied shelf locations:", error);
-    return {
-      success: false,
-      data: [],
-      error: error instanceof Error ? error.message : "Unknown error occurred"
-    };
-  }
-}
-
-/**
- * Fetches company layout data
- * @param companyUuid The company's UUID
- * @returns Object containing success status, layout data, and error message if any
- */
-export async function getCompanyLayout(companyUuid: string): Promise<{ success: boolean, data: FloorConfig[] | null, error?: string }> {
-  try {
-    const supabase = await createClient();
-
-    const { data, error } = await supabase
-      .from("companies")
-      .select("company_layout")
-      .eq("uuid", companyUuid)
-      .single();
-
-    if (error) {
-      return { success: false, data: null, error: error.message };
-    }
-
-    if (!data || !data.company_layout) {
-      // If no layout exists, return a default layout
-      return {
-        success: false,
-        data: null,
-        error: "No layout found, returning default layout",
-      };
-    }
-
-    // Transform the company_layout into the format expected by ShelfSelector3D
-    const floorConfigs: FloorConfig[] = data.company_layout.map((floor: any) => {
-      if (typeof floor.height !== "number" || floor.height <= 0) {
-        throw new Error("Invalid layout format: each floor must have a positive height");
-      }
-
-      if (!Array.isArray(floor.matrix)) {
-        throw new Error("Invalid layout format: each floor must have a matrix");
-      }
-
-      return {
-        height: floor.height,
-        matrix: floor.matrix.map((row: any) => {
-          if (!Array.isArray(row)) {
-            throw new Error("Invalid layout format: each row must be an array");
-          }
-          return row;
-        })
-      };
-    });
-    
-    // Validate the transformed layout
-    for (const floor of floorConfigs) {
-      if (typeof floor.height !== "number" || floor.height <= 0) {
-        return { success: false, data: null, error: "Invalid layout format: each floor must have a positive height" };
-      }
-      if (!Array.isArray(floor.matrix)) {
-        return { success: false, data: null, error: "Invalid layout format: each floor must have a matrix" };
-      }
-      for (const row of floor.matrix) {
-        if (!Array.isArray(row)) {
-          return { success: false, data: null, error: "Invalid layout format: each row must be an array" };
-        }
-        for (const cell of row) {
-          if (typeof cell !== "number" || cell < 0 || cell > 100) {
-            return { success: false, data: null, error: "Invalid layout format: each cell must be a number between 0 and 100" };
-          }
-        }
-      }
-    }
-    // Return the transformed layout
-
-    return { success: true, data: floorConfigs };
-  } catch (error: any) {
-    console.error("Error fetching company layout:", error);
-    return { success: false, data: null, error: error.message };
-  }
-}

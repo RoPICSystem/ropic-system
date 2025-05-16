@@ -5,8 +5,12 @@ import { format } from "date-fns";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { getDashboardData, getUser } from "./actions";
+import { getDashboardData } from "./actions";
+import { 
+  getUserProfile,
+} from '@/utils/supabase/server/user';
 import { useTheme } from "next-themes";
+
 
 import {
   Badge,
@@ -58,7 +62,7 @@ export default function DashboardPage() {
       try {
         setLoading(true);
         // Get user data
-        const { data: userData, error: userError } = await getUser();
+        const { data: userData, error: userError } = await getUserProfile();
         if (userError) {
           setError(userError.toString());
           return;

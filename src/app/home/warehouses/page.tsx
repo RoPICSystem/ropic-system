@@ -4,56 +4,18 @@ import { useState, useEffect } from 'react';
 import {
   Button, Input, Modal, ModalContent, ModalHeader, ModalBody, ModalFooter,
   useDisclosure, Autocomplete, AutocompleteItem, Spinner,
-  Chip, Listbox, ListboxItem, Form, Skeleton
+  Chip, Listbox, ListboxItem, Form, Skeleton, Card, CardBody
 } from "@heroui/react";
 import { Icon } from "@iconify-icon/react";
-import { getWarehouses, getWarehousesPage, createWarehouse, updateWarehouse, deleteWarehouse, getWarehouseByUuid } from './actions';
-import { getRegions, getProvinces, getCityMunicipalities, getBarangays } from '@/utils/supabase/server/address';
+import { getWarehouses, getWarehousesPage, createWarehouse, updateWarehouse, deleteWarehouse, getWarehouseByUuid, Warehouse, getWarehouseLayout } from './actions';
+import { getRegions, getProvinces, getCityMunicipalities, getBarangays, Address, Barangay, CityMunicipality, Province, Region } from '@/utils/supabase/server/address';
 import { getUserCompany } from '@/utils/supabase/server/user';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
 import { motionTransition } from '@/utils/anim';
 import CardList from '@/components/card-list';
-
-// Types for address data
-interface Region {
-  regCode: string;
-  regDesc: string;
-}
-
-interface Province {
-  provCode: string;
-  provDesc: string;
-}
-
-interface CityMunicipality {
-  citymunCode: string;
-  citymunDesc: string;
-}
-
-interface Barangay {
-  brgyCode: string;
-  brgyDesc: string;
-}
-
-interface WarehouseAddress {
-  country: { code: string, desc: string };
-  region: { code: string, desc: string };
-  province: { code: string, desc: string };
-  municipality: { code: string, desc: string };
-  barangay: { code: string, desc: string };
-  street: string;
-  postalCode: string;
-  fullAddress: string;
-}
-
-interface Warehouse {
-  uuid: string;
-  name: string;
-  address: WarehouseAddress;
-  created_at: string;
-  updated_at: string;
-}
+import { FloorConfig } from '@/components/shelf-selector-3d-v4';
+import WarehouseLayoutEditorModal from './layout-editor-modal';
 
 function generateFullAddress(
   street: string,
@@ -126,6 +88,18 @@ export default function WarehousePage() {
   // Track data loading state
   const [isLoading, setIsLoading] = useState(true);
 
+  // Warehouse layout state
+  const [warehouseLayout, setWarehouseLayout] = useState<FloorConfig[]>([]);
+  const [layoutRows, setLayoutRows] = useState<number>(10);
+  const [layoutColumns, setLayoutColumns] = useState<number>(10);
+
+  // Layout editor state
+  const [isLayoutEditorOpen, setIsLayoutEditorOpen] = useState(false);
+  const [isLoadingLayout, setIsLoadingLayout] = useState(false);
+
+  // Warehouse Layout Editor Modal Tab
+  const [selectedTab, setSelectedTab] = useState<'editor' | 'preview'>('editor');
+
   const inputStyle = {
     inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
   };
@@ -155,7 +129,6 @@ export default function WarehousePage() {
       pageSize: rowsPerPage,
       search
     });
-
 
     if (success) {
       setWarehouses(data);
@@ -208,6 +181,7 @@ export default function WarehousePage() {
     if (warehouseId !== selectedWarehouseId) {
       setSelectedWarehouseId(warehouseId);
       fetchWarehouseDetails(warehouseId);
+      fetchWarehouseLayout(warehouseId); 
     }
   }, [searchParams]);
 
@@ -226,6 +200,31 @@ export default function WarehousePage() {
     }
 
     setDetailLoading(false);
+  };
+
+  // Fetch warehouse layout
+  const fetchWarehouseLayout = async (warehouseId: string) => {
+    if (!warehouseId) return;
+
+    setIsLoadingLayout(true);
+    const { success, data, error } = await getWarehouseLayout(warehouseId);
+
+    if (success && data) {
+      setWarehouseLayout(data);
+      // Set rows/columns based on the loaded data
+      if (data[0]?.matrix?.length > 0) {
+        setLayoutRows(data[0].matrix.length);
+        setLayoutColumns(data[0].matrix[0].length);
+      }
+    } else {
+      console.error("Error loading warehouse layout:", error);
+      // Initialize with default layout if none exists
+      setWarehouseLayout([{
+        height: 5,
+        matrix: Array(layoutRows).fill(0).map(() => Array(layoutColumns).fill(0))
+      }]);
+    }
+    setIsLoadingLayout(false);
   };
 
   // Fetch provinces when region is selected
@@ -373,11 +372,14 @@ export default function WarehousePage() {
     resetAddressFields();
   };
 
-  const handleSelectWarehouse = (warehouseId: string) => {
+  const handleSelectWarehouse = async (warehouseId: string) => {
     // Update the URL with the selected warehouse ID
     const params = new URLSearchParams(searchParams.toString());
     params.set("warehouseId", warehouseId);
     router.push(`?${params.toString()}`, { scroll: false });
+
+    // After selecting a warehouse, also fetch its layout
+    await fetchWarehouseLayout(warehouseId);
   };
 
   const handleRegionChange = (value: string) => {
@@ -491,6 +493,78 @@ export default function WarehousePage() {
     });
   };
 
+  const renderLayoutPreview = () => {
+    if (!warehouseLayout || !Array.isArray(warehouseLayout) || warehouseLayout.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center p-4 text-default-500">
+          <Icon icon="material-symbols:warehouse-rounded" className="text-3xl mb-2" />
+          <p className="text-center">No warehouse layout configured</p>
+        </div>
+      )
+    }
+
+    // Create a simplified visual representation of the layout
+    return (
+      <div>
+        <div className="grid grid-cols-1 gap-4">
+          {warehouseLayout.map((floor: FloorConfig, floorIndex: number) => {
+            if (!floor?.matrix || !Array.isArray(floor.matrix)) {
+              return (
+                <Card key={floorIndex} className="p-2">
+                  <CardBody>
+                    <h4 className="text-sm font-medium mb-2 text-center">
+                      Floor {floorIndex + 1} (Invalid Format)
+                    </h4>
+                  </CardBody>
+                </Card>
+              );
+            }
+
+            return (
+              <Card key={floorIndex} className="p-2">
+                <CardBody>
+                  <h4 className="text-sm font-medium mb-2 text-center">
+                    Floor {floorIndex + 1} ({floor.matrix.length} × {floor.matrix[0].length})
+                  </h4>
+
+                  <div className="grid gap-0.5" style={{
+                    gridTemplateColumns: `repeat(${floor.matrix[0].length}, 1fr)`
+                  }}>
+                    {floor.matrix.map((row, rowIndex) => (
+                      row.map((cell, cellIndex) => (
+                        <div
+                          key={`${rowIndex}-${cellIndex}`}
+                          className={`aspect-square rounded-sm ${cell > 0 ? 'bg-primary-500' : 'bg-default-200'
+                            }`}
+                          style={{ minWidth: '8px', minHeight: '8px' }}
+                          title={`Floor ${floorIndex + 1}, Row ${rowIndex + 1}, Column ${cellIndex + 1}: ${cell > 0 ? `${cell} shelves` : 'No container'}`}
+                        />
+                      ))
+                    ))}
+                  </div>
+
+                </CardBody>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const openLayoutEditor = (warehouseId: string, mode: 'editor' | 'preview') => {
+    setSelectedTab(mode);
+    setSelectedWarehouseId(warehouseId);
+    fetchWarehouseLayout(warehouseId).then(() => {
+      setIsLayoutEditorOpen(true);
+    });
+  };
+
+  const handleLayoutSaved = (newLayout: FloorConfig[]) => {
+    setWarehouseLayout(newLayout);
+    // You might want to refresh warehouse data here
+  };
+
   return (
     <div className="container mx-auto p-2 max-w-4xl">
       <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
@@ -499,10 +573,10 @@ export default function WarehousePage() {
           {isLoading ? (
             <div className="text-default-500 flex items-center">
               <p className='my-auto mr-1'>Loading warehouses data</p>
-              <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default"/>
+              <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
             </div>
           ) : (
-          <p className="text-default-500">Manage your warehouses efficiently.</p>
+            <p className="text-default-500">Manage your warehouses efficiently.</p>
           )}
         </div>
         <div className="flex gap-4">
@@ -559,14 +633,13 @@ export default function WarehousePage() {
                 </div>
               ) : !listLoading && warehouses.length > 0 ? (
                 <div
-                className='space-y-4 p-4 overflow-y-auto pt-[8.25rem] xl:h-full h-[42rem]'>
+                  className='space-y-4 p-4 overflow-y-auto pt-[8.25rem] xl:h-full h-[42rem]'>
                   {warehouses.map((warehouse) => (
                     <Button
                       key={warehouse.uuid}
-                      onPress={() => handleSelectWarehouse(warehouse.uuid)}
+                      onPress={() => { if (warehouse.uuid) handleSelectWarehouse(warehouse.uuid) }}
                       variant="shadow"
-                      className={`w-full min-h-28 !transition-all duration-200 rounded-xl px-0 py-4 ${
-                        selectedWarehouseId === warehouse.uuid ?
+                      className={`w-full min-h-28 !transition-all duration-200 rounded-xl px-0 py-4 ${selectedWarehouseId === warehouse.uuid ?
                           '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' :
                           '!bg-default-100/50 shadow-none hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
                     >
@@ -779,7 +852,37 @@ export default function WarehousePage() {
                   </div>
                 </div>
 
-                <div {...(selectedWarehouseId && currentWarehouse?.created_at ? {} : { className: '!min-h-0 !p-0 !h-0 collapse border-none z-0'})}>
+                <div>
+                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouse Layout</h2>
+                  <div className="space-y-4">
+                    <div className="mb-4">
+                      {renderLayoutPreview()}
+                    </div>
+                    <div className="flex justify-end items-center gap-2">
+                      <Button
+                        color="primary"
+                        variant="flat"
+                        onPress={() => openLayoutEditor(selectedWarehouseId || '', 'editor')}
+                        startContent={<Icon icon="mdi:edit" className="w-4 h-4" />}
+                        isDisabled={!selectedWarehouseId}
+                      >
+                        Edit Layout
+                      </Button>
+                      <Button
+                        color="secondary"
+                        variant="flat"
+                        onPress={() => openLayoutEditor(selectedWarehouseId || '', 'preview')}
+                        startContent={<Icon icon="mdi:eye" className="w-4 h-4" />}
+                        isDisabled={!selectedWarehouseId}
+                      >
+                        View 3D Layout
+                      </Button>
+                      
+                    </div>
+                  </div>
+                </div>  
+
+                <div {...(selectedWarehouseId && currentWarehouse?.created_at ? {} : { className: '!min-h-0 !p-0 !h-0 collapse border-none z-0' })}>
                   <AnimatePresence>
                     {selectedWarehouseId && currentWarehouse?.created_at && (
                       <motion.div
@@ -872,6 +975,16 @@ export default function WarehousePage() {
           </ModalFooter>
         </ModalContent>
       </Modal>
+
+      {/* Layout Editor Modal */}
+      <WarehouseLayoutEditorModal
+        isOpen={isLayoutEditorOpen}
+        onClose={() => setIsLayoutEditorOpen(false)}
+        warehouseId={selectedWarehouseId || ''}
+        initialLayout={warehouseLayout}
+        openedTab={selectedTab}
+        onSave={handleLayoutSaved}
+      />
     </div>
   );
 }

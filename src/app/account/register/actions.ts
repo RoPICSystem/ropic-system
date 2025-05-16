@@ -78,7 +78,7 @@ export async function register(formData: FormData) :
       code: formData.get('address.barangay.code') as string,
       desc: formData.get('address.barangay.desc') as string
     },
-    streetAddress: formData.get('address.streetAddress') as string,
+    street: formData.get('address.street') as string,
     postalCode: formData.get('address.postalCode') as string,
     fullAddress: formData.get('address.fullAddress') as string
   };
@@ -132,7 +132,7 @@ export async function register(formData: FormData) :
             code: formData.get('newCompany.address.barangay.code') as string,
             desc: formData.get('newCompany.address.barangay.desc') as string
           },
-          streetAddress: formData.get('newCompany.address.streetAddress') as string,
+          street: formData.get('newCompany.address.street') as string,
           postalCode: formData.get('newCompany.address.postalCode') as string,
           fullAddress: formData.get('newCompany.address.fullAddress') as string
         };

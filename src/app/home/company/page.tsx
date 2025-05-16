@@ -1,45 +1,25 @@
 'use client'
 
-import { useState, useEffect, lazy, Suspense } from 'react'
-import { useRouter } from 'next/navigation'
-import { getUserProfile } from '@/utils/supabase/server/user'
-import { getUserCompanyDetails } from '@/utils/supabase/server/companies'
 import CardList from '@/components/card-list'
+import { getUserCompanyDetails } from '@/utils/supabase/server/companies'
+import { getUserProfile } from '@/utils/supabase/server/user'
+import {
+  BuildingOfficeIcon,
+  ChevronRightIcon,
+} from '@heroicons/react/24/solid'
 import {
   Button,
-  Input,
-  Skeleton,
-  Image,
   Card,
   CardBody,
-  useDisclosure,
-  Modal,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-  Spinner,
-  Accordion,
-  AccordionItem,
-  Kbd
+  Image,
+  Input,
+  Skeleton,
+  Spinner
 } from "@heroui/react"
-import {
-  ChevronRightIcon,
-  BuildingOfficeIcon,
-} from '@heroicons/react/24/solid'
-import { herouiColor } from "@/utils/colors"
-import { Icon } from '@iconify-icon/react/dist/iconify.mjs'
-import { useTheme } from "next-themes"
+import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
 
-// Import ShelfSelector3D component with lazy loading
-const ShelfSelector3D = lazy(() =>
-  import("@/components/shelf-selector-3d-v4").then(mod => ({
-    default: mod.ShelfSelector3D
-  }))
-);
+
 
 export default function CompanyPage() {
   const router = useRouter()
@@ -51,46 +31,6 @@ export default function CompanyPage() {
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
 
-  // Add state for 3D preview modal
-  const { isOpen, onOpen, onClose } = useDisclosure();
-  const [highlightedFloor, setHighlightedFloor] = useState<number | null>(0);
-  const [isFloorChangeAnimate, setIsFloorChangeAnimate] = useState(true);
-  const [isShelfChangeAnimate, setIsShelfChangeAnimate] = useState(true);
-  const [isGroupChangeAnimate, setIsGroupChangeAnimate] = useState(false);
-  const { theme } = useTheme();
-
-  // Add custom colors for 3D preview
-  const [customColors, setCustomColors] = useState({
-    backgroundColor: "#f0f7ff", // Light blue background
-    floorColor: "#e0e0e0",      // Light gray floor
-    floorHighlightedColor: "#c7dcff", // Highlighted floor
-    groupColor: "#aaaaaa",    // Group color
-    groupSelectedColor: "#4a80f5", // Selected group
-    shelfColor: "#dddddd",      // Default shelf
-    shelfHoverColor: "#ffb74d", // Hover orange
-    shelfSelectedColor: "#ff5252", // Selected red
-    occupiedShelfColor: "#8B0000", // Occupied red
-    occupiedHoverShelfColor: "#BB3333", // New occupied hover color - lighter red
-    textColor: "#2c3e50",       // Dark blue text
-  });
-
-  const updateHeroUITheme = () => {
-    setTimeout(() => {
-      setCustomColors({
-        backgroundColor: herouiColor('primary-50', 'hex') as string,
-        floorColor: herouiColor('primary-200', 'hex') as string,
-        floorHighlightedColor: herouiColor('primary-300', 'hex') as string,
-        groupColor: herouiColor('default', 'hex') as string,
-        groupSelectedColor: herouiColor('primary', 'hex') as string,
-        shelfColor: herouiColor('default-600', 'hex') as string,
-        shelfHoverColor: herouiColor('primary-400', 'hex') as string,
-        shelfSelectedColor: herouiColor('primary', 'hex') as string,
-        occupiedShelfColor: herouiColor('danger', 'hex') as string,
-        occupiedHoverShelfColor: herouiColor('danger-400', 'hex') as string,
-        textColor: herouiColor('text', 'hex') as string,
-      });
-    }, 100);
-  };
 
   // Load company data on initial render
   useEffect(() => {
@@ -126,15 +66,6 @@ export default function CompanyPage() {
 
     fetchCompanyData()
   }, [])
-
-  // Update colors when theme changes
-  useEffect(() => {
-    updateHeroUITheme();
-  }, [theme])
-
-  useEffect(() => {
-    updateHeroUITheme();
-  }, []);
 
   // Convert the floor plan data to the format ShelfSelector3D expects
   const getFloorConfigs = () => {
@@ -264,14 +195,6 @@ export default function CompanyPage() {
             </div>
           </CardList>
 
-          {/* Warehouse Layout Skeleton */}
-          <CardList>
-            <div>
-              <Skeleton className="h-6 w-52 mx-auto rounded-xl mb-6" /> {/* Warehouse Layout title */}
-              <Skeleton className="h-40 rounded-xl" /> {/* Warehouse Layout preview */}
-            </div>
-          </CardList>
-
           {/* Action Items Skeleton */}
           {isAdmin && (
             <CardList>
@@ -395,7 +318,7 @@ export default function CompanyPage() {
                     label="Street Address"
                     type="text"
                     classNames={inputStyle}
-                    value={companyData?.address?.streetAddress || ''}
+                    value={companyData?.address?.street || ''}
                     isReadOnly
                   />
                 </div>
@@ -421,28 +344,6 @@ export default function CompanyPage() {
             </div>
           </CardList>
 
-          {/* Warehouse Layout Section */}
-          <CardList>
-            <div>
-              <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouse Layout</h2>
-              {renderLayoutPreview()}
-
-              {/* Add 3D Preview button if layout exists */}
-              {companyData?.company_layout && Array.isArray(companyData.company_layout) && companyData.company_layout.length > 0 && (
-                <div className="flex justify-end mt-4">
-                  <Button
-                    color="secondary"
-                    variant="flat"
-                    onPress={onOpen}
-                    startContent={<Icon icon="mdi:eye" className="w-4 h-4" />}
-                  >
-                    View 3D Floorplan
-                  </Button>
-                </div>
-              )}
-            </div>
-          </CardList>
-
           {/* Actions */}
           {isAdmin && (
             <CardList>
@@ -460,200 +361,7 @@ export default function CompanyPage() {
           )}
         </div>
       </div>
-
-      {/* Add the modal for 3D preview */}
-      <Modal
-        isOpen={isOpen}
-        onClose={onClose}
-        placement='auto'
-        classNames={{
-          backdrop: "bg-background/50",
-          wrapper: 'overflow-hidden',
-        }}
-        backdrop="blur"
-        size="5xl">
-        <ModalContent>
-          <ModalHeader>Warehouse Floorplan</ModalHeader>
-          <ModalBody className='p-0'>
-            <div className="h-[80vh] bg-primary-50 rounded-md overflow-hidden relative">
-              <Suspense fallback={
-                <div className="flex items-center justify-center h-full">
-                  <Spinner size="lg" color="primary" />
-                  <span className="ml-2">Loading 3D preview...</span>
-                </div>
-              }>
-                <ShelfSelector3D
-                  floors={getFloorConfigs()}
-                  className="w-full h-full"
-                  highlightedFloor={highlightedFloor}
-                  onHighlightFloor={setHighlightedFloor}
-                  onSelect={() => { }}
-                  isFloorChangeAnimate={isFloorChangeAnimate}
-                  isShelfChangeAnimate={isShelfChangeAnimate}
-                  isGroupChangeAnimate={isGroupChangeAnimate}
-                  backgroundColor={customColors.backgroundColor}
-                  floorColor={customColors.floorColor}
-                  floorHighlightedColor={customColors.floorHighlightedColor}
-                  groupColor={customColors.groupColor}
-                  groupSelectedColor={customColors.groupSelectedColor}
-                  shelfColor={customColors.shelfColor}
-                  shelfHoverColor={customColors.shelfHoverColor}
-                  shelfSelectedColor={customColors.shelfSelectedColor}
-                  occupiedShelfColor={customColors.occupiedShelfColor}
-                  occupiedHoverShelfColor={customColors.occupiedHoverShelfColor}
-                  textColor={customColors.textColor}
-                  cameraOffsetY={-0.25}
-                />
-              </Suspense>
-            </div>
-          </ModalBody>
-          <ModalFooter className="flex gap-4 p-4 justify-between">
-            <Popover showArrow offset={10} placement="bottom-end">
-              <PopoverTrigger>
-                <Button className="capitalize" color="warning" variant="flat">
-                  <Icon
-                    icon="heroicons:question-mark-circle-solid"
-                    className="w-4 h-4 mr-1"
-                  />
-                  Help
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="p-4 max-w-sm">
-                <div className="flex items-center gap-2 mb-4">
-                  <Icon icon="heroicons:lifebuoy" className="w-5 h-5 text-warning-500" width={20} />
-                  <h3 className="font-semibold text-lg">3D Navigation Controls</h3>
-                </div>
-
-                <Accordion variant="splitted">
-                  <AccordionItem key="mouse" aria-label="Mouse Controls" title="Mouse Controls" className="text-sm overflow-hidden bg-primary-50">
-                    <div className="space-y-2 pb-2">
-                      <div className="flex items-start gap-2">
-                        <Icon icon="heroicons:cursor-arrow-ripple" className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary-600" />
-                        <p><strong>Left Click</strong>: Select a shelf</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <Icon icon="heroicons:hand-raised" className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary-600" />
-                        <p><strong>Click + Drag</strong>: Rotate camera around scene</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <Icon icon="heroicons:cursor-arrow-rays" className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary-600" />
-                        <p><strong>Right Click + Drag</strong>: Pan camera</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <Icon icon="heroicons:view-columns" className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary-600" />
-                        <p><strong>Mouse Wheel</strong>: Zoom in/out</p>
-                      </div>
-                    </div>
-                  </AccordionItem>
-
-                  <AccordionItem key="keyboard" aria-label="Keyboard Controls" title="Keyboard Controls" className="text-sm overflow-hidden bg-primary-50">
-                    <div className="space-y-2 pb-2">
-                      <div className="flex items-start gap-2">
-                        <Kbd className="border border-default-300">W</Kbd>
-                        <p className="my-auto">Move camera forward</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <Kbd className="border border-default-300">S</Kbd>
-                        <p className="my-auto">Move camera backward</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <Kbd className="border border-default-300">A</Kbd>
-                        <p className="my-auto">Move camera left</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <Kbd className="border border-default-300">D</Kbd>
-                        <p className="my-auto">Move camera right</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <Kbd className="border border-default-300" keys={['shift']}>W</Kbd>
-                        <p className="my-auto">Move camera up</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <Kbd className="border border-default-300" keys={['shift']}>S</Kbd>
-                        <p className="my-auto">Move camera down</p>
-                      </div>
-                    </div>
-                  </AccordionItem>
-
-                  <AccordionItem key="shelf-navigation" aria-label="Shelf Navigation" title="Shelf Navigation" className="text-sm overflow-hidden bg-primary-50">
-                    <div className="space-y-2 pb-2">
-                      <div className="flex items-start gap-2">
-                        <Kbd className="border border-default-300" keys={['left']}></Kbd>
-                        <p>Move to previous shelf or group</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <Kbd className="border border-default-300" keys={['right']}></Kbd>
-                        <p>Move to next shelf or group</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <Kbd className="border border-default-300" keys={['up']}></Kbd>
-                        <p>Move to shelf above</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <Kbd className="border border-default-300" keys={['down']}></Kbd>
-                        <p>Move to shelf below</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <div className="flex">
-                          <Kbd className="border border-default-300" keys={['shift']}></Kbd>
-                          <span className="mx-1">+</span>
-                          <Kbd className="border border-default-300" keys={['up', 'down', 'left', 'right']}></Kbd>
-                        </div>
-                        <p>Navigate between shelf groups</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <div className="flex">
-                          <Kbd className="border border-default-300" keys={['ctrl']}></Kbd>
-                          <span className="mx-1">+</span>
-                          <Kbd className="border border-default-300" keys={['up', 'down']}></Kbd>
-                        </div>
-                        <p>Navigate shelf depth (front/back)</p>
-                      </div>
-                    </div>
-                  </AccordionItem>
-                </Accordion>
-
-                <div className="mt-4 border-t pt-3 border-default-200 w-full px-4">
-                  <h4 className="font-medium mb-2">Color Legend:</h4>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: customColors.floorColor }}></div>
-                      <span className="text-xs">Floor</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: customColors.floorHighlightedColor }}></div>
-                      <span className="text-xs">Selected Floor</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: customColors.groupColor }}></div>
-                      <span className="text-xs">Group</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: customColors.groupSelectedColor }}></div>
-                      <span className="text-xs">Selected Group</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: customColors.shelfColor }}></div>
-                      <span className="text-xs">Shelf</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: customColors.shelfHoverColor }}></div>
-                      <span className="text-xs">Hovered Shelf</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-4 text-xs text-default-500">
-                  Tip: Use WASD and arrow keys for easiest navigation through the warehouse.
-                </div>
-              </PopoverContent>
-            </Popover>
-            <Button color="primary" variant="shadow" onPress={onClose}>
-              Close Preview
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
+ 
     </div>
   )
 }

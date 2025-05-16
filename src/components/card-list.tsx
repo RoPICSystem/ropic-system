@@ -17,7 +17,7 @@ export default function CardList({ children, className = 'bg-background p-4', in
           : '';
 
         return <div className={
-          `shadow-xl shadow-primary/10 min-h-20
+          `shadow-xl shadow-primary/10 min-h-20 overflow-hidden
             ${index === 0 ? 'rounded-t-2xl' : 'rounded-t-md'} 
             ${index === childrenArray.length - 1 ? 'rounded-b-2xl' : 'rounded-b-md'}
             !border !border-default-200 transition-all 

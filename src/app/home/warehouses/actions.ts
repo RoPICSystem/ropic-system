@@ -1,24 +1,17 @@
 'use server'
 
+import { FloorConfig } from '@/components/shelf-selector-3d-v4';
 import { createClient } from '@/utils/supabase/server'
+import { Address } from '@/utils/supabase/server/address';
 import { getUserCompany } from '@/utils/supabase/server/user'
+import { revalidatePath } from 'next/cache';
 
-interface WarehouseAddress {
-  country: { code: string, desc: string };
-  region: { code: string, desc: string };
-  province: { code: string, desc: string };
-  municipality: { code: string, desc: string };
-  barangay: { code: string, desc: string };
-  street: string;
-  postalCode: string;
-  fullAddress: string;
-}
-
-interface WarehouseData {
+export type Warehouse = {
   uuid?: string;
   company_uuid: string;
   name: string;
-  address: WarehouseAddress;
+  address: Address;
+  warehouse_layout?: FloorConfig[];
   created_at?: string;
   updated_at?: string;
 }
@@ -26,7 +19,7 @@ interface WarehouseData {
 /**
  * Creates a new warehouse
  */
-export async function createWarehouse(data: WarehouseData) {
+export async function createWarehouse(data: Warehouse) {
   const supabase = await createClient();
 
   try {
@@ -63,7 +56,7 @@ export async function createWarehouse(data: WarehouseData) {
 /**
  * Updates an existing warehouse
  */
-export async function updateWarehouse(data: WarehouseData) {
+export async function updateWarehouse(data: Warehouse) {
   const supabase = await createClient();
 
   try {
@@ -95,6 +88,59 @@ export async function updateWarehouse(data: WarehouseData) {
       error: error instanceof Error ? error.message : 'Unknown error occurred', 
       data: null 
     };
+  }
+}
+
+/**
+ * Saves warehouse layout data
+ * @param warehouseUuid The warehouse's UUID
+ * @param layout The layout data to save
+ * @returns Object containing success status and error message if any
+ */
+export async function saveWarehouseLayout(warehouseUuid: string, layout: FloorConfig[]): Promise<{ success: boolean, error?: string }> {
+  try {
+    // Validate layout
+    for (const floor of layout) {
+      if (typeof floor.height !== "number" || floor.height <= 0) {
+        return { success: false, error: "Invalid layout format: each floor must have a positive height" };
+      }
+      
+      if (!Array.isArray(floor.matrix)) {
+        return { success: false, error: "Invalid layout format: each floor must have a matrix" };
+      }
+      
+      for (const row of floor.matrix) {
+        if (!Array.isArray(row)) {
+          return { success: false, error: "Invalid layout format: each row must be an array" };
+        }
+        
+        for (const cell of row) {
+          if (typeof cell !== "number" || cell < 0 || cell > 100) {
+            return { success: false, error: "Invalid layout format: each cell must be a number between 0 and 100" };
+          }
+        }
+      }
+    }
+
+    const supabase = await createClient();
+
+    const { error } = await supabase
+      .from("warehouses")
+      .update({ warehouse_layout: layout })
+      .eq("uuid", warehouseUuid);
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    // Revalidate paths that might show warehouse data
+    revalidatePath('/home/warehouses');
+    revalidatePath('/home/inventory');
+    
+    return { success: true };
+  } catch (error: any) {
+    console.error("Error saving warehouse layout:", error);
+    return { success: false, error: error.message };
   }
 }
 
@@ -269,5 +315,60 @@ export async function getWarehousesPage(options: {
       totalCount: 0, 
       success: false 
     };
+  }
+}
+
+/**
+ * Fetches warehouse layout data
+ * @param warehouseUuid The warehouse's UUID
+ * @returns Object containing success status, layout data, and error message if any
+ */
+export async function getWarehouseLayout(warehouseUuid: string): Promise<{ success: boolean, data: FloorConfig[] | null, error?: string }> {
+  try {
+    const supabase = await createClient();
+
+    const { data, error } = await supabase
+      .from("warehouses")
+      .select("warehouse_layout")
+      .eq("uuid", warehouseUuid)
+      .single();
+
+    if (error) {
+      return { success: false, data: null, error: error.message };
+    }
+
+    if (!data || !data.warehouse_layout) {
+      // If no layout exists, return an empty layout
+      return {
+        success: true,
+        data: [{
+          height: 5,
+          matrix: Array(10).fill(0).map(() => Array(10).fill(0))
+        }]
+      };
+    }
+
+    // Transform the warehouse_layout into the format expected by ShelfSelector3D
+    const floorConfigs: FloorConfig[] = data.warehouse_layout;
+    
+    // Validate the transformed layout
+    for (const floor of floorConfigs) {
+      if (typeof floor.height !== "number" || floor.height <= 0) {
+        return { success: false, data: null, error: "Invalid layout format: each floor must have a positive height" };
+      }
+      if (!Array.isArray(floor.matrix)) {
+        return { success: false, data: null, error: "Invalid layout format: each floor must have a matrix" };
+      }
+      for (const row of floor.matrix) {
+        if (!Array.isArray(row)) {
+          return { success: false, data: null, error: "Invalid layout format: each row must be an array" };
+        }
+      }
+    }
+
+    return { success: true, data: floorConfigs };
+  } catch (error: any) {
+    console.error("Error fetching warehouse layout:", error);
+    return { success: false, data: null, error: error.message };
   }
 }

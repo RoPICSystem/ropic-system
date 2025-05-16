@@ -1,23 +1,58 @@
 "use server";
 
+import { FloorConfig } from "@/components/shelf-selector-3d-v4";
 import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
 
-interface DeliveryItemData {
+
+export interface DeliveryItem {
   uuid: string;
   admin_uuid: string | null;
   company_uuid: string | null;
   inventory_item_uuid: string | null;
-  warehouse_uuid: string | null; // New field for warehouse
+  warehouse_uuid: string | null;
   delivery_address: string;
   delivery_date: string;
   notes: string;
   status: string;
-  operator_uuid?: string; // New field for operator assignment
+  status_history?: Record<string, string>; // New field for status history with timestamps
+  item_code: string;
+  item_name: string;
+  location_code: string;
+  location: any;
+  operator_uuid?: string;
   recipient_name?: string;
   recipient_contact?: string;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface Operator {
+  uuid: string;
+  email: string;
+  full_name: string;
+  phone_number: string;
+}
+
+export interface Address {
+  code: string;
+  desc: string;
+}
+
+
+export interface Warehouse {
+  uuid: string;
+  name: string;
+  address: {
+    region: Address;
+    province: Address;
+    municipality: Address;
+    barangay: Address;
+    street: string;
+    postalCode: number;
+    fullAddress: string;
+  }
+  warehouse_layout: FloorConfig[];
 }
 
 /**
@@ -58,7 +93,7 @@ export async function checkAdminStatus() {
 /**
  * Creates a new delivery item in the database
  */
-export async function createDeliveryItem(formData: DeliveryItemData) {
+export async function createDeliveryItem(formData: DeliveryItem) {
   const supabase = await createClient();
 
   try {
@@ -85,7 +120,7 @@ export async function createDeliveryItem(formData: DeliveryItemData) {
 /**
  * Updates an existing delivery item in the database
  */
-export async function updateDeliveryItem(uuid: string, formData: Partial<DeliveryItemData>) {
+export async function updateDeliveryItem(uuid: string, formData: Partial<DeliveryItem>) {
   const supabase = await createClient();
 
   try {
@@ -157,7 +192,6 @@ export async function getDeliveryItems(companyUuid?: string, search: string = ""
           description,
           quantity,
           unit,
-          location_code,
           status
         )
       `)
@@ -171,7 +205,7 @@ export async function getDeliveryItems(companyUuid?: string, search: string = ""
     // Apply search filter if provided
     if (search) {
       query = query.or(
-        `item_name.ilike.%${search}%,description.ilike.%${search}%,item_code.ilike.%${search}%,location_code.ilike.%${search}%`, { referencedTable: "inventory_item" }
+        `item_name.ilike.%${search}%,description.ilike.%${search}%,item_code.ilike.%${search}%`, { referencedTable: "inventory_item" }
       );
     }
 
@@ -206,7 +240,7 @@ export async function getInventoryItems(companyUuid?: string, search: string = "
     // Start building the query
     let query = supabase
       .from("inventory_items")
-      .select("uuid, item_code, item_name, description, quantity, unit, location_code, status")
+      .select("*")
       .order("created_at", { ascending: false });
 
     // Apply company filter if provided
@@ -217,7 +251,7 @@ export async function getInventoryItems(companyUuid?: string, search: string = "
     // Apply search filter if provided
     if (search) {
       query = query.or(
-        `item_code.ilike.%${search}%,item_name.ilike.%${search}%,description.ilike.%${search}%`
+        `item_code.ilike.%${search}%,item_name.ilike.%${search}%,description.ilike.%${search}%,status.ilike.%${search}%`
       );
     }
 
@@ -309,3 +343,72 @@ export async function getWarehouses(companyUuid: string) {
   }
 }
 
+/**
+ * Creates a warehouse inventory item record when an item is delivered
+ */
+export async function createWarehouseInventoryItem(itemData: {
+  admin_uuid: string;
+  warehouse_uuid: string;
+  company_uuid: string;
+  inventory_uuid: string;
+  item_code: string;
+  item_name: string;
+  location: any;
+  location_code: string;
+  status: string;
+}) {
+  const supabase = await createClient();
+
+  try {
+    const { data, error } = await supabase
+      .from("warehouse_inventory_items")
+      .insert(itemData)
+      .select();
+
+    if (error) {
+      throw error;
+    }
+
+    return { success: true, data };
+  } catch (error) {
+    console.error("Error creating warehouse inventory item:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error occurred"
+    };
+  }
+}
+
+/**
+ * Gets occupied shelf locations
+ */
+export async function getOccupiedShelfLocations(warehouseUuid: string) {
+  const supabase = await createClient();
+
+  try {
+    const { data: deliveryData, error: deliveryError } = await supabase
+      .from("delivery_items")
+      .select("location")
+      .eq("warehouse_uuid", warehouseUuid);
+    if (deliveryError) {
+      throw deliveryError;
+    }
+
+    // Map to the expected format and filter out null values
+    const deliveryLocations = deliveryData
+      .filter(item => item.location !== null)
+      .map(item => item.location);
+
+    return {
+      success: true,
+      data:  deliveryLocations
+    };
+  } catch (error) {
+    console.error("Error fetching occupied shelf locations:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error occurred",
+      data: []
+    };
+  }
+}

@@ -1,12 +1,26 @@
 import { createServerClient } from '@supabase/ssr'
+import { SupabaseClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 
-export async function createClient() {
-  const cookieStore = await cookies()
+// Cache for server clients (keyed by cookie store hash)
+const clientCache = new Map()
+const adminClientCache = new Map()
 
-  // Create a server's supabase client with newly configured cookie,
-  // which could be used to maintain user's session
-  return createServerClient(
+export async function createClient(): Promise<SupabaseClient<any, "public", any>> {
+  const cookieStore = await cookies()
+  
+  // Create a hash key based on the cookies to identify this user session
+  const cookieString = JSON.stringify(cookieStore.getAll().map(c => `${c.name}=${c.value}`).sort())
+  const cacheKey = btoa(cookieString)
+  
+  // Return cached client if it exists for this session
+  if (clientCache.has(cacheKey)) {
+    console.log('Using cached client')
+    return clientCache.get(cacheKey)
+  }
+  
+  // Create a new client if needed
+  const client = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -28,14 +42,28 @@ export async function createClient() {
       },
     }
   )
+  
+  // Cache the client for future use
+  clientCache.set(cacheKey, client)
+  
+  return client
 }
 
-export async function createAdminClient() {
+export async function createAdminClient(): Promise<SupabaseClient<any, "public", any>> {
   const cookieStore = await cookies()
-
-  // Create a server's supabase client with newly configured cookie,
-  // which could be used to maintain user's session
-  return createServerClient(
+  
+  // Create a hash key based on the cookies to identify this user session
+  const cookieString = JSON.stringify(cookieStore.getAll().map(c => `${c.name}=${c.value}`).sort())
+  const cacheKey = btoa(cookieString)
+  
+  // Return cached admin client if it exists for this session
+  if (adminClientCache.has(cacheKey)) {
+    console.log('Using cached admin client')
+    return adminClientCache.get(cacheKey)
+  }
+  
+  // Create a new admin client if needed
+  const adminClient = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     {
@@ -57,19 +85,9 @@ export async function createAdminClient() {
       },
     }
   )
+  
+  // Cache the admin client for future use
+  adminClientCache.set(cacheKey, adminClient)
+  
+  return adminClient
 }
-
-
-
-/*
-AuthApiError: Invalid Refresh Token: Refresh Token Not Found
-    at handleError (../../../src/lib/fetch.ts:102:8)
-    at async _handleRequest (../../../src/lib/fetch.ts:195:4)
-    at async _request (../../../src/lib/fetch.ts:157:15)
-    at async (../../src/GoTrueClient.ts:1847:17)
-    at async (../../../src/lib/helpers.ts:228:25) {
-  __isAuthError: true,
-  status: 400,
-  code: 'refresh_token_not_found'
-}
-*/

@@ -1,10 +1,9 @@
 'use client';
 
-import { useState, useRef, useEffect, useMemo, useCallback, memo, Key } from 'react';
-import { Canvas, useThree, useFrame } from '@react-three/fiber';
-import { OrbitControls, Text, Instance, Instances } from '@react-three/drei';
+import { OrbitControls } from '@react-three/drei';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { Key, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { Accordion, AccordionItem, Button, Card, CardBody, Switch } from '@heroui/react';
 
 // Global types
 declare global {
@@ -17,15 +16,15 @@ declare global {
 }
 
 export interface ShelfLocation {
-  floor: number;
-  group: number;
-  row: number;
-  column: number;
-  depth: number; // Add depth property
+  floor?: number;
+  group?: number;
+  row?: number;
+  column?: number;
+  depth?: number;
   max_group?: number;
   max_row?: number;
   max_column?: number;
-  max_depth?: number; // Add max depth
+  max_depth?: number;
 }
 
 export interface FloorConfig {
@@ -53,6 +52,7 @@ export interface ShelfSelectorProps {
   // Camera center adjustment parameters
   cameraOffsetX?: number;
   cameraOffsetY?: number;
+
   // Color props
   backgroundColor?: string;
   floorColor?: string;
@@ -65,6 +65,8 @@ export interface ShelfSelectorProps {
   occupiedShelfColor?: string;
   occupiedHoverShelfColor?: string; // Add new prop for hover color of occupied shelves
   textColor?: string;
+
+  shelfSelectorColors?: ShelfSelectorColors;
 }
 
 // Add this new component to ensure continuous rendering during animations
@@ -489,10 +491,10 @@ const Group = memo(({
     if (!occupiedLocations || occupiedLocations.length === 0) return false;
 
     return occupiedLocations.some(loc =>
-      loc.floor === floorIndex &&
-      loc.group === cabId &&
-      loc.row === rowIndex &&
-      loc.column === colIndex &&
+      (loc.floor === floorIndex || loc.floor === undefined) &&
+      (loc.group === cabId || loc.group === undefined) &&
+      (loc.row === rowIndex || loc.row === undefined) &&
+      (loc.column === colIndex || loc.column === undefined) &&
       (loc.depth === depthIndex || loc.depth === undefined)
     );
   }, [occupiedLocations]);
@@ -1018,6 +1020,38 @@ const CameraSpotlight = memo(function CameraSpotlight() {
   );
 });
 
+
+export interface ShelfSelectorColors {
+  backgroundColor?: string;
+  floorColor?: string;
+  floorHighlightedColor?: string;
+  groupColor?: string;
+  groupSelectedColor?: string;
+  shelfColor?: string;
+  shelfHoverColor?: string;
+  shelfSelectedColor?: string;
+  occupiedShelfColor?: string;
+  occupiedHoverShelfColor?: string;
+  textColor?: string;
+}
+
+/**
+ * Default colors for the ShelfSelector3D component
+ */
+export const defaultShelfSelectorColors: ShelfSelectorColors = {
+  backgroundColor: "#f0f7ff", // Light blue background
+  floorColor: "#e0e0e0",      // Light gray floor
+  floorHighlightedColor: "#c7dcff", // Highlighted floor
+  groupColor: "#aaaaaa",    // Group color
+  groupSelectedColor: "#4a80f5", // Selected group
+  shelfColor: "#dddddd",      // Default shelf
+  shelfHoverColor: "#ffb74d", // Hover orange
+  shelfSelectedColor: "#ff5252", // Selected red
+  occupiedShelfColor: "#8B0000", // Occupied red
+  occupiedHoverShelfColor: "#BB3333", // New occupied hover color - lighter red
+  textColor: "#2c3e50",       // Dark blue text
+};
+
 // Main component
 export const ShelfSelector3D = memo(({
   floors,
@@ -1034,6 +1068,7 @@ export const ShelfSelector3D = memo(({
   canSelectOccupiedLocations = true,
   cameraOffsetX = 0,
   cameraOffsetY = 0,
+
   backgroundColor = "#f5f5f5",
   floorColor = "#e0e0e0",
   floorHighlightedColor = "#d4e6ff",
@@ -1044,9 +1079,11 @@ export const ShelfSelector3D = memo(({
   shelfSelectedColor = "#ff5555",
   occupiedShelfColor = "#8B0000", // Dark red for occupied shelves
   occupiedHoverShelfColor = "#BB0000", // Slightly brighter red for hover on occupied shelves
-  textColor = "#000000"
+  textColor = "#000000",
+
+  shelfSelectorColors = {}, // New prop for custom colors
 }: ShelfSelectorProps) => {
-  const [scene, setScene] = useState<THREE.Scene | null>(null);
+  const [sceneGL, setSceneGL] = useState<THREE.WebGLRenderer | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<ShelfLocation | null>(null);
   const [internalHighlightedFloor, setInternalHighlightedFloor] = useState<number | null>(null);
   const [internalIsFloorChangeAnimate, setInternalIsFloorChangeAnimate] = useState<boolean>(true);
@@ -1081,8 +1118,6 @@ export const ShelfSelector3D = memo(({
 
     return positions;
   }, [floors]);
-
-
 
   // Add a helper function to check if a location is occupied
   const isLocationOccupied = useCallback((location: ShelfLocation): boolean => {
@@ -1124,7 +1159,8 @@ export const ShelfSelector3D = memo(({
   // Update the focusOnShelf function to properly center on depth changes
   const focusOnShelf = useCallback((location: ShelfLocation) => {
     if (controlsRef.current && isShelfChangeAnimate) {
-      const { floor, group, row, column, depth = 0 } = location;
+
+      const { floor = 0, group = 0, row = 0, column = 0, depth = 0 } = location;
       const floorMatrix = floors[floor].matrix;
 
       // Use cached data
@@ -1170,7 +1206,7 @@ export const ShelfSelector3D = memo(({
 
   const focusOnGroup = useCallback((location: ShelfLocation) => {
     if (controlsRef.current && isGroupChangeAnimate) {
-      const { floor, group } = location;
+      const { floor = 0, group = 0 } = location;
       const floorMatrix = floors[floor].matrix;
 
       // Use cached data
@@ -1224,9 +1260,10 @@ export const ShelfSelector3D = memo(({
       }, 1000);
     }
 
+
     // Calculate max values
-    const floorMatrix = floors[location.floor].matrix;
-    const { groups } = processGroupsMatrix(floorMatrix, location.floor);
+    const floorMatrix = floors[location.floor || 0].matrix;
+    const { groups } = processGroupsMatrix(floorMatrix, location.floor || 0);
 
     // Find current group
     const currentGroup = groups.find((g: any) => g.id === location.group);
@@ -1270,7 +1307,7 @@ export const ShelfSelector3D = memo(({
 
   // Handle floor highlighting separately with useEffect
   useEffect(() => {
-    if (selectedLocation) {
+    if (selectedLocation && selectedLocation.floor !== undefined) {
       if (onHighlightFloor) {
         onHighlightFloor(selectedLocation.floor);
       } else {
@@ -1281,12 +1318,12 @@ export const ShelfSelector3D = memo(({
 
   // Update the external selection effect to respect user interactions and validate bounds
   useEffect(() => {
-    if (externalSelection && floors[externalSelection.floor] && !userInteractionInProgress.current) {
+    if (externalSelection && externalSelection.floor !== undefined && floors[externalSelection.floor] && !userInteractionInProgress.current) {
       // Validate and clamp the external selection to valid bounds
       const validatedSelection = { ...externalSelection };
 
       // Validate floor index
-      validatedSelection.floor = Math.max(0, Math.min(validatedSelection.floor, floors.length - 1));
+      validatedSelection.floor = Math.max(0, Math.min(validatedSelection.floor || 0, floors.length - 1));
 
       // Get the floor matrix for group calculations
       const floorMatrix = floors[validatedSelection.floor].matrix;
@@ -1294,22 +1331,20 @@ export const ShelfSelector3D = memo(({
 
       // Validate group
       const maxGroupId = groups.length > 0 ? groups.length - 1 : 0;
-      validatedSelection.group = Math.max(0, Math.min(validatedSelection.group, maxGroupId));
+      validatedSelection.group = Math.max(0, Math.min(validatedSelection.group || 0, maxGroupId));
 
       // Find current group
       const currentGroup = groups.find((g: any) => g.id === validatedSelection.group);
 
       if (currentGroup) {
         // Validate row
-        validatedSelection.row = Math.max(0, Math.min(validatedSelection.row, currentGroup.rows - 1));
+        validatedSelection.row = Math.max(0, Math.min(validatedSelection.row || 0, currentGroup.rows - 1));
 
         // Validate column
-        validatedSelection.column = Math.max(0, Math.min(validatedSelection.column, currentGroup.width - 1));
+        validatedSelection.column = Math.max(0, Math.min(validatedSelection.column || 0, currentGroup.width - 1));
 
         // Validate depth
-        if (validatedSelection.depth !== undefined) {
-          validatedSelection.depth = Math.max(0, Math.min(validatedSelection.depth, currentGroup.depth - 1));
-        }
+        validatedSelection.depth = Math.max(0, Math.min(validatedSelection.depth || 0, currentGroup.depth - 1));
       }
 
       // Only update if it's different from the current selection
@@ -1332,7 +1367,7 @@ export const ShelfSelector3D = memo(({
     if (!selectedLocation) return;
 
     const { key, shiftKey, ctrlKey } = e;
-    const { floor, group, row, column, depth = 0 } = selectedLocation;
+    const { floor = 0, group = 0, row = 0, column = 0, depth = 0 } = selectedLocation;
     const floorMatrix = floors[floor].matrix;
 
     // Use cached data
@@ -1672,16 +1707,12 @@ export const ShelfSelector3D = memo(({
     return () => clearTimeout(timer);
   }, [buildingCenterPosition, floors, cameraOffsetX, controlsRef]);
 
+
+
   // on change of background color
   useEffect(() => {
-    if (scene) {
-      const renderer = scene.userData.renderer;
-      if (renderer) {
-        renderer.setClearColor(backgroundColor);
-      }
-    }
-  }, [backgroundColor, scene]);
-
+    sceneGL?.setClearColor(shelfSelectorColors.backgroundColor || window.shelfSelectorColors!.backgroundColor!);
+  }, [window.shelfSelectorColors]);
 
   return (
     <div className={className}>
@@ -1707,8 +1738,8 @@ export const ShelfSelector3D = memo(({
         }}
         frameloop="demand"
         onCreated={({ gl, scene: onLoadScene }) => {
-          gl.setClearColor(backgroundColor);
-          setScene(onLoadScene);
+          gl.setClearColor(shelfSelectorColors.backgroundColor || window.shelfSelectorColors!.backgroundColor!);
+          setSceneGL(gl);
         }}
       >
 
@@ -1739,16 +1770,19 @@ export const ShelfSelector3D = memo(({
               occupiedLocations={occupiedLocations}
               canSelectOccupiedLocations={canSelectOccupiedLocations}
               onSelect={handleSelect}
-              floorColor={floorColor}
-              floorHighlightedColor={floorHighlightedColor}
-              groupColor={groupColor}
-              groupSelectedColor={groupSelectedColor}
-              shelfColor={shelfColor}
-              shelfHoverColor={shelfHoverColor}
-              shelfSelectedColor={shelfSelectedColor}
-              occupiedShelfColor={occupiedShelfColor}
-              occupiedHoverShelfColor={occupiedHoverShelfColor}
-              textColor={textColor}
+
+              // {...{...defaultTheme, ...shelfSelectorColors}}
+
+              floorColor={shelfSelectorColors.floorColor || window.shelfSelectorColors!.floorColor!}
+              floorHighlightedColor={shelfSelectorColors.floorColor || window.shelfSelectorColors!.floorHighlightedColor!}
+              groupColor={shelfSelectorColors.floorColor || window.shelfSelectorColors!.groupColor!}
+              groupSelectedColor={shelfSelectorColors.floorColor || window.shelfSelectorColors!.groupSelectedColor!}
+              shelfColor={shelfSelectorColors.floorColor || window.shelfSelectorColors!.shelfColor!}
+              shelfHoverColor={shelfSelectorColors.floorColor || window.shelfSelectorColors!.shelfHoverColor!}
+              shelfSelectedColor={shelfSelectorColors.shelfSelectedColor || window.shelfSelectorColors!.shelfSelectedColor!}
+              occupiedShelfColor={shelfSelectorColors.occupiedShelfColor || window.shelfSelectorColors!.occupiedShelfColor!}
+              occupiedHoverShelfColor={shelfSelectorColors.occupiedHoverShelfColor || window.shelfSelectorColors!.occupiedHoverShelfColor!}
+              textColor={shelfSelectorColors.textColor || window.shelfSelectorColors!.textColor!}
             />
           ))}
         </group>
