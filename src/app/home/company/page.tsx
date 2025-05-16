@@ -333,11 +333,9 @@ export default function CompanyPage() {
                     value={companyData?.address?.postalCode || ''}
                     isReadOnly
                   />
-                  <Textarea
+                  <Input
                     label="Full Address"
                     type="text"
-                    maxRows={5}
-                    minRows={1}
                     classNames={inputStyle}
                     value={companyData?.address?.fullAddress || ''}
                     isReadOnly

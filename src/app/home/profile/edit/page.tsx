@@ -696,15 +696,13 @@ export default function ProfilePage() {
                     isRequired
                     isDisabled={isLoading}
                   />
-                  <Textarea
+                  <Input
                     id="address.fullAddress"
                     name="address.fullAddress"
                     label="Full Address"
                     type="text"
                     value={fullAddress}
                     classNames={inputStyle}
-                    maxRows={5}
-                    minRows={1}
                     isReadOnly
                     isRequired
                     isDisabled={isLoading}

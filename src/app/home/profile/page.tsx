@@ -388,11 +388,9 @@ export default function ProfilePage() {
                     value={userData?.address?.postalCode || ''}
                     isReadOnly
                   />
-                  <Textarea
+                  <Input
                     label="Full Address"
                     type="text"
-                    maxRows={5}
-                    minRows={1}
                     classNames={inputStyle}
                     value={userData?.address?.fullAddress || ''}
                     isReadOnly

@@ -618,13 +618,11 @@ export default function CompanyEditPage() {
                     isRequired
                     isDisabled={isLoading}
                   />
-                  <Textarea
+                  <Input
                     id="address.fullAddress"
                     name="address.fullAddress"
                     label="Full Address"
                     type="text"
-                    maxRows={5}
-                    minRows={1}
                     value={fullAddress}
                     classNames={inputStyle}
                     isReadOnly
