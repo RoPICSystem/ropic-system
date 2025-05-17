@@ -289,10 +289,10 @@ export default function InventoryPage() {
     let inheritedItemName = "";
 
     if (bulkUnits.length > 0) {
-      const uniqueNames = new Set(bulkUnits.map(u => u.item_name).filter(Boolean));
+      const uniqueNames = new Set(bulkUnits.map(u => u.name).filter(Boolean));
       if (uniqueNames.size === 1) {
         // All units have the same name, inherit it
-        inheritedItemName = bulkUnits[0].item_name || "";
+        inheritedItemName = bulkUnits[0].name || "";
       }
     }
 
@@ -300,10 +300,10 @@ export default function InventoryPage() {
       id: nextUnitId,
       bulkId,
       company_uuid: user?.company_uuid || "",
-      item_code: "",
+      code: "",
       unit_value: 0,
       unit: "",
-      item_name: inheritedItemName, // Use the inherited name if available
+      name: inheritedItemName, // Use the inherited name if available
       cost: 0,
       properties: {},
       isNew: true
@@ -366,10 +366,10 @@ export default function InventoryPage() {
           id: nextUnitId + i,
           bulkId: newBulkId,
           company_uuid: user?.company_uuid || "",
-          item_code: "",
+          code: "",
           unit_value: bulkToDuplicate.unit_value || 0,
           unit: bulkToDuplicate.unit || "",
-          item_name: "",
+          name: "",
           cost: bulkToDuplicate.cost || 0,
           properties: {},
           isNew: true
@@ -455,10 +455,10 @@ export default function InventoryPage() {
             id: nextUnitId,
             bulkId: bulkId,
             company_uuid: user?.company_uuid || "",
-            item_code: "",
+            code: "",
             unit_value: bulk.unit_value || 0,
             unit: bulk.unit || "",
-            item_name: "",
+            name: "",
             cost: bulk.cost || 0,
             properties: {},
             isNew: true
@@ -516,24 +516,24 @@ export default function InventoryPage() {
 
   // Add this helper function before handleUnitChange
   const updateSimilarUnitsInBulk = (bulkId: number, field: keyof InventoryItemUnit, value: any) => {
-    if (field !== 'item_name') return;
+    if (field !== 'name') return;
 
     const bulkUnits = unitItems.filter(u => u.bulkId === bulkId);
 
     // Check if all units have same item name or empty name
     const existingNames = bulkUnits
-      .map(u => u.item_name)
+      .map(u => u.name)
       .filter(name => name && name !== value);
 
     // If there are different non-empty names, don't perform auto-fill
     if (existingNames.length > 0) return;
 
-    // Update all units in this bulk that have empty item_name
+    // Update all units in this bulk that have empty name
     setUnitItems(units => units.map(unit => {
-      if (unit.bulkId === bulkId && (!unit.item_name || unit.item_name === '')) {
+      if (unit.bulkId === bulkId && (!unit.name || unit.name === '')) {
         return {
           ...unit,
-          item_name: value
+          name: value
         };
       }
       return unit;
@@ -569,7 +569,7 @@ export default function InventoryPage() {
         }
 
         // Auto-fill item name for all units in the bulk if they're the same
-        if (field === 'item_name' && value) {
+        if (field === 'name' && value) {
           updateSimilarUnitsInBulk(unit.bulkId, field, value);
         }
       }
@@ -782,7 +782,7 @@ export default function InventoryPage() {
     }
 
     for (const unit of unitItems) {
-      if (!unit.item_code || !unit.item_name || !unit.unit || typeof unit.unit_value !== 'number' || unit.unit_value <= 0 || typeof unit.cost !== 'number' || unit.cost <= 0) {
+      if (!unit.code || !unit.name || !unit.unit || typeof unit.unit_value !== 'number' || unit.unit_value <= 0 || typeof unit.cost !== 'number' || unit.cost <= 0) {
         setError("All units require item code, name, unit, valid unit value, and cost");
         return false;
       }
@@ -822,10 +822,10 @@ export default function InventoryPage() {
           .filter(unit => unit.uuid)
           .map(unit => ({
             uuid: unit.uuid as string,
-            item_code: unit.item_code,
+            code: unit.code,
             unit_value: unit.unit_value,
             unit: unit.unit,
-            item_name: unit.item_name,
+            name: unit.name,
             cost: unit.cost,
             properties: unit.properties,
           }));
@@ -858,10 +858,10 @@ export default function InventoryPage() {
 
             return {
               company_uuid: user.company_uuid,
-              item_code: unit.item_code as string,
+              code: unit.code as string,
               unit_value: unit.unit_value as number,
               unit: unit.unit as string,
-              item_name: unit.item_name as string,
+              name: unit.name as string,
               cost: unit.cost as number,
               properties: unit.properties as Record<string, any>,
               _bulkIndex: bulkIndex !== undefined ? bulkIndex : undefined,
@@ -907,10 +907,10 @@ export default function InventoryPage() {
 
         const newUnits = unitItems.map(unit => ({
           company_uuid: user.company_uuid,
-          item_code: unit.item_code as string,
+          code: unit.code as string,
           unit_value: unit.unit_value as number,
           unit: unit.unit as string,
-          item_name: unit.item_name as string,
+          name: unit.name as string,
           cost: unit.cost as number,
           properties: unit.properties as Record<string, any>,
           _bulkIndex: bulkIdToIndexMap.get(unit.bulkId),
@@ -1331,23 +1331,23 @@ export default function InventoryPage() {
                                               label="Item Code"
                                               placeholder="Enter code"
                                               value={
-                                                unitItems.find(u => u.bulkId === bulk.id)?.item_code || ""
+                                                unitItems.find(u => u.bulkId === bulk.id)?.code || ""
                                               }
                                               onChange={(e) => {
                                                 // Find existing unit or create one
                                                 let unit = unitItems.find(u => u.bulkId === bulk.id);
                                                 if (unit) {
-                                                  handleUnitChange(unit.id, 'item_code', e.target.value);
+                                                  handleUnitChange(unit.id, 'code', e.target.value);
                                                 } else {
                                                   // Create a single unit for this bulk
                                                   const newUnit = {
                                                     id: nextUnitId,
                                                     bulkId: bulk.id,
                                                     company_uuid: user.company_uuid,
-                                                    item_code: e.target.value,
+                                                    code: e.target.value,
                                                     unit_value: bulk.unit_value || 0,
                                                     unit: bulk.unit || "",
-                                                    item_name: "",
+                                                    name: "",
                                                     cost: bulk.cost || 0,
                                                     properties: {},
                                                     isNew: true
@@ -1365,23 +1365,23 @@ export default function InventoryPage() {
                                               label="Item Name"
                                               placeholder="Enter name"
                                               value={
-                                                unitItems.find(u => u.bulkId === bulk.id)?.item_name || ""
+                                                unitItems.find(u => u.bulkId === bulk.id)?.name || ""
                                               }
                                               onChange={(e) => {
                                                 // Find existing unit or create one
                                                 let unit = unitItems.find(u => u.bulkId === bulk.id);
                                                 if (unit) {
-                                                  handleUnitChange(unit.id, 'item_name', e.target.value);
+                                                  handleUnitChange(unit.id, 'name', e.target.value);
                                                 } else {
                                                   // Create a single unit for this bulk
                                                   const newUnit = {
                                                     id: nextUnitId,
                                                     bulkId: bulk.id,
                                                     company_uuid: user.company_uuid,
-                                                    item_code: "",
+                                                    code: "",
                                                     unit_value: bulk.unit_value || 0,
                                                     unit: bulk.unit || "",
-                                                    item_name: e.target.value,
+                                                    name: e.target.value,
                                                     cost: bulk.cost || 0,
                                                     properties: {},
                                                     isNew: true
@@ -1394,10 +1394,6 @@ export default function InventoryPage() {
                                               classNames={inputStyle}
                                               startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
                                             />
-                                          </div>
-
-                                          <div className="text-sm text-default-500 p-2 bg-default-100/50 rounded-lg mt-2">
-                                            <p>Note: For single items, the Unit, Unit Value, and Cost defined in the bulk section will be automatically applied to this item.</p>
                                           </div>
                                         </div>
                                       </motion.div>
@@ -1474,8 +1470,8 @@ export default function InventoryPage() {
                                                           <div className="flex justify-between items-center w-full">
                                                             <div className="flex items-center gap-2">
                                                               <span>
-                                                                {unit.item_name ?
-                                                                  `${unit.item_name}` :
+                                                                {unit.name ?
+                                                                  `${unit.name}` :
                                                                   `Unit ${unit.id}`}
                                                               </span>
                                                             </div>
@@ -1490,8 +1486,8 @@ export default function InventoryPage() {
                                                             <Input
                                                               label="Item Code"
                                                               placeholder="Enter code"
-                                                              value={unit.item_code || ""}
-                                                              onChange={(e) => handleUnitChange(unit.id, 'item_code', e.target.value)}
+                                                              value={unit.code || ""}
+                                                              onChange={(e) => handleUnitChange(unit.id, 'code', e.target.value)}
                                                               isRequired
                                                               classNames={inputStyle}
                                                               startContent={<Icon icon="mdi:barcode" className="text-default-500 mb-[0.2rem]" />}
@@ -1500,8 +1496,8 @@ export default function InventoryPage() {
                                                             <Input
                                                               label="Item Name"
                                                               placeholder="Enter name"
-                                                              value={unit.item_name || ""}
-                                                              onChange={(e) => handleUnitChange(unit.id, 'item_name', e.target.value)}
+                                                              value={unit.name || ""}
+                                                              onChange={(e) => handleUnitChange(unit.id, 'name', e.target.value)}
                                                               isRequired
                                                               classNames={inputStyle}
                                                               startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}

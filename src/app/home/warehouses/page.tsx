@@ -440,7 +440,7 @@ export default function WarehousePage() {
     const barangayName = barangays.find(b => compare(b.brgyCode, selectedBarangay))?.brgyDesc || '';
 
     const warehouseData = {
-      uuid: currentWarehouse.uuid,
+      uuid: currentWarehouse.uuid!,
       company_uuid: companyUuid,
       name: currentWarehouse.name,
       address: {

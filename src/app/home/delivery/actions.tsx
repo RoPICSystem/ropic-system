@@ -1,32 +1,34 @@
 "use server";
 
-import { FloorConfig } from "@/components/shelf-selector-3d";
+import { FloorConfig, ShelfLocation } from "@/components/shelf-selector-3d";
 import { createClient } from "@/utils/supabase/server";
-import { redirect } from "next/navigation";
+import { InventoryItem } from "../inventory/actions";
 
 
 export interface DeliveryItem {
   uuid: string;
+
   admin_uuid: string | null;
   company_uuid: string | null;
   inventory_uuid: string | null;
-  inventory_item_bulk_uuids: string[]; // New field for selected bulks
   warehouse_uuid: string | null;
+  inventory_item_bulk_uuids: string[]; // New field for selected bulks
+
+  name?: string;
   delivery_address: string;
   delivery_date: string;
   notes: string;
   status: string;
   status_history?: Record<string, string>;
-  item_name: string;
   locations: any[]; // Changed from location to locations array
   location_codes: string[]; // Changed from location_code to location_codes array
   operator_uuid?: string;
   recipient_name?: string;
   recipient_contact?: string;
-  created_at?: string;
-  updated_at?: string;
-}
 
+  created_at: string;
+  updated_at: string;
+}
 
 export interface Operator {
   uuid: string;
@@ -40,69 +42,16 @@ export interface Address {
   desc: string;
 }
 
-
-export interface Warehouse {
-  uuid: string;
-  name: string;
-  address: {
-    region: Address;
-    province: Address;
-    municipality: Address;
-    barangay: Address;
-    street: string;
-    postalCode: number;
-    fullAddress: string;
-  }
-  warehouse_layout: FloorConfig[];
-}
-
-export interface WarehouseInventoryItemBulk {
-  uuid: string;
-  company_uuid: string;
-  warehouse_uuid: string;
-  inventory_uuid: string;
-  inventory_bulk_uuid: string;
-  delivery_uuid?: string;
-  unit: string;
-  unit_value: number;
-  bulk_unit: string;
-  cost: number;
-  is_single_item: boolean;
-  location: any; // JSONB type
-  location_code: string;
-  status: string;
-  properties?: any; // JSONB type
-  created_at?: string;
-  updated_at?: string;
-}
-
-export interface WarehouseInventoryItemUnit {
-  uuid: string;
-  company_uuid: string;
-  warehouse_uuid: string;
-  inventory_uuid: string;
-  inventory_unit_uuid: string;
-  warehouse_inventory_bulk_uuid?: string;
-  delivery_uuid?: string;
-  item_code: string;
-  unit_value: number;
-  unit: string;
-  item_name: string;
-  cost: number;
-  location: any; // JSONB type
-  location_code: string;
-  status: string;
-  properties?: any; // JSONB type
-  created_at?: string;
-  updated_at?: string;
-}
-
-
 /**
  * Creates a new delivery item in the database
  */
 
-export async function createDeliveryItem(formData: DeliveryItem) {
+export async function createDeliveryItem(
+  formData: Pick<
+    DeliveryItem,
+    "admin_uuid" | "company_uuid" | "inventory_uuid" | "warehouse_uuid" |
+    "delivery_address" | "delivery_date" | "notes" | "status" | "status_history" |
+    "name" | "locations" | "location_codes" | "operator_uuid" | "recipient_name" | "recipient_contact">) {
   const supabase = await createClient();
 
   try {
@@ -117,11 +66,11 @@ export async function createDeliveryItem(formData: DeliveryItem) {
     }
 
     return { success: true, data };
-  } catch (error) {
+  } catch (error: Error | any) {
     console.error("Error creating delivery item:", error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Unknown error occurred"
+      error: `Failed to create delivery item: ${error.message || "Unknown error"}`,
     };
   }
 }
@@ -129,7 +78,10 @@ export async function createDeliveryItem(formData: DeliveryItem) {
 /**
  * Updates an existing delivery item in the database
  */
-export async function updateDeliveryItem(uuid: string, formData: Partial<DeliveryItem>) {
+export async function updateDeliveryItem(
+  uuid: string,
+  formData: Partial<DeliveryItem>
+) {
   const supabase = await createClient();
 
   try {
@@ -138,18 +90,19 @@ export async function updateDeliveryItem(uuid: string, formData: Partial<Deliver
       .from("delivery_items")
       .update(formData)
       .eq("uuid", uuid)
-      .select();
+      .select()
+      .single();
 
     if (error) {
       throw error;
     }
 
     return { success: true, data };
-  } catch (error) {
+  } catch (error: Error | any) {
     console.error("Error updating delivery item:", error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Unknown error occurred"
+      error: `Failed to update delivery item: ${error.message || "Unknown error"}`,
     };
   }
 }
@@ -173,17 +126,45 @@ export async function updateInventoryItemStatus(inventoryItemUuid: string, statu
     }
 
     return { success: true, data };
-  } catch (error) {
+  } catch (error: Error | any) {
     console.error("Error updating inventory item status:", error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Unknown error occurred"
+      error: `Failed to update inventory item status: ${error.message || "Unknown error"}`,
     };
   }
 }
 
 /**
- * Updates the status of inventory item bulks
+ * Updates the status of inventory item units associated with specific bulks
+ */
+export async function updateInventoryItemUnitsStatus(bulkUuids: string[], status: string) {
+  const supabase = await createClient();
+
+  try {
+    // Update all units that are associated with the specified bulks
+    const { data, error } = await supabase
+      .from("inventory_item_unit")
+      .update({ status })
+      .in("inventory_item_bulk_uuid", bulkUuids)
+      .select();
+
+    if (error) {
+      throw error;
+    }
+
+    return { success: true, data };
+  } catch (error: Error | any) {
+    console.error("Error updating unit statuses:", error);
+    return {
+      success: false,
+      error: `Failed to update unit statuses: ${error.message || "Unknown error"}`,
+    };
+  }
+}
+
+/**
+ * Updates the status of inventory item bulks and their associated units
  */
 export async function updateInventoryItemBulksStatus(bulkUuids: string[], status: string) {
   const supabase = await createClient();
@@ -200,12 +181,15 @@ export async function updateInventoryItemBulksStatus(bulkUuids: string[], status
       throw error;
     }
 
+    // Also update all associated units
+    await updateInventoryItemUnitsStatus(bulkUuids, status);
+
     return { success: true, data };
-  } catch (error) {
+  } catch (error: Error | any) {
     console.error("Error updating bulk statuses:", error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Unknown error occurred"
+      error: `Failed to update bulk statuses: ${error.message || "Unknown error"}`,
     };
   }
 }
@@ -252,12 +236,12 @@ export async function getDeliveryItems(companyUuid?: string, search: string = ""
       success: true,
       data: data || []
     };
-  } catch (error) {
+  } catch (error: Error | any) {
     console.error("Error fetching delivery items:", error);
     return {
       success: false,
       data: [],
-      error: error instanceof Error ? error.message : "Unknown error occurred",
+      error: `Failed to fetch delivery items: ${error.message || "Unknown error"}`,
     };
   }
 }
@@ -283,7 +267,7 @@ export async function getInventoryItems(companyUuid?: string, search: string = "
     // Apply search filter if provided
     if (search) {
       query = query.or(
-        `item_name.ilike.%${search}%,description.ilike.%${search}%,status.ilike.%${search}%`
+        `name.ilike.%${search}%,description.ilike.%${search}%,status.ilike.%${search}%`
       );
     }
 
@@ -298,12 +282,12 @@ export async function getInventoryItems(companyUuid?: string, search: string = "
       success: true,
       data: data || []
     };
-  } catch (error) {
+  } catch (error: Error | any) {
     console.error("Error fetching inventory items:", error);
     return {
       success: false,
       data: [],
-      error: error instanceof Error ? error.message : "Unknown error occurred",
+      error: `Failed to fetch inventory items: ${error.message || "Unknown error"}`,
     };
   }
 }
@@ -329,12 +313,12 @@ export async function getInventoryItemBulks(inventoryItemUuid: string) {
       success: true,
       data: data || []
     };
-  } catch (error) {
+  } catch (error: Error | any) {
     console.error("Error fetching inventory item bulks:", error);
     return {
       success: false,
       data: [],
-      error: error instanceof Error ? error.message : "Unknown error occurred",
+      error: `Failed to fetch inventory item bulks: ${error.message || "Unknown error"}`,
     };
   }
 }
@@ -357,11 +341,11 @@ export async function deleteDeliveryItem(uuid: string) {
     }
 
     return { success: true, data };
-  } catch (error) {
+  } catch (error: Error | any) {
     console.error("Error deleting delivery item:", error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Unknown error occurred"
+      error: `Failed to delete delivery item: ${error.message || "Unknown error"}`,
     };
   }
 }
@@ -370,39 +354,45 @@ export async function deleteDeliveryItem(uuid: string) {
 // Get operators (users with isAdmin = false)
 export async function getOperators(companyUuid: string) {
   const supabase = await createClient();
-  
+
   try {
     const { data, error } = await supabase
       .from('profiles')
       .select('uuid, email, full_name, phone_number')
       .eq('company_uuid', companyUuid)
       .eq('is_admin', false);
-    
+
     if (error) throw error;
-    
+
     return { success: true, data };
-  } catch (error) {
+  } catch (error: Error | any) {
     console.error('Error fetching operators:', error);
-    return { success: false, error: 'Failed to fetch operators' };
+    return {
+      success: false,
+      error: `Failed to fetch operators: ${error.message || "Unknown error"}`,
+    };
   }
 }
 
 // Get warehouses
 export async function getWarehouses(companyUuid: string) {
   const supabase = await createClient();
-  
+
   try {
     const { data, error } = await supabase
       .from('warehouses')
       .select('*')
       .eq('company_uuid', companyUuid);
-    
+
     if (error) throw error;
-    
+
     return { success: true, data };
-  } catch (error) {
+  } catch (error: Error | any) {
     console.error('Error fetching warehouses:', error);
-    return { success: false, error: 'Failed to fetch warehouses' };
+    return {
+      success: false,
+      error: `Failed to fetch warehouses: ${error.message || "Unknown error"}`,
+    };
   }
 }
 
@@ -413,6 +403,7 @@ export async function getWarehouses(companyUuid: string) {
 export async function createWarehouseInventoryItems(
   inventoryUuid: string,
   warehouseUuid: string,
+  deliveryUuid: string,
   bulkUuids: string[],
   locations: any[],
   locationCodes: string[]
@@ -425,33 +416,34 @@ export async function createWarehouseInventoryItems(
       .from("inventory_items")
       .select("*")
       .eq("uuid", inventoryUuid)
-      .single();
+      .single<InventoryItem>();
 
     if (invError) throw invError;
 
     // Get all bulks for this inventory item that match the provided UUIDs
     const { data: bulks, error: bulksError } = await supabase
       .from("inventory_item_bulk")
-      .select("*, inventory_item_units(*)")
+      .select("*, inventory_item_unit(*)")
       .eq("inventory_uuid", inventoryUuid)
       .in("uuid", bulkUuids);
+
+    console.log("bulks", bulks, "bulksError", bulksError);
 
     if (bulksError) throw bulksError;
 
     // Create warehouse inventory item records
-    const warehouseInventoryData = {
-      inventory_uuid: inventoryUuid,
-      warehouse_uuid: warehouseUuid,
-      name: inventoryItem.name,
-      description: inventoryItem.description,
-      company_uuid: inventoryItem.company_uuid,
-      admin_uuid: inventoryItem.admin_uuid,
-      status: "AVAILABLE"  // New warehouse items are always AVAILABLE
-    };
-
     const { data: warehouseInv, error: whInvError } = await supabase
-      .from("warehouse_inventory")
-      .insert(warehouseInventoryData)
+      .from("warehouse_inventory_items")
+      .insert({
+        admin_uuid: inventoryItem.admin_uuid,
+        warehouse_uuid: warehouseUuid,
+        company_uuid: inventoryItem.company_uuid,
+        delivery_uuid: deliveryUuid,
+        inventory_uuid: inventoryUuid,
+
+        name: inventoryItem.name,
+        description: inventoryItem.description
+      })
       .select()
       .single();
 
@@ -464,56 +456,93 @@ export async function createWarehouseInventoryItems(
       const locationCode = locationCodes[index] || null;
 
       // Create warehouse bulk item
-      const warehouseBulkData = {
-        warehouse_inventory_uuid: warehouseInv.uuid,
-        inventory_item_bulk_uuid: bulk.uuid,
-        unit: bulk.unit,
-        unit_value: bulk.unit_value,
-        bulk_unit: bulk.bulk_unit,
-        cost: bulk.cost,
-        is_single_item: bulk.is_single_item,
-        properties: bulk.properties,
-        location: location,
-        location_code: locationCode,
-        status: "AVAILABLE"  // New warehouse bulk items are AVAILABLE
-      };
-
       const { data: warehouseBulk, error: whBulkError } = await supabase
-        .from("warehouse_inventory_bulk")
-        .insert(warehouseBulkData)
+        .from("warehouse_inventory_item_bulk")
+        .insert({
+          company_uuid: inventoryItem.company_uuid,
+          warehouse_uuid: warehouseUuid,
+          inventory_uuid: inventoryUuid,
+          inventory_bulk_uuid: bulk.uuid,
+          delivery_uuid: deliveryUuid,
+          warehouse_inventory_uuid: warehouseInv.uuid,
+
+          unit: bulk.unit,
+          unit_value: bulk.unit_value,
+          bulk_unit: bulk.bulk_unit,
+          cost: bulk.cost,
+          is_single_item: bulk.is_single_item,
+          locations: location,
+          location_codes: locationCode,
+          properties: bulk.properties
+        })
         .select()
         .single();
+
+      console.log("warehouseBulk", warehouseBulk, "whBulkError", whBulkError);
 
       if (whBulkError) throw whBulkError;
 
       // Create warehouse units for this bulk
-      if (bulk.inventory_item_units && bulk.inventory_item_units.length > 0) {
-        const unitPromises = bulk.inventory_item_units.map(async (unit: WarehouseInventoryItemUnit) => {
-          const warehouseUnitData = {
-            warehouse_inventory_uuid: warehouseInv.uuid,
-            warehouse_inventory_bulk_uuid: warehouseBulk.uuid,
-            inventory_item_unit_uuid: unit.uuid,
-            item_code: unit.item_code,
-            unit_value: unit.unit_value,
-            unit: unit.unit,
-            item_name: unit.item_name,
-            cost: unit.cost,
-            properties: unit.properties,
-            status: "AVAILABLE"  // New warehouse unit items are AVAILABLE
-          };
+      if (bulk.inventory_item_unit && bulk.inventory_item_unit.length > 0) {
+        const unitPromises = bulk.inventory_item_unit.map(async (unit: any) => {
+          const { data: warehouseUnit, error: whUnitError } = await supabase
+            .from("warehouse_inventory_item_unit")
+            .insert({
+              company_uuid: inventoryItem.company_uuid,
+              warehouse_uuid: warehouseUuid,
+              inventory_uuid: inventoryUuid,
+              warehouse_inventory_uuid: warehouseInv.uuid,
+              warehouse_inventory_bulk_uuid: warehouseBulk.uuid,
+              inventory_unit_uuid: unit.uuid,
+              delivery_uuid: deliveryUuid,
 
-          return supabase
-            .from("warehouse_inventory_unit")
-            .insert(warehouseUnitData);
+              description: unit.description,
+              code: unit.code,
+              unit_value: unit.unit_value,
+              unit: unit.unit,
+              name: unit.name || inventoryItem.name,
+              cost: unit.cost || bulk.cost / bulk.unit_value,
+              location: location,
+              location_code: locationCode,
+              properties: unit.properties
+            })
+            .select()
+            .single();
+
+          if (whUnitError) {
+            console.error("Error creating warehouse unit:", whUnitError);
+            throw whUnitError;
+          }
+
+          return warehouseUnit;
         });
 
-        await Promise.all(unitPromises);
+        try {
+          const warehouseUnits = await Promise.all(unitPromises);
+          console.log(`Created ${warehouseUnits.length} warehouse units for bulk ${warehouseBulk.uuid}`);
+        } catch (unitError) {
+          console.error("Failed to create warehouse units:", unitError);
+          throw unitError;
+        }
       }
 
       return warehouseBulk;
     });
 
     const warehouseBulks = await Promise.all(warehouseBulkPromises);
+
+    // add the warehouse_inventory_item_bulks to the warehouse inventory item
+    const { data: updatedWarehouseInv, error: updateError } = await supabase
+      .from("warehouse_inventory_items")
+      .update({
+        warehouse_inventory_item_bulks: warehouseBulks.map((bulk: any) => bulk.uuid)
+      })
+      .eq("uuid", warehouseInv.uuid)
+      .select()
+      .single();
+
+    if (updateError) throw updateError;
+
 
     return {
       success: true,
@@ -522,11 +551,11 @@ export async function createWarehouseInventoryItems(
         warehouseBulks
       }
     };
-  } catch (error) {
+  } catch (error: Error | any) {
     console.error("Error creating warehouse inventory items:", error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Unknown error occurred"
+      error: `Failed to create warehouse inventory items: ${error.message || "Unknown error"}`,
     };
   }
 }
@@ -544,7 +573,7 @@ export async function getOccupiedShelfLocations(warehouseUuid: string) {
       .from("delivery_items")
       .select("locations") // Updated to match the new field name
       .eq("warehouse_uuid", warehouseUuid);
-      
+
     if (deliveryError) {
       throw deliveryError;
     }
@@ -558,11 +587,11 @@ export async function getOccupiedShelfLocations(warehouseUuid: string) {
       success: true,
       data: occupiedLocations
     };
-  } catch (error) {
+  } catch (error: Error | any) {
     console.error("Error fetching occupied shelf locations:", error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Unknown error occurred",
+      error: `Failed to fetch occupied shelf locations: ${error.message || "Unknown error"}`,
       data: []
     };
   }
@@ -579,7 +608,7 @@ export async function suggestShelfLocations(
 ) {
   // Get warehouse layout
   const supabase = await createClient();
-  
+
   try {
     // Get warehouse data with layout
     const { data: warehouseData, error: warehouseError } = await supabase
@@ -587,70 +616,70 @@ export async function suggestShelfLocations(
       .select('warehouse_layout')
       .eq('uuid', warehouseUuid)
       .single();
-    
+
     if (warehouseError) throw warehouseError;
-    
+
     // Get currently occupied locations
     const { data: occupiedLocations } = await getOccupiedShelfLocations(warehouseUuid);
-    
+
     const layout = warehouseData.warehouse_layout as FloorConfig[];
     const suggestions: any[] = [];
-    
+
     // Start from the specified shelf or default to first shelf
     let currentFloor = startingShelf?.floor || 0;
     let currentGroup = startingShelf?.group || 0;
     let currentRow = startingShelf?.row || 0;
     let currentColumn = startingShelf?.column || 0;
     let currentDepth = 0;
-    
+
     // Logic to find available shelves
     for (let i = 0; i < bulkCount; i++) {
       let locationFound = false;
-      
+
       // Try to find a free location
       while (!locationFound && currentFloor < layout.length) {
         const floorLayout = layout[currentFloor];
         const { groups } = processGroupsMatrix(floorLayout.matrix, currentFloor);
-        
+
         // Skip if we're beyond available groups
         if (currentGroup >= groups.length) {
           currentGroup = 0;
           currentFloor++;
           continue;
         }
-        
+
         const currentGroupData = groups[currentGroup];
-        
+
         // Skip if we're beyond rows in this group
         if (currentRow >= currentGroupData.rows) {
           currentRow = 0;
           currentGroup++;
           continue;
         }
-        
+
         // Skip if we're beyond columns in this group
         if (currentColumn >= currentGroupData.width) {
           currentColumn = 0;
           currentRow++;
           continue;
         }
-        
+
         // Skip if we're beyond depth in this group
         if (currentDepth >= currentGroupData.depth) {
           currentDepth = 0;
           currentColumn++;
           continue;
         }
-        
+
         // Check if this location is occupied
-        const isOccupied = occupiedLocations?.some((loc: any) => 
-          loc.floor === currentFloor && 
-          loc.group === currentGroup && 
-          loc.row === currentRow && 
+        const isOccupied = occupiedLocations?.some((loc: any) =>
+          loc.floor === currentFloor &&
+          loc.group === currentGroup &&
+          loc.row === currentRow &&
           loc.column === currentColumn &&
           loc.depth === currentDepth
         );
-        
+
         if (!isOccupied) {
           // Found a free location
           suggestions.push({
@@ -665,25 +694,25 @@ export async function suggestShelfLocations(
             max_column: currentGroupData.width - 1,
             max_depth: currentGroupData.depth - 1
           });
-          
+
           locationFound = true;
         }
-        
+
         // Move to next position
         currentDepth++;
       }
-      
+
       // If we've gone through all possibilities and couldn't find enough spaces
       if (!locationFound) {
         break; // Stop trying to find more locations
       }
     }
-    
+
     // Generate location codes for each suggested location
-    const locationCodes = suggestions.map(loc => 
+    const locationCodes = suggestions.map(loc =>
       `F${loc.floor + 1}-G${loc.group + 1}-R${loc.row + 1}-C${String.fromCharCode(65 + loc.column)}-D${loc.depth + 1}`
     );
-    
+
     return {
       success: true,
       data: {
@@ -691,12 +720,12 @@ export async function suggestShelfLocations(
         locationCodes: locationCodes
       }
     };
-    
-  } catch (error) {
+
+  } catch (error: Error | any) {
     console.error("Error suggesting shelf locations:", error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Unknown error occurred",
+      error: `Failed to suggest shelf locations: ${error.message || "Unknown error"}`,
       data: { locations: [], locationCodes: [] }
     };
   }

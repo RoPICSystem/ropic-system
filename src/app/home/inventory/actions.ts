@@ -7,12 +7,15 @@ export interface InventoryItemUnit {
   company_uuid: string;
   inventory_uuid: string;
   inventory_item_bulk_uuid?: string;
-  item_code: string;
+  code: string;
   unit_value: number;
   unit: string;
-  item_name: string;
+  name: string;
   cost: number;
   properties: Record<string, any>;
+  status?: string;
+  created_at: Date;
+  updated_at: Date;
 }
 
 export interface InventoryItemBulk {
@@ -26,6 +29,9 @@ export interface InventoryItemBulk {
   is_single_item: boolean;
   properties: Record<string, any>;
   inventory_item_units?: InventoryItemUnit[];
+  status?: string;
+  created_at: Date;
+  updated_at: Date;
 }
 
 export interface InventoryItem {
@@ -35,6 +41,7 @@ export interface InventoryItem {
   name: string;
   description?: string;
   inventory_item_bulks: string[];
+  status?: string;
   created_at: Date;
   updated_at: Date;
 }
@@ -159,7 +166,7 @@ export async function getInventoryItem(uuid: string) {
 export async function createInventoryItem(
   item: Pick<InventoryItem, "company_uuid" | "name" | "description" | "admin_uuid">,
   bulks: Pick<InventoryItemBulk, "company_uuid" | "unit" | "unit_value" | "bulk_unit" | "cost" | "is_single_item" | "properties">[],
-  units: (Pick<InventoryItemUnit, "company_uuid" | "item_code" | "unit_value" | "unit" | "item_name" | "cost" | "properties"> & { _bulkIndex?: number })[]
+  units: (Pick<InventoryItemUnit, "company_uuid" | "code" | "unit_value" | "unit" | "name" | "cost" | "properties"> & { _bulkIndex?: number })[]
 ) {
   const supabase = await createClient();
 
@@ -243,10 +250,10 @@ export async function createInventoryItem(
           company_uuid: unit.company_uuid,
           inventory_uuid: inventoryItem.uuid,
           inventory_item_bulk_uuid: bulkUuid, // Will be null only if bulkIndex is invalid
-          item_code: unit.item_code,
+          code: unit.code,
           unit_value: unit.unit_value,
           unit: unit.unit,
-          item_name: unit.item_name,
+          name: unit.name,
           cost: unit.cost,
           properties: unit.properties
         });
@@ -278,7 +285,7 @@ export async function updateInventoryItem(
   bulkUpdates: (Partial<InventoryItemBulk> & { uuid: string })[],
   unitUpdates: (Partial<InventoryItemUnit> & { uuid: string })[],
   newBulks: Pick<InventoryItemBulk, "company_uuid" | "unit" | "unit_value" | "bulk_unit" | "cost" | "is_single_item" | "properties">[],
-  newUnits: (Pick<InventoryItemUnit, "company_uuid" | "item_code" | "unit_value" | "unit" | "item_name" | "cost" | "properties"> & { _bulkIndex?: number })[]
+  newUnits: (Pick<InventoryItemUnit, "company_uuid" | "code" | "unit_value" | "unit" | "name" | "cost" | "properties"> & { _bulkIndex?: number })[]
 ) {
   const supabase = await createClient();
 
@@ -358,10 +365,10 @@ export async function updateInventoryItem(
           company_uuid: unit.company_uuid,
           inventory_uuid: uuid,
           inventory_item_bulk_uuid: bulkUuid,
-          item_code: unit.item_code,
+          code: unit.code,
           unit_value: unit.unit_value,
           unit: unit.unit,
-          item_name: unit.item_name,
+          name: unit.name,
           cost: unit.cost,
           properties: unit.properties
         });

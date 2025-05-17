@@ -7,19 +7,22 @@ import { getUserCompany } from '@/utils/supabase/server/user'
 import { revalidatePath } from 'next/cache';
 
 export type Warehouse = {
-  uuid?: string;
+  uuid: string;
+  
   company_uuid: string;
   name: string;
   address: Address;
   warehouse_layout?: FloorConfig[];
-  created_at?: string;
-  updated_at?: string;
+
+  created_at: string;
+  updated_at: string;
 }
 
 /**
  * Creates a new warehouse
  */
-export async function createWarehouse(data: Warehouse) {
+export async function createWarehouse(data: 
+  Pick<Warehouse, 'company_uuid' | 'name' | 'address' | 'warehouse_layout'>) {
   const supabase = await createClient();
 
   try {
@@ -56,7 +59,8 @@ export async function createWarehouse(data: Warehouse) {
 /**
  * Updates an existing warehouse
  */
-export async function updateWarehouse(data: Warehouse) {
+export async function updateWarehouse(data:
+  Pick<Warehouse, 'uuid' | 'company_uuid' | 'name' | 'address' | 'warehouse_layout'>) {
   const supabase = await createClient();
 
   try {

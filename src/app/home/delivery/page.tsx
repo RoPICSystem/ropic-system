@@ -37,13 +37,13 @@ import {
   suggestShelfLocations,
   updateDeliveryItem,
   updateInventoryItemBulksStatus,
-  updateInventoryItemStatus,
-  Warehouse
+  updateInventoryItemStatus
 } from "./actions";
 
 // Import the QR code scanner library
 import jsQR from "jsqr";
 import { InventoryItem } from '../inventory/actions';
+import { Warehouse } from '../warehouses/actions';
 
 // Import the ShelfSelector3D component
 const ShelfSelector3D = lazy(() =>
@@ -343,7 +343,7 @@ export default function DeliveryPage() {
     if (isWarehouseNotSet() || isFloorConfigNotSet() || selectedBulks.length === 0) {
       return;
     }
-  
+
     setIsAutoAssigning(true);
     try {
       // Get the suggested locations
@@ -355,27 +355,27 @@ export default function DeliveryPage() {
           ? { floor: selectedFloor, group: selectedGroup, row: selectedRow, column: selectedColumn }
           : undefined
       );
-  
+
       if (result.success && result.data) {
         // Get locations and location codes from the result
         const { locations, locationCodes } = result.data;
-  
+
         // Update state with the suggested locations and codes
         setLocations(locations);
         setLocationCodes(locationCodes);
-  
+
         // Update formData with the new locations
         setFormData(prev => ({
           ...prev,
           locations: locations,
           location_codes: locationCodes
         }));
-  
+
         // Select the first location in the 3D view
         if (locations.length > 0) {
           setCurrentBulkLocationIndex(0);
           const firstLocation = locations[0];
-  
+
           setSelectedFloor(firstLocation.floor);
           setSelectedGroup(firstLocation.group);
           setSelectedRow(firstLocation.row);
@@ -383,7 +383,7 @@ export default function DeliveryPage() {
           setSelectedDepth(firstLocation.depth || 0);
           setSelectedColumnCode(parseColumn(firstLocation.column) || "");
           setSelectedCode(locationCodes[0]);
-  
+
           // Set external selection for the 3D viewer
           setExternalSelection(firstLocation);
         }
@@ -588,7 +588,12 @@ export default function DeliveryPage() {
       setFormData(updatedFormData);
 
       // Update the delivery item with the new status and history
-      const result = await updateDeliveryItem(selectedDeliveryId, updatedFormData as any);
+      const { data: deliveryData, error: deliveryError } = await updateDeliveryItem(selectedDeliveryId, updatedFormData as any);
+
+      if (deliveryError) {
+        console.error("Failed to update delivery item:", deliveryError);
+        return { error: "Failed to update delivery item" };
+      }
 
       // Update inventory item status as well
       if (updatedFormData.inventory_uuid) {
@@ -606,6 +611,7 @@ export default function DeliveryPage() {
             const warehouseResult = await createWarehouseInventoryItems(
               formData.inventory_uuid as string,
               formData.warehouse_uuid as string,
+              deliveryData.uuid,
               formData.inventory_item_bulk_uuids,
               formData.locations,
               formData.location_codes || []
@@ -617,11 +623,11 @@ export default function DeliveryPage() {
               // The inventory status will still be updated
             } else {
               console.log("Successfully created warehouse inventory items:", warehouseResult.data);
+
+              // Update status of the inventory item bulks
+              await updateInventoryItemBulksStatus(formData.inventory_item_bulk_uuids || [], "IN_WAREHOUSE");
             }
           }
-
-          // Update status of the inventory item bulks
-          await updateInventoryItemBulksStatus(formData.inventory_item_bulk_uuids || [], "IN_WAREHOUSE");
         } else if (status === "CANCELLED") {
           inventoryStatus = "AVAILABLE";
 
@@ -712,7 +718,7 @@ export default function DeliveryPage() {
     const selectedWarehouse = warehouses.find(wh => wh.uuid === warehouseUuid);
     if (selectedWarehouse) {
       // Fetch warehouse layout
-      const warehouseLayout = selectedWarehouse.warehouse_layout;
+      const warehouseLayout = selectedWarehouse.warehouse_layout!;
       setFloorConfigs(warehouseLayout);
 
       setFloorOptions(warehouseLayout.map((layout: any) => layout.floor));
@@ -787,15 +793,15 @@ export default function DeliveryPage() {
       const newData = {
         admin_uuid: user.uuid,
         company_uuid: user.company_uuid,
-        inventory_uuid: formData.inventory_uuid,
+        inventory_uuid: formData.inventory_uuid ? formData.inventory_uuid : null,
         inventory_item_bulk_uuids: formData.inventory_item_bulk_uuids,
-        warehouse_uuid: formData.warehouse_uuid,
-        delivery_address: formData.delivery_address,
-        delivery_date: formData.delivery_date,
-        locations: formData.locations,
-        location_codes: formData.location_codes,
-        notes: formData.notes,
-        status: formData.status,
+        warehouse_uuid: formData.warehouse_uuid ? formData.warehouse_uuid : null,
+        delivery_address: formData.delivery_address || "",
+        delivery_date: formData.delivery_date || "",
+        locations: formData.locations || [],
+        location_codes: formData.location_codes || [],
+        notes: formData.notes || "",
+        status: formData.status || "PENDING",
         status_history: {
           [timestamp]: formData.status || "PENDING"
         },
@@ -1222,44 +1228,45 @@ export default function DeliveryPage() {
           // );
 
           // if (inventoryResult.success) {
-            // Create warehouse inventory item records if location data is present
-            if (matchingDelivery.locations?.length > 0 &&
-              matchingDelivery.location_codes?.length > 0 &&
-              matchingDelivery.inventory_item_bulk_uuids?.length > 0) {
+          // Create warehouse inventory item records if location data is present
+          if (matchingDelivery.locations?.length > 0 &&
+            matchingDelivery.location_codes?.length > 0 &&
+            matchingDelivery.inventory_item_bulk_uuids?.length > 0) {
 
-              try {
-                // Prepare items data for warehouse creation
-                const { data: warehouseResult, error: wwarehouseError } = await createWarehouseInventoryItems(
-                  matchingDelivery.inventory_uuid as string,
-                  matchingDelivery.warehouse_uuid as string,
-                  matchingDelivery.inventory_item_bulk_uuids,
-                  matchingDelivery.locations,
-                  matchingDelivery.location_codes || []
-                );
+            try {
+              // Prepare items data for warehouse creation
+              const { data: warehouseResult, error: wwarehouseError } = await createWarehouseInventoryItems(
+                matchingDelivery.inventory_uuid as string,
+                matchingDelivery.warehouse_uuid as string,
+                matchingDelivery.uuid,
+                matchingDelivery.inventory_item_bulk_uuids,
+                matchingDelivery.locations,
+                matchingDelivery.location_codes || []
+              );
 
-                // Update status of the inventory item bulks
-                await updateInventoryItemBulksStatus(matchingDelivery.inventory_item_bulk_uuids, "IN_WAREHOUSE");
+              // Update status of the inventory item bulks
+              await updateInventoryItemBulksStatus(matchingDelivery.inventory_item_bulk_uuids, "IN_WAREHOUSE");
 
-                setJsonValidationSuccess(true);
+              setJsonValidationSuccess(true);
 
-                // Wait for a moment before closing the modal
-                setTimeout(() => {
-                  setShowAcceptDeliveryModal(false);
-                  setJsonValidationSuccess(false);
-                  setDeliveryJson("");
-                }, 1000);
+              // Wait for a moment before closing the modal
+              setTimeout(() => {
+                setShowAcceptDeliveryModal(false);
+                setJsonValidationSuccess(false);
+                setDeliveryJson("");
+              }, 1000);
 
-                // Refresh delivery items to show updated status
-                const refreshedItems = await getDeliveryItems(user?.company_uuid);
-                setDeliveryItems(refreshedItems.data || []);
-              } catch (error) {
-                console.error("Error creating warehouse inventory items:", error);
-                setJsonValidationError("Delivery accepted but failed to create warehouse items");
-              }
-            } else {
-              console.warn("Delivery marked as DELIVERED but missing location or bulk data");
-              setJsonValidationError("Missing location data for delivery - please contact admin");
+              // Refresh delivery items to show updated status
+              const refreshedItems = await getDeliveryItems(user?.company_uuid);
+              setDeliveryItems(refreshedItems.data || []);
+            } catch (error) {
+              console.error("Error creating warehouse inventory items:", error);
+              setJsonValidationError("Delivery accepted but failed to create warehouse items");
             }
+          } else {
+            console.warn("Delivery marked as DELIVERED but missing location or bulk data");
+            setJsonValidationError("Missing location data for delivery - please contact admin");
+          }
           // } else {
           //   console.error("Failed to update inventory status:", inventoryResult.error);
           //   setJsonValidationError("Delivery accepted but failed to update inventory status");
@@ -1557,7 +1564,10 @@ export default function DeliveryPage() {
 
   useEffect(() => {
     // When the delivery status changes to DELIVERED, we want to ensure location fields are ready
+    // Skip this effect for already delivered items that are just being viewed
     if (formData.status === "DELIVERED" &&
+      // Add this condition to prevent the infinite loop for already delivered items
+      !selectedDeliveryId &&
       selectedFloor !== null &&
       selectedColumn !== null &&
       selectedRow !== null &&
@@ -1596,8 +1606,7 @@ export default function DeliveryPage() {
       setLocations(newLocations);
       setLocationCodes(newLocationCodes);
     }
-  }, [selectedFloor, selectedColumn, selectedRow, selectedGroup, selectedDepth, formData.status, currentBulkLocationIndex, locations, locationCodes, selectedCode]);
-
+  }, [selectedFloor, selectedColumn, selectedRow, selectedGroup, selectedDepth, formData.status, currentBulkLocationIndex, locations, locationCodes, selectedCode, selectedDeliveryId]);
   return (
     <div className="container mx-auto p-2 max-w-4xl">
       <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
@@ -1979,17 +1988,19 @@ export default function DeliveryPage() {
                           <h3 className="text-md font-medium">
                             {formData.status === "PENDING" ? "Select Bulk Items to Deliver" : "Selected Bulk Items"}
                           </h3>
-                          <Button
-                            size="sm"
-                            color="primary"
-                            variant="flat"
-                            onPress={autoAssignShelfLocations}
-                            isDisabled={selectedBulks.length === 0 || isWarehouseNotSet() || isFloorConfigNotSet() || !user.is_admin}
-                            isLoading={isAutoAssigning}
-                            startContent={<Icon icon="mdi:robot" className="text-sm" />}
-                          >
-                            Auto Assign Locations
-                          </Button>
+                          {isDeliveryProcessing() && (
+                            <Button
+                              size="sm"
+                              color="primary"
+                              variant="flat"
+                              onPress={autoAssignShelfLocations}
+                              isDisabled={selectedBulks.length === 0 || isWarehouseNotSet() || isFloorConfigNotSet() || !user.is_admin}
+                              isLoading={isAutoAssigning}
+                              startContent={<Icon icon="mdi:robot" className="text-sm" />}
+                            >
+                              Auto Assign Locations
+                            </Button>
+                          )}
                         </div>
                         <div className="space-y-4 p-4">
                           {isLoadingBulks ? (
@@ -2003,42 +2014,44 @@ export default function DeliveryPage() {
                             </div>
                           ) : (
                             <div className="space-y-2">
-                              <div className="flex justify-between items-center mb-4">
-                                <Checkbox
-                                  isSelected={selectedBulks.length === inventoryBulks.length && inventoryBulks.length > 0}
-                                  isIndeterminate={selectedBulks.length > 0 && selectedBulks.length < inventoryBulks.length}
-                                  onValueChange={(isSelected) => {
-                                    // Select or deselect all bulks
-                                    if (isSelected) {
-                                      // Select all bulks
-                                      const allBulkUuids = inventoryBulks.map(bulk => bulk.uuid);
-                                      setSelectedBulks(allBulkUuids);
-
-                                      // Update form data with all bulk UUIDs
-                                      setFormData(prev => ({
-                                        ...prev,
-                                        inventory_item_bulk_uuids: allBulkUuids
-                                      }));
-                                    } else {
-                                      // Deselect all bulks
-                                      setSelectedBulks([]);
-
-                                      // Update form data to clear bulk UUIDs
-                                      setFormData(prev => ({
-                                        ...prev,
-                                        inventory_item_bulk_uuids: []
-                                      }));
-
-                                      // Also clear locations data
-                                      setLocations([]);
-                                      setLocationCodes([]);
-                                    }
-                                  }}
-                                  isDisabled={formData.status !== "PENDING" || !(user === null || user.is_admin) || inventoryBulks.length === 0}
-                                >
-                                  Select All
-                                </Checkbox>
+                              <div className="flex flex-row-reverse justify-between items-center mb-4">
                                 <span className="text-sm text-default-600">{selectedBulks.length} of {inventoryBulks.length} selected</span>
+                                {isDeliveryProcessing() && (
+                                  <Checkbox
+                                    isSelected={selectedBulks.length === inventoryBulks.length && inventoryBulks.length > 0}
+                                    isIndeterminate={selectedBulks.length > 0 && selectedBulks.length < inventoryBulks.length}
+                                    onValueChange={(isSelected) => {
+                                      // Select or deselect all bulks
+                                      if (isSelected) {
+                                        // Select all bulks
+                                        const allBulkUuids = inventoryBulks.map(bulk => bulk.uuid);
+                                        setSelectedBulks(allBulkUuids);
+
+                                        // Update form data with all bulk UUIDs
+                                        setFormData(prev => ({
+                                          ...prev,
+                                          inventory_item_bulk_uuids: allBulkUuids
+                                        }));
+                                      } else {
+                                        // Deselect all bulks
+                                        setSelectedBulks([]);
+
+                                        // Update form data to clear bulk UUIDs
+                                        setFormData(prev => ({
+                                          ...prev,
+                                          inventory_item_bulk_uuids: []
+                                        }));
+
+                                        // Also clear locations data
+                                        setLocations([]);
+                                        setLocationCodes([]);
+                                      }
+                                    }}
+                                    isDisabled={formData.status !== "PENDING" || !(user === null || user.is_admin) || inventoryBulks.length === 0}
+                                  >
+                                    Select All
+                                  </Checkbox>
+                                )}
                               </div>
 
                               <ScrollShadow className="max-h-96">
@@ -2049,31 +2062,36 @@ export default function DeliveryPage() {
                                   )).map((bulk, index) => (
                                     <div key={bulk.uuid} className="flex items-center justify-between p-3 border border-default-200 rounded-xl">
                                       <div className="flex items-center">
-                                        <Checkbox
-                                          isSelected={selectedBulks.includes(bulk.uuid)}
-                                          onValueChange={(isSelected) => {
-                                            handleBulkSelectionToggle(bulk.uuid, isSelected);
-                                            // Update the form data
-                                            setFormData(prev => {
-                                              const newBulkUuids = isSelected
-                                                ? [...(prev.inventory_item_bulk_uuids || []), bulk.uuid]
-                                                : (prev.inventory_item_bulk_uuids || []).filter(uuid => uuid !== bulk.uuid);
+                                      {isDeliveryProcessing() && (
+                                        <div className="flex items-center">
+                                          <Checkbox
+                                            isSelected={selectedBulks.includes(bulk.uuid)}
+                                            onValueChange={(isSelected) => {
+                                              handleBulkSelectionToggle(bulk.uuid, isSelected);
+                                              // Update the form data
+                                              setFormData(prev => {
+                                                const newBulkUuids = isSelected
+                                                  ? [...(prev.inventory_item_bulk_uuids || []), bulk.uuid]
+                                                  : (prev.inventory_item_bulk_uuids || []).filter(uuid => uuid !== bulk.uuid);
 
-                                              return {
-                                                ...prev,
-                                                inventory_item_bulk_uuids: newBulkUuids
-                                              };
-                                            });
-                                          }}
-                                          isDisabled={formData.status !== "PENDING" || !(user === null || user.is_admin)}
-                                        >
-                                          <div className="flex flex-col ml-2">
-                                            <span className="font-medium">{bulk.name || `Bulk ${index + 1}`}</span>
-                                            <span className="text-xs text-default-500">
-                                              {bulk.bulk_unit ? `${bulk.unit_value} ${bulk.unit} (${bulk.bulk_unit})` : `${bulk.unit_value} ${bulk.unit}`}
-                                            </span>
-                                          </div>
-                                        </Checkbox>
+                                                return {
+                                                  ...prev,
+                                                  inventory_item_bulk_uuids: newBulkUuids
+                                                };
+                                              });
+                                            }}
+                                            isDisabled={formData.status !== "PENDING" || !(user === null || user.is_admin)}
+                                          >
+
+                                          </Checkbox>
+                                        </div>
+                                      )}
+                                      <div className="flex flex-col ml-2">
+                                        <span className="font-medium">{bulk.name || `Bulk ${index + 1}`}</span>
+                                        <span className="text-xs text-default-500">
+                                          {bulk.bulk_unit ? `${bulk.unit_value} ${bulk.unit} (${bulk.bulk_unit})` : `${bulk.unit_value} ${bulk.unit}`}
+                                        </span>
+                                      </div>
                                       </div>
 
                                       {selectedBulks.includes(bulk.uuid) && (
@@ -2086,15 +2104,17 @@ export default function DeliveryPage() {
                                           >
                                             {locationCodes[selectedBulks.indexOf(bulk.uuid)] || "No location"}
                                           </Chip>
-                                          <Button
-                                            size="sm"
-                                            color="primary"
-                                            variant="flat"
-                                            onPress={() => handleAssignLocation(selectedBulks.indexOf(bulk.uuid))}
-                                            isDisabled={isWarehouseNotSet() || isFloorConfigNotSet() || !user.is_admin}
-                                          >
-                                            {locationCodes[selectedBulks.indexOf(bulk.uuid)] ? "Change Location" : "Assign Location"}
-                                          </Button>
+                                          {isDeliveryProcessing() && (
+                                            <Button
+                                              size="sm"
+                                              color="primary"
+                                              variant="flat"
+                                              onPress={() => handleAssignLocation(selectedBulks.indexOf(bulk.uuid))}
+                                              isDisabled={isWarehouseNotSet() || isFloorConfigNotSet() || !user.is_admin}
+                                            >
+                                              {locationCodes[selectedBulks.indexOf(bulk.uuid)] ? "Change Location" : "Assign Location"}
+                                            </Button>)
+                                          }
                                         </div>
                                       )}
                                     </div>

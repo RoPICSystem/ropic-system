@@ -12,14 +12,21 @@ import {
   ModalFooter,
   ModalHeader,
   Skeleton,
-  Select,
-  SelectItem,
   Spinner,
   Textarea,
   Autocomplete,
-  AutocompleteItem
+  AutocompleteItem,
+  Accordion,
+  AccordionItem,
+  useDisclosure,
+  Tooltip,
+  Card,
+  CardBody,
+  CardHeader,
+  CardFooter,
+  NumberInput
 } from "@heroui/react";
-import { Icon } from "@iconify-icon/react";
+import { Icon } from "@iconify/react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useRouter, useSearchParams } from "next/navigation";
 import { QRCodeCanvas } from "qrcode.react";
@@ -27,7 +34,7 @@ import React, { lazy, memo, Suspense, useEffect, useState } from "react";
 import { format } from "date-fns";
 
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { materialDark, materialLight } from 'react-syntax-highlighter/dist/cjs/styles/prism';
+import { materialLight } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 
 // Import server actions
 import CardList from "@/components/card-list";
@@ -37,7 +44,11 @@ import {
   getWarehouseInventoryItem,
   getWarehouseItemByInventory,
   getWarehouses,
+  getWarehouseInventoryItemBulks,
+  getWarehouseInventoryItemUnits,
   WarehouseInventoryItem,
+  WarehouseInventoryItemBulk,
+  WarehouseInventoryItemUnit
 } from "./actions";
 
 // Lazy load 3D shelf selector
@@ -53,6 +64,8 @@ export default function WarehouseItemsPage() {
   const [user, setUser] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingItems, setIsLoadingItems] = useState(true);
+  const [isLoadingBulks, setIsLoadingBulks] = useState(false);
+  const [isLoadingUnits, setIsLoadingUnits] = useState(false);
 
   // Warehouse items state
   const [warehouseItems, setWarehouseItems] = useState<WarehouseInventoryItem[]>([]);
@@ -61,9 +74,17 @@ export default function WarehouseItemsPage() {
   const [selectedWarehouse, setSelectedWarehouse] = useState<string | null>(null);
   const [warehouses, setWarehouses] = useState<any[]>([]);
 
-  // Add state for QR code modal
-  const [showQrCode, setShowQrCode] = useState(false);
-  const [showLocationModal, setShowLocationModal] = useState(false);
+  // Bulks and units state
+  const [itemBulks, setItemBulks] = useState<WarehouseInventoryItemBulk[]>([]);
+  const [itemUnits, setItemUnits] = useState<WarehouseInventoryItemUnit[]>([]);
+  
+  // Expanded accordion state
+  const [expandedBulks, setExpandedBulks] = useState<Set<string>>(new Set());
+  const [expandedUnits, setExpandedUnits] = useState<Set<string>>(new Set());
+
+  // QR code modal state
+  const qrCodeModal = useDisclosure();
+  const locationModal = useDisclosure();
 
   // Form state
   const [formData, setFormData] = useState<Partial<WarehouseInventoryItem>>({});
@@ -72,33 +93,23 @@ export default function WarehouseItemsPage() {
   const inputStyle = {
     inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
   };
+  const autoCompleteStyle = { classNames: inputStyle };
 
   // Generate item JSON for QR code
   const generateItemJson = (space: number = 0) => {
     if (!selectedItemId || !formData) return "{}";
 
     // Create a clean object with essential properties
-    const itemData = {
+    const data = {
+      type: "warehouse_item",
       uuid: formData.uuid,
-      item_code: formData.item_code,
-      item_name: formData.item_name,
-      location_code: formData.location_code,
-      warehouse: formData.warehouse?.name,
       inventory_uuid: formData.inventory_uuid,
-      delivery_uuid: formData.delivery_uuid,
-      inventory_item: formData.inventory_item ? {
-        item_code: formData.inventory_item.item_code,
-        item_name: formData.inventory_item.item_name,
-        description: formData.inventory_item.description,
-        quantity: formData.inventory_item.quantity,
-        unit: formData.inventory_item.unit,
-        unit_value: formData.inventory_item.unit_value,
-        bulk_quantity: formData.inventory_item.bulk_quantity,
-        bulk_unit: formData.inventory_item.bulk_unit,
-      } : null
+      name: formData.name,
+      warehouse_uuid: formData.warehouse_uuid,
+      timestamp: new Date().toISOString()
     };
 
-    return JSON.stringify(itemData, null, space);
+    return JSON.stringify(data, null, space);
   };
 
   // Handle item search
@@ -139,6 +150,7 @@ export default function WarehouseItemsPage() {
 
   // In handleSelectItem function, just update the URL
   const handleSelectItem = (key: string) => {
+    setSelectedItemId(key);
     // Update the URL with the selected item ID without reloading the page
     const params = new URLSearchParams(searchParams.toString());
     params.set("warehouseItemId", key);
@@ -166,6 +178,50 @@ export default function WarehouseItemsPage() {
     }
   };
 
+  // Function to load bulks for an item
+  const loadItemBulks = async (itemId: string) => {
+    setIsLoadingBulks(true);
+    try {
+      const result = await getWarehouseInventoryItemBulks(itemId);
+      if (result.success) {
+        setItemBulks(result.data || []);
+        // Pre-select the first bulk to show units
+        if (result.data?.length > 0) {
+          setExpandedBulks(new Set([result.data[0].uuid]));
+          await loadItemUnits(result.data[0].uuid);
+        }
+      } else {
+        setItemBulks([]);
+      }
+    } catch (error) {
+      console.error("Error loading warehouse item bulks:", error);
+      setItemBulks([]);
+    } finally {
+      setIsLoadingBulks(false);
+    }
+  };
+
+  // Function to load units for a bulk
+  const loadItemUnits = async (bulkId: string) => {
+    setIsLoadingUnits(true);
+    try {
+      const result = await getWarehouseInventoryItemUnits(bulkId);
+      if (result.success) {
+        setItemUnits(result.data || []);
+        // If there are units, expand the first one
+        if (result.data?.length > 0) {
+          setExpandedUnits(new Set([result.data[0].uuid]));
+        }
+      } else {
+        setItemUnits([]);
+      }
+    } catch (error) {
+      console.error("Error loading warehouse item units:", error);
+      setItemUnits([]);
+    } finally {
+      setIsLoadingUnits(false);
+    }
+  };
 
   // Add or update useEffect to watch for changes in search parameters
   useEffect(() => {
@@ -182,6 +238,9 @@ export default function WarehouseItemsPage() {
         if (result.success && result.data) {
           setSelectedItemId(warehouseItemId);
           setFormData(result.data);
+          
+          // Load bulks for this item
+          await loadItemBulks(warehouseItemId);
         }
       } else if (inventoryItemId) {
         // Get warehouse item by inventory UUID
@@ -189,6 +248,9 @@ export default function WarehouseItemsPage() {
         if (result.success && result.data) {
           setSelectedItemId(result.data.uuid);
           setFormData(result.data);
+          
+          // Load bulks for this item
+          await loadItemBulks(result.data.uuid);
 
           // Update URL to use warehouseItemId for consistency
           const params = new URLSearchParams(searchParams.toString());
@@ -199,11 +261,15 @@ export default function WarehouseItemsPage() {
           // If no warehouse item found for this inventory, clear selection
           setSelectedItemId(null);
           setFormData({});
+          setItemBulks([]);
+          setItemUnits([]);
         }
       } else {
         // No item selected
         setSelectedItemId(null);
         setFormData({});
+        setItemBulks([]);
+        setItemUnits([]);
       }
     };
 
@@ -215,7 +281,7 @@ export default function WarehouseItemsPage() {
     const initPage = async () => {
       try {
         setUser(window.userData);
-
+        
         // Fetch warehouse items
         const itemsResult = await getWarehouseInventoryItems(window.userData.company_uuid);
         setWarehouseItems(itemsResult.data || []);
@@ -260,6 +326,15 @@ export default function WarehouseItemsPage() {
             searchQuery
           );
           setWarehouseItems(refreshedItems.data || []);
+          
+          // If we have a selected item, refresh its details including bulks and units
+          if (selectedItemId) {
+            const refreshedItem = await getWarehouseInventoryItem(selectedItemId);
+            if (refreshedItem.success && refreshedItem.data) {
+              setFormData(refreshedItem.data);
+              await loadItemBulks(selectedItemId);
+            }
+          }
         }
       )
       .subscribe();
@@ -268,7 +343,7 @@ export default function WarehouseItemsPage() {
     return () => {
       supabase.removeChannel(warehouseInventoryChannel);
     };
-  }, [user?.company_uuid, searchQuery, selectedWarehouse]);
+  }, [user?.company_uuid, searchQuery, selectedWarehouse, selectedItemId]);
 
   return (
     <div className="container mx-auto p-2 max-w-4xl">
@@ -294,11 +369,11 @@ export default function WarehouseItemsPage() {
               <Button
                 color="primary"
                 variant="shadow"
+                onPress={() => qrCodeModal.onOpen()}
+                isDisabled={!selectedItemId}
               >
-                <div className="flex items-center gap-2">
-                  <Icon icon="mdi:qrcode" />
-                  <span>Find using item QR</span>
-                </div>
+                <Icon icon="mdi:qrcode" className="mr-2" />
+                Generate QR Code
               </Button>
             </>
           )}
@@ -329,17 +404,16 @@ export default function WarehouseItemsPage() {
                     isClearable
                     onClear={() => handleSearch("")}
                     startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
-
                   />
 
                   <Autocomplete
-                    name="unit"
+                    name="warehouse_uuid"
                     label="Filter by Warehouse"
                     placeholder="All Warehouses"
                     selectedKey={selectedWarehouse || ""}
                     onSelectionChange={(e) => handleWarehouseChange(`${e}` || null)}
-                    startContent={<Icon icon="mdi:warehouse" className="text-default-500 pb-[0.1rem]" />}
-                    inputProps={{ classNames: inputStyle }}
+                    startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
+                    inputProps={autoCompleteStyle}
                   >
                     {[
                       (<AutocompleteItem key="">All Warehouses</AutocompleteItem>),
@@ -349,7 +423,6 @@ export default function WarehouseItemsPage() {
                         </AutocompleteItem>
                       ))]}
                   </Autocomplete>
-
                 </div>
               )}
             </div>
@@ -379,11 +452,17 @@ export default function WarehouseItemsPage() {
                       <div className="w-full flex flex-col h-full">
                         <div className="flex-grow flex flex-col justify-center px-3">
                           <div className="flex items-center justify-between">
-                            <span className="font-semibold">{item.item_name}</span>
-                            <Chip color="default" variant={selectedItemId === item.uuid ? "shadow" : "flat"} size="sm">{item.location_code}</Chip>
+                            <span className="font-semibold">
+                              {item.name}
+                            </span>
+                            <Chip color="default" variant={selectedItemId === item.uuid ? "shadow" : "flat"} size="sm">
+                              {typeof item.warehouse_inventory_item_bulks === 'object' 
+                                ? Object.keys(item.warehouse_inventory_item_bulks).length 
+                                : 0} bulk(s)
+                            </Chip>
                           </div>
-                          <div className={`w-full mt-1 text-sm ${selectedItemId === item.uuid ? 'text-default-800 ' : 'text-default-600'} text-start`}>
-                            {item.warehouse?.name}
+                          <div className={`w-full mt-1 text-sm ${selectedItemId === item.uuid ? 'text-default-800 ' : 'text-default-600'} text-start text-ellipsis overflow-hidden whitespace-nowrap`}>
+                            {warehouses.find(w => w.uuid === item.warehouse_uuid)?.name || 'Unknown Warehouse'}
                           </div>
                         </div>
 
@@ -393,15 +472,7 @@ export default function WarehouseItemsPage() {
                             {item.status}
                           </Chip>
                           <Chip color="secondary" variant={selectedItemId === item.uuid ? "shadow" : "flat"} size="sm">
-                            {(() => {
-                              const deliveryDate = new Date(item.created_at || "");
-                              const currentYear = new Date().getFullYear();
-                              const deliveryYear = deliveryDate.getFullYear();
-
-                              return deliveryYear < currentYear
-                                ? format(deliveryDate, "MMM d, ''yy") // Shows year for past years
-                                : format(deliveryDate, "MMM d");      // Current year format
-                            })()}
+                            {format(new Date(item.created_at || ""), "MMM d, yyyy")}
                           </Chip>
                         </div>
                       </div>
@@ -425,305 +496,371 @@ export default function WarehouseItemsPage() {
         {/* Right side: Item Details */}
         <div className="xl:w-2/3">
           {selectedItemId ? (
-            <Form id="warehouseItemForm" className="items-stretch">
-              <CardList>
-                <div>
-                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Item Information</h2>
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {!user || !selectedItemId ? (
-                        <>
-                          <Skeleton className="h-16 w-full rounded-xl" />
-                          <Skeleton className="h-16 w-full rounded-xl" />
-                        </>
-                      ) : (
-                        <>
-                          <Input
-                            label="Item Code"
-                            value={formData.item_code || ""}
-                            isReadOnly
-                            classNames={inputStyle}
-                            startContent={<Icon icon="mdi:barcode" className="text-default-500 pb-[0.1rem]" />}
-                          />
-
-                          <Input
-                            label="Item Name"
-                            value={formData.item_name || ""}
-                            isReadOnly
-                            classNames={inputStyle}
-                            startContent={<Icon icon="mdi:package-variant" className="text-default-500 pb-[0.1rem]" />}
-                          />
-                        </>
-                      )}
-                    </div>
-
-                    {!user || !selectedItemId ? (
-                      <Skeleton className="h-16 w-full rounded-xl" />
-                    ) : formData.inventory_item?.description ? (
-                      <Textarea
-                        label="Description"
-                        value={formData.inventory_item?.description || ""}
+            <CardList>
+              <div>
+                <h2 className="text-xl font-semibold mb-4 w-full text-center">Item Details</h2>
+                <div className="space-y-4">
+                  {isLoading ? (
+                    <>
+                      <div className="space-y-2">
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                      </div>
+                      <div className="space-y-2">
+                        <Skeleton className="h-24 w-full rounded-xl" />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <Input
+                        label="Name"
+                        value={formData.name || ""}
                         isReadOnly
                         classNames={inputStyle}
-                        startContent={<Icon icon="mdi:text" className="text-default-500 pb-[0.1rem]" />}
+                        startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
                       />
-                    ) : null}
-                  </div>
-                </div>
 
-                <div>
-                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Inventory Details</h2>
-                  <div className="space-y-4">
-                    {!user || !selectedItemId ? (
-                      <>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <Skeleton className="h-16 w-full rounded-xl" />
-                          <Skeleton className="h-16 w-full rounded-xl" />
-                          <Skeleton className="h-16 w-full rounded-xl" />
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <Skeleton className="h-16 w-full rounded-xl" />
-                          <Skeleton className="h-16 w-full rounded-xl" />
-                          <Skeleton className="h-16 w-full rounded-xl" />
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <Input
-                            label="Quantity per Unit"
-                            value={`${formData.inventory_item?.quantity || ""} pcs`}
-                            isReadOnly
-                            classNames={inputStyle}
-                            startContent={<Icon icon="mdi:numeric" className="text-default-500 pb-[0.1rem]" />}
-                          />
-
-                          <Input
-                            label="Bulk Quantity"
-                            value={`${formData.inventory_item?.bulk_quantity || ""} ${formData.inventory_item?.bulk_unit || ""}`}
-                            isReadOnly
-                            classNames={inputStyle}
-                            startContent={<Icon icon="mdi:package-variant" className="text-default-500 pb-[0.1rem]" />}
-                          />
-
-                          <Input
-                            label="Total Units"
-                            value={(formData.inventory_item?.quantity || 0) * (formData.inventory_item?.bulk_quantity || 0) + " " + (formData.inventory_item?.unit || "")}
-                            isReadOnly
-                            classNames={inputStyle}
-                            startContent={<Icon icon="mdi:calculator" className="text-default-500 pb-[0.1rem]" />}
-                          />
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <Input
-                            label="Unit Cost"
-                            value={`₱${formData.inventory_item?.ending_inventory?.toFixed(2) || ""}`}
-                            isReadOnly
-                            classNames={inputStyle}
-                            startContent={<Icon icon="mdi:currency-php" className="text-default-500 pb-[0.1rem]" />}
-                          />
-
-                          <Input
-                            label="Bulk Cost"
-                            value={`₱${formData.inventory_item?.bulk_ending_inventory?.toFixed(2) || ""}`}
-                            isReadOnly
-                            classNames={inputStyle}
-                            startContent={<Icon icon="mdi:currency-php" className="text-default-500 pb-[0.1rem]" />}
-                          />
-
-                          <Input
-                            label="Total Cost"
-                            value={`₱${formData.inventory_item?.total_cost?.toFixed(2) || ""}`}
-                            isReadOnly
-                            classNames={inputStyle}
-                            startContent={<Icon icon="mdi:currency-php" className="text-default-500 pb-[0.1rem]" />}
-                          />
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouse Location</h2>
-                  <div className="space-y-4">
-                    {!user || !selectedItemId ? (
-                      <>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <Skeleton className="h-16 w-full rounded-xl" />
-                          <Skeleton className="h-16 w-full rounded-xl" />
-                        </div>
-                        <Skeleton className="h-16 w-full rounded-xl" />
-                      </>
-                    ) : (
-                      <>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <Input
-                            label="Warehouse"
-                            value={formData.warehouse?.name || ""}
-                            isReadOnly
-                            classNames={inputStyle}
-                            startContent={<Icon icon="mdi:warehouse" className="text-default-500 pb-[0.1rem]" />}
-                          />
-
-                          <Input
-                            label="Status"
-                            value={formData.status || ""}
-                            isReadOnly
-                            classNames={inputStyle}
-                            startContent={<Icon icon="mdi:tag" className="text-default-500 pb-[0.1rem]" />}
-                          />
-                        </div>
-
-                        <div className="flex flex-row">
-
-                          <Input
-                            name="location.floor"
-                            classNames={{
-                              inputWrapper: `${inputStyle.inputWrapper} rounded-none rounded-l-xl border-r-1`
-                            }}
-                            label="Floor"
-                            placeholder="e.g. 1"
-                            value={formData.location?.floor !== null ? formData.location.floor + 1 : 0}
-                            startContent={
-                              <Icon icon="lucide-lab:floor-plan"
-                                className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
-                            }
-                          />
-
-                          <Input
-                            name="location.group"
-                            classNames={{
-                              inputWrapper: `${inputStyle.inputWrapper} rounded-none border-x-1`
-                            }}
-                            label="Group"
-                            // Display group as 1-indexed but store as 0-indexed
-                            value={formData.location?.group !== null ? formData.location.group + 1 : 0}
-                            startContent={
-                              <Icon icon="heroicons:rectangle-group-16-solid"
-                                className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
-                            }
-                          />
-                          <Input
-                            name="location.row"
-                            classNames={{
-                              inputWrapper: `${inputStyle.inputWrapper} rounded-none border-x-1`
-                            }}
-                            label="Row"
-                            value={formData.location?.row !== null ? formData.location.row + 1 : 0}
-                            startContent={
-                              <Icon icon="fluent:row-triple-20-filled"
-                                className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
-                            }
-                          />
-
-
-                          <Input
-                            name="location.column"
-                            classNames={{
-                              inputWrapper: `${inputStyle.inputWrapper} rounded-none border-x-1`
-                            }}
-                            label="Column"
-                            value={formData.location?.column !== null ? formData.location.column + 1 : 0}
-                            startContent={
-                              <Icon icon="fluent:column-triple-20-filled"
-                                className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
-                            }
-                          />
-
-                          <Input
-                            name="location.depth"
-                            classNames={{
-                              inputWrapper: `${inputStyle.inputWrapper} rounded-none rounded-r-xl border-l-1`
-                            }}
-                            label="Depth"
-                            value={formData.location?.depth !== null ? formData.location.depth + 1 : 0}
-                            startContent={
-                              <Icon icon="fluent:box-48-regular"
-                                className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
-                            }
-                          />
-                        </div>
-
-                        <Input
-                          label="Location Code"
-                          value={formData.location_code || ""}
+                      {formData.description && (
+                        <Textarea
+                          label="Description"
+                          value={formData.description || ""}
                           isReadOnly
                           classNames={inputStyle}
-                          startContent={<Icon icon="mdi:map-marker" className="text-default-500 pb-[0.1rem]" />}
+                          startContent={<Icon icon="mdi:text-box" className="text-default-500 mb-[0.2rem]" />}
                         />
-                      </>
-                    )}
-                  </div>
-                </div>
-              </CardList>
+                      )}
 
-              <CardList>
-                {user && user.is_admin && (
-                  <div className="flex items-center justify-between h-full w-full">
-                    <span>View warehouse information</span>
-                    <Button
-                      variant="shadow"
-                      color="primary"
-                      onPress={handleViewWarehouse}
-                      className="my-1">
-                      <Icon icon="mdi:chevron-right" width={16} height={16} />
-                    </Button>
-                  </div>
-                )}
-                {user && user.is_admin && (
-                  <div className="flex items-center justify-between h-full w-full">
-                    <span>View inventory info</span>
-                    <Button
-                      variant="shadow"
-                      color="primary"
-                      onPress={handleViewInventory}
-                      className="my-1">
-                      <Icon icon="mdi:chevron-right" width={16} height={16} />
-                    </Button>
-                  </div>
-                )}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <Input
+                          label="Status"
+                          value={formData.status || ""}
+                          isReadOnly
+                          classNames={inputStyle}
+                          startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
+                        />
 
-                <div className="flex items-center justify-between h-full w-full">
-                  <span>View delivery info</span>
-                  <Button
-                    variant="shadow"
-                    color="primary"
-                    onPress={handleViewDelivery}
-                    className="my-1">
-                    <Icon icon="mdi:chevron-right" width={16} height={16} />
-                  </Button>
+                        <Input
+                          label="Warehouse"
+                          value={warehouses.find(w => w.uuid === formData.warehouse_uuid)?.name || ""}
+                          isReadOnly
+                          classNames={inputStyle}
+                          startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <Input
+                          label="Created"
+                          value={formData.created_at ? format(new Date(formData.created_at), "MMM d, yyyy") : ""}
+                          isReadOnly
+                          classNames={inputStyle}
+                          startContent={<Icon icon="mdi:calendar" className="text-default-500 mb-[0.2rem]" />}
+                        />
+
+                        <Input
+                          label="Last Updated"
+                          value={formData.updated_at ? format(new Date(formData.updated_at), "MMM d, yyyy") : ""}
+                          isReadOnly
+                          classNames={inputStyle}
+                          startContent={<Icon icon="mdi:calendar-clock" className="text-default-500 mb-[0.2rem]" />}
+                        />
+                      </div>
+                    </>
+                  )}
                 </div>
-                <div className="w-full flex gap-2 flex-row">
-                  <Button
-                    color="primary"
-                    variant="shadow"
-                    className="flex-1 basis-0"
-                    onPress={() => setShowLocationModal(true)}
-                    isDisabled={!selectedItemId}
-                  >
+              </div>
+
+              <div>
+                <h2 className="text-xl font-semibold mb-4 w-full text-center">Bulk Items</h2>
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center mb-4">
                     <div className="flex items-center gap-2">
-                      <Icon icon="mdi:map-marker" />
-                      <span>View Location</span>
+                      {isLoadingBulks ? (
+                        <>
+                          <Skeleton className="h-6 w-20 rounded-xl" />
+                        </>
+                      ) : (
+                        <Chip color="default" variant="flat" size="sm">
+                          {itemBulks.length} bulk{itemBulks.length !== 1 ? "s" : ""}
+                        </Chip>
+                      )}
                     </div>
+                  </div>
+
+                  <AnimatePresence>
+                    {isLoadingBulks ? (
+                      <motion.div {...motionTransition}>
+                        <div className="space-y-4">
+                          <div className="p-4 border-2 border-default-200 rounded-xl space-y-4">
+                            <div className="flex justify-between">
+                              <Skeleton className="h-6 w-40 rounded-lg" />
+                              <Skeleton className="h-6 w-24 rounded-lg" />
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <Skeleton className="h-16 w-full rounded-xl" />
+                              <Skeleton className="h-16 w-full rounded-xl" />
+                              <Skeleton className="h-16 w-full rounded-xl" />
+                              <Skeleton className="h-16 w-full rounded-xl" />
+                            </div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    ) : itemBulks.length === 0 ? (
+                      <motion.div {...motionTransition}>
+                        <div className="py-8 h-48 text-center text-default-500 border border-dashed border-default-300 rounded-lg justify-center flex flex-col items-center">
+                          <Icon icon="mdi:package-variant-closed" className="mx-auto mb-2 opacity-50" width={40} height={40} />
+                          <p>No bulk items available for this warehouse item</p>
+                        </div>
+                      </motion.div>
+                    ) : null}
+                  </AnimatePresence>
+
+                  <AnimatePresence>
+                    {!isLoadingBulks && itemBulks.length > 0 && (
+                      <motion.div {...motionTransition}>
+                        <Accordion
+                          selectionMode="multiple"
+                          variant="splitted"
+                          selectedKeys={expandedBulks}
+                          onSelectionChange={(keys) => {
+                            setExpandedBulks(keys as Set<string>);
+                            // Load units when a bulk is expanded
+                            const newKeys = Array.from(keys as Set<string>);
+                            if (newKeys.length > 0 && !Array.from(expandedBulks).includes(newKeys[0])) {
+                              loadItemUnits(newKeys[0]);
+                            }
+                          }}
+                          itemClasses={{
+                            base: "p-0 w-full bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
+                            title: "font-normal text-lg font-semibold",
+                            trigger: "p-4 data-[hover=true]:bg-default-100 h-14 flex items-center transition-colors",
+                            indicator: "text-medium",
+                            content: "text-small p-0",
+                          }}
+                          className="w-full p-0 overflow-hidden"
+                        >
+                          {itemBulks.map(bulk => (
+                            <AccordionItem
+                              key={bulk.uuid}
+                              title={
+                                <div className="flex justify-between items-center w-full">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium">
+                                      {bulk.is_single_item ? "Single Item" : `Bulk ${bulk.bulk_unit || ''}`}
+                                    </span>
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <Chip color="primary" variant="flat" size="sm">
+                                      {bulk.unit_value} {bulk.unit}
+                                    </Chip>
+                                    {bulk.location_codes && (
+                                      <Chip color="success" variant="flat" size="sm">
+                                        {bulk.location_codes}
+                                      </Chip>
+                                    )}
+                                    {bulk.is_single_item && (
+                                      <Chip color="success" variant="flat" size="sm">
+                                        Single Item
+                                      </Chip>
+                                    )}
+                                  </div>
+                                </div>
+                              }
+                            >
+                              <div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pb-0">
+                                  <Input
+                                    label="Unit"
+                                    value={`${bulk.unit_value} ${bulk.unit}`}
+                                    isReadOnly
+                                    classNames={inputStyle}
+                                    startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.2rem]" />}
+                                  />
+
+                                  <Input
+                                    label="Bulk Unit"
+                                    value={bulk.bulk_unit || "N/A"}
+                                    isReadOnly
+                                    classNames={inputStyle}
+                                    startContent={<Icon icon="mdi:cube-outline" className="text-default-500 mb-[0.2rem]" />}
+                                  />
+
+                                  <NumberInput
+                                    label="Cost"
+                                    value={bulk.cost}
+                                    isReadOnly
+                                    classNames={inputStyle}
+                                    startContent={<Icon icon="mdi:currency-php" className="text-default-500 mb-[0.2rem]" />}
+                                  />
+
+                                  <Input
+                                    label="Location"
+                                    value={bulk.location_codes || "Not assigned"}
+                                    isReadOnly
+                                    classNames={inputStyle}
+                                    startContent={<Icon icon="mdi:map-marker" className="text-default-500 mb-[0.2rem]" />}
+                                  />
+                                </div>
+
+                                <div className="p-4 pb-0">
+                                  {/* Show 3D location button if location exists */}
+                                  {bulk.locations && bulk.locations.length > 0 && (
+                                    <div className="flex justify-end mb-4">
+                                      <Button
+                                        color="secondary"
+                                        variant="flat"
+                                        onPress={() => locationModal.onOpen()}
+                                        startContent={<Icon icon="mdi:view-in-ar" />}
+                                      >
+                                        View 3D Location
+                                      </Button>
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="overflow-hidden px-4 pb-4">
+                                  <div className="space-y-4 border-2 border-default-200 rounded-xl p-4">
+                                    <div className="flex justify-between items-center">
+                                      <h3 className="text-lg font-semibold">Units in this Bulk</h3>
+                                    </div>
+
+                                    <AnimatePresence>
+                                      {isLoadingUnits ? (
+                                        <motion.div {...motionTransition}>
+                                          <div className="flex items-center justify-center p-4">
+                                            <Spinner size="sm" />
+                                            <span className="ml-2">Loading units...</span>
+                                          </div>
+                                        </motion.div>
+                                      ) : itemUnits.length === 0 ? (
+                                        <motion.div {...motionTransition}>
+                                          <div className="py-4 h-48 text-center text-default-500 border border-dashed border-default-200 rounded-lg justify-center flex flex-col items-center">
+                                            <Icon icon="mdi:cube-outline" className="mx-auto mb-2 opacity-50" width={40} height={40} />
+                                            <p className="text-sm">No units available for this bulk</p>
+                                          </div>
+                                        </motion.div>
+                                      ) : (
+                                        <motion.div {...motionTransition}>
+                                          <Accordion
+                                            selectionMode="multiple"
+                                            variant="splitted"
+                                            selectedKeys={expandedUnits}
+                                            onSelectionChange={(keys) => setExpandedUnits(keys as Set<string>)}
+                                            itemClasses={{
+                                              base: "p-0 w-full bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
+                                              title: "font-normal text-lg font-semibold",
+                                              trigger: "p-4 data-[hover=true]:bg-default-100 h-14 flex items-center transition-colors",
+                                              indicator: "text-medium",
+                                              content: "text-small p-0",
+                                            }}
+                                            className="w-full p-0 overflow-hidden"
+                                          >
+                                            {itemUnits.map(unit => (
+                                              <AccordionItem
+                                                key={unit.uuid}
+                                                title={
+                                                  <div className="flex justify-between items-center w-full">
+                                                    <div className="flex items-center gap-2">
+                                                      <span>
+                                                        {unit.name || `Unit ${unit.code}`}
+                                                      </span>
+                                                    </div>
+                                                    <Chip size="sm" color="primary" variant="flat">
+                                                      {unit.unit_value} {unit.unit}
+                                                    </Chip>
+                                                  </div>
+                                                }
+                                              >
+                                                <div className="space-y-4">
+                                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4">
+                                                    <Input
+                                                      label="Item Code"
+                                                      value={unit.code || ""}
+                                                      isReadOnly
+                                                      classNames={inputStyle}
+                                                      startContent={<Icon icon="mdi:barcode" className="text-default-500 mb-[0.2rem]" />}
+                                                    />
+
+                                                    <Input
+                                                      label="Item Name"
+                                                      value={unit.name || ""}
+                                                      isReadOnly
+                                                      classNames={inputStyle}
+                                                      startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
+                                                    />
+
+                                                    <Input
+                                                      label="Unit"
+                                                      value={`${unit.unit_value} ${unit.unit}`}
+                                                      isReadOnly
+                                                      classNames={inputStyle}
+                                                      startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.2rem]" />}
+                                                    />
+
+                                                    <NumberInput
+                                                      label="Cost"
+                                                      value={unit.cost}
+                                                      isReadOnly
+                                                      classNames={inputStyle}
+                                                      startContent={<Icon icon="mdi:currency-php" className="text-default-500 mb-[0.2rem]" />}
+                                                    />
+                                                  </div>
+                                                </div>
+                                              </AccordionItem>
+                                            ))}
+                                          </Accordion>
+                                        </motion.div>
+                                      )}
+                                    </AnimatePresence>
+                                  </div>
+                                </div>
+                              </div>
+                            </AccordionItem>
+                          ))}
+                        </Accordion>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
+
+              <motion.div {...motionTransition}>
+                <div className="flex flex-col md:flex-row justify-center items-center gap-4">
+                  <Button
+                    color="primary"
+                    variant="shadow"
+                    className="w-full"
+                    onPress={handleViewInventory}
+                    isDisabled={!formData.inventory_uuid}
+                    startContent={<Icon icon="mdi:archive-outline" />}
+                  >
+                    View Inventory Item
                   </Button>
 
                   <Button
                     color="secondary"
                     variant="shadow"
-                    className="flex-1 basis-0"
-                    onPress={() => setShowQrCode(true)}
-                    isDisabled={!selectedItemId}
+                    className="w-full"
+                    onPress={handleViewWarehouse}
+                    isDisabled={!formData.warehouse_uuid}
+                    startContent={<Icon icon="mdi:warehouse" />}
                   >
-                    <div className="flex items-center gap-2">
-                      <Icon icon="mdi:qrcode" />
-                      <span>Show QR Code</span>
-                    </div>
+                    View Warehouse
                   </Button>
+
+                  {formData.delivery_uuid && (
+                    <Button
+                      color="warning"
+                      variant="shadow"
+                      className="w-full"
+                      onPress={handleViewDelivery}
+                      startContent={<Icon icon="mdi:truck-delivery" />}
+                    >
+                      View Delivery
+                    </Button>
+                  )}
                 </div>
-              </CardList>
-            </Form>
+              </motion.div>
+            </CardList>
           ) : (
             <div className="flex flex-col items-center justify-center p-12 border border-dashed border-default-300 rounded-2xl bg-background">
               <Icon icon="mdi:package-variant" className="text-default-300" width={64} height={64} />
@@ -735,143 +872,108 @@ export default function WarehouseItemsPage() {
                 color="primary"
                 variant="shadow"
                 className="mb-4"
+                onPress={() => {
+                  if (warehouseItems.length > 0) {
+                    handleSelectItem(warehouseItems[0].uuid);
+                  }
+                }}
+                isDisabled={warehouseItems.length === 0}
               >
                 <Icon icon="mdi:qrcode-scan" className="mr-2" />
                 Find Item
               </Button>
             </div>
-
           )}
-
         </div>
       </div>
 
       {/* Modal for QR Code */}
-      <Modal
-        isOpen={showQrCode}
-        onClose={() => setShowQrCode(false)}
-        placement="auto"
-        backdrop="blur"
-        size="lg"
-        classNames={{
-          backdrop: "bg-background/50"
-        }}
-      >
+      <Modal isOpen={qrCodeModal.isOpen} onClose={qrCodeModal.onClose} size="lg">
         <ModalContent>
           <ModalHeader>Item QR Code</ModalHeader>
-          <ModalBody className="flex flex-col items-center">
-            <div className="bg-white rounded-xl overflow-hidden">
-              <QRCodeCanvas
-                id="qrcode"
-                value={generateItemJson()}
-                size={320}
-                marginSize={4}
-                level="L"
-              />
-            </div>
-            <p className="text-center mt-4 text-default-600">
-              Scan this code to get warehouse item details
-            </p>
-            <div className="mt-4 w-full bg-default overflow-auto max-h-64 bg-default-50 rounded-xl">
-              <SyntaxHighlighter
-                language="json"
-                style={window.resolveTheme === 'dark' ? materialDark : materialLight}
-                customStyle={{
-                  margin: 0,
-                  borderRadius: '0.5rem',
-                  fontSize: '0.75rem',
-                }}
-              >
-                {generateItemJson(2)}
-              </SyntaxHighlighter>
+          <ModalBody>
+            <div className="flex flex-col items-center">
+              <div className="bg-white p-4 rounded-xl">
+                <QRCodeCanvas
+                  value={generateItemJson()}
+                  size={256}
+                  bgColor="#ffffff"
+                  fgColor="#000000"
+                  level="L"
+                  includeMargin={false}
+                />
+              </div>
+              <p className="text-center mt-4 text-default-600">
+                Scan this code to quickly access this warehouse item
+              </p>
+              <div className="mt-6 w-full">
+                <SyntaxHighlighter
+                  language="json"
+                  style={materialLight}
+                  customStyle={{ borderRadius: '0.5rem' }}
+                >
+                  {generateItemJson(2)}
+                </SyntaxHighlighter>
+              </div>
             </div>
           </ModalBody>
-          <ModalFooter className="flex justify-end p-4 gap-4">
-            <Button
-              color="default"
-              onPress={() => setShowQrCode(false)}
-            >
+          <ModalFooter>
+            <Button variant="flat" onPress={qrCodeModal.onClose}>
               Close
             </Button>
-            <Button
-              color="primary"
+            <Button 
+              color="primary" 
               variant="shadow"
               onPress={() => {
-                // save the QRCodeCanvas as an image
-                const canvas = document.getElementById('qrcode') as HTMLCanvasElement;
-                const pngUrl = canvas.toDataURL('image/png');
-                const downloadLink = document.createElement('a');
-                downloadLink.href = pngUrl;
-                if (!formData.item_code || !formData.item_name)
-                  downloadLink.download = `warehouse-item-${new Date().toISOString()}.png`;
-                else
-                  downloadLink.download = `${formData.item_name}-${formData.item_code}.png`;
-                document.body.appendChild(downloadLink);
-                downloadLink.click();
-                document.body.removeChild(downloadLink);
-                setShowQrCode(false);
+                // Create an image from the QR code and download it
+                const canvas = document.querySelector('canvas');
+                if (canvas) {
+                  const pngUrl = canvas.toDataURL('image/png');
+                  const downloadLink = document.createElement('a');
+                  downloadLink.href = pngUrl;
+                  downloadLink.download = `warehouse-item-${formData.uuid}.png`;
+                  document.body.appendChild(downloadLink);
+                  downloadLink.click();
+                  document.body.removeChild(downloadLink);
+                }
               }}
             >
-              <Icon icon="mdi:download" className="mr-1" />
-              Download
+              Download QR
             </Button>
           </ModalFooter>
         </ModalContent>
       </Modal>
 
       {/* Modal for 3D Location View */}
-      <Modal
-        isOpen={showLocationModal}
-        onClose={() => setShowLocationModal(false)}
-        placement="auto"
-        backdrop="blur"
-        size="5xl"
-        classNames={{
-          backdrop: "bg-background/50",
-          wrapper: 'overflow-hidden',
-        }}
-      >
+      {/* <Modal isOpen={locationModal.isOpen} onClose={locationModal.onClose} size="xl">
         <ModalContent>
-          <ModalHeader>Item Location in Warehouse</ModalHeader>
-          <ModalBody className="p-0">
-            <div className="h-[80vh] bg-primary-50 rounded-md overflow-hidden relative">
-              <Suspense fallback={
-                <div className="flex items-center justify-center h-full">
-                  <Spinner size="lg" color="primary" />
-                </div>
-              }>
-                {formData.location && (
+          <ModalHeader>3D Location View</ModalHeader>
+          <ModalBody>
+            <div className="h-[500px] w-full">
+              <Suspense fallback={<div className="flex items-center justify-center h-full"><Spinner size="lg" /></div>}>
+                {itemBulks.length > 0 && itemBulks[0].locations && (
                   <ShelfSelector3D
-                    floors={formData.warehouse?.warehouse_layout || []}
-                    onSelect={() => { }}
-                    occupiedLocations={[formData.location]}
-                    canSelectOccupiedLocations={false}
-                    className="w-full h-full"
-                    highlightedFloor={formData.location?.floor}
-                    externalSelection={formData.location}
-                    cameraOffsetY={-0.25}
+                    floorConfig={{
+                      floor: 1,
+                      matrix: Array(10).fill(Array(10).fill(2)), // Default matrix
+                      name: "Warehouse Floor"
+                    }}
+                    readOnly={true}
+                    preselectedLocations={itemBulks[0].locations}
+                    occupiedLocations={[]}
+                    onSelectionChange={() => {}}
                   />
                 )}
               </Suspense>
-
-              <div className="absolute bottom-4 left-4 bg-background/90 backdrop-blur-md p-4 rounded-xl border border-default-200 shadow-lg">
-                <h3 className="text-lg font-semibold mb-2">Location Details</h3>
-                <p><span className="font-semibold">Code:</span> {formData.location_code}</p>
-                <p><span className="font-semibold">Floor:</span> {formData.location?.floor}</p>
-                <p><span className="font-semibold">Group:</span> {formData.location?.group}</p>
-                <p><span className="font-semibold">Row:</span> {formData.location?.row}</p>
-                <p><span className="font-semibold">Column:</span> {formData.location?.column}</p>
-                <p><span className="font-semibold">Depth:</span> {formData.location?.depth || 0}</p>
-              </div>
             </div>
           </ModalBody>
           <ModalFooter>
-            <Button color="primary" onPress={() => setShowLocationModal(false)}>
+            <Button variant="flat" onPress={locationModal.onClose}>
               Close
             </Button>
           </ModalFooter>
         </ModalContent>
-      </Modal>
+      </Modal> */}
     </div>
   );
 }
