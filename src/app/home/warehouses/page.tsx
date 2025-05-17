@@ -657,10 +657,22 @@ export default function WarehousePage() {
                           )}
                           <div className={`flex items-center gap-2 mt-3 border-t ${selectedWarehouseId === warehouse.uuid ? 'border-primary-300' : 'border-default-100'
                             } px-4 pt-4`}>
-                            <Chip color="default" variant={selectedWarehouseId === warehouse.uuid ? "shadow" : "flat"} size="sm">
-                              <Icon icon="material-symbols:warehouse-rounded" className="mr-1" size={14} />
-                              {warehouse.warehouse_layout?.length ?? 0} floor{(warehouse.warehouse_layout?.length ?? 0) > 1 ? 's' : ''}
-                            </Chip>
+                            {(warehouse.warehouse_layout && warehouse.warehouse_layout.length > 0) ? (
+                              <>
+                                <Chip color="secondary" variant={selectedWarehouseId === warehouse.uuid ? "shadow" : "flat"} size="sm">
+                                  <Icon icon="material-symbols:warehouse-rounded" className="mr-1" size={14} />
+                                  {warehouse.warehouse_layout?.length ?? 0} floor{(warehouse.warehouse_layout?.length ?? 0) > 1 ? 's' : ''}
+                                </Chip>
+                                <Chip color="warning" variant={selectedWarehouseId === warehouse.uuid ? "shadow" : "flat"} size="sm">
+                                  {warehouse.warehouse_layout?.[0]?.matrix.length ?? 0} × {warehouse.warehouse_layout?.[0]?.matrix[0].length ?? 0}
+                                </Chip>
+                              </>
+                            ) : (
+                              <Chip color="danger" variant={selectedWarehouseId === warehouse.uuid ? "shadow" : "flat"} size="sm">
+                                <Icon icon="material-symbols:warehouse-rounded" className="mr-1" size={14} />
+                                No layout
+                              </Chip>
+                            )}
                           </div>
                         </div>
                       </div>

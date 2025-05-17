@@ -40,7 +40,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
       shelfHoverColor: herouiColor('primary-400', 'hex') as string,
       shelfSelectedColor: herouiColor('primary', 'hex') as string,
       occupiedShelfColor: herouiColor('danger', 'hex') as string,
+      secondaryShelfColor: herouiColor('secondary', 'hex') as string,
+      secondaryShelfSelectedColor: herouiColor('secondary-300', 'hex') as string,
+      tertiaryShelfColor: herouiColor('warning', 'hex') as string,
+      tertiaryShelfSelectedColor: herouiColor('warning-300', 'hex') as string,
       occupiedHoverShelfColor: herouiColor('danger-400', 'hex') as string,
+      
       textColor: herouiColor('text', 'hex') as string,
     };
   }

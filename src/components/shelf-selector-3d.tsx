@@ -32,6 +32,15 @@ export interface FloorConfig {
   matrix: number[][];
 }
 
+export interface ShelfSelectorColorAssignment {
+  floor: number;
+  group: number;
+  row: number;
+  column: number;
+  depth?: number;
+  colorType: 'primary' | 'secondary' | 'tertiary';
+}
+
 export interface ShelfSelectorProps {
   floors: FloorConfig[];
   onSelect: (location: ShelfLocation) => void;
@@ -67,6 +76,7 @@ export interface ShelfSelectorProps {
   textColor?: string;
 
   shelfSelectorColors?: ShelfSelectorColors;
+  shelfColorAssignments?: Array<ShelfSelectorColorAssignment>;
 }
 
 // Add this new component to ensure continuous rendering during animations
@@ -336,7 +346,12 @@ const ShelfInstance = memo(({
   shelfHoverColor,
   shelfSelectedColor,
   occupiedShelfColor,
-  occupiedHoverShelfColor
+  occupiedHoverShelfColor,
+  shelfType = 'primary', // New prop to determine which color set to use
+  secondaryShelfColor,
+  secondaryShelfHoverColor,
+  tertiaryShelfColor,
+  tertiaryShelfHoverColor
 }: {
   position: [number, number, number];
   size: [number, number, number];
@@ -352,6 +367,11 @@ const ShelfInstance = memo(({
   shelfSelectedColor: string;
   occupiedShelfColor: string;
   occupiedHoverShelfColor: string;
+  shelfType?: 'primary' | 'secondary' | 'tertiary';
+  secondaryShelfColor?: string;
+  secondaryShelfHoverColor?: string;
+  tertiaryShelfColor?: string;
+  tertiaryShelfHoverColor?: string;
 }) => {
   const meshRef = useRef<THREE.Mesh>(null);
   const { camera } = useThree();
@@ -388,14 +408,26 @@ const ShelfInstance = memo(({
     }
   });
 
-  // Update color determination to use occupiedHoverShelfColor when a shelf is both occupied and hovered
+
+  let baseColor = shelfColor;
+  let hoverColor = shelfHoverColor;
+
+  if (shelfType === 'secondary' && secondaryShelfColor) {
+    baseColor = secondaryShelfColor;
+    hoverColor = secondaryShelfHoverColor || secondaryShelfColor;
+  } else if (shelfType === 'tertiary' && tertiaryShelfColor) {
+    baseColor = tertiaryShelfColor;
+    hoverColor = tertiaryShelfHoverColor || tertiaryShelfColor;
+  }
+
+  // Update this code to use baseColor and hoverColor
   const color = isOccupied
     ? (isHovered ? occupiedHoverShelfColor : occupiedShelfColor)
     : isSelected
       ? shelfSelectedColor
       : isHovered
-        ? shelfHoverColor
-        : shelfColor;
+        ? hoverColor  // Changed from shelfHoverColor
+        : baseColor;  // Changed from shelfColor
 
   const emissiveColor = isSelected ? shelfSelectedColor : "#000000";
   const emissiveIntensity = isSelected ? 0.3 : 0;
@@ -451,7 +483,12 @@ const Group = memo(({
   shelfHoverColor,
   shelfSelectedColor,
   occupiedShelfColor,
-  occupiedHoverShelfColor
+  occupiedHoverShelfColor,
+  secondaryShelfColor,
+  secondaryShelfHoverColor,
+  tertiaryShelfColor,
+  tertiaryShelfHoverColor,
+  shelfColorAssignments,
 }: {
   position: [number, number, number];
   size: [number, number, number];
@@ -472,6 +509,18 @@ const Group = memo(({
   shelfSelectedColor: string;
   occupiedShelfColor: string;
   occupiedHoverShelfColor: string;
+  secondaryShelfColor?: string;
+  secondaryShelfHoverColor?: string;
+  tertiaryShelfColor?: string;
+  tertiaryShelfHoverColor?: string;
+  shelfColorAssignments?: Array<{
+    floor: number;
+    group: number;
+    row: number;
+    column: number;
+    depth?: number;
+    colorType: 'primary' | 'secondary' | 'tertiary';
+  }>;
 }) => {
   const [hoverCell, setHoverCell] = useState<[number, number, number] | null>(null);
   const groupRef = useRef<THREE.Group>(null);
@@ -564,6 +613,19 @@ const Group = memo(({
     }
   });
 
+  // Function to determine shelf type based on location
+  const getShelfType = useCallback((floorIndex: number, groupId: number, rowIndex: number, colIndex: number, depthIndex: number): 'primary' | 'secondary' | 'tertiary' => {
+    if (!shelfColorAssignments || shelfColorAssignments.length === 0) return 'primary';
+    
+    const assignment = shelfColorAssignments.find(a => 
+      a.floor === floorIndex && a.group === groupId && 
+      a.row === rowIndex && a.column === colIndex && 
+      (a.depth === undefined || a.depth === depthIndex)
+    );
+    
+    return assignment?.colorType || 'primary';
+  }, [shelfColorAssignments]);
+
   // Memoize event handlers
   const handlePointerOver = useCallback((e: any, rowIndex: number, colIndex: number, depthIndex: number) => {
     if (!isInteractionDisabled &&
@@ -616,6 +678,8 @@ const Group = memo(({
 
           const isOccupied = isLocationOccupied(floor, groupId, rowIndex, colIndex, depthIndex);
 
+          const shelfType = getShelfType(floor, groupId, rowIndex, colIndex, depthIndex);
+
           items.push({
             key: `${rowIndex}-${colIndex}-${depthIndex}`,
             position: [
@@ -629,14 +693,15 @@ const Group = memo(({
             isOccupied,
             rowIndex,
             colIndex,
-            depthIndex
+            depthIndex,
+            shelfType
           });
         }
       }
     }
 
     return items;
-  }, [rows, columns, depth, cellWidth, cellHeight, cellDepth, selectedLocation, hoverCell, floor, groupId, isLocationOccupied]);
+  }, [rows, columns, depth, cellWidth, cellHeight, cellDepth, selectedLocation, hoverCell, floor, groupId, isLocationOccupied, getShelfType]);
 
   return (
     <group position={position} ref={groupRef}>
@@ -664,11 +729,16 @@ const Group = memo(({
           onPointerOver={(e) => handlePointerOver(e, shelf.rowIndex, shelf.colIndex, shelf.depthIndex)}
           onPointerOut={handlePointerOut}
           opacity={1}
+          shelfType={shelf.shelfType}
           shelfColor={shelfColor}
           shelfHoverColor={shelfHoverColor}
           shelfSelectedColor={shelfSelectedColor}
           occupiedShelfColor={occupiedShelfColor}
           occupiedHoverShelfColor={occupiedHoverShelfColor}
+          secondaryShelfColor={secondaryShelfColor}
+          secondaryShelfHoverColor={secondaryShelfHoverColor}
+          tertiaryShelfColor={tertiaryShelfColor}
+          tertiaryShelfHoverColor={tertiaryShelfHoverColor}
         />
       ))}
     </group>
@@ -694,6 +764,11 @@ const Floor = memo(({
   shelfSelectedColor,
   occupiedShelfColor,
   occupiedHoverShelfColor,
+  secondaryShelfColor,
+  secondaryShelfHoverColor,
+  tertiaryShelfColor,
+  tertiaryShelfHoverColor,
+  shelfColorAssignments,
   textColor
 }: {
   floorConfig: FloorConfig;
@@ -713,6 +788,18 @@ const Floor = memo(({
   shelfSelectedColor: string;
   occupiedShelfColor: string;
   occupiedHoverShelfColor: string;
+  secondaryShelfColor?: string;
+  secondaryShelfHoverColor?: string;
+  tertiaryShelfColor?: string;
+  tertiaryShelfHoverColor?: string;
+  shelfColorAssignments?: Array<{
+    floor: number;
+    group: number;
+    row: number;
+    column: number;
+    depth?: number;
+    colorType: 'primary' | 'secondary' | 'tertiary';
+  }>;
   textColor: string;
 }) => {
   const { matrix, height } = floorConfig;
@@ -747,18 +834,18 @@ const Floor = memo(({
           <Group
             key={group.id}
             position={[
-              (colPos - floorWidth / 2 + group.width / 2) * gridSize, // Center X
-              height / 2, // Center Y
-              (rowPos - floorDepth / 2 + group.depth / 2) * gridSize // Center Z with depth
+              (colPos - floorWidth / 2 + group.width / 2) * gridSize,
+              height / 2,
+              (rowPos - floorDepth / 2 + group.depth / 2) * gridSize
             ]}
             size={[
-              group.width * gridSize,  // Width (X)
-              height,                  // Height (Y)
-              group.depth * gridSize   // Depth (Z)
+              group.width * gridSize,
+              height,
+              group.depth * gridSize
             ]}
-            rows={group.rows}          // Number of shelves
-            columns={group.width}      // Width in columns
-            depth={group.depth}        // Add depth parameter
+            rows={group.rows}
+            columns={group.width}
+            depth={group.depth}
             groupId={parseInt(group.id as string)}
             floor={floorIndex}
             isSelected={isSelected}
@@ -773,6 +860,11 @@ const Floor = memo(({
             shelfSelectedColor={shelfSelectedColor}
             occupiedShelfColor={occupiedShelfColor}
             occupiedHoverShelfColor={occupiedHoverShelfColor}
+            secondaryShelfColor={secondaryShelfColor}
+            secondaryShelfHoverColor={secondaryShelfHoverColor}
+            tertiaryShelfColor={tertiaryShelfColor}
+            tertiaryShelfHoverColor={tertiaryShelfHoverColor}
+            shelfColorAssignments={shelfColorAssignments}
           />
         );
       })}
@@ -1032,6 +1124,18 @@ export interface ShelfSelectorColors {
   shelfSelectedColor?: string;
   occupiedShelfColor?: string;
   occupiedHoverShelfColor?: string;
+  secondaryShelfColor?: string;
+  secondaryShelfHoverColor?: string;
+  tertiaryShelfColor?: string;
+  tertiaryShelfHoverColor?: string;
+  shelfColorAssignments?: Array<{
+    floor: number;
+    group: number;
+    row: number;
+    column: number;
+    depth?: number;
+    colorType: 'primary' | 'secondary' | 'tertiary';
+  }>;
   textColor?: string;
 }
 
@@ -1049,6 +1153,11 @@ export const defaultShelfSelectorColors: ShelfSelectorColors = {
   shelfSelectedColor: "#ff5252", // Selected red
   occupiedShelfColor: "#8B0000", // Occupied red
   occupiedHoverShelfColor: "#BB3333", // New occupied hover color - lighter red
+  secondaryShelfColor: "#a5d6a7", // Secondary shelf - light green
+  secondaryShelfHoverColor: "#81c784", // Secondary hover - medium green
+  tertiaryShelfColor: "#90caf9", // Tertiary shelf - light blue
+  tertiaryShelfHoverColor: "#64b5f6", // Tertiary hover - medium blue
+  shelfColorAssignments: [], // Default empty array
   textColor: "#2c3e50",       // Dark blue text
 };
 
@@ -1068,6 +1177,7 @@ export const ShelfSelector3D = memo(({
   canSelectOccupiedLocations = true,
   cameraOffsetX = 0,
   cameraOffsetY = 0,
+  shelfColorAssignments = [],
 
   shelfSelectorColors = {}, // New prop for custom colors
 }: ShelfSelectorProps) => {
@@ -1758,19 +1868,21 @@ export const ShelfSelector3D = memo(({
               occupiedLocations={occupiedLocations}
               canSelectOccupiedLocations={canSelectOccupiedLocations}
               onSelect={handleSelect}
-
-              // {...{...defaultTheme, ...shelfSelectorColors}}
-
               floorColor={shelfSelectorColors.floorColor || window.shelfSelectorColors!.floorColor!}
-              floorHighlightedColor={shelfSelectorColors.floorColor || window.shelfSelectorColors!.floorHighlightedColor!}
-              groupColor={shelfSelectorColors.floorColor || window.shelfSelectorColors!.groupColor!}
-              groupSelectedColor={shelfSelectorColors.floorColor || window.shelfSelectorColors!.groupSelectedColor!}
-              shelfColor={shelfSelectorColors.floorColor || window.shelfSelectorColors!.shelfColor!}
-              shelfHoverColor={shelfSelectorColors.floorColor || window.shelfSelectorColors!.shelfHoverColor!}
+              floorHighlightedColor={shelfSelectorColors.floorHighlightedColor || window.shelfSelectorColors!.floorHighlightedColor!}
+              groupColor={shelfSelectorColors.groupColor || window.shelfSelectorColors!.groupColor!}
+              groupSelectedColor={shelfSelectorColors.groupSelectedColor || window.shelfSelectorColors!.groupSelectedColor!}
+              shelfColor={shelfSelectorColors.shelfColor || window.shelfSelectorColors!.shelfColor!}
+              shelfHoverColor={shelfSelectorColors.shelfHoverColor || window.shelfSelectorColors!.shelfHoverColor!}
               shelfSelectedColor={shelfSelectorColors.shelfSelectedColor || window.shelfSelectorColors!.shelfSelectedColor!}
               occupiedShelfColor={shelfSelectorColors.occupiedShelfColor || window.shelfSelectorColors!.occupiedShelfColor!}
               occupiedHoverShelfColor={shelfSelectorColors.occupiedHoverShelfColor || window.shelfSelectorColors!.occupiedHoverShelfColor!}
+              secondaryShelfColor={shelfSelectorColors.secondaryShelfColor || window.shelfSelectorColors!.secondaryShelfColor!}
+              secondaryShelfHoverColor={shelfSelectorColors.secondaryShelfHoverColor || window.shelfSelectorColors!.secondaryShelfHoverColor!}
+              tertiaryShelfColor={shelfSelectorColors.tertiaryShelfColor || window.shelfSelectorColors!.tertiaryShelfColor!}
+              tertiaryShelfHoverColor={shelfSelectorColors.tertiaryShelfHoverColor || window.shelfSelectorColors!.tertiaryShelfHoverColor!}
               textColor={shelfSelectorColors.textColor || window.shelfSelectorColors!.textColor!}
+              shelfColorAssignments={shelfColorAssignments}
             />
           ))}
         </group>

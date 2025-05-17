@@ -1,117 +1,48 @@
 "use server";
 
 import { createClient } from "@/utils/supabase/server";
-import { redirect } from "next/navigation";
 
-export type InventoryItem = {
+export interface InventoryItemUnit {
   uuid: string;
-  admin_uuid: string;
   company_uuid: string;
+  inventory_uuid: string;
+  inventory_item_bulk_uuid?: string;
   item_code: string;
+  unit_value: number;
+  unit: string;
   item_name: string;
-  description: string | null;
-  total_quantity: number;
-  bulk_quantity: number;
-  quantity: number;
-  bulk_unit: string;
+  cost: number;
+  properties: Record<string, any>;
+}
+
+export interface InventoryItemBulk {
+  uuid: string;
+  company_uuid: string;
+  inventory_uuid: string;
   unit: string;
   unit_value: number;
-  bulk_ending_inventory: number;
-  ending_inventory: number;
-  total_cost: number;
-  netsuite: number | null;
-  variance: number | null;
-  status: string | null;
+  bulk_unit: string;
+  cost: number;
+  is_single_item: boolean;
+  properties: Record<string, any>;
+  inventory_item_units?: InventoryItemUnit[];
 }
 
-/**
- * Creates a new inventory item in the database
- */
-export async function createInventoryItem(formData: InventoryItem) {
-  const supabase = await createClient();
-
-  try {
-    // remove uuid from formData if it exists
-    const { data, error } = await supabase
-      .from("inventory_items")
-      .insert(formData)
-      .select();
-
-    if (error) {
-      throw error;
-    }
-
-    return { success: true, data };
-  } catch (error) {
-    console.error("Error creating inventory item:", error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error occurred"
-    };
-  }
-}
-
-/**
- * Updates an existing inventory item in the database
- */
-export async function updateInventoryItem(uuid: string, formData: Partial<InventoryItem>) {
-  const supabase = await createClient();
-  console.log("Updating inventory item with UUID:", uuid);
-  console.log("Form data:", formData);
-
-  try {
-    const { data, error } = await supabase
-      .from("inventory_items")
-      .update(formData)
-      .eq("uuid", uuid)
-      .select();
-
-    if (error) {
-      throw error;
-    }
-
-    return { success: true, data };
-  } catch (error) {
-    console.error("Error updating inventory item:", error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error occurred"
-    };
-  }
-}
-
-/**
- * Deletes an inventory item from the database
- */
-export async function deleteInventoryItem(uuid: string) {
-  const supabase = await createClient();
-
-  try {
-    const { data, error } = await supabase
-      .from("inventory_items")
-      .delete()
-      .eq("uuid", uuid)
-      .select();
-
-    if (error) {
-      throw error;
-    }
-
-    return { success: true, data };
-  } catch (error) {
-    console.error("Error deleting inventory item:", error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error occurred"
-    };
-  }
+export interface InventoryItem {
+  uuid: string;
+  company_uuid: string;
+  admin_uuid: string;
+  name: string;
+  description?: string;
+  inventory_item_bulks: string[];
+  created_at: Date;
+  updated_at: Date;
 }
 
 /**
  * Fetches available units from the database or returns default ones
  */
 export async function getUnitOptions() {
-  // You could fetch this from a database table if needed
   return [
     "kg", "g", "lb", "oz", "l", "ml", "m", "cm", "ft", "in",
     "pcs", "units", "each", "dozen", "gross"
@@ -122,145 +53,405 @@ export async function getUnitOptions() {
  * Fetches available bulk units from the database or returns default ones
  */
 export async function getBulkUnitOptions() {
-  // You could fetch this from a database table if needed
   return [
     "box", "carton", "pack", "set", "pallet", "container", "drum", "bag", "crate"
   ];
 }
 
 /**
- * Fetches available floor options
+ * Fetches inventory items for a company
  */
-export async function getFloorOptions() {
-  // You could fetch this from a database table if needed
-  return ["Floor 1", "Floor 2", "Floor 3"];
-}
-
-/**
- * Fetches available shelf locations for a specific company
- * @param companyUuid The company's UUID
- * @param search Optional search term to filter locations
- * @param status Optional status to filter locations
- * @returns Array of shelf locations
- */
-export async function getInventoryItems(
-  companyUuid: string,
-  searchQuery: string = "",
-  status?: string
-) {
+export async function getInventoryItems(companyUuid: string, searchQuery?: string) {
   const supabase = await createClient();
 
   try {
     let query = supabase
       .from("inventory_items")
-      .select("*")
+      .select(`
+        uuid,
+        company_uuid,
+        admin_uuid,
+        name,
+        description,
+        inventory_item_bulks,
+        created_at,
+        updated_at
+      `)
       .eq("company_uuid", companyUuid)
-      .order("created_at", { ascending: false });
+      .order("name");
 
-    // Add search filter if provided
     if (searchQuery) {
-      query = query.or(
-        `item_code.ilike.%${searchQuery}%,item_name.ilike.%${searchQuery}%`
-      );
-    }
-
-    // Add status filter if provided
-    if (status) {
-      query = query.eq("status", status);
+      query = query.ilike("name", `%${searchQuery}%`);
     }
 
     const { data, error } = await query;
 
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
 
     return { success: true, data };
   } catch (error) {
     console.error("Error fetching inventory items:", error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Unknown error occurred",
-      data: []
+      error: error instanceof Error ? error.message : "Unknown error occurred"
     };
   }
 }
 
 /**
- * Fetches inventory items with pagination, search, and company filtering
- * @param options Query options including pagination, search, and company UUID
- * @returns Object containing inventory items and pagination details
+ * Fetches a single inventory item with its bulks and units
  */
-export async function getInventoryItemsPage(options: {
-  page?: number;
-  pageSize?: number;
-  search?: string;
-  companyUuid?: string;
-}) {
-  const { page = 1, pageSize = 10, search = "", companyUuid } = options;
+export async function getInventoryItem(uuid: string) {
   const supabase = await createClient();
 
   try {
-    // Calculate pagination values
-    const from = (page - 1) * pageSize;
-    const to = from + pageSize - 1;
-
-    // Start building the query
-    let query = supabase
+    // First get the inventory item
+    const { data: item, error: itemError } = await supabase
       .from("inventory_items")
       .select("*")
-      .order("created_at", { ascending: false });
+      .eq("uuid", uuid)
+      .single();
 
-    // Apply company filter if provided
-    if (companyUuid) {
-      query = query.eq("company_uuid", companyUuid);
-    }
+    if (itemError) throw itemError;
 
-    // Apply search filter if provided
-    if (search) {
-      query = query.or(
-        `item_code.ilike.%${search}%,item_name.ilike.%${search}%,description.ilike.%${search}%`
-      );
-    }
+    // Then get all bulk items for this inventory item
+    const { data: bulks, error: bulksError } = await supabase
+      .from("inventory_item_bulk")
+      .select("*")
+      .eq("inventory_uuid", uuid);
 
-    // Apply pagination
-    query = query.range(from, to);
+    if (bulksError) throw bulksError;
 
-    // Execute the query
-    const { data, error, count } = await query;
+    // Then get all unit items
+    const { data: units, error: unitsError } = await supabase
+      .from("inventory_item_unit")
+      .select("*")
+      .eq("inventory_uuid", uuid);
 
-    if (error) {
-      throw error;
-    }
+    if (unitsError) throw unitsError;
 
-    // Get total count in a separate query
-    const { count: totalCount } = await supabase
-      .from("inventory_items")
-      .select("*", { count: "exact", head: true });
+    // Group units by their bulk
+    const bulksWithUnits = bulks.map(bulk => ({
+      ...bulk,
+      inventory_item_units: units.filter(unit => unit.inventory_item_bulk_uuid === bulk.uuid)
+    }));
 
     return {
       success: true,
-      data: data || [],
-      pagination: {
-        page,
-        pageSize,
-        total: totalCount || 0,
-        totalPages: Math.ceil((totalCount || 0) / pageSize)
+      data: {
+        ...item,
+        inventory_item_bulks: bulksWithUnits
       }
     };
   } catch (error) {
-    console.error("Error fetching inventory items:", error);
+    console.error("Error fetching inventory item:", error);
     return {
       success: false,
-      data: [],
-      error: error instanceof Error ? error.message : "Unknown error occurred",
-      pagination: {
-        page,
-        pageSize,
-        total: 0,
-        totalPages: 0
-      }
+      error: error instanceof Error ? error.message : "Unknown error occurred"
     };
   }
 }
 
+/**
+ * Creates a new inventory item with bulk and unit items
+ */
+
+export async function createInventoryItem(
+  item: Pick<InventoryItem, "company_uuid" | "name" | "description" | "admin_uuid">,
+  bulks: Pick<InventoryItemBulk, "company_uuid" | "unit" | "unit_value" | "bulk_unit" | "cost" | "is_single_item" | "properties">[],
+  units: (Pick<InventoryItemUnit, "company_uuid" | "item_code" | "unit_value" | "unit" | "item_name" | "cost" | "properties"> & { _bulkIndex?: number })[]
+) {
+  const supabase = await createClient();
+
+  console.log("Creating inventory item with bulks and units:", item);
+  console.log("Bulks data:", bulks);
+  console.log("Units data with _bulkIndex values:", units.map(u => ({ ...u, _bulkIndex: u._bulkIndex })));
+
+  try {
+    // Create the inventory item
+    const { data: inventoryItem, error: inventoryError } = await supabase
+      .from("inventory_items")
+      .insert({
+        company_uuid: item.company_uuid,
+        name: item.name,
+        description: item.description,
+        admin_uuid: item.admin_uuid
+      })
+      .select()
+      .single();
+
+    if (inventoryError) throw inventoryError;
+
+    // Create bulk items and store their UUIDs
+    const createdBulkUuids: string[] = [];
+    const singleItemBulkMap = new Map(); // Track which bulks are single items by index
+
+    for (let i = 0; i < bulks.length; i++) {
+      const bulk = bulks[i];
+      const { data: bulkItem, error: bulkError } = await supabase
+        .from("inventory_item_bulk")
+        .insert({
+          company_uuid: bulk.company_uuid,
+          inventory_uuid: inventoryItem.uuid,
+          unit: bulk.unit,
+          unit_value: bulk.unit_value,
+          bulk_unit: bulk.bulk_unit,
+          cost: bulk.cost,
+          is_single_item: bulk.is_single_item,
+          properties: bulk.properties
+        })
+        .select()
+        .single();
+
+      if (bulkError) throw bulkError;
+
+      createdBulkUuids.push(bulkItem.uuid);
+      
+      // Mark if this is a single item bulk
+      if (bulk.is_single_item) {
+        singleItemBulkMap.set(i, true);
+      }
+    }
+
+    console.log("Created bulk UUIDs:", createdBulkUuids);
+    console.log("Single item bulks by index:", [...singleItemBulkMap.entries()]);
+
+    // Track which units we've already created for single-item bulks
+    const processedSingleItemBulks = new Set();
+
+    // Create unit items
+    for (const unit of units) {
+      // Determine which bulk this unit belongs to
+      const bulkIndex = unit._bulkIndex !== undefined ? unit._bulkIndex : null;
+      
+      // Skip if we've already created a unit for this single-item bulk
+      if (bulkIndex !== null && singleItemBulkMap.has(bulkIndex) && processedSingleItemBulks.has(bulkIndex)) {
+        console.log(`Skipping duplicate unit for single-item bulk at index ${bulkIndex}`);
+        continue;
+      }
+      
+      const bulkUuid = bulkIndex !== null && bulkIndex >= 0 && bulkIndex < createdBulkUuids.length
+        ? createdBulkUuids[bulkIndex]
+        : null;
+
+      console.log(`Creating unit with bulk index: ${bulkIndex}, bulk UUID: ${bulkUuid}`);
+      console.log("Unit details:", unit);
+
+      const { error: unitError } = await supabase
+        .from("inventory_item_unit")
+        .insert({
+          company_uuid: unit.company_uuid,
+          inventory_uuid: inventoryItem.uuid,
+          inventory_item_bulk_uuid: bulkUuid, // Will be null only if bulkIndex is invalid
+          item_code: unit.item_code,
+          unit_value: unit.unit_value,
+          unit: unit.unit,
+          item_name: unit.item_name,
+          cost: unit.cost,
+          properties: unit.properties
+        });
+
+      if (unitError) throw unitError;
+      
+      // Mark this single-item bulk as processed
+      if (bulkIndex !== null && singleItemBulkMap.has(bulkIndex)) {
+        processedSingleItemBulks.add(bulkIndex);
+      }
+    }
+
+    return { success: true, data: inventoryItem };
+  } catch (error: any) {
+    console.error("Error creating inventory item:", error);
+    return {
+      success: false,
+      error: `${error.message}`
+    };
+  }
+}
+
+/**
+ * Updates an existing inventory item with its bulks and units
+ */
+export async function updateInventoryItem(
+  uuid: string,
+  itemUpdates: Partial<InventoryItem>,
+  bulkUpdates: (Partial<InventoryItemBulk> & { uuid: string })[],
+  unitUpdates: (Partial<InventoryItemUnit> & { uuid: string })[],
+  newBulks: Pick<InventoryItemBulk, "company_uuid" | "unit" | "unit_value" | "bulk_unit" | "cost" | "is_single_item" | "properties">[],
+  newUnits: (Pick<InventoryItemUnit, "company_uuid" | "item_code" | "unit_value" | "unit" | "item_name" | "cost" | "properties"> & { _bulkIndex?: number })[]
+) {
+  const supabase = await createClient();
+
+  try {
+    // // Start a transaction
+    // const { data: client } = await supabase.rpc('begin_transaction');
+
+    // Update inventory item
+    const { error: inventoryError } = await supabase
+      .from("inventory_items")
+      .update(itemUpdates)
+      .eq("uuid", uuid);
+
+    if (inventoryError) throw inventoryError;
+
+    // Update existing bulk items
+    for (const bulk of bulkUpdates) {
+      const bulkUuid = bulk.uuid;
+      // Remove uuid from the update object
+      const { uuid: _, ...bulkUpdateData } = bulk;
+
+      const { error: bulkError } = await supabase
+        .from("inventory_item_bulk")
+        .update(bulkUpdateData)
+        .eq("uuid", bulkUuid);
+
+      if (bulkError) throw bulkError;
+    }
+
+    // Update existing unit items
+    for (const unit of unitUpdates) {
+      const unitUuid = unit.uuid;
+      // Remove uuid from the update object
+      const { uuid: _, ...unitUpdateData } = unit;
+
+      const { error: unitError } = await supabase
+        .from("inventory_item_unit")
+        .update(unitUpdateData)
+        .eq("uuid", unitUuid);
+
+      if (unitError) throw unitError;
+    }
+
+    // Create new bulk items and store their UUIDs
+    const createdBulkUuids: string[] = [];
+
+    for (const bulk of newBulks) {
+      const { data: bulkItem, error: bulkError } = await supabase
+        .from("inventory_item_bulk")
+        .insert({
+          company_uuid: bulk.company_uuid,
+          inventory_uuid: uuid,
+          unit: bulk.unit,
+          unit_value: bulk.unit_value,
+          bulk_unit: bulk.bulk_unit,
+          cost: bulk.cost,
+          is_single_item: bulk.is_single_item,
+          properties: bulk.properties
+        })
+        .select()
+        .single();
+
+      if (bulkError) throw bulkError;
+
+      createdBulkUuids.push(bulkItem.uuid);
+    }
+
+    // Create new unit items
+    for (const unit of newUnits) {
+      const bulkUuid = unit._bulkIndex !== undefined && unit._bulkIndex >= 0 && unit._bulkIndex < createdBulkUuids.length
+        ? createdBulkUuids[unit._bulkIndex]
+        : null;
+
+      const { error: unitError } = await supabase
+        .from("inventory_item_unit")
+        .insert({
+          company_uuid: unit.company_uuid,
+          inventory_uuid: uuid,
+          inventory_item_bulk_uuid: bulkUuid,
+          item_code: unit.item_code,
+          unit_value: unit.unit_value,
+          unit: unit.unit,
+          item_name: unit.item_name,
+          cost: unit.cost,
+          properties: unit.properties
+        });
+
+      if (unitError) throw unitError;
+    }
+
+    // // Commit the transaction
+    // await supabase.rpc('commit_transaction', { client_id: client.client_id });
+
+    return { success: true };
+  } catch (error) {
+    console.error("Error updating inventory item:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error occurred"
+    };
+  }
+}
+
+/**
+ * Deletes an inventory item with all its bulks and units
+ */
+export async function deleteInventoryItem(uuid: string) {
+  const supabase = await createClient();
+
+  try {
+    // Due to the cascading deletes, we only need to delete the inventory item
+    const { error } = await supabase
+      .from("inventory_items")
+      .delete()
+      .eq("uuid", uuid);
+
+    if (error) throw error;
+
+    return { success: true };
+  } catch (error) {
+    console.error("Error deleting inventory item:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error occurred"
+    };
+  }
+}
+
+/**
+ * Deletes a bulk item and all its units
+ */
+export async function deleteInventoryItemBulk(uuid: string) {
+  const supabase = await createClient();
+
+  try {
+    // Due to the cascading deletes, we only need to delete the bulk item
+    const { error } = await supabase
+      .from("inventory_item_bulk")
+      .delete()
+      .eq("uuid", uuid);
+
+    if (error) throw error;
+
+    return { success: true };
+  } catch (error) {
+    console.error("Error deleting bulk item:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error occurred"
+    };
+  }
+}
+
+/**
+ * Deletes a unit item
+ */
+export async function deleteInventoryItemUnit(uuid: string) {
+  const supabase = await createClient();
+
+  try {
+    const { error } = await supabase
+      .from("inventory_item_unit")
+      .delete()
+      .eq("uuid", uuid);
+
+    if (error) throw error;
+
+    return { success: true };
+  } catch (error) {
+    console.error("Error deleting unit item:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error occurred"
+    };
+  }
+}

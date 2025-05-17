@@ -3,11 +3,32 @@
 import { motionTransition } from '@/utils/anim';
 import { createClient } from "@/utils/supabase/client";
 import {
-  Accordion, AccordionItem, Alert, Autocomplete, AutocompleteItem, Button, Checkbox,
-  Chip, DatePicker, Form, Input, Kbd, Modal, ModalBody, ModalContent, ModalFooter,
-  ModalHeader, NumberInput, Pagination, Popover, PopoverContent, PopoverTrigger,
-  ScrollShadow, Skeleton, Spinner, Switch, Table, TableBody, TableCell,
-  TableColumn, TableHeader, TableRow, Textarea, Tooltip, useDisclosure
+  Accordion,
+  AccordionItem,
+  Alert,
+  Autocomplete,
+  AutocompleteItem,
+  Button,
+  Chip,
+  DatePicker,
+  Form,
+  Input,
+  Kbd,
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+  NumberInput,
+  Pagination,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Skeleton,
+  Spinner,
+  Switch,
+  Textarea,
+  useDisclosure
 } from "@heroui/react";
 import { Icon } from "@iconify-icon/react";
 import { getLocalTimeZone, parseDate, today } from '@internationalized/date';
@@ -15,35 +36,32 @@ import { format, parseISO } from "date-fns";
 import { AnimatePresence, motion } from 'framer-motion';
 import { useRouter, useSearchParams } from "next/navigation";
 import { QRCodeCanvas } from 'qrcode.react';
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, useMemo } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { materialDark, materialLight } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 
-import { ShelfSelectorColorAssignment } from '@/components/shelf-selector-3d';
 
 // Import server actions
 import CardList from '@/components/card-list';
 import {
   createDeliveryItem,
+  createWarehouseInventoryItem,
   DeliveryItem,
   getDeliveryItems,
-  getInventoryItemBulks,
   getInventoryItems,
   getOccupiedShelfLocations,
-  createWarehouseInventoryItems,
   getOperators,
   getWarehouses,
   Operator,
-  suggestShelfLocations,
   updateDeliveryItem,
-  updateInventoryItemBulksStatus,
   updateInventoryItemStatus,
   Warehouse
 } from "./actions";
 
 // Import the QR code scanner library
 import jsQR from "jsqr";
-import { InventoryItem } from '../inventory/actions';
+import { InventoryItem } from '../inventory-old/actions';
+
 
 // Import the ShelfSelector3D component
 const ShelfSelector3D = lazy(() =>
@@ -51,6 +69,7 @@ const ShelfSelector3D = lazy(() =>
     default: mod.ShelfSelector3D
   }))
 );
+
 
 export default function DeliveryPage() {
   const router = useRouter();
@@ -72,16 +91,6 @@ export default function DeliveryPage() {
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<string>("");
 
-  // Inventory bulk items
-  const [inventoryBulks, setInventoryBulks] = useState<any[]>([]);
-  const [selectedBulks, setSelectedBulks] = useState<string[]>([]);
-  const [isLoadingBulks, setIsLoadingBulks] = useState(false);
-
-  // Location management
-  const [currentBulkLocationIndex, setCurrentBulkLocationIndex] = useState<number>(0);
-  const [locations, setLocations] = useState<any[]>([]);
-  const [locationCodes, setLocationCodes] = useState<string[]>([]);
-
   // Operator assignment
   const [operators, setOperators] = useState<Operator[]>([]);
   const [assignOperator, setAssignOperator] = useState<boolean>(false);
@@ -93,13 +102,14 @@ export default function DeliveryPage() {
   const [jsonValidationError, setJsonValidationError] = useState("");
   const [jsonValidationSuccess, setJsonValidationSuccess] = useState(false);
 
+
   // Warehouse options
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
 
   // Validation state
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Location state for current bulk
+  // Location state
   const [selectedFloor, setSelectedFloor] = useState<number | null>(null);
   const [selectedColumnCode, setSelectedColumnCode] = useState<string>("");
   const [selectedColumn, setSelectedColumn] = useState<number | null>(null);
@@ -109,9 +119,6 @@ export default function DeliveryPage() {
   const [selectedDepth, setSelectedDepth] = useState<number | null>(null);
   const [floorOptions, setFloorOptions] = useState<string[]>([]);
   const [occupiedLocations, setOccupiedLocations] = useState<any[]>([]);
-
-  // Auto-assignment state
-  const [isAutoAssigning, setIsAutoAssigning] = useState(false);
 
   // 3D shelf selector states
   const [tempSelectedFloor, setTempSelectedFloor] = useState<number | null>(null);
@@ -141,16 +148,16 @@ export default function DeliveryPage() {
   const [formData, setFormData] = useState<Partial<DeliveryItem>>({
     company_uuid: null,
     admin_uuid: null,
-    inventory_uuid: null,
-    inventory_item_bulk_uuids: [], // New field for selected bulks
+    inventory_item_uuid: null,
     warehouse_uuid: null,
     delivery_address: "",
     delivery_date: format(new Date(), "yyyy-MM-dd"),
-    locations: [], // Changed from location to locations array
-    location_codes: [], // Changed from location_code to location_codes array
+    location: null,
+    location_code: "",
     notes: "",
     status: "PENDING",
   });
+
 
   // Refs
   const deliveryJsonTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -159,7 +166,9 @@ export default function DeliveryPage() {
   const inputStyle = {
     inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
   };
-  const autoCompleteStyle = { classNames: inputStyle };
+  const autoCompleteStyle = { classNames: inputStyle }
+
+
 
   const resetWarehouseLocation = () => {
     setSelectedFloor(null);
@@ -169,8 +178,6 @@ export default function DeliveryPage() {
     setSelectedDepth(null);
     setSelectedColumnCode("");
     setSelectedCode("");
-    setLocations([]);
-    setLocationCodes([]);
 
     setTempSelectedFloor(null);
     setTempSelectedColumn(null);
@@ -183,7 +190,7 @@ export default function DeliveryPage() {
     setFloorConfigs([]);
     setFloorOptions([]);
     setOccupiedLocations([]);
-  };
+  }
 
   // Generate JSON for QR code
   const generateDeliveryJson = (space: number = 0) => {
@@ -195,7 +202,7 @@ export default function DeliveryPage() {
     const keys: Array<keyof DeliveryItem> = [
       "uuid",
       "company_uuid",
-      "inventory_uuid",
+      "inventory_item_uuid",
       "delivery_address",
       "delivery_date",
       "warehouse_uuid",
@@ -203,7 +210,7 @@ export default function DeliveryPage() {
 
     keys.forEach((key) => {
       const value = (formData as any)[key];
-      if (value !== undefined && value !== null && (typeof value !== 'object' || Array.isArray(value) && value.length > 0)) {
+      if (value !== undefined && value !== null && value !== "") {
         output[key] = value;
       }
     });
@@ -296,177 +303,6 @@ export default function DeliveryPage() {
     }
   }
 
-  const loadInventoryBulks = useCallback(async (inventoryItemUuid: string, preserveSelection: boolean = false) => {
-    if (!inventoryItemUuid) {
-      setInventoryBulks([]);
-      if (!preserveSelection) {
-        setSelectedBulks([]);
-      }
-      return;
-    }
-
-    setIsLoadingBulks(true);
-    try {
-      const result = await getInventoryItemBulks(inventoryItemUuid);
-      if (result.success) {
-        setInventoryBulks(result.data);
-
-        // Reset selected bulks only when not preserving selection
-        if (!preserveSelection) {
-          setSelectedBulks([]);
-          setLocations([]);
-          setLocationCodes([]);
-        }
-      } else {
-        console.error("Failed to load inventory bulks:", result.error);
-      }
-    } catch (error) {
-      console.error("Error loading inventory bulks:", error);
-    } finally {
-      setIsLoadingBulks(false);
-    }
-  }, []);
-
-  // Handle bulk selection toggle
-  const handleBulkSelectionToggle = (bulkUuid: string, isSelected: boolean) => {
-    setSelectedBulks(prev => {
-      if (isSelected) {
-        return [...prev, bulkUuid];
-      } else {
-        return prev.filter(uuid => uuid !== bulkUuid);
-      }
-    });
-  };
-
-  // Auto-assign shelf locations for selected bulks
-  const autoAssignShelfLocations = async () => {
-    if (isWarehouseNotSet() || isFloorConfigNotSet() || selectedBulks.length === 0) {
-      return;
-    }
-  
-    setIsAutoAssigning(true);
-    try {
-      // Get the suggested locations
-      const result = await suggestShelfLocations(
-        formData.warehouse_uuid as string,
-        selectedBulks.length,
-        // Optionally provide a starting shelf
-        selectedFloor !== null && selectedGroup !== null && selectedRow !== null && selectedColumn !== null
-          ? { floor: selectedFloor, group: selectedGroup, row: selectedRow, column: selectedColumn }
-          : undefined
-      );
-  
-      if (result.success && result.data) {
-        // Get locations and location codes from the result
-        const { locations, locationCodes } = result.data;
-  
-        // Update state with the suggested locations and codes
-        setLocations(locations);
-        setLocationCodes(locationCodes);
-  
-        // Update formData with the new locations
-        setFormData(prev => ({
-          ...prev,
-          locations: locations,
-          location_codes: locationCodes
-        }));
-  
-        // Select the first location in the 3D view
-        if (locations.length > 0) {
-          setCurrentBulkLocationIndex(0);
-          const firstLocation = locations[0];
-  
-          setSelectedFloor(firstLocation.floor);
-          setSelectedGroup(firstLocation.group);
-          setSelectedRow(firstLocation.row);
-          setSelectedColumn(firstLocation.column);
-          setSelectedDepth(firstLocation.depth || 0);
-          setSelectedColumnCode(parseColumn(firstLocation.column) || "");
-          setSelectedCode(locationCodes[0]);
-  
-          // Set external selection for the 3D viewer
-          setExternalSelection(firstLocation);
-        }
-      } else {
-        console.error("Failed to auto-assign shelf locations:", result.error);
-      }
-    } catch (error) {
-      console.error("Error auto-assigning shelf locations:", error);
-    } finally {
-      setIsAutoAssigning(false);
-    }
-  };
-
-  // Create a state for shelf color assignments
-  const [shelfColorAssignments, setShelfColorAssignments] = useState<Array<ShelfSelectorColorAssignment>>([]);
-
-  // Use an effect to update the assignments when locations or currentBulkLocationIndex change
-  useEffect(() => {
-    const assignments: Array<ShelfSelectorColorAssignment> = [];
-
-    // Get the currently focused bulk location
-    const currentLocation = currentBulkLocationIndex >= 0 && locations && locations[currentBulkLocationIndex]
-      ? locations[currentBulkLocationIndex]
-      : null;
-
-    // 1. Add all selected bulk locations as secondary color (green), except the current one
-    if (locations && locations.length > 0) {
-      locations.forEach((location, index) => {
-        if (location && location.floor !== undefined) {
-          // Skip the currently focused location as it will be added as tertiary later
-          if (index === currentBulkLocationIndex) {
-            return;
-          }
-          assignments.push({
-            floor: location.floor,
-            group: location.group,
-            row: location.row,
-            column: location.column,
-            depth: location.depth || 0,
-            colorType: 'tertiary'
-          });
-        }
-      });
-    }
-
-    // 2. Add the currently focused bulk location as tertiary (blue)
-    if (currentLocation && currentLocation.floor !== undefined) {
-      assignments.push({
-        floor: currentLocation.floor,
-        group: currentLocation.group,
-        row: currentLocation.row,
-        column: currentLocation.column,
-        depth: currentLocation.depth || 0,
-        colorType: 'secondary' // Blue for currently selected bulk
-      });
-    }
-
-    // Update the state with the new assignments
-    setShelfColorAssignments(assignments);
-  }, [locations, currentBulkLocationIndex]);
-
-  // Handle location assignment for a specific bulk
-  const handleAssignLocation = (bulkIndex: number) => {
-    setCurrentBulkLocationIndex(bulkIndex);
-
-    // If we already have a location for this bulk, select it
-    if (locations[bulkIndex]) {
-      const location = locations[bulkIndex];
-      setSelectedFloor(location.floor);
-      setSelectedGroup(location.group);
-      setSelectedRow(location.row);
-      setSelectedColumn(location.column);
-      setSelectedDepth(location.depth || 0);
-      setSelectedColumnCode(parseColumn(location.column) || "");
-      setSelectedCode(locationCodes[bulkIndex] || "");
-
-      // Set external selection for the 3D viewer
-      setExternalSelection(location);
-    }
-
-    // Open the location selector modal
-    onOpen();
-  };
 
   // Handle item search
   const handleSearch = async (query: string) => {
@@ -485,27 +321,19 @@ export default function DeliveryPage() {
   };
 
   // Handle inventory item selection
-  const handleInventoryItemChange = async (inventoryItemUuid: string) => {
+  const handleInventoryItemChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const inventoryItemUuid = e.target.value;
     setSelectedItem(inventoryItemUuid);
 
-    // Reset selected bulks and locations
-    setSelectedBulks([]);
-    setLocations([]);
-    setLocationCodes([]);
+    // Find the selected inventory item
+    const item = inventoryItems.find(item => item.uuid === inventoryItemUuid);
 
-    // Update form data
     setFormData(prev => ({
       ...prev,
-      inventory_uuid: inventoryItemUuid,
-      inventory_item_bulk_uuids: [], // Reset bulk selection
-      locations: [], // Reset locations
-      location_codes: [] // Reset location codes
+      inventory_item_uuid: inventoryItemUuid,
+      // Pre-populate warehouse based on the inventory item's location if possible
+      // This would require your inventory items to have warehouse information
     }));
-
-    // Load bulk items for this inventory item (without preserving selection)
-    if (inventoryItemUuid) {
-      await loadInventoryBulks(inventoryItemUuid, false);
-    }
   };
 
   // Handle operator assignment toggle
@@ -528,12 +356,12 @@ export default function DeliveryPage() {
   };
 
   const handleViewInventory = () => {
-    if (formData.inventory_uuid) {
+    if (formData.inventory_item_uuid) {
       // Navigate to inventory page with the item ID
       if ((user === null || user.is_admin))
-        router.push(`/home/inventory?itemId=${formData.inventory_uuid}`);
+        router.push(`/home/inventory?itemId=${formData.inventory_item_uuid}`);
       else
-        router.push(`/home/warehouse-items?itemId=${formData.inventory_uuid}`);
+        router.push(`/home/warehouse-items?itemId=${formData.inventory_item_uuid}`);
     }
   };
 
@@ -556,13 +384,9 @@ export default function DeliveryPage() {
       }
     }
 
-    // If changing to DELIVERED, ensure we have location data for each bulk
-    if (status === "DELIVERED" &&
-      (formData.inventory_item_bulk_uuids?.length === 0 ||
-        formData.locations?.length === 0 ||
-        formData.location_codes?.length === 0 ||
-        formData.locations?.length !== formData.inventory_item_bulk_uuids?.length)) {
-      return { error: "Please assign warehouse locations for all selected bulk items before marking as delivered." };
+    // If changing to DELIVERED, ensure we have location data
+    if (status === "DELIVERED" && (!formData.location || !formData.location_code)) {
+      return { error: "Please select a warehouse location before marking as delivered." };
     }
 
     setIsLoading(true);
@@ -591,63 +415,44 @@ export default function DeliveryPage() {
       const result = await updateDeliveryItem(selectedDeliveryId, updatedFormData as any);
 
       // Update inventory item status as well
-      if (updatedFormData.inventory_uuid) {
+      if (updatedFormData.inventory_item_uuid) {
         // Determine the inventory status based on delivery status
         let inventoryStatus: string;
         if (status === "DELIVERED") {
           inventoryStatus = "IN_WAREHOUSE";
 
-          // Create warehouse inventory items for each bulk
-          if (typeof formData.locations !== "undefined" &&
-            typeof formData.inventory_item_bulk_uuids !== "undefined" &&
-            formData.locations?.length > 0 && formData.inventory_item_bulk_uuids?.length > 0) {
-
-            // Create warehouse inventory items with their bulks and units
-            const warehouseResult = await createWarehouseInventoryItems(
-              formData.inventory_uuid as string,
-              formData.warehouse_uuid as string,
-              formData.inventory_item_bulk_uuids,
-              formData.locations,
-              formData.location_codes || []
-            );
-
-            if (!warehouseResult.success) {
-              console.error("Failed to create warehouse inventory items:", warehouseResult.error);
-              // Continue with the process even if warehouse items creation fails
-              // The inventory status will still be updated
-            } else {
-              console.log("Successfully created warehouse inventory items:", warehouseResult.data);
-            }
+          // Create warehouse_inventory_item record when delivered
+          if (formData.location && formData.location_code) {
+            // Call a new action to create warehouse inventory record
+            await createWarehouseInventoryItem({
+              admin_uuid: user.uuid,
+              delivery_uuid: selectedDeliveryId,
+              warehouse_uuid: updatedFormData.warehouse_uuid,
+              company_uuid: user.company_uuid,
+              inventory_uuid: updatedFormData.inventory_item_uuid,
+              item_code: inventory_item?.item_code || "UNKNOWN",
+              item_name: inventory_item?.item_name || "UNKNOWN",
+              location: formData.location,
+              location_code: formData.location_code,
+              status: "AVAILABLE"
+            });
           }
-
-          // Update status of the inventory item bulks
-          await updateInventoryItemBulksStatus(formData.inventory_item_bulk_uuids || [], "IN_WAREHOUSE");
         } else if (status === "CANCELLED") {
           inventoryStatus = "AVAILABLE";
-
-          // Update status of the inventory item bulks
-          if (typeof formData.inventory_item_bulk_uuids !== "undefined" && formData.inventory_item_bulk_uuids.length > 0) {
-            await updateInventoryItemBulksStatus(formData.inventory_item_bulk_uuids, "AVAILABLE");
-          }
         } else if (status === "IN_TRANSIT") {
           inventoryStatus = "ON_DELIVERY";
-
-          // Update status of the inventory item bulks
-          if (typeof formData.inventory_item_bulk_uuids !== "undefined" && formData.inventory_item_bulk_uuids.length > 0) {
-            await updateInventoryItemBulksStatus(formData.inventory_item_bulk_uuids, "ON_DELIVERY");
-          }
         } else {
           inventoryStatus = status;
         }
 
-        // const inventoryResult = await updateInventoryItemStatus(
-        //   updatedFormData.inventory_uuid,
-        //   inventoryStatus
-        // );
+        const inventoryResult = await updateInventoryItemStatus(
+          updatedFormData.inventory_item_uuid,
+          inventoryStatus
+        );
 
-        // if (!inventoryResult.success) {
-        //   return { error: "Failed to update inventory item status" };
-        // }
+        if (!inventoryResult.success) {
+          return { error: "Failed to update inventory item status" };
+        }
       }
 
       // Refresh the delivery items list
@@ -701,18 +506,13 @@ export default function DeliveryPage() {
     if (name === "warehouse_uuid" && value) {
       await handleWarehouseChange(value);
     }
-
-    // If inventory_uuid is changed, load bulk items
-    if (name === "inventory_uuid" && value) {
-      await loadInventoryBulks(value);
-    }
   };
 
   const handleWarehouseChange = async (warehouseUuid: string) => {
     const selectedWarehouse = warehouses.find(wh => wh.uuid === warehouseUuid);
     if (selectedWarehouse) {
       // Fetch warehouse layout
-      const warehouseLayout = selectedWarehouse.warehouse_layout;
+      const warehouseLayout = selectedWarehouse.warehouse_layout
       setFloorConfigs(warehouseLayout);
 
       setFloorOptions(warehouseLayout.map((layout: any) => layout.floor));
@@ -726,7 +526,8 @@ export default function DeliveryPage() {
     } else {
       resetWarehouseLocation();
     }
-  };
+  }
+
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -743,21 +544,10 @@ export default function DeliveryPage() {
     }
 
     const newErrors: Record<string, string> = {};
-    if (!formData.inventory_uuid) newErrors.inventory_uuid = "Please select an inventory item";
-    if (!formData.inventory_item_bulk_uuids || formData.inventory_item_bulk_uuids.length === 0) {
-      newErrors.inventory_item_bulk_uuids = "Please select at least one bulk item";
-    }
+    if (!formData.inventory_item_uuid) newErrors.inventory_item_uuid = "Please select an inventory item";
     if (!formData.delivery_address) newErrors.delivery_address = "Delivery address is required";
     if (!formData.delivery_date) newErrors.delivery_date = "Delivery date is required";
     if (!formData.warehouse_uuid) newErrors.warehouse_uuid = "Please select a warehouse";
-
-    // Check if each selected bulk has a location assigned
-    if (formData.inventory_item_bulk_uuids &&
-      formData.inventory_item_bulk_uuids.length > 0 &&
-      (!formData.locations || formData.locations.length !== formData.inventory_item_bulk_uuids.length)) {
-      newErrors.locations = "Please assign a location for each selected bulk item";
-    }
-
     if (assignOperator) {
       if (!formData.operator_uuid) newErrors.operator_uuid = "Please select an operator";
       if (!formData.recipient_name) newErrors.recipient_name = "Recipient name is required when assigning an operator";
@@ -787,13 +577,14 @@ export default function DeliveryPage() {
       const newData = {
         admin_uuid: user.uuid,
         company_uuid: user.company_uuid,
-        inventory_uuid: formData.inventory_uuid,
-        inventory_item_bulk_uuids: formData.inventory_item_bulk_uuids,
+        inventory_item_uuid: formData.inventory_item_uuid,
         warehouse_uuid: formData.warehouse_uuid,
         delivery_address: formData.delivery_address,
         delivery_date: formData.delivery_date,
-        locations: formData.locations,
-        location_codes: formData.location_codes,
+        location: formData.location,
+        location_code: formData.location_code,
+        item_code: formData.item_code,
+        item_name: formData.item_name,
         notes: formData.notes,
         status: formData.status,
         status_history: {
@@ -811,32 +602,22 @@ export default function DeliveryPage() {
         // Update existing delivery
         result = await updateDeliveryItem(selectedDeliveryId, newData);
 
-        // // Update inventory item and bulk statuses to match delivery status
-        // if (result.success && formData.status) {
-        //   // Set inventory status to ON_DELIVERY when delivery status is IN_TRANSIT
-        //   const inventoryStatus = formData.status === "IN_TRANSIT" ? "ON_DELIVERY" : formData.status;
-        //   await updateInventoryItemStatus(formData.inventory_uuid as string, inventoryStatus);
-
-        //   // Update bulk statuses if they're selected
-        //   if (formData.inventory_item_bulk_uuids && formData.inventory_item_bulk_uuids.length > 0) {
-        //     await updateInventoryItemBulksStatus(formData.inventory_item_bulk_uuids, inventoryStatus);
-        //   }
-        // }
+        // Update inventory item status to match delivery status
+        if (result.success && formData.status) {
+          // Set inventory status to ON_DELIVERY when delivery status is IN_TRANSIT
+          const inventoryStatus = formData.status === "IN_TRANSIT" ? "ON_DELIVERY" : formData.status;
+          await updateInventoryItemStatus(formData.inventory_item_uuid as string, inventoryStatus);
+        }
       } else {
         // Create new delivery
         result = await createDeliveryItem(newData as any);
 
-        // // Update inventory item status to match delivery status
-        // if (result.success && formData.inventory_uuid && formData.status) {
-        //   // Set inventory status to ON_DELIVERY when delivery status is IN_TRANSIT
-        //   const inventoryStatus = formData.status === "IN_TRANSIT" ? "ON_DELIVERY" : formData.status;
-        //   await updateInventoryItemStatus(formData.inventory_uuid, inventoryStatus);
-
-        //   // Update bulk statuses if they're selected
-        //   if (formData.inventory_item_bulk_uuids && formData.inventory_item_bulk_uuids.length > 0) {
-        //     await updateInventoryItemBulksStatus(formData.inventory_item_bulk_uuids, inventoryStatus);
-        //   }
-        // }
+        // Update inventory item status to match delivery status
+        if (result.success && formData.inventory_item_uuid && formData.status) {
+          // Set inventory status to ON_DELIVERY when delivery status is IN_TRANSIT
+          const inventoryStatus = formData.status === "IN_TRANSIT" ? "ON_DELIVERY" : formData.status;
+          await updateInventoryItemStatus(formData.inventory_item_uuid, inventoryStatus);
+        }
       }
 
       // Handle successful creation/update
@@ -862,6 +643,7 @@ export default function DeliveryPage() {
       setIsLoading(false);
     }
   };
+
 
   /* 3D Shelf Selector */
 
@@ -1030,40 +812,29 @@ export default function DeliveryPage() {
   };
 
   const handleConfirmLocation = () => {
-    // Create the location object
-    const location = {
-      floor: tempSelectedFloor,
-      column: tempSelectedColumn,
-      row: tempSelectedRow,
-      group: tempSelectedGroup,
-      depth: tempSelectedDepth || 0
-    };
-
-    // Update the locations array
-    const newLocations = [...locations];
-    newLocations[currentBulkLocationIndex] = location;
-    setLocations(newLocations);
-
-    // Update the location codes array
-    const newLocationCodes = [...locationCodes];
-    newLocationCodes[currentBulkLocationIndex] = tempSelectedCode;
-    setLocationCodes(newLocationCodes);
-
-    // Update formData
-    setFormData(prev => ({
-      ...prev,
-      locations: newLocations,
-      location_codes: newLocationCodes
-    }));
-
-    // Update local state for the selected location
     setSelectedFloor(tempSelectedFloor);
     setSelectedColumn(tempSelectedColumn);
     setSelectedColumnCode(tempSelectedColumnCode);
     setSelectedRow(tempSelectedRow);
     setSelectedGroup(tempSelectedGroup);
     setSelectedDepth(tempSelectedDepth);
-    setSelectedCode(tempSelectedCode);
+
+    // Generate and set the location code
+    const locationCode = tempSelectedCode;
+    setSelectedCode(locationCode);
+
+    // Update formData to include location details
+    setFormData(prev => ({
+      ...prev,
+      location: {
+        floor: tempSelectedFloor,
+        column: tempSelectedColumn,
+        row: tempSelectedRow,
+        group: tempSelectedGroup,
+        depth: tempSelectedDepth
+      },
+      location_code: locationCode
+    }));
 
     onClose();
   };
@@ -1078,6 +849,8 @@ export default function DeliveryPage() {
     setTempSelectedCode(selectedCode);
     onClose();
   };
+
+
 
   /* QR Code Image Upload and Scanning */
 
@@ -1212,58 +985,70 @@ export default function DeliveryPage() {
         };
         const result = await updateDeliveryItem(matchingDelivery.uuid, updatedFormData);
 
-        if (result.success && matchingDelivery.inventory_uuid) {
+        if (result.success && matchingDelivery.inventory_item_uuid) {
           // Change status to IN_WAREHOUSE when delivery is DELIVERED
           console.log("Updating inventory item status to IN_WAREHOUSE");
 
-          // const inventoryResult = await updateInventoryItemStatus(
-          //   matchingDelivery.inventory_uuid,
-          //   "IN_WAREHOUSE"
-          // );
+          const inventoryResult = await updateInventoryItemStatus(
+            matchingDelivery.inventory_item_uuid,
+            "IN_WAREHOUSE"
+          );
 
-          // if (inventoryResult.success) {
-            // Create warehouse inventory item records if location data is present
-            if (matchingDelivery.locations?.length > 0 &&
-              matchingDelivery.location_codes?.length > 0 &&
-              matchingDelivery.inventory_item_bulk_uuids?.length > 0) {
+          console.log("Inventory status update result:", inventoryResult);
 
+          if (inventoryResult.success) {
+            // Create warehouse inventory item record if location data is present
+            if (matchingDelivery.location && matchingDelivery.location_code) {
               try {
-                // Prepare items data for warehouse creation
-                const { data: warehouseResult, error: wwarehouseError } = await createWarehouseInventoryItems(
-                  matchingDelivery.inventory_uuid as string,
-                  matchingDelivery.warehouse_uuid as string,
-                  matchingDelivery.inventory_item_bulk_uuids,
-                  matchingDelivery.locations,
-                  matchingDelivery.location_codes || []
+                // Get inventory item details to include in warehouse record
+                const inventoryItem = inventoryItems.find(
+                  item => item.uuid === matchingDelivery.inventory_item_uuid
                 );
 
-                // Update status of the inventory item bulks
-                await updateInventoryItemBulksStatus(matchingDelivery.inventory_item_bulk_uuids, "IN_WAREHOUSE");
+                // Create warehouse inventory item
+                const warehouseItemResult = await createWarehouseInventoryItem({
+                  admin_uuid: user.uuid,
+                  delivery_uuid: matchingDelivery.uuid,
+                  warehouse_uuid: matchingDelivery.warehouse_uuid || "",
+                  company_uuid: user.company_uuid,
+                  inventory_uuid: matchingDelivery.inventory_item_uuid,
+                  item_code: inventoryItem?.item_code || matchingDelivery.item_code || "UNKNOWN",
+                  item_name: inventoryItem?.item_name || matchingDelivery.item_name || "UNKNOWN",
+                  location: matchingDelivery.location,
+                  location_code: matchingDelivery.location_code,
+                  status: "AVAILABLE"
+                });
 
-                setJsonValidationSuccess(true);
+                console.log("Warehouse inventory item creation result:", warehouseItemResult);
 
-                // Wait for a moment before closing the modal
-                setTimeout(() => {
-                  setShowAcceptDeliveryModal(false);
-                  setJsonValidationSuccess(false);
-                  setDeliveryJson("");
-                }, 1000);
-
-                // Refresh delivery items to show updated status
-                const refreshedItems = await getDeliveryItems(user?.company_uuid);
-                setDeliveryItems(refreshedItems.data || []);
-              } catch (error) {
-                console.error("Error creating warehouse inventory items:", error);
-                setJsonValidationError("Delivery accepted but failed to create warehouse items");
+                if (!warehouseItemResult.success) {
+                  console.error("Failed to create warehouse inventory item:", warehouseItemResult.error);
+                  // Continue with success flow even if warehouse item creation fails
+                  // But log the error for debugging
+                }
+              } catch (warehouseError) {
+                console.error("Error creating warehouse inventory item:", warehouseError);
               }
             } else {
-              console.warn("Delivery marked as DELIVERED but missing location or bulk data");
-              setJsonValidationError("Missing location data for delivery - please contact admin");
+              console.warn("Delivery marked as DELIVERED but missing location data");
             }
-          // } else {
-          //   console.error("Failed to update inventory status:", inventoryResult.error);
-          //   setJsonValidationError("Delivery accepted but failed to update inventory status");
-          // }
+
+            setJsonValidationSuccess(true);
+
+            // Wait for a moment before closing the modal
+            setTimeout(() => {
+              setShowAcceptDeliveryModal(false);
+              setJsonValidationSuccess(false);
+              setDeliveryJson("");
+            }, 1000);
+
+            // Refresh delivery items to show updated status
+            const refreshedItems = await getDeliveryItems(user?.company_uuid);
+            setDeliveryItems(refreshedItems.data || []);
+          } else {
+            console.error("Failed to update inventory status:", inventoryResult.error);
+            setJsonValidationError("Delivery accepted but failed to update inventory status");
+          }
         }
       } else {
         setJsonValidationError("You are not assigned to this delivery");
@@ -1275,6 +1060,7 @@ export default function DeliveryPage() {
       setIsLoading(false);
     }
   };
+
 
   // Add this useEffect to focus on the textarea when modal opens
   useEffect(() => {
@@ -1307,39 +1093,17 @@ export default function DeliveryPage() {
       console.log("Selected Delivery:", delivery);
 
       // Set the form data
-      setFormData(delivery);
-      setSelectedItem(delivery.inventory_uuid || "");
+      setFormData({ ...delivery });
+      setSelectedItem(delivery.inventory_item_uuid || "");
 
-      // Load bulk items for this inventory item
-      if (delivery.inventory_uuid) {
-        // First load inventory bulks (preserving selection)
-        loadInventoryBulks(delivery.inventory_uuid, true);
-
-        // Then set selected bulks from the delivery
-        if (delivery.inventory_item_bulk_uuids && delivery.inventory_item_bulk_uuids.length > 0) {
-          setSelectedBulks(delivery.inventory_item_bulk_uuids);
-        }
-      }
-
-      // Set locations array
-      if (delivery.locations && delivery.locations.length > 0) {
-        setLocations(delivery.locations);
-
-        // Set first location as current selection
-        const firstLoc = delivery.locations[0];
-        setSelectedFloor(firstLoc.floor);
-        setSelectedColumnCode(parseColumn(firstLoc.column) || "");
-        setSelectedColumn(firstLoc.column);
-        setSelectedRow(firstLoc.row);
-        setSelectedDepth(firstLoc.depth || 0);
-        setSelectedGroup(firstLoc.group);
-      }
-
-      // Set location codes
-      if (delivery.location_codes && delivery.location_codes.length > 0) {
-        setLocationCodes(delivery.location_codes);
-        setSelectedCode(delivery.location_codes[0] || "");
-      }
+      // Set location data
+      setSelectedFloor(delivery.location?.floor || 0);
+      setSelectedColumnCode(parseColumn(delivery.location?.column || 0) || "");
+      setSelectedColumn(delivery.location?.column || 0);
+      setSelectedRow(delivery.location?.row || 0);
+      setSelectedDepth(delivery.location?.depth || 0);
+      setSelectedGroup(delivery.location?.group || 0);
+      setSelectedCode(delivery.location_code || "");
 
       // Check if there's an operator assigned
       const hasOperator = !!delivery.operator_uuid;
@@ -1356,28 +1120,13 @@ export default function DeliveryPage() {
 
     } else if (setInventoryId) {
       // First check if there's already a delivery for this inventory item
-      const existingDelivery = deliveryItems.find(item => item.inventory_uuid === setInventoryId);
+      const existingDelivery = deliveryItems.find(item => item.inventory_item_uuid === setInventoryId);
 
       if (existingDelivery) {
         // If delivery exists for this inventory item, select it
         setSelectedDeliveryId(existingDelivery.uuid);
         setFormData({ ...existingDelivery });
-        setSelectedItem(existingDelivery.inventory_uuid || "");
-
-        // Load bulk items and set selected bulks
-        if (existingDelivery.inventory_uuid) {
-          loadInventoryBulks(existingDelivery.inventory_uuid);
-
-          if (existingDelivery.inventory_item_bulk_uuids && existingDelivery.inventory_item_bulk_uuids.length > 0) {
-            setSelectedBulks(existingDelivery.inventory_item_bulk_uuids);
-          }
-        }
-
-        // Set locations
-        if (existingDelivery.locations && existingDelivery.locations.length > 0) {
-          setLocations(existingDelivery.locations);
-          setLocationCodes(existingDelivery.location_codes || []);
-        }
+        setSelectedItem(existingDelivery.inventory_item_uuid || "");
 
         // Check if there's an operator assigned
         const hasOperator = !!existingDelivery.operator_uuid;
@@ -1410,23 +1159,19 @@ export default function DeliveryPage() {
         setFormData({
           company_uuid: user.company_uuid,
           admin_uuid: user.uuid,
-          inventory_uuid: setInventoryId,
-          inventory_item_bulk_uuids: [],
+          inventory_item_uuid: setInventoryId,
           delivery_address: "",
           delivery_date: today(getLocalTimeZone()).toString(),
           notes: "",
           status: "PENDING",
-          locations: [],
-          location_codes: [],
+          location: null,
+          location_code: "",
           warehouse_uuid: null
         });
 
         setSelectedItem(setInventoryId);
         setAssignOperator(false);
         setSelectedOperator(null);
-
-        // Load bulk items for this inventory item
-        loadInventoryBulks(setInventoryId);
 
         resetWarehouseLocation();
       }
@@ -1436,27 +1181,23 @@ export default function DeliveryPage() {
       setFormData({
         company_uuid: user.company_uuid,
         admin_uuid: user.uuid,
-        inventory_uuid: null,
-        inventory_item_bulk_uuids: [],
+        inventory_item_uuid: null,
         delivery_address: "",
         delivery_date: format(new Date(), "yyyy-MM-dd"),
-        locations: [],
-        location_codes: [],
+        location: null,
+        location_code: "",
         notes: "",
         status: "PENDING",
         warehouse_uuid: null
       });
       setSelectedItem("");
-      setSelectedBulks([]);
-      setLocations([]);
-      setLocationCodes([]);
       setAssignOperator(false);
       setSelectedOperator(null);
       setDeliveryJson("");
 
       resetWarehouseLocation();
     }
-  }, [searchParams, user?.company_uuid, isLoadingItems, deliveryItems, inventoryItems, operators, loadInventoryBulks]);
+  }, [searchParams, user?.company_uuid, isLoadingItems, deliveryItems, inventoryItems, operators]);
 
   // Initialize page data
   useEffect(() => {
@@ -1539,11 +1280,6 @@ export default function DeliveryPage() {
           // Refresh inventory items
           const refreshedItems = await getInventoryItems(user.company_uuid);
           setInventoryItems(refreshedItems.data || []);
-
-          // If we have a selected item, refresh its bulks
-          if (selectedItem) {
-            loadInventoryBulks(selectedItem);
-          }
         }
       )
       .subscribe();
@@ -1553,7 +1289,7 @@ export default function DeliveryPage() {
       supabase.removeChannel(deliveryChannel);
       supabase.removeChannel(inventoryChannel);
     };
-  }, [user?.company_uuid, searchQuery, selectedItem, loadInventoryBulks]);
+  }, [user?.company_uuid, searchQuery]);
 
   useEffect(() => {
     // When the delivery status changes to DELIVERED, we want to ensure location fields are ready
@@ -1563,7 +1299,7 @@ export default function DeliveryPage() {
       selectedRow !== null &&
       selectedGroup !== null) {
 
-      // Create the location object for current bulk
+      // Create the location object
       const location = {
         floor: selectedFloor,
         group: selectedGroup,
@@ -1572,31 +1308,20 @@ export default function DeliveryPage() {
         depth: selectedDepth !== null ? selectedDepth : 0
       };
 
-      // Create new locations and location codes arrays if needed
-      const newLocations = [...locations];
-      const newLocationCodes = [...locationCodes];
-
-      // Update for current bulk
-      if (currentBulkLocationIndex < newLocations.length) {
-        newLocations[currentBulkLocationIndex] = location;
-        newLocationCodes[currentBulkLocationIndex] = selectedCode || "";
-      } else {
-        newLocations.push(location);
-        newLocationCodes.push(selectedCode || "");
-      }
-
-      // Update form data
       setFormData(prev => ({
         ...prev,
-        locations: newLocations,
-        location_codes: newLocationCodes
+        location: {
+          floor: selectedFloor + 1 || 0,
+          column: selectedColumn || 0,
+          row: selectedRow || 0,
+          group: selectedGroup || 0,
+          depth: selectedDepth || 0,
+        },
+        location_code: selectedCode || "",
       }));
 
-      // Update local state
-      setLocations(newLocations);
-      setLocationCodes(newLocationCodes);
     }
-  }, [selectedFloor, selectedColumn, selectedRow, selectedGroup, selectedDepth, formData.status, currentBulkLocationIndex, locations, locationCodes, selectedCode]);
+  }, [selectedFloor, selectedColumn, selectedRow, selectedGroup, selectedDepth, formData.status]);
 
   return (
     <div className="container mx-auto p-2 max-w-4xl">
@@ -1617,12 +1342,20 @@ export default function DeliveryPage() {
             {!user ? (
               <Skeleton className="h-10 w-32 rounded-xl" />
             ) : user.is_admin ? (
-              <Button color="primary" variant="shadow" onPress={handleNewDelivery}>
+              <Button
+                color="primary"
+                variant="shadow"
+                onPress={handleNewDelivery}
+              >
                 <Icon icon="mdi:plus" className="mr-2" />
                 New Delivery
               </Button>
             ) : selectedDeliveryId ? (
-              <Button color="primary" variant="shadow" onPress={() => setShowAcceptDeliveryModal(true)}>
+              <Button
+                color="primary"
+                variant="shadow"
+                onPress={() => setShowAcceptDeliveryModal(true)}
+              >
                 <Icon icon="mdi:qrcode-scan" className="mr-1" />
                 Accept Delivery
               </Button>
@@ -1631,8 +1364,13 @@ export default function DeliveryPage() {
         </div>
       </div>
       <div className="flex flex-col xl:flex-row gap-4">
+
         {/* Left side: Delivery List */}
-        <div className={`xl:w-1/3 shadow-xl shadow-primary/10 xl:min-h-[calc(100vh-6.5rem)] 2xl:min-h-[calc(100vh-9rem)] min-h-[42rem] xl:min-w-[350px] w-full rounded-2xl overflow-hidden bg-background border border-default-200 backdrop-blur-lg xl:sticky top-0 self-start max-h-[calc(100vh-2rem)]`}>
+        <div className={`xl:w-1/3 shadow-xl shadow-primary/10 
+          xl:min-h-[calc(100vh-6.5rem)] 2xl:min-h-[calc(100vh-9rem)] min-h-[42rem] 
+          xl:min-w-[350px] w-full rounded-2xl overflow-hidden bg-background border 
+          border-default-200 backdrop-blur-lg xl:sticky top-0 self-start max-h-[calc(100vh-2rem)]`}
+        >
           <div className="flex flex-col h-full">
             <div className="p-4 sticky top-0 z-20 bg-background/80 border-b border-default-200 backdrop-blur-lg shadow-sm">
               <h2 className="text-xl font-semibold mb-4 w-full text-center">Delivery Items</h2>
@@ -1661,22 +1399,26 @@ export default function DeliveryPage() {
                   </div>
                 </div>
               ) : !isLoadingItems && deliveryItems.length !== 0 ? (
-                <div className='space-y-4 p-4 overflow-y-auto pt-[8.25rem] xl:h-full h-[42rem]'>
+                <div
+                  className='space-y-4 p-4 overflow-y-auto pt-[8.25rem] xl:h-full h-[42rem]'>
                   {deliveryItems.map((delivery) => (
                     <Button
                       key={delivery.uuid}
                       onPress={() => handleSelectDelivery(delivery.uuid)}
                       variant="shadow"
-                      className={`w-full min-h-[7.5rem] !transition-all duration-200 rounded-xl p-0 ${selectedDeliveryId === delivery.uuid ? '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' : '!bg-default-100/50 shadow-none hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
+                      className={`w-full min-h-[7.5rem] !transition-all duration-200 rounded-xl p-0 ${selectedDeliveryId === delivery.uuid ?
+                        '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' :
+                        '!bg-default-100/50 shadow-none hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
                     >
+
                       <div className="w-full flex flex-col h-full">
                         <div className="flex-grow flex flex-col justify-center px-3">
                           <div className="flex items-center justify-between">
                             <span className="font-semibold">
-                              {inventoryItems.find(i => i.uuid === delivery.inventory_uuid)?.name || 'Unknown Item'}
+                              {inventoryItems.find(i => i.uuid === delivery.inventory_item_uuid)?.item_name || 'Unknown Item'}
                             </span>
                             <Chip color="default" variant={selectedDeliveryId === delivery.uuid ? "shadow" : "flat"} size="sm">
-                              {delivery.inventory_item_bulk_uuids?.length || 0} bulks
+                              {inventoryItems.find(i => i.uuid === delivery.inventory_item_uuid)?.item_code || 'N/A'}
                             </Chip>
                           </div>
                           {delivery.delivery_address && (
@@ -1685,6 +1427,7 @@ export default function DeliveryPage() {
                             </div>
                           )}
                         </div>
+
                         {/* Footer - always at the bottom */}
                         <div className={`flex items-center gap-2 border-t ${selectedDeliveryId === delivery.uuid ? 'border-primary-300' : 'border-default-100'} p-3`}>
                           <Chip color={getStatusColor(delivery.status)} variant={selectedDeliveryId === delivery.uuid ? "shadow" : "flat"} size="sm">
@@ -1695,7 +1438,10 @@ export default function DeliveryPage() {
                               const deliveryDate = new Date(delivery.delivery_date);
                               const currentYear = new Date().getFullYear();
                               const deliveryYear = deliveryDate.getFullYear();
-                              return deliveryYear < currentYear ? format(deliveryDate, "MMM d, ''yy") : format(deliveryDate, "MMM d");
+
+                              return deliveryYear < currentYear
+                                ? format(deliveryDate, "MMM d, ''yy") // Shows year for past years
+                                : format(deliveryDate, "MMM d");      // Current year format
                             })()}
                           </Chip>
                           {delivery.operator_uuid && (
@@ -1710,6 +1456,7 @@ export default function DeliveryPage() {
                   ))}
                 </div>
               ) : null}
+
               {user && !isLoadingItems && deliveryItems.length === 0 && (
                 <div className="xl:h-full h-[42rem] absolute w-full">
                   <div className="py-4 flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
@@ -1727,19 +1474,65 @@ export default function DeliveryPage() {
 
         {/* Right side: Delivery Form */}
         <div className="xl:w-2/3">
+          {/* Only show the form if user is creating new delivery or any user has selected a delivery */}
+
           {((user && user.is_admin) || selectedDeliveryId) ? (
             <Form id="deliveryForm" onSubmit={handleSubmit} className="items-stretch space-y-4">
               <CardList>
                 <div>
                   <h2 className="text-xl font-semibold mb-4 w-full text-center">Delivery Information</h2>
                   <div className="space-y-4">
-
+                    {/* Inventory Item Selection */}
+                    <div>
+                      {!user ? (
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                      ) : (
+                        <Autocomplete
+                          selectedKey={formData.inventory_item_uuid || ""}
+                          name="inventory_item_uuid"
+                          label="Inventory Item"
+                          placeholder="Select an inventory item"
+                          onSelectionChange={(e) => {
+                            handleAutoSelectChange(`inventory_item_uuid`, `${e}`)
+                            if (searchParams.get("setInventory")) {
+                              // remove the setInventory query param
+                              const params = new URLSearchParams(searchParams.toString());
+                              params.delete("setInventory");
+                              router.push(`?${params.toString()}`, { scroll: false });
+                            }
+                          }}
+                          disabledKeys={
+                            deliveryItems
+                              .filter(item => item.status !== "AVAILABLE")
+                              .map(item => item.inventory_item_uuid || "")
+                          }
+                          popoverProps={{ className: !!selectedDeliveryId ? "collapse" : "" }}
+                          isRequired={!selectedDeliveryId}
+                          inputProps={autoCompleteStyle}
+                          classNames={{ clearButton: "text-default-800" }}
+                          isInvalid={!!errors.inventory_item_uuid}
+                          errorMessage={errors.inventory_item_uuid}
+                          isReadOnly={!!selectedDeliveryId}
+                          selectorIcon={!!selectedDeliveryId ? null : <Icon icon="heroicons:chevron-down" height={15} />}
+                          startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]"
+                          />}
+                        >
+                          {inventoryItems
+                            .map((item) => (
+                              <AutocompleteItem key={item.uuid}>
+                                {`${item.item_name} (${item.item_code})`}
+                              </AutocompleteItem>
+                            ))}
+                        </Autocomplete>
+                      )}
+                    </div>
 
                     <div className="space-y-0">
                       {/* Operator Assignment Toggle */}
                       <AnimatePresence>
                         {isDeliveryProcessing() && (user === null || user.is_admin) && (
-                          <motion.div {...motionTransition}>
+                          <motion.div
+                            {...motionTransition}>
                             <div className="flex items-center justify-between mb-4">
                               {!user ? (
                                 <Skeleton className="h-10 w-full rounded-xl" />
@@ -1761,7 +1554,8 @@ export default function DeliveryPage() {
                       {/* Operator Selection (shown only when assignOperator is true) */}
                       <AnimatePresence>
                         {assignOperator && (
-                          <motion.div {...motionTransition}>
+                          <motion.div
+                            {...motionTransition}>
                             {!user ? (
                               <Skeleton className="h-16 w-full rounded-xl" />
                             ) : (
@@ -1791,7 +1585,9 @@ export default function DeliveryPage() {
                           </motion.div>
                         )}
                       </AnimatePresence>
+
                     </div>
+
 
                     {/* Warehouse Selection */}
                     <div>
@@ -1809,6 +1605,7 @@ export default function DeliveryPage() {
                           placeholder="Select warehouse"
                           selectedKey={formData.warehouse_uuid || ""}
                           onSelectionChange={(e) => {
+                            // get warehouse details
                             const selectedWarehouse = warehouses.find(w => w.uuid === e);
                             if (selectedWarehouse) {
                               setFormData(prev => ({
@@ -1874,7 +1671,8 @@ export default function DeliveryPage() {
                   {/* Recipient Details (shown only when assignOperator is true) */}
                   <AnimatePresence>
                     {assignOperator && (
-                      <motion.div {...motionTransition}>
+                      <motion.div
+                        {...motionTransition}>
                         <div>
                           <h2 className="text-xl font-semibold mb-4 w-full text-center">
                             Recipient Details
@@ -1922,198 +1720,7 @@ export default function DeliveryPage() {
                       </motion.div>
                     )}
                   </AnimatePresence>
-                </div>
 
-
-                <div>
-                  <h2 className="text-xl font-semibold mb-4 w-full text-center">
-                    Inventory to Deliver
-                  </h2>
-                  <div className="space-y-4">
-                    {/* Inventory Item Selection */}
-                    <div>
-                      {!user ? (
-                        <Skeleton className="h-16 w-full rounded-xl" />
-                      ) : (
-                        <Autocomplete
-                          selectedKey={formData.inventory_uuid || ""}
-                          name="inventory_uuid"
-                          label="Inventory Item"
-                          placeholder="Select an inventory item"
-                          onSelectionChange={(e) => {
-                            handleInventoryItemChange(`${e}`);
-                            if (searchParams.get("setInventory")) {
-                              const params = new URLSearchParams(searchParams.toString());
-                              params.delete("setInventory");
-                              router.push(`?${params.toString()}`, { scroll: false });
-                            }
-                          }}
-                          disabledKeys={deliveryItems
-                            .filter(item => item.status !== "AVAILABLE")
-                            .map(item => item.inventory_uuid || "")}
-                          popoverProps={{ className: !!selectedDeliveryId ? "collapse" : "" }}
-                          isRequired={!selectedDeliveryId}
-                          inputProps={autoCompleteStyle}
-                          classNames={{ clearButton: "text-default-800" }}
-                          isInvalid={!!errors.inventory_uuid}
-                          errorMessage={errors.inventory_uuid}
-                          isReadOnly={!!selectedDeliveryId}
-                          selectorIcon={!!selectedDeliveryId ? null : <Icon icon="heroicons:chevron-down" height={15} />}
-                          startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
-                        >
-                          {inventoryItems
-                            .map((item) => (
-                              <AutocompleteItem key={item.uuid}>
-                                {item.name}
-                              </AutocompleteItem>
-                            ))}
-                        </Autocomplete>
-                      )}
-                    </div>
-
-
-                    {/* Inventory Bulks Selection */}
-                    {formData.inventory_uuid && (
-                      <div className="border-2 border-default-200 rounded-xl bg-gradient-to-b from-background to-default-50/30">
-                        <div className="flex justify-between items-center border-b border-default-200 p-4">
-                          <h3 className="text-md font-medium">
-                            {formData.status === "PENDING" ? "Select Bulk Items to Deliver" : "Selected Bulk Items"}
-                          </h3>
-                          <Button
-                            size="sm"
-                            color="primary"
-                            variant="flat"
-                            onPress={autoAssignShelfLocations}
-                            isDisabled={selectedBulks.length === 0 || isWarehouseNotSet() || isFloorConfigNotSet() || !user.is_admin}
-                            isLoading={isAutoAssigning}
-                            startContent={<Icon icon="mdi:robot" className="text-sm" />}
-                          >
-                            Auto Assign Locations
-                          </Button>
-                        </div>
-                        <div className="space-y-4 p-4">
-                          {isLoadingBulks ? (
-                            <div className="flex items-center justify-center p-4">
-                              <Spinner size="sm" />
-                              <span className="ml-2">Loading bulk items...</span>
-                            </div>
-                          ) : inventoryBulks.length === 0 ? (
-                            <div className="flex items-center justify-center p-4 border-2 border-dashed border-default-300 rounded-xl">
-                              <p className="text-default-500">No bulk items available for this inventory item</p>
-                            </div>
-                          ) : (
-                            <div className="space-y-2">
-                              <div className="flex justify-between items-center mb-4">
-                                <Checkbox
-                                  isSelected={selectedBulks.length === inventoryBulks.length && inventoryBulks.length > 0}
-                                  isIndeterminate={selectedBulks.length > 0 && selectedBulks.length < inventoryBulks.length}
-                                  onValueChange={(isSelected) => {
-                                    // Select or deselect all bulks
-                                    if (isSelected) {
-                                      // Select all bulks
-                                      const allBulkUuids = inventoryBulks.map(bulk => bulk.uuid);
-                                      setSelectedBulks(allBulkUuids);
-
-                                      // Update form data with all bulk UUIDs
-                                      setFormData(prev => ({
-                                        ...prev,
-                                        inventory_item_bulk_uuids: allBulkUuids
-                                      }));
-                                    } else {
-                                      // Deselect all bulks
-                                      setSelectedBulks([]);
-
-                                      // Update form data to clear bulk UUIDs
-                                      setFormData(prev => ({
-                                        ...prev,
-                                        inventory_item_bulk_uuids: []
-                                      }));
-
-                                      // Also clear locations data
-                                      setLocations([]);
-                                      setLocationCodes([]);
-                                    }
-                                  }}
-                                  isDisabled={formData.status !== "PENDING" || !(user === null || user.is_admin) || inventoryBulks.length === 0}
-                                >
-                                  Select All
-                                </Checkbox>
-                                <span className="text-sm text-default-600">{selectedBulks.length} of {inventoryBulks.length} selected</span>
-                              </div>
-
-                              <ScrollShadow className="max-h-96">
-                                <div className="space-y-2">
-                                  {/* When not in PENDING status, only show selected bulks */}
-                                  {(formData.status === "PENDING" ? inventoryBulks : inventoryBulks.filter(bulk =>
-                                    selectedBulks.includes(bulk.uuid)
-                                  )).map((bulk, index) => (
-                                    <div key={bulk.uuid} className="flex items-center justify-between p-3 border border-default-200 rounded-xl">
-                                      <div className="flex items-center">
-                                        <Checkbox
-                                          isSelected={selectedBulks.includes(bulk.uuid)}
-                                          onValueChange={(isSelected) => {
-                                            handleBulkSelectionToggle(bulk.uuid, isSelected);
-                                            // Update the form data
-                                            setFormData(prev => {
-                                              const newBulkUuids = isSelected
-                                                ? [...(prev.inventory_item_bulk_uuids || []), bulk.uuid]
-                                                : (prev.inventory_item_bulk_uuids || []).filter(uuid => uuid !== bulk.uuid);
-
-                                              return {
-                                                ...prev,
-                                                inventory_item_bulk_uuids: newBulkUuids
-                                              };
-                                            });
-                                          }}
-                                          isDisabled={formData.status !== "PENDING" || !(user === null || user.is_admin)}
-                                        >
-                                          <div className="flex flex-col ml-2">
-                                            <span className="font-medium">{bulk.name || `Bulk ${index + 1}`}</span>
-                                            <span className="text-xs text-default-500">
-                                              {bulk.bulk_unit ? `${bulk.unit_value} ${bulk.unit} (${bulk.bulk_unit})` : `${bulk.unit_value} ${bulk.unit}`}
-                                            </span>
-                                          </div>
-                                        </Checkbox>
-                                      </div>
-
-                                      {selectedBulks.includes(bulk.uuid) && (
-                                        <div className="flex items-center">
-                                          <Chip
-                                            size="sm"
-                                            color={locationCodes[selectedBulks.indexOf(bulk.uuid)] ? "success" : "warning"}
-                                            variant="flat"
-                                            className="mr-2"
-                                          >
-                                            {locationCodes[selectedBulks.indexOf(bulk.uuid)] || "No location"}
-                                          </Chip>
-                                          <Button
-                                            size="sm"
-                                            color="primary"
-                                            variant="flat"
-                                            onPress={() => handleAssignLocation(selectedBulks.indexOf(bulk.uuid))}
-                                            isDisabled={isWarehouseNotSet() || isFloorConfigNotSet() || !user.is_admin}
-                                          >
-                                            {locationCodes[selectedBulks.indexOf(bulk.uuid)] ? "Change Location" : "Assign Location"}
-                                          </Button>
-                                        </div>
-                                      )}
-                                    </div>
-                                  ))}
-                                </div>
-                              </ScrollShadow>
-
-                              {errors.inventory_item_bulk_uuids && (
-                                <div className="text-danger text-sm mt-1">{errors.inventory_item_bulk_uuids}</div>
-                              )}
-                              {errors.locations && (
-                                <div className="text-danger text-sm mt-1">{errors.locations}</div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
                 </div>
 
 
@@ -2161,6 +1768,258 @@ export default function DeliveryPage() {
                   </div>
                 </div>
 
+                {/* Warehouse Location */}
+                <div>
+                  <h2 className="text-xl font-semibold mb-4 w-full text-center">
+                    Warehouse Location
+                  </h2>
+                  <div className="space-y-4">
+
+                    <AnimatePresence>
+                      {(!isFloorConfigNotSet() || isWarehouseNotSet()) && (
+                        <motion.div
+                          {...motionTransition} className="flex flex-col gap-4">
+                          <div className={isDeliveryProcessing() ? "space-y-4 " :
+                            "flex items-center justify-between"}>
+                            {/* Floor and Group in the first row */}
+                            <div className={`flex sm:flex-row  ${isDeliveryProcessing() && "flex-col gap-4"}`}>
+                              {!user ? (
+                                <>
+                                  <Skeleton className="h-16 w-full rounded-xl" />
+                                  <Skeleton className="h-16 w-full rounded-xl" />
+                                </>
+                              ) : (
+                                <>
+                                  <NumberInput
+                                    name="location.floor"
+                                    classNames={{
+                                      inputWrapper: `${inputStyle.inputWrapper} 
+                        ${isDeliveryProcessing() ?
+                                          'rounded-xl' :
+                                          'rounded-none rounded-l-xl border-r-1'
+                                        }`
+                                    }}
+                                    label="Floor"
+                                    placeholder="e.g. 1"
+                                    maxValue={floorOptions.length - 1}
+                                    minValue={1}
+                                    // Display floor as 1-indexed but store as 0-indexed
+                                    value={selectedFloor !== null ? selectedFloor + 1 : 0}
+                                    onValueChange={(e) => setSelectedFloor(e - 1)}
+                                    isInvalid={!!errors["location.floor"]}
+                                    errorMessage={errors["location.floor"]}
+                                    isRequired={isDeliveryProcessing() && (user === null || user.is_admin)}
+                                    isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
+                                    hideStepper={!isDeliveryProcessing() || !(user === null || user.is_admin)}
+                                    startContent={
+                                      <Icon icon="lucide-lab:floor-plan"
+                                        className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
+                                    }
+                                  />
+
+                                  <NumberInput
+                                    name="location.group"
+                                    classNames={{
+                                      inputWrapper: `${inputStyle.inputWrapper} 
+                        ${isDeliveryProcessing() ?
+                                          'rounded-xl' :
+                                          'rounded-none border-x-1'
+                                        }`
+                                    }}
+                                    label="Group"
+                                    minValue={1}
+                                    placeholder="e.g. 1"
+                                    // Display group as 1-indexed but store as 0-indexed
+                                    value={selectedGroup !== null ? selectedGroup + 1 : 0}
+                                    onValueChange={(e) => setSelectedGroup(e - 1)}
+                                    isInvalid={!!errors["location.group"]}
+                                    errorMessage={errors["location.group"]}
+                                    isRequired={isDeliveryProcessing() && (user === null || user.is_admin)}
+                                    isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
+                                    hideStepper={!isDeliveryProcessing() || !(user === null || user.is_admin)}
+                                    startContent={
+                                      <Icon icon="heroicons:rectangle-group-16-solid"
+                                        className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
+                                    }
+                                  />
+                                </>
+                              )}
+                            </div>
+
+                            {/* Row, Column, and Depth grouped together in the second row */}
+                            <div className={`flex sm:flex-row  ${isDeliveryProcessing() && "flex-col gap-4"}`}>
+                              {!user ? (
+                                <>
+                                  <Skeleton className="h-16 w-full rounded-xl" />
+                                  <Skeleton className="h-16 w-full rounded-xl" />
+                                  <Skeleton className="h-16 w-full rounded-xl" />
+                                </>
+                              ) : (
+                                <>
+                                  <NumberInput
+                                    name="location.row"
+                                    classNames={{
+                                      inputWrapper: `${inputStyle.inputWrapper} 
+                        ${isDeliveryProcessing() ?
+                                          'rounded-xl' :
+                                          'rounded-none border-x-1'
+                                        }`
+                                    }}
+                                    label="Row"
+                                    minValue={1}
+                                    placeholder="e.g. 1"
+                                    // Display row as 1-indexed but store as 0-indexed
+                                    value={selectedRow !== null ? selectedRow + 1 : 0}
+                                    onValueChange={(e) => setSelectedRow(e - 1)}
+                                    isInvalid={!!errors["location.row"]}
+                                    errorMessage={errors["location.row"]}
+                                    isRequired={isDeliveryProcessing() && (user === null || user.is_admin)}
+                                    isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
+                                    hideStepper={!isDeliveryProcessing() || !(user === null || user.is_admin)}
+                                    startContent={
+                                      <Icon icon="fluent:row-triple-20-filled"
+                                        className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
+
+                                    }
+                                  />
+
+
+                                  <NumberInput
+                                    name="location.column"
+                                    classNames={{
+                                      inputWrapper: `${inputStyle.inputWrapper} 
+                        ${isDeliveryProcessing() ?
+                                          'rounded-xl' :
+                                          'rounded-none border-x-1'
+                                        }`
+                                    }}
+                                    label="Column"
+                                    minValue={1}
+                                    placeholder="e.g. 1"
+                                    // Display depth as 1-indexed but store as 0-indexed
+                                    value={selectedColumn !== null ? selectedColumn + 1 : 0}
+                                    onValueChange={(e) => {
+                                      setSelectedColumn(e - 1);
+                                      if (e) {
+                                        setSelectedColumnCode(String.fromCharCode(65 + e - 1));
+                                      }
+                                    }}
+                                    isInvalid={!!errors["location.column"]}
+                                    errorMessage={errors["location.column"]}
+                                    isRequired={isDeliveryProcessing() && (user === null || user.is_admin)}
+                                    isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
+                                    hideStepper={!isDeliveryProcessing() || !(user === null || user.is_admin)}
+                                    startContent={
+                                      <Icon icon="fluent:column-triple-20-filled"
+                                        className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
+
+                                    }
+                                  />
+
+                                  <NumberInput
+                                    name="location.depth"
+                                    classNames={{
+                                      inputWrapper: `${inputStyle.inputWrapper} 
+                          ${isDeliveryProcessing() ?
+                                          'rounded-xl' :
+                                          'rounded-none rounded-r-xl border-l-1'
+                                        }`
+                                    }}
+                                    label="Depth"
+                                    minValue={1}
+                                    placeholder="e.g. 1"
+                                    // Display depth as 1-indexed but store as 0-indexed
+                                    value={selectedDepth !== null ? selectedDepth + 1 : 0}
+                                    onValueChange={(e) => setSelectedDepth(e - 1)}
+                                    isInvalid={!!errors["location.depth"]}
+                                    errorMessage={errors["location.depth"]}
+                                    isRequired={isDeliveryProcessing() && (user === null || user.is_admin)}
+                                    isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
+                                    hideStepper={!isDeliveryProcessing() || !(user === null || user.is_admin)}
+                                    startContent={
+                                      <Icon icon="fluent:box-16-filled"
+                                        className={`text-default-500 pb-[0.1rem] collapse w-0 sm:visible sm:w-auto md:collapse md:w-0 lg:visible lg:w-auto`} />
+
+                                    }
+                                  />
+                                </>
+                              )}
+                            </div>
+
+                          </div>
+                          <div className="flex items-center justify-between">
+                            {!user ? (
+                              <Skeleton className="h-7 w-32 rounded-xl" />
+                            ) : (
+                              <Chip className="mb-2 sm:mb-0">
+                                CODE: <b>{selectedCode}</b>
+                              </Chip>
+                            )}
+                          </div>
+
+                          <div className="flex justify-center gap-4 border-t border-default-200 pt-4 px-4 -mx-4">
+                            {!user ? (
+                              <Skeleton className="h-10 w-full rounded-xl" />
+                            ) : (
+                              <Button
+                                variant="faded"
+                                color="primary"
+                                onPress={handleOpenModal}
+                                isDisabled={isWarehouseNotSet()}
+                                className="w-full border-default-200 text-primary-600"
+                              >
+                                <Icon icon="mdi:warehouse" className="mr-1" />
+                                {isDeliveryProcessing() && (user === null || user.is_admin) ?
+                                  "Select Location" : "View Location"}
+                              </Button>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    <AnimatePresence>
+                      {isFloorConfigNotSet() && !isWarehouseNotSet() && (
+                        <motion.div
+                          {...motionTransition} className="flex flex-col gap-4">
+                          {/* The floor config is not yet set */}
+                          <div className="flex items-center justify-between">
+                            <Alert
+                              variant='faded'
+                              color="danger"
+                              className="w-full"
+                            >
+                              <span>
+                                Floor configuration is not set. Please set the floor configuration to proceed.
+                              </span>
+                            </Alert>
+                          </div>
+                          <div className="flex justify-center gap-4 border-t border-default-200 pt-4 px-4 -mx-4">
+                            {!user ? (
+                              <Skeleton className="h-10 w-full rounded-xl" />
+                            ) : (
+                              <Button
+                                variant="faded"
+                                color="primary"
+                                onPress={(e) => {
+                                  if (formData.warehouse_uuid)
+                                    handleGoToWarehouse(formData.warehouse_uuid);
+                                }}
+                                className="w-full border-default-200 text-primary-600"
+                              >
+                                <Icon icon="mdi:warehouse" className="mr-1" />
+                                Set Floor Configuration
+                              </Button>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                  </div>
+                </div>
+
+
                 <div>
                   <h2 className="text-xl font-semibold mb-4 w-full text-center">Delivery Status</h2>
                   <div>
@@ -2186,6 +2045,7 @@ export default function DeliveryPage() {
                             <div className="relative">
                               {/* Fixed timeline line with better alignment */}
                               <div className="absolute left-[calc((3rem/2)-0.1rem)] top-0 bottom-1 w-0.5 bg-default-100 rounded-full"></div>
+
                               <div className="space-y-5">
                                 {Object.entries(formData.status_history)
                                   .sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime()) // Sort by timestamp descending
@@ -2201,7 +2061,7 @@ export default function DeliveryPage() {
 
                                     return (
                                       <div key={timestamp} className="flex items-start group">
-                                        <div className={`w-12 h-12 rounded-full flex-shrink-0 bg-${getStatusColor(status)}-100 flex items-center justify-center shadow-sm group-hover:shadow-md transition-all duration-200 z-10`}>
+                                        <div className={`w-12 h-12 rounded-full flex-shrink-0 bg-${getStatusColor(status)}-100 flex items-center justify-center shadow-sm group-hover:shadow-md transition-all duration-200  z-10`}>
                                           <Icon
                                             icon={statusIcon}
                                             className={`text-${getStatusColor(status)}-900 text-[1.25rem]`}
@@ -2245,7 +2105,8 @@ export default function DeliveryPage() {
 
                     <AnimatePresence>
                       {(user === null || user.is_admin) && selectedDeliveryId && formData.status !== "DELIVERED" && formData.status !== "CANCELLED" && (
-                        <motion.div {...motionTransition}>
+                        <motion.div
+                          {...motionTransition}>
                           <div className="flex flex-col gap-4 pt-4 -mx-4">
                             <hr className="border-default-200" />
                             <h3 className="text-lg font-semibold w-full text-center">Quick Status Update</h3>
@@ -2274,7 +2135,7 @@ export default function DeliveryPage() {
                                 color="success"
                                 variant="flat"
                                 className="w-full"
-                                isDisabled={formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading || isFloorConfigNotSet() || selectedBulks.length === 0 || locations.length < selectedBulks.length}
+                                isDisabled={formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading || isFloorConfigNotSet()}
                                 onPress={() => handleStatusChange("DELIVERED")}
                               >
                                 <Icon icon="mdi:check-circle" className="mr-1" />
@@ -2299,7 +2160,8 @@ export default function DeliveryPage() {
                 </div>
 
                 {(user === null || user.is_admin || formData.status === "DELIVERED") && (
-                  <motion.div {...motionTransition}>
+                  <motion.div
+                    {...motionTransition}>
                     <div className="flex flex-col md:flex-row justify-center items-center gap-4">
                       {!user ? (
                         <Skeleton className="h-10 w-full rounded-xl" />
@@ -2330,6 +2192,7 @@ export default function DeliveryPage() {
                                     : "Show in Warehouse"}
                                 </Button>
                               )}
+
                             </>
                           )}
 
@@ -2352,8 +2215,10 @@ export default function DeliveryPage() {
                     </div>
                   </motion.div>
                 )}
+
               </CardList>
             </Form>
+
           ) : (
             <div className="flex flex-col items-center justify-center p-12 border border-dashed border-default-300 rounded-2xl bg-background">
               <Icon icon="mdi:truck-delivery" className="text-default-300" width={64} height={64} />
@@ -2371,49 +2236,98 @@ export default function DeliveryPage() {
                 Accept Delivery
               </Button>
             </div>
+
           )}
         </div>
-      </div>
+      </div >
 
       {/* QR Code Modal */}
-      <Modal isOpen={showQrCode} onClose={() => setShowQrCode(false)} placement="auto" backdrop="blur" size="lg" classNames={{ backdrop: "bg-background/50" }}>
+      < Modal
+        isOpen={showQrCode}
+        onClose={() => setShowQrCode(false)}
+        placement="auto"
+        backdrop="blur"
+        size="lg"
+        classNames={{
+          backdrop: "bg-background/50"
+        }}
+      >
         <ModalContent>
           <ModalHeader>Delivery QR Code</ModalHeader>
           <ModalBody className="flex flex-col items-center">
             <div className="bg-white rounded-xl overflow-hidden">
-              <QRCodeCanvas id="delivery-qrcode" value={generateDeliveryJson()} size={320} marginSize={4} level="L" />
+              <QRCodeCanvas
+                id="delivery-qrcode"
+                value={generateDeliveryJson()}
+                size={320}
+                marginSize={4}
+                level="L"
+              />
             </div>
             <p className="text-center mt-4 text-default-600">
               Scan this code to get delivery details
             </p>
             <div className="mt-4 w-full bg-default-50 overflow-auto max-h-64 rounded-xl">
-              <SyntaxHighlighter language="json" style={window.resolveTheme === 'dark' ? materialDark : materialLight} customStyle={{ margin: 0, borderRadius: '0.5rem', fontSize: '0.75rem' }}>
+              <SyntaxHighlighter
+                language="json"
+                style={window.resolveTheme === 'dark' ? materialDark : materialLight}
+                customStyle={{
+                  margin: 0,
+                  borderRadius: '0.5rem',
+                  fontSize: '0.75rem',
+                }}
+              >
                 {generateDeliveryJson(2)}
               </SyntaxHighlighter>
             </div>
           </ModalBody>
           <ModalFooter className="flex justify-end p-4 gap-4">
-            <Button color="default" onPress={() => setShowQrCode(false)}>Close</Button>
-            <Button color="primary" variant="shadow" onPress={() => {
-              const canvas = document.getElementById('delivery-qrcode') as HTMLCanvasElement;
-              const pngUrl = canvas.toDataURL('image/png');
-              const downloadLink = document.createElement('a');
-              downloadLink.href = pngUrl;
-              downloadLink.download = `delivery-${formData.recipient_name?.replace(/\s+/g, '-') || 'item'}-${new Date().toISOString()}.png`;
-              document.body.appendChild(downloadLink);
-              downloadLink.click();
-              document.body.removeChild(downloadLink);
-              setShowQrCode(false);
-            }}>
+            <Button
+              color="default"
+              onPress={() => setShowQrCode(false)}
+            >
+              Close
+            </Button>
+            <Button
+              color="primary"
+              variant="shadow"
+              onPress={() => {
+                // save the QRCodeCanvas as an image
+                const canvas = document.getElementById('delivery-qrcode') as HTMLCanvasElement;
+                const pngUrl = canvas.toDataURL('image/png');
+                const downloadLink = document.createElement('a');
+                downloadLink.href = pngUrl;
+                downloadLink.download = `delivery-${formData.recipient_name?.replace(/\s+/g, '-') || 'item'}-${new Date().toISOString()}.png`;
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+                setShowQrCode(false);
+              }}
+            >
               <Icon icon="mdi:download" className="mr-1" />
               Download QR
             </Button>
           </ModalFooter>
         </ModalContent>
-      </Modal>
+      </Modal >
 
       {/* Accept Delivery Modal */}
-      <Modal isOpen={showAcceptDeliveryModal} onClose={() => { setShowAcceptDeliveryModal(false); setDeliveryJson(""); setJsonValidationError(""); setJsonValidationSuccess(false); }} isDismissable={!isLoading && !isProcessingImage} placement="auto" backdrop="blur" size="lg" classNames={{ backdrop: "bg-background/50" }}>
+      <Modal
+        isOpen={showAcceptDeliveryModal}
+        onClose={() => {
+          setShowAcceptDeliveryModal(false);
+          setDeliveryJson("");
+          setJsonValidationError("");
+          setJsonValidationSuccess(false);
+        }}
+        isDismissable={!isLoading && !isProcessingImage}
+        placement="auto"
+        backdrop="blur"
+        size="lg"
+        classNames={{
+          backdrop: "bg-background/50"
+        }}
+      >
         <ModalContent>
           <ModalHeader>Accept Delivery</ModalHeader>
           <ModalBody className="flex flex-col items-center">
@@ -2424,11 +2338,26 @@ export default function DeliveryPage() {
 
               {/* QR Code Image Upload */}
               <div className="flex flex-col items-center w-full">
-                <input type="file" accept="image/*" onChange={handleQrImageUpload} className="hidden" ref={fileInputRef} />
-                <Button color="primary" variant="flat" className="w-full mb-4" onPress={() => fileInputRef.current?.click()}
-                  startContent={<Icon icon="mdi:camera" />} isLoading={isProcessingImage} isDisabled={isLoading || jsonValidationSuccess}>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleQrImageUpload}
+                  className="hidden"
+                  ref={fileInputRef}
+                />
+
+                <Button
+                  color="primary"
+                  variant="flat"
+                  className="w-full mb-4"
+                  onPress={() => fileInputRef.current?.click()}
+                  startContent={<Icon icon="mdi:camera" />}
+                  isLoading={isProcessingImage}
+                  isDisabled={isLoading || jsonValidationSuccess}
+                >
                   Upload QR Code Image
                 </Button>
+
                 <div className="w-full border-t border-default-200 my-4 relative">
                   <span className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-content1 px-4 text-default-400 text-sm">
                     OR
@@ -2445,6 +2374,7 @@ export default function DeliveryPage() {
                 onPaste={handleDeliveryJsonPaste}
                 minRows={4}
                 maxRows={6}
+
                 classNames={{
                   base: "w-full",
                   inputWrapper: `border-2 ${jsonValidationError ? 'border-danger' : jsonValidationSuccess ? 'border-success' : 'border-default-200'} hover:border-default-400 !transition-all duration-200`
@@ -2465,16 +2395,26 @@ export default function DeliveryPage() {
             </div>
           </ModalBody>
           <ModalFooter className="flex justify-end p-4 gap-4">
-            <Button color="default" onPress={() => {
-              setShowAcceptDeliveryModal(false);
-              setDeliveryJson("");
-              setJsonValidationError("");
-              setJsonValidationSuccess(false);
-            }} isDisabled={isLoading || isProcessingImage}>
+            <Button
+              color="default"
+              onPress={() => {
+                setShowAcceptDeliveryModal(false);
+                setDeliveryJson("");
+                setJsonValidationError("");
+                setJsonValidationSuccess(false);
+              }}
+              isDisabled={isLoading || isProcessingImage}
+            >
               Cancel
             </Button>
-            <Button {...isLoading ? {} : { startContent: <Icon icon="mdi:check" className="mr-1" /> }} color="primary" variant="shadow" onPress={(e) => handleDeliveryJsonValidation()} isLoading={isLoading || isProcessingImage}
-              isDisabled={jsonValidationSuccess || isLoading || isProcessingImage || !deliveryJson.trim()}>
+            <Button
+              {...isLoading ? {} : { startContent: <Icon icon="mdi:check" className="mr-1" /> }}
+              color="primary"
+              variant="shadow"
+              onPress={(e) => handleDeliveryJsonValidation()}
+              isLoading={isLoading || isProcessingImage}
+              isDisabled={jsonValidationSuccess || isLoading || isProcessingImage || !deliveryJson.trim()}
+            >
               Validate & Accept
             </Button>
           </ModalFooter>
@@ -2482,11 +2422,21 @@ export default function DeliveryPage() {
       </Modal>
 
       {/* Modal for the 3D shelf selector */}
-      <Modal isOpen={isOpen} onClose={handleCancelLocation} placement='auto' classNames={{ backdrop: "bg-background/50", wrapper: 'overflow-hidden' }} backdrop="blur" size="5xl">
+      <Modal
+        isOpen={isOpen}
+        onClose={handleCancelLocation}
+        placement='auto'
+        classNames={{
+          backdrop: "bg-background/50",
+          wrapper: 'overflow-hidden',
+        }}
+        backdrop="blur"
+        size="5xl">
         <ModalContent>
           <ModalHeader>Interactive Warehouse Floorplan</ModalHeader>
           <ModalBody className='p-0'>
             <div className="h-[80vh] bg-primary-50 rounded-md overflow-hidden relative">
+
               <Suspense fallback={
                 <div className="flex items-center justify-center h-full">
                   <Spinner size="lg" color="primary" />
@@ -2503,40 +2453,76 @@ export default function DeliveryPage() {
                   onHighlightFloor={setHighlightedFloor}
                   externalSelection={externalSelection}
                   cameraOffsetY={-0.25}
-                  shelfColorAssignments={shelfColorAssignments}
                 />
               </Suspense>
 
               <AnimatePresence>
                 {tempSelectedCode &&
-                  <motion.div {...motionTransition} className="!scale-75 absolute overflow-hidden bottom-0 -left-[4.25rem] flex flex-col gap-2 bg-background/50 rounded-2xl backdrop-blur-lg md:w-auto w-[calc(100%-2rem)]">
+                  <motion.div
+                    {...motionTransition}
+                    className="!scale-75 absolute overflow-hidden bottom-0 -left-[4.25rem] flex flex-col gap-2 bg-background/50 rounded-2xl backdrop-blur-lg md:w-auto w-[calc(100%-2rem)]">
                     <div className="grid md:grid-cols-2 grid-cols-1 gap-3 p-4">
                       <div className="flex flex-col gap-2">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-semibold w-16">Floor</span>
-                          <Pagination classNames={{ item: "bg-default/25" }} initialPage={0} size="sm" page={(tempSelectedFloor || 0) + 1} total={floorConfigs.length} onChange={handleFloorChange} />
+                          <Pagination
+                            classNames={{ item: "bg-default/25" }}
+                            initialPage={0}
+                            size="sm"
+                            page={(tempSelectedFloor || 0) + 1}
+                            total={floorConfigs.length}
+                            onChange={handleFloorChange}
+                          />
                         </div>
 
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-semibold w-16">Group</span>
-                          <Pagination classNames={{ item: "bg-default/25" }} initialPage={1} size="sm" page={(tempSelectedGroup || 0) + 1} total={maxGroupId + 1} onChange={handleGroupChange} />
+                          <Pagination
+                            classNames={{ item: "bg-default/25" }}
+                            initialPage={1}
+                            size="sm"
+                            page={(tempSelectedGroup || 0) + 1}
+                            total={maxGroupId + 1}
+                            onChange={handleGroupChange}
+                          />
                         </div>
                       </div>
 
                       <div className="flex flex-col gap-2 md:border-default md:border-l md:pl-3">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-semibold w-16">Row</span>
-                          <Pagination classNames={{ item: "bg-default/25" }} initialPage={1} size="sm" page={(tempSelectedRow || 0) + 1} total={maxRow + 1} onChange={handleRowChange} />
+                          <Pagination
+                            classNames={{ item: "bg-default/25" }}
+                            initialPage={1}
+                            size="sm"
+                            page={(tempSelectedRow || 0) + 1}
+                            total={maxRow + 1}
+                            onChange={handleRowChange}
+                          />
                         </div>
 
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-semibold w-16">Column</span>
-                          <Pagination classNames={{ item: "bg-default/25" }} initialPage={1} size="sm" page={(tempSelectedColumn || 0) + 1} total={maxColumn + 1} onChange={handleColumnChange} />
+                          <Pagination
+                            classNames={{ item: "bg-default/25" }}
+                            initialPage={1}
+                            size="sm"
+                            page={(tempSelectedColumn || 0) + 1}
+                            total={maxColumn + 1}
+                            onChange={handleColumnChange}
+                          />
                         </div>
 
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-semibold w-16">Depth</span>
-                          <Pagination classNames={{ item: "bg-default/25" }} initialPage={1} size="sm" page={(tempSelectedDepth || 0) + 1} total={maxDepth + 1} onChange={handleDepthChange} />
+                          <Pagination
+                            classNames={{ item: "bg-default/25" }}
+                            initialPage={1}
+                            size="sm"
+                            page={(tempSelectedDepth || 0) + 1}
+                            total={maxDepth + 1}
+                            onChange={handleDepthChange}
+                          />
                         </div>
                       </div>
                     </div>
@@ -2546,18 +2532,25 @@ export default function DeliveryPage() {
 
               <AnimatePresence>
                 {tempSelectedCode &&
-                  <motion.div {...motionTransition} className="absolute top-4 right-4 flex items-center gap-2 bg-background/50 rounded-2xl backdrop-blur-lg">
+                  <motion.div
+                    {...motionTransition}
+                    className="absolute top-4 right-4 flex items-center gap-2 bg-background/50 rounded-2xl backdrop-blur-lg">
                     <span className="text-sm font-semibold p-4">CODE: <b>{tempSelectedCode}</b></span>
                   </motion.div>
                 }
               </AnimatePresence>
+
+
             </div>
           </ModalBody>
           <ModalFooter className="flex justify-between gap-4 p-4">
             <Popover showArrow offset={10} placement="bottom-end">
               <PopoverTrigger>
                 <Button className="capitalize" color="warning" variant="flat">
-                  <Icon icon="heroicons:question-mark-circle-solid" className="w-4 h-4 mr-1" />
+                  <Icon
+                    icon="heroicons:question-mark-circle-solid"
+                    className="w-4 h-4 mr-1"
+                  />
                   Help
                 </Button>
               </PopoverTrigger>
@@ -2702,10 +2695,16 @@ export default function DeliveryPage() {
 
             <div className="flex items-center gap-2">
               <Button color="danger" variant="shadow" onPress={handleCancelLocation}>
-                {isDeliveryProcessing() && (user === null || user.is_admin) ? "Cancel" : "Close"}
+                {isDeliveryProcessing() && (user === null || user.is_admin) ?
+                  "Cancel" : "Close"}
               </Button>
               {isDeliveryProcessing() && (user === null || user.is_admin) && (
-                <Button color="primary" variant="shadow" onPress={handleConfirmLocation} isDisabled={isSelectedLocationOccupied}>
+                <Button
+                  color="primary"
+                  variant="shadow"
+                  onPress={handleConfirmLocation}
+                  isDisabled={isSelectedLocationOccupied}
+                >
                   {isSelectedLocationOccupied ? "Location Occupied" : "Confirm Location"}
                 </Button>
               )}

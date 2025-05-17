@@ -9,23 +9,24 @@ export interface DeliveryItem {
   uuid: string;
   admin_uuid: string | null;
   company_uuid: string | null;
-  inventory_item_uuid: string | null;
+  inventory_uuid: string | null;
+  inventory_item_bulk_uuids: string[]; // New field for selected bulks
   warehouse_uuid: string | null;
   delivery_address: string;
   delivery_date: string;
   notes: string;
   status: string;
-  status_history?: Record<string, string>; // New field for status history with timestamps
-  item_code: string;
+  status_history?: Record<string, string>;
   item_name: string;
-  location_code: string;
-  location: any;
+  locations: any[]; // Changed from location to locations array
+  location_codes: string[]; // Changed from location_code to location_codes array
   operator_uuid?: string;
   recipient_name?: string;
   recipient_contact?: string;
   created_at?: string;
   updated_at?: string;
 }
+
 
 export interface Operator {
   uuid: string;
@@ -55,10 +56,52 @@ export interface Warehouse {
   warehouse_layout: FloorConfig[];
 }
 
+export interface WarehouseInventoryItemBulk {
+  uuid: string;
+  company_uuid: string;
+  warehouse_uuid: string;
+  inventory_uuid: string;
+  inventory_bulk_uuid: string;
+  delivery_uuid?: string;
+  unit: string;
+  unit_value: number;
+  bulk_unit: string;
+  cost: number;
+  is_single_item: boolean;
+  location: any; // JSONB type
+  location_code: string;
+  status: string;
+  properties?: any; // JSONB type
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface WarehouseInventoryItemUnit {
+  uuid: string;
+  company_uuid: string;
+  warehouse_uuid: string;
+  inventory_uuid: string;
+  inventory_unit_uuid: string;
+  warehouse_inventory_bulk_uuid?: string;
+  delivery_uuid?: string;
+  item_code: string;
+  unit_value: number;
+  unit: string;
+  item_name: string;
+  cost: number;
+  location: any; // JSONB type
+  location_code: string;
+  status: string;
+  properties?: any; // JSONB type
+  created_at?: string;
+  updated_at?: string;
+}
+
 
 /**
  * Creates a new delivery item in the database
  */
+
 export async function createDeliveryItem(formData: DeliveryItem) {
   const supabase = await createClient();
 
@@ -140,6 +183,34 @@ export async function updateInventoryItemStatus(inventoryItemUuid: string, statu
 }
 
 /**
+ * Updates the status of inventory item bulks
+ */
+export async function updateInventoryItemBulksStatus(bulkUuids: string[], status: string) {
+  const supabase = await createClient();
+
+  try {
+    // Update each bulk status
+    const { data, error } = await supabase
+      .from("inventory_item_bulk")
+      .update({ status })
+      .in("uuid", bulkUuids)
+      .select();
+
+    if (error) {
+      throw error;
+    }
+
+    return { success: true, data };
+  } catch (error) {
+    console.error("Error updating bulk statuses:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error occurred"
+    };
+  }
+}
+
+/**
  * Fetches delivery items with optional search
  */
 export async function getDeliveryItems(companyUuid?: string, search: string = "") {
@@ -151,17 +222,12 @@ export async function getDeliveryItems(companyUuid?: string, search: string = ""
       .from("delivery_items")
       .select(`
         *,
-        inventory_item:inventory_item_uuid!inner(
-          uuid,
-          item_code,
-          item_name,
-          description,
-          quantity,
-          unit,
-          status
+        inventory_item:inventory_uuid!inner(
+          *
         )
       `)
       .order("created_at", { ascending: false });
+
 
     // Apply company filter if provided
     if (companyUuid) {
@@ -171,7 +237,7 @@ export async function getDeliveryItems(companyUuid?: string, search: string = ""
     // Apply search filter if provided
     if (search) {
       query = query.or(
-        `item_name.ilike.%${search}%,description.ilike.%${search}%,item_code.ilike.%${search}%`, { referencedTable: "inventory_item" }
+        `name.ilike.%${search}%,description.ilike.%${search}%`, { referencedTable: "inventory_item" }
       );
     }
 
@@ -217,7 +283,7 @@ export async function getInventoryItems(companyUuid?: string, search: string = "
     // Apply search filter if provided
     if (search) {
       query = query.or(
-        `item_code.ilike.%${search}%,item_name.ilike.%${search}%,description.ilike.%${search}%,status.ilike.%${search}%`
+        `item_name.ilike.%${search}%,description.ilike.%${search}%,status.ilike.%${search}%`
       );
     }
 
@@ -234,6 +300,37 @@ export async function getInventoryItems(companyUuid?: string, search: string = "
     };
   } catch (error) {
     console.error("Error fetching inventory items:", error);
+    return {
+      success: false,
+      data: [],
+      error: error instanceof Error ? error.message : "Unknown error occurred",
+    };
+  }
+}
+
+/**
+ * Fetches available inventory item bulks for an inventory item
+ */
+export async function getInventoryItemBulks(inventoryItemUuid: string) {
+  const supabase = await createClient();
+
+  try {
+    const { data, error } = await supabase
+      .from("inventory_item_bulk")
+      .select("*")
+      .eq("inventory_uuid", inventoryItemUuid)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    return {
+      success: true,
+      data: data || []
+    };
+  } catch (error) {
+    console.error("Error fetching inventory item bulks:", error);
     return {
       success: false,
       data: [],
@@ -309,42 +406,131 @@ export async function getWarehouses(companyUuid: string) {
   }
 }
 
+
 /**
- * Creates a warehouse inventory item record when an item is delivered
+ * Creates warehouse inventory items from delivered inventory
  */
-export async function createWarehouseInventoryItem(itemData: {
-  admin_uuid: string;
-  warehouse_uuid: string;
-  delivery_uuid: string;
-  company_uuid: string;
-  inventory_uuid: string;
-  item_code: string;
-  item_name: string;
-  location: any;
-  location_code: string;
-  status: string;
-}) {
+export async function createWarehouseInventoryItems(
+  inventoryUuid: string,
+  warehouseUuid: string,
+  bulkUuids: string[],
+  locations: any[],
+  locationCodes: string[]
+) {
   const supabase = await createClient();
 
   try {
-    const { data, error } = await supabase
-      .from("warehouse_inventory_items")
-      .insert(itemData)
-      .select();
+    // First get the inventory item details
+    const { data: inventoryItem, error: invError } = await supabase
+      .from("inventory_items")
+      .select("*")
+      .eq("uuid", inventoryUuid)
+      .single();
 
-    if (error) {
-      throw error;
-    }
+    if (invError) throw invError;
 
-    return { success: true, data };
+    // Get all bulks for this inventory item that match the provided UUIDs
+    const { data: bulks, error: bulksError } = await supabase
+      .from("inventory_item_bulk")
+      .select("*, inventory_item_units(*)")
+      .eq("inventory_uuid", inventoryUuid)
+      .in("uuid", bulkUuids);
+
+    if (bulksError) throw bulksError;
+
+    // Create warehouse inventory item records
+    const warehouseInventoryData = {
+      inventory_uuid: inventoryUuid,
+      warehouse_uuid: warehouseUuid,
+      name: inventoryItem.name,
+      description: inventoryItem.description,
+      company_uuid: inventoryItem.company_uuid,
+      admin_uuid: inventoryItem.admin_uuid,
+      status: "AVAILABLE"  // New warehouse items are always AVAILABLE
+    };
+
+    const { data: warehouseInv, error: whInvError } = await supabase
+      .from("warehouse_inventory")
+      .insert(warehouseInventoryData)
+      .select()
+      .single();
+
+    if (whInvError) throw whInvError;
+
+    // Create warehouse inventory bulk items for each bulk
+    const warehouseBulkPromises = bulks.map(async (bulk, index) => {
+      // Find the matching location for this bulk
+      const location = locations[index] || null;
+      const locationCode = locationCodes[index] || null;
+
+      // Create warehouse bulk item
+      const warehouseBulkData = {
+        warehouse_inventory_uuid: warehouseInv.uuid,
+        inventory_item_bulk_uuid: bulk.uuid,
+        unit: bulk.unit,
+        unit_value: bulk.unit_value,
+        bulk_unit: bulk.bulk_unit,
+        cost: bulk.cost,
+        is_single_item: bulk.is_single_item,
+        properties: bulk.properties,
+        location: location,
+        location_code: locationCode,
+        status: "AVAILABLE"  // New warehouse bulk items are AVAILABLE
+      };
+
+      const { data: warehouseBulk, error: whBulkError } = await supabase
+        .from("warehouse_inventory_bulk")
+        .insert(warehouseBulkData)
+        .select()
+        .single();
+
+      if (whBulkError) throw whBulkError;
+
+      // Create warehouse units for this bulk
+      if (bulk.inventory_item_units && bulk.inventory_item_units.length > 0) {
+        const unitPromises = bulk.inventory_item_units.map(async (unit: WarehouseInventoryItemUnit) => {
+          const warehouseUnitData = {
+            warehouse_inventory_uuid: warehouseInv.uuid,
+            warehouse_inventory_bulk_uuid: warehouseBulk.uuid,
+            inventory_item_unit_uuid: unit.uuid,
+            item_code: unit.item_code,
+            unit_value: unit.unit_value,
+            unit: unit.unit,
+            item_name: unit.item_name,
+            cost: unit.cost,
+            properties: unit.properties,
+            status: "AVAILABLE"  // New warehouse unit items are AVAILABLE
+          };
+
+          return supabase
+            .from("warehouse_inventory_unit")
+            .insert(warehouseUnitData);
+        });
+
+        await Promise.all(unitPromises);
+      }
+
+      return warehouseBulk;
+    });
+
+    const warehouseBulks = await Promise.all(warehouseBulkPromises);
+
+    return {
+      success: true,
+      data: {
+        warehouseInventory: warehouseInv,
+        warehouseBulks
+      }
+    };
   } catch (error) {
-    console.error("Error creating warehouse inventory item:", error);
+    console.error("Error creating warehouse inventory items:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error occurred"
     };
   }
 }
+
 
 /**
  * Gets occupied shelf locations
@@ -353,22 +539,24 @@ export async function getOccupiedShelfLocations(warehouseUuid: string) {
   const supabase = await createClient();
 
   try {
+    // Get all occupied locations from delivery_items
     const { data: deliveryData, error: deliveryError } = await supabase
       .from("delivery_items")
-      .select("location")
+      .select("locations") // Updated to match the new field name
       .eq("warehouse_uuid", warehouseUuid);
+      
     if (deliveryError) {
       throw deliveryError;
     }
 
-    // Map to the expected format and filter out null values
-    const deliveryLocations = deliveryData
-      .filter(item => item.location !== null)
-      .map(item => item.location);
+    // Flatten the array of location arrays and filter nulls
+    const occupiedLocations = deliveryData
+      .flatMap(item => item.locations || [])
+      .filter(location => location !== null);
 
     return {
       success: true,
-      data:  deliveryLocations
+      data: occupiedLocations
     };
   } catch (error) {
     console.error("Error fetching occupied shelf locations:", error);
@@ -378,4 +566,210 @@ export async function getOccupiedShelfLocations(warehouseUuid: string) {
       data: []
     };
   }
+}
+
+/**
+ * Helper function to auto-assign shelf locations for bulk items
+ * Takes a warehouse layout and returns suggested locations for each bulk
+ */
+export async function suggestShelfLocations(
+  warehouseUuid: string,
+  bulkCount: number,
+  startingShelf?: { floor: number, group: number, row: number, column: number }
+) {
+  // Get warehouse layout
+  const supabase = await createClient();
+  
+  try {
+    // Get warehouse data with layout
+    const { data: warehouseData, error: warehouseError } = await supabase
+      .from('warehouses')
+      .select('warehouse_layout')
+      .eq('uuid', warehouseUuid)
+      .single();
+    
+    if (warehouseError) throw warehouseError;
+    
+    // Get currently occupied locations
+    const { data: occupiedLocations } = await getOccupiedShelfLocations(warehouseUuid);
+    
+    const layout = warehouseData.warehouse_layout as FloorConfig[];
+    const suggestions: any[] = [];
+    
+    // Start from the specified shelf or default to first shelf
+    let currentFloor = startingShelf?.floor || 0;
+    let currentGroup = startingShelf?.group || 0;
+    let currentRow = startingShelf?.row || 0;
+    let currentColumn = startingShelf?.column || 0;
+    let currentDepth = 0;
+    
+    // Logic to find available shelves
+    for (let i = 0; i < bulkCount; i++) {
+      let locationFound = false;
+      
+      // Try to find a free location
+      while (!locationFound && currentFloor < layout.length) {
+        const floorLayout = layout[currentFloor];
+        const { groups } = processGroupsMatrix(floorLayout.matrix, currentFloor);
+        
+        // Skip if we're beyond available groups
+        if (currentGroup >= groups.length) {
+          currentGroup = 0;
+          currentFloor++;
+          continue;
+        }
+        
+        const currentGroupData = groups[currentGroup];
+        
+        // Skip if we're beyond rows in this group
+        if (currentRow >= currentGroupData.rows) {
+          currentRow = 0;
+          currentGroup++;
+          continue;
+        }
+        
+        // Skip if we're beyond columns in this group
+        if (currentColumn >= currentGroupData.width) {
+          currentColumn = 0;
+          currentRow++;
+          continue;
+        }
+        
+        // Skip if we're beyond depth in this group
+        if (currentDepth >= currentGroupData.depth) {
+          currentDepth = 0;
+          currentColumn++;
+          continue;
+        }
+        
+        // Check if this location is occupied
+        const isOccupied = occupiedLocations?.some((loc: any) => 
+          loc.floor === currentFloor && 
+          loc.group === currentGroup && 
+          loc.row === currentRow && 
+          loc.column === currentColumn &&
+          loc.depth === currentDepth
+        );
+        
+        if (!isOccupied) {
+          // Found a free location
+          suggestions.push({
+            floor: currentFloor,
+            group: currentGroup,
+            row: currentRow,
+            column: currentColumn,
+            depth: currentDepth,
+            // Include max values for reference
+            max_group: groups.length - 1,
+            max_row: currentGroupData.rows - 1,
+            max_column: currentGroupData.width - 1,
+            max_depth: currentGroupData.depth - 1
+          });
+          
+          locationFound = true;
+        }
+        
+        // Move to next position
+        currentDepth++;
+      }
+      
+      // If we've gone through all possibilities and couldn't find enough spaces
+      if (!locationFound) {
+        break; // Stop trying to find more locations
+      }
+    }
+    
+    // Generate location codes for each suggested location
+    const locationCodes = suggestions.map(loc => 
+      `F${loc.floor + 1}-G${loc.group + 1}-R${loc.row + 1}-C${String.fromCharCode(65 + loc.column)}-D${loc.depth + 1}`
+    );
+    
+    return {
+      success: true,
+      data: {
+        locations: suggestions,
+        locationCodes: locationCodes
+      }
+    };
+    
+  } catch (error) {
+    console.error("Error suggesting shelf locations:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error occurred",
+      data: { locations: [], locationCodes: [] }
+    };
+  }
+}
+
+// Helper function to process groups matrix (copied from shelf-selector-3d.tsx)
+function processGroupsMatrix(floorMatrix: number[][], floorIndex: number) {
+  const groups = [];
+  const groupPositions = [];
+  const visited = Array(floorMatrix.length).fill(0).map(() => Array(floorMatrix[0].length).fill(false));
+  let groupId = 0;
+
+  for (let i = 0; i < floorMatrix.length; i++) {
+    for (let j = 0; j < floorMatrix[i].length; j++) {
+      if (floorMatrix[i][j] > 0 && !visited[i][j]) {
+        const value = floorMatrix[i][j];
+        let minI = i, maxI = i;
+        let minJ = j, maxJ = j;
+
+        // BFS to find group extent
+        const queue = [[i, j]];
+        visited[i][j] = true;
+
+        while (queue.length > 0) {
+          const [x, y] = queue.shift()!;
+
+          // Check horizontal connections
+          if (y + 1 < floorMatrix[x].length && floorMatrix[x][y + 1] === value && !visited[x][y + 1]) {
+            visited[x][y + 1] = true;
+            queue.push([x, y + 1]);
+            maxJ = Math.max(maxJ, y + 1);
+          }
+
+          if (y - 1 >= 0 && floorMatrix[x][y - 1] === value && !visited[x][y - 1]) {
+            visited[x][y - 1] = true;
+            queue.push([x, y - 1]);
+            minJ = Math.min(minJ, y - 1);
+          }
+
+          // Check vertical connections
+          if (x + 1 < floorMatrix.length && floorMatrix[x + 1][y] === value && !visited[x + 1][y]) {
+            visited[x + 1][y] = true;
+            queue.push([x + 1, y]);
+            maxI = Math.max(maxI, x + 1);
+          }
+
+          if (x - 1 >= 0 && floorMatrix[x - 1][y] === value && !visited[x - 1][y]) {
+            visited[x - 1][y] = true;
+            queue.push([x - 1, y]);
+            minI = Math.min(minI, x - 1);
+          }
+        }
+
+        const width = maxJ - minJ + 1;
+        const depth = maxI - minI + 1;
+
+        groups.push({
+          id: groupId,
+          rows: value,
+          width,
+          depth,
+          position: [minI, minJ],
+          minI,
+          maxI,
+          minJ,
+          maxJ
+        });
+
+        groupPositions.push([minI, minJ, groupId]);
+        groupId++;
+      }
+    }
+  }
+
+  return { groups, groupPositions };
 }

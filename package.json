@@ -36,6 +36,7 @@
   },
   "devDependencies": {
     "@iconify-icon/react": "^2.3.0",
+    "@iconify/react": "6.0.0",
     "@types/date-fns": "^2.6.3",
     "@types/node": "^20",
     "@types/react": "^19",
