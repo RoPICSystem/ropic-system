@@ -477,8 +477,8 @@ export async function createWarehouseInventoryItems(
           bulk_unit: bulk.bulk_unit,
           cost: bulk.cost,
           is_single_item: bulk.is_single_item,
-          locations: location,
-          location_codes: locationCode,
+          location: location,
+          location_code: locationCode,
           properties: bulk.properties
         })
         .select()

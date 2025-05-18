@@ -36,8 +36,8 @@ export interface WarehouseInventoryItemBulk {
   bulk_unit: string;
   cost: number;
   is_single_item: boolean;
-  locations: ShelfLocation[]; // JSONB type
-  location_codes: string;
+  location: ShelfLocation; // JSONB type
+  location_code: string;
   description?: string;
   properties?: any; // JSONB type
   status: string;

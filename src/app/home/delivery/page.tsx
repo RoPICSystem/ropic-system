@@ -139,6 +139,10 @@ export default function DeliveryPage() {
   const [externalSelection, setExternalSelection] = useState<any | undefined>(undefined);
   const [floorConfigs, setFloorConfigs] = useState<any[]>([]);
 
+  // Create a state for shelf color assignments
+  const [shelfColorAssignments, setShelfColorAssignments] = useState<Array<ShelfSelectorColorAssignment>>([]);
+
+
   // Form state
   const [formData, setFormData] = useState<Partial<DeliveryItem>>({
     company_uuid: null,
@@ -241,6 +245,19 @@ export default function DeliveryPage() {
         loc.depth === location.depth
     );
   };
+
+  const filteredOccupiedLocations = useMemo(() => {
+    return occupiedLocations.filter(loc => 
+      !shelfColorAssignments.some(
+        assignment =>
+          assignment.floor === loc.floor &&
+          assignment.group === loc.group &&
+          assignment.row === loc.row &&
+          assignment.column === loc.column &&
+          assignment.depth === (loc.depth || 0)
+      )
+    );
+  }, [occupiedLocations, shelfColorAssignments]);
 
   // Update the handle functions to check for occupation after selection and use formatCode
   const updateLocationOccupiedStatus = () => {
@@ -371,9 +388,6 @@ export default function DeliveryPage() {
       setIsAutoAssigning(false);
     }
   };
-
-  // Create a state for shelf color assignments
-  const [shelfColorAssignments, setShelfColorAssignments] = useState<Array<ShelfSelectorColorAssignment>>([]);
 
   // Use an effect to update the assignments when locations or currentBulkLocationIndex change
   useEffect(() => {
@@ -2504,7 +2518,7 @@ export default function DeliveryPage() {
                 <ShelfSelector3D
                   floors={floorConfigs}
                   onSelect={handleShelfSelection}
-                  occupiedLocations={occupiedLocations}
+                  occupiedLocations={filteredOccupiedLocations}
                   canSelectOccupiedLocations={false}
                   className="w-full h-full"
                   highlightedFloor={highlightedFloor}

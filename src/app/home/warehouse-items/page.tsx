@@ -29,7 +29,7 @@ import { Icon } from "@iconify/react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useRouter, useSearchParams } from "next/navigation";
 import { QRCodeCanvas } from "qrcode.react";
-import React, { lazy, memo, Suspense, useCallback, useEffect, useState } from "react";
+import React, { lazy, memo, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -124,33 +124,32 @@ export default function WarehouseItemsPage() {
 
   const handleViewBulkLocation = (bulk: WarehouseInventoryItemBulk) => {
     setSelectedBulkForLocation(bulk);
-    
+
     // Prepare the 3D visualization data
-    if (bulk.locations && bulk.locations.length > 0) {
-      const location = bulk.locations[0];
-      
+    if (bulk.location) {
+
       // Set the highlighted floor
-      setHighlightedFloor(location.floor);
-      
+      setHighlightedFloor(bulk.location.floor || 0);
+
       // Set up external selection to highlight this location
-      setExternalSelection(location);
-      
+      setExternalSelection(bulk.location);
+
       // Create color assignments to highlight this bulk's location
       setShelfColorAssignments([{
-        floor: location.floor,
-        group: location.group,
-        row: location.row,
-        column: location.column,
-        depth: location.depth || 0,
+        floor: bulk.location.floor,
+        group: bulk.location.group,
+        row: bulk.location.row,
+        column: bulk.location.column,
+        depth: bulk.location.depth || 0,
         colorType: 'secondary' // Use secondary color (usually green) for highlighting
       }]);
-      
+
       // Load warehouse configuration if not already loaded
       if (floorConfigs.length === 0) {
         loadWarehouseConfiguration(formData.warehouse_uuid as string);
       }
     }
-    
+
     locationModal.onOpen();
   };
 
@@ -161,7 +160,7 @@ export default function WarehouseItemsPage() {
       const warehouse = warehouses.find(w => w.uuid === warehouseId);
       if (warehouse && warehouse.warehouse_layout) {
         setFloorConfigs(warehouse.warehouse_layout);
-        
+
         // Load occupied locations
         const occupiedResult = await getOccupiedShelfLocations(warehouseId);
         if (occupiedResult.success) {
@@ -287,15 +286,29 @@ export default function WarehouseItemsPage() {
   // Function to format location code from a location object
   const formatLocationCode = useCallback((location: any) => {
     if (!location) return "";
-    
+
     const floor = location.floor !== undefined ? location.floor + 1 : "";
     const group = location.group !== undefined ? location.group + 1 : "";
     const row = location.row !== undefined ? location.row + 1 : "";
     const column = location.column !== undefined ? String.fromCharCode(65 + location.column) : "";
     const depth = location.depth !== undefined ? location.depth + 1 : "";
-    
+
     return `F${floor}-G${group}-R${row}-C${column}-D${depth}`;
   }, []);
+
+
+  const filteredOccupiedLocations = useMemo(() => {
+    return occupiedLocations.filter(loc =>
+      !shelfColorAssignments.some(
+        assignment =>
+          assignment.floor === loc.floor &&
+          assignment.group === loc.group &&
+          assignment.row === loc.row &&
+          assignment.column === loc.column &&
+          assignment.depth === (loc.depth || 0)
+      )
+    );
+  }, [occupiedLocations, shelfColorAssignments]);
 
   // Add or update useEffect to watch for changes in search parameters
   useEffect(() => {
@@ -315,7 +328,7 @@ export default function WarehouseItemsPage() {
 
           // Load bulks for this item
           await loadItemBulks(warehouseItemId);
-          
+
           // If the item has a warehouse_uuid, load its configuration
           if (result.data.warehouse_uuid) {
             await loadWarehouseConfiguration(result.data.warehouse_uuid);
@@ -330,7 +343,7 @@ export default function WarehouseItemsPage() {
 
           // Load bulks for this item
           await loadItemBulks(result.data.uuid);
-          
+
           // If the item has a warehouse_uuid, load its configuration
           if (result.data.warehouse_uuid) {
             await loadWarehouseConfiguration(result.data.warehouse_uuid);
@@ -721,9 +734,9 @@ export default function WarehouseItemsPage() {
                                       <Chip color="primary" variant="flat" size="sm">
                                         {bulk.unit_value} {bulk.unit}
                                       </Chip>
-                                      {bulk.location_codes && (
+                                      {bulk.location_code && (
                                         <Chip color="success" variant="flat" size="sm">
-                                          {bulk.location_codes}
+                                          {bulk.location_code}
                                         </Chip>
                                       )}
                                       {bulk.is_single_item && (
@@ -763,7 +776,7 @@ export default function WarehouseItemsPage() {
 
                                     <Input
                                       label="Location"
-                                      value={bulk.location_codes || "Not assigned"}
+                                      value={bulk.location_code || "Not assigned"}
                                       isReadOnly
                                       classNames={inputStyle}
                                       startContent={<Icon icon="mdi:map-marker" className="text-default-500 mb-[0.2rem]" />}
@@ -772,7 +785,7 @@ export default function WarehouseItemsPage() {
 
                                   <div className="p-4 pb-0">
                                     {/* Show 3D location button if location exists */}
-                                    {/* {bulk.locations && bulk.locations.length > 0 && ( */}
+                                    {bulk.location && (
                                       <div className="flex justify-end mb-4">
                                         <Button
                                           color="secondary"
@@ -783,7 +796,7 @@ export default function WarehouseItemsPage() {
                                           View 3D Location
                                         </Button>
                                       </div>
-                                    {/* )} */}
+                                    )}
                                   </div>
 
                                   <div className="overflow-hidden px-4 pb-4">
@@ -935,8 +948,8 @@ export default function WarehouseItemsPage() {
                     variant="shadow"
                     className="flex-1 basis-0"
                     onPress={locationModal.onOpen}
-                    isDisabled={!selectedItemId || itemBulks.length === 0 }
-                      // || !itemBulks.some(bulk => bulk.locations && bulk.locations.length > 0)}
+                    isDisabled={!selectedItemId || itemBulks.length === 0
+                      || !itemBulks.some(bulk => bulk.location)}
                   >
                     <div className="flex items-center gap-2">
                       <Icon icon="mdi:map-marker" />
@@ -1055,11 +1068,11 @@ export default function WarehouseItemsPage() {
       </Modal>
 
       {/* Modal for 3D Location Viewer */}
-      <Modal 
-        isOpen={locationModal.isOpen} 
+      <Modal
+        isOpen={locationModal.isOpen}
         onClose={locationModal.onClose}
-        placement="auto" 
-        backdrop="blur" 
+        placement="auto"
+        backdrop="blur"
         size="5xl"
         classNames={{ backdrop: "bg-background/50", wrapper: 'overflow-hidden' }}
       >
@@ -1085,9 +1098,9 @@ export default function WarehouseItemsPage() {
               }>
                 <ShelfSelector3D
                   floors={floorConfigs}
-                  onSelect={() => {}}
-                  occupiedLocations={occupiedLocations}
-                  canSelectOccupiedLocations={false}
+                  onSelect={() => { }}
+                  occupiedLocations={filteredOccupiedLocations}
+                  canSelectOccupiedLocations={true}
                   className="w-full h-full"
                   highlightedFloor={highlightedFloor}
                   onHighlightFloor={setHighlightedFloor}
@@ -1098,10 +1111,10 @@ export default function WarehouseItemsPage() {
               </Suspense>
 
               <AnimatePresence>
-                {selectedBulkForLocation && selectedBulkForLocation.locations && selectedBulkForLocation.locations.length > 0 && (
+                {selectedBulkForLocation && selectedBulkForLocation.location && (
                   <motion.div {...motionTransition} className="absolute top-4 right-4 flex items-center gap-2 bg-background/80 rounded-2xl backdrop-blur-lg p-4">
                     <span className="text-sm font-semibold">
-                      Location Code: <b>{selectedBulkForLocation.location_codes || formatLocationCode(selectedBulkForLocation.locations[0])}</b>
+                      Location Code: <b>{selectedBulkForLocation.location_code || formatLocationCode(selectedBulkForLocation.location)}</b>
                     </span>
                   </motion.div>
                 )}
