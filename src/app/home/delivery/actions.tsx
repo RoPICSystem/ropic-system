@@ -3,6 +3,7 @@
 import { FloorConfig, ShelfLocation } from "@/components/shelf-selector-3d";
 import { createClient } from "@/utils/supabase/server";
 import { InventoryItem } from "../inventory/actions";
+import { formatCode } from '@/utils/floorplan';
 
 
 export interface DeliveryItem {
@@ -295,15 +296,20 @@ export async function getInventoryItems(companyUuid?: string, search: string = "
 /**
  * Fetches available inventory item bulks for an inventory item
  */
-export async function getInventoryItemBulks(inventoryItemUuid: string) {
+export async function getInventoryItemBulks(inventoryItemUuid: string, getItemsInWarehouse: boolean = false) {
   const supabase = await createClient();
 
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from("inventory_item_bulk")
       .select("*")
       .eq("inventory_uuid", inventoryItemUuid)
       .order("created_at", { ascending: false });
+
+    if (!getItemsInWarehouse) 
+      query = query.eq("is_single_item", true);
+
+    const { data, error } = await query;
 
     if (error) {
       throw error;
@@ -560,6 +566,38 @@ export async function createWarehouseInventoryItems(
   }
 }
 
+export async function getWarehouseInventoryItems(warehouseUuid: string, deliveryUuid: string) {
+  const supabase = await createClient();
+  try {
+    const { data, error } = await supabase
+      .from("warehouse_inventory_items")
+      .select(`
+        *,
+        warehouse_inventory_item_bulk(*)
+      `)
+      .eq("warehouse_uuid", warehouseUuid)
+      .eq("delivery_uuid", deliveryUuid)
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return {
+      success: true,
+      data: data || []
+    };
+  } catch (error: Error | any) {
+    console.error("Error fetching warehouse inventory items:", error);
+    return {
+      success: false,
+      data: [],
+      error: `Failed to fetch warehouse inventory items: ${error.message || "Unknown error"}`,
+    };
+  }
+}
+
+
 
 /**
  * Gets occupied shelf locations
@@ -709,9 +747,7 @@ export async function suggestShelfLocations(
     }
 
     // Generate location codes for each suggested location
-    const locationCodes = suggestions.map(loc =>
-      `F${loc.floor + 1}-G${loc.group + 1}-R${loc.row + 1}-C${String.fromCharCode(65 + loc.column)}-D${loc.depth + 1}`
-    );
+    const locationCodes = suggestions.map(loc => formatCode(loc));
 
     return {
       success: true,

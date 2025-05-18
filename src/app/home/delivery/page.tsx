@@ -20,6 +20,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { materialDark, materialLight } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 
 import { ShelfSelectorColorAssignment } from '@/components/shelf-selector-3d';
+import { formatCode, parseColumn } from '@/utils/floorplan';
 
 // Import server actions
 import CardList from '@/components/card-list';
@@ -75,6 +76,7 @@ export default function DeliveryPage() {
   // Inventory bulk items
   const [inventoryBulks, setInventoryBulks] = useState<any[]>([]);
   const [selectedBulks, setSelectedBulks] = useState<string[]>([]);
+  const [prevSelectedBulks, setPrevSelectedBulks] = useState<string[]>([]);
   const [isLoadingBulks, setIsLoadingBulks] = useState(false);
 
   // Location management
@@ -216,35 +218,6 @@ export default function DeliveryPage() {
     return JSON.stringify(output, null, space);
   };
 
-  // Convert column to Excel style (AA = 0, AB = 1, etc.)
-  const parseColumn = (column: number | null) => {
-    if (column === null || column === undefined) return null;
-
-    const firstChar = String.fromCharCode(65 + Math.floor(column / 26));
-    const secondChar = String.fromCharCode(65 + (column % 26));
-    const colStr = column !== undefined && column !== null ?
-      firstChar + secondChar :
-      null;
-    return colStr;
-  }
-
-  const formatCode = (location: any | any) => {
-    // Format the location code
-    const { floor, group, row, column, depth = 0 } = location;
-    const colStr = parseColumn(column);
-
-    // Format with leading zeros: floor (2 digits), row (2 digits), depth (2 digits), group (2 digits)
-    const floorStr = floor !== undefined && floor !== null ?
-      floor.toString().padStart(2, '0') : "00";
-    const rowStr = row !== undefined && row !== null ?
-      row.toString().padStart(2, '0') : "??";
-    const groupStr = group !== undefined && group !== null ?
-      group.toString().padStart(2, '0') : "??";
-    const depthStr = depth !== undefined && depth !== null ?
-      depth.toString().padStart(2, '0') : "??";
-
-    return `F${floorStr}${colStr}${rowStr}D${depthStr}C${groupStr}`;
-  }
 
   const isWarehouseNotSet = (): boolean => {
     return formData.warehouse_uuid === "" || formData.warehouse_uuid === undefined || formData.warehouse_uuid === null
@@ -301,19 +274,21 @@ export default function DeliveryPage() {
       setInventoryBulks([]);
       if (!preserveSelection) {
         setSelectedBulks([]);
+        setPrevSelectedBulks([]);
       }
       return;
     }
 
     setIsLoadingBulks(true);
     try {
-      const result = await getInventoryItemBulks(inventoryItemUuid);
+      const result = await getInventoryItemBulks(inventoryItemUuid, formData.status === "DELIVERED")
       if (result.success) {
         setInventoryBulks(result.data);
 
         // Reset selected bulks only when not preserving selection
         if (!preserveSelection) {
           setSelectedBulks([]);
+          setPrevSelectedBulks([]);
           setLocations([]);
           setLocationCodes([]);
         }
@@ -325,7 +300,7 @@ export default function DeliveryPage() {
     } finally {
       setIsLoadingBulks(false);
     }
-  }, []);
+  }, [formData.status]);
 
   // Handle bulk selection toggle
   const handleBulkSelectionToggle = (bulkUuid: string, isSelected: boolean) => {
@@ -1325,6 +1300,7 @@ export default function DeliveryPage() {
         // Then set selected bulks from the delivery
         if (delivery.inventory_item_bulk_uuids && delivery.inventory_item_bulk_uuids.length > 0) {
           setSelectedBulks(delivery.inventory_item_bulk_uuids);
+          setPrevSelectedBulks(delivery.inventory_item_bulk_uuids);
         }
       }
 
@@ -1377,6 +1353,7 @@ export default function DeliveryPage() {
 
           if (existingDelivery.inventory_item_bulk_uuids && existingDelivery.inventory_item_bulk_uuids.length > 0) {
             setSelectedBulks(existingDelivery.inventory_item_bulk_uuids);
+            setPrevSelectedBulks(existingDelivery.inventory_item_bulk_uuids);
           }
         }
 
@@ -1957,9 +1934,9 @@ export default function DeliveryPage() {
                               router.push(`?${params.toString()}`, { scroll: false });
                             }
                           }}
-                          disabledKeys={deliveryItems
-                            .filter(item => item.status !== "AVAILABLE")
-                            .map(item => item.inventory_uuid || "")}
+                          // disabledKeys={deliveryItems
+                          //   .filter(item => item.status !== "AVAILABLE")
+                          //   .map(item => item.inventory_uuid || "")}
                           popoverProps={{ className: !!selectedDeliveryId ? "collapse" : "" }}
                           isRequired={!selectedDeliveryId}
                           inputProps={autoCompleteStyle}
@@ -1988,7 +1965,7 @@ export default function DeliveryPage() {
                           <h3 className="text-md font-medium">
                             {formData.status === "PENDING" ? "Select Bulk Items to Deliver" : "Selected Bulk Items"}
                           </h3>
-                          {isDeliveryProcessing() && (
+                          {(isDeliveryProcessing() && user.is_admin) && (
                             <Button
                               size="sm"
                               color="primary"
@@ -1996,7 +1973,7 @@ export default function DeliveryPage() {
                               onPress={autoAssignShelfLocations}
                               isDisabled={selectedBulks.length === 0 || isWarehouseNotSet() || isFloorConfigNotSet() || !user.is_admin}
                               isLoading={isAutoAssigning}
-                              startContent={<Icon icon="mdi:robot" className="text-sm" />}
+                              startContent={!isAutoAssigning && <Icon icon="mdi:robot" className="text-sm" />}
                             >
                               Auto Assign Locations
                             </Button>
@@ -2016,15 +1993,19 @@ export default function DeliveryPage() {
                             <div className="space-y-2">
                               <div className="flex flex-row-reverse justify-between items-center mb-4">
                                 <span className="text-sm text-default-600">{selectedBulks.length} of {inventoryBulks.length} selected</span>
-                                {isDeliveryProcessing() && (
+                                {(isDeliveryProcessing() && user.is_admin) && (
                                   <Checkbox
-                                    isSelected={selectedBulks.length === inventoryBulks.length && inventoryBulks.length > 0}
+                                    isSelected={selectedBulks.length === inventoryBulks
+                                      .filter(bulk => bulk.status === "AVAILABLE" || prevSelectedBulks.includes(bulk.uuid))
+                                      .length && inventoryBulks.length > 0}
                                     isIndeterminate={selectedBulks.length > 0 && selectedBulks.length < inventoryBulks.length}
                                     onValueChange={(isSelected) => {
                                       // Select or deselect all bulks
                                       if (isSelected) {
                                         // Select all bulks
-                                        const allBulkUuids = inventoryBulks.map(bulk => bulk.uuid);
+                                        const allBulkUuids = inventoryBulks
+                                          .filter(bulk => bulk.status === "AVAILABLE" || prevSelectedBulks.includes(bulk.uuid))
+                                          .map(bulk => bulk.uuid);
                                         setSelectedBulks(allBulkUuids);
 
                                         // Update form data with all bulk UUIDs
@@ -2057,45 +2038,52 @@ export default function DeliveryPage() {
                               <ScrollShadow className="max-h-96">
                                 <div className="space-y-2">
                                   {/* When not in PENDING status, only show selected bulks */}
-                                  {(formData.status === "PENDING" ? inventoryBulks : inventoryBulks.filter(bulk =>
+                                  {((formData.status === "PENDING" && user.is_admin) ? inventoryBulks : inventoryBulks.filter(bulk =>
                                     selectedBulks.includes(bulk.uuid)
                                   )).map((bulk, index) => (
                                     <div key={bulk.uuid} className="flex items-center justify-between p-3 border border-default-200 rounded-xl">
                                       <div className="flex items-center">
-                                      {isDeliveryProcessing() && (
-                                        <div className="flex items-center">
-                                          <Checkbox
-                                            isSelected={selectedBulks.includes(bulk.uuid)}
-                                            onValueChange={(isSelected) => {
-                                              handleBulkSelectionToggle(bulk.uuid, isSelected);
-                                              // Update the form data
-                                              setFormData(prev => {
-                                                const newBulkUuids = isSelected
-                                                  ? [...(prev.inventory_item_bulk_uuids || []), bulk.uuid]
-                                                  : (prev.inventory_item_bulk_uuids || []).filter(uuid => uuid !== bulk.uuid);
+                                        {(isDeliveryProcessing() && user.is_admin) && (
+                                          <div className="flex items-center">
+                                            <Checkbox
+                                              isSelected={selectedBulks.includes(bulk.uuid)}
+                                              onValueChange={(isSelected) => {
+                                                handleBulkSelectionToggle(bulk.uuid, isSelected);
+                                                // Update the form data
+                                                setFormData(prev => {
+                                                  const newBulkUuids = isSelected
+                                                    ? [...(prev.inventory_item_bulk_uuids || []), bulk.uuid]
+                                                    : (prev.inventory_item_bulk_uuids || []).filter(uuid => uuid !== bulk.uuid);
 
-                                                return {
-                                                  ...prev,
-                                                  inventory_item_bulk_uuids: newBulkUuids
-                                                };
-                                              });
-                                            }}
-                                            isDisabled={formData.status !== "PENDING" || !(user === null || user.is_admin)}
-                                          >
+                                                  return {
+                                                    ...prev,
+                                                    inventory_item_bulk_uuids: newBulkUuids
+                                                  };
+                                                });
+                                              }}
+                                              isDisabled={formData.status !== "PENDING" || !(user === null || user.is_admin) || (bulk.status !== "AVAILABLE" && !prevSelectedBulks.includes(bulk.uuid))}
+                                            >
 
-                                          </Checkbox>
+                                            </Checkbox>
+                                          </div>
+                                        )}
+                                        <div className="flex flex-col ml-2">
+                                          <span className="font-medium">{bulk.name || `Bulk ${index + 1}`}</span>
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-xs text-default-500">
+                                              {bulk.bulk_unit ? `${bulk.unit_value} ${bulk.unit} (${bulk.bulk_unit})` : `${bulk.unit_value} ${bulk.unit}`}
+                                            </span>
+                                          </div>
                                         </div>
+                                      </div>
+                                      {bulk.status && bulk.status !== "AVAILABLE" && !prevSelectedBulks.includes(bulk.uuid) && (
+                                        <Chip size="sm" color="primary" variant="flat">
+                                          {bulk.status}
+                                        </Chip>
                                       )}
-                                      <div className="flex flex-col ml-2">
-                                        <span className="font-medium">{bulk.name || `Bulk ${index + 1}`}</span>
-                                        <span className="text-xs text-default-500">
-                                          {bulk.bulk_unit ? `${bulk.unit_value} ${bulk.unit} (${bulk.bulk_unit})` : `${bulk.unit_value} ${bulk.unit}`}
-                                        </span>
-                                      </div>
-                                      </div>
-
                                       {selectedBulks.includes(bulk.uuid) && (
                                         <div className="flex items-center">
+
                                           <Chip
                                             size="sm"
                                             color={locationCodes[selectedBulks.indexOf(bulk.uuid)] ? "success" : "warning"}
@@ -2104,7 +2092,7 @@ export default function DeliveryPage() {
                                           >
                                             {locationCodes[selectedBulks.indexOf(bulk.uuid)] || "No location"}
                                           </Chip>
-                                          {isDeliveryProcessing() && (
+                                          {(isDeliveryProcessing() && user.is_admin)  && (
                                             <Button
                                               size="sm"
                                               color="primary"

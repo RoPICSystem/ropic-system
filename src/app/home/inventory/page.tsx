@@ -237,6 +237,11 @@ export default function InventoryPage() {
     setNextUnitId(1);
   };
 
+
+  const isBulkEditable = (bulk: any) => {
+    return !bulk.status || bulk.status === "AVAILABLE";
+  };
+
   const handleNewItem = () => {
     setSelectedItemId(null);
     const params = new URLSearchParams(searchParams.toString());
@@ -1234,9 +1239,9 @@ export default function InventoryPage() {
                                         {bulk.bulk_unit}
                                       </Chip>
                                     )}
-                                    {bulk.is_single_item && (
-                                      <Chip color="success" variant="flat" size="sm">
-                                        Single Item
+                                    {bulk.status && bulk.status !== "AVAILABLE" && (
+                                      <Chip color="warning" variant="flat" size="sm">
+                                        {bulk.status}
                                       </Chip>
                                     )}
                                   </div>
@@ -1251,6 +1256,7 @@ export default function InventoryPage() {
                                     selectedKey={bulk.unit || ""}
                                     onSelectionChange={(key) => handleBulkChange(bulk.id, 'unit', key)}
                                     isRequired
+                                    isDisabled={!isBulkEditable(bulk)}
                                     inputProps={autoCompleteStyle}
                                     startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.2rem]" />}
                                   >
@@ -1265,6 +1271,7 @@ export default function InventoryPage() {
                                     value={bulk.unit_value || 0}
                                     onValueChange={(value) => handleBulkChange(bulk.id, 'unit_value', value)}
                                     isRequired
+                                    isDisabled={!isBulkEditable(bulk)}
                                     min={0}
                                     classNames={inputStyle}
                                     startContent={<Icon icon="mdi:numeric" className="text-default-500 mb-[0.2rem]" />}
@@ -1276,6 +1283,7 @@ export default function InventoryPage() {
                                     selectedKey={bulk.bulk_unit || ""}
                                     onSelectionChange={(key) => handleBulkChange(bulk.id, 'bulk_unit', key)}
                                     isRequired
+                                    isDisabled={!isBulkEditable(bulk)}
                                     inputProps={autoCompleteStyle}
                                     startContent={<Icon icon="mdi:cube-outline" className="text-default-500 mb-[0.2rem]" />}
                                   >
@@ -1290,6 +1298,7 @@ export default function InventoryPage() {
                                     value={bulk.cost || 0}
                                     onValueChange={(value) => handleBulkChange(bulk.id, 'cost', value)}
                                     isRequired
+                                    isDisabled={!isBulkEditable(bulk)}
                                     min={0}
                                     classNames={inputStyle}
                                     startContent={
@@ -1305,6 +1314,7 @@ export default function InventoryPage() {
                                     isSelected={bulk.is_single_item}
                                     onValueChange={(value) => handleBulkChange(bulk.id, 'is_single_item', value)}
                                     color="primary"
+                                    isDisabled={!isBulkEditable(bulk)}
                                     className="p-4"
                                   />
                                   <span className="ml-2">This is a single large item (e.g., mother roll)</span>
@@ -1356,6 +1366,7 @@ export default function InventoryPage() {
                                                   setNextUnitId(nextUnitId + 1);
                                                 }
                                               }}
+                                              isDisabled={!isBulkEditable(bulk)}
                                               isRequired
                                               classNames={inputStyle}
                                               startContent={<Icon icon="mdi:barcode" className="text-default-500 mb-[0.2rem]" />}
@@ -1390,6 +1401,7 @@ export default function InventoryPage() {
                                                   setNextUnitId(nextUnitId + 1);
                                                 }
                                               }}
+                                              isDisabled={!isBulkEditable(bulk)}
                                               isRequired
                                               classNames={inputStyle}
                                               startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
@@ -1415,6 +1427,7 @@ export default function InventoryPage() {
                                               size="sm"
                                               onPress={() => handleAddUnit(bulk.id)}
                                               startContent={<Icon icon="mdi:plus" />}
+                                              isDisabled={!isBulkEditable(bulk)}
                                             >
                                               Add Unit
                                             </Button>
@@ -1562,6 +1575,14 @@ export default function InventoryPage() {
                                                                   color="secondary"
                                                                   variant="flat"
                                                                   size="sm"
+                                                                  isDisabled={!isBulkEditable(bulk)}
+                                                                  {...(isBulkEditable(bulk) ? {
+                                                                    onPress: () => {
+                                                                      setDuplicatePopoverOpen(true);
+                                                                      setItemToDuplicate({ type: 'bulk', id: bulk.id });
+                                                                      setDuplicateCount(1);
+                                                                    }
+                                                                  } : {})}
                                                                 >
                                                                   <Icon icon="ion:duplicate" width={14} height={14} />
                                                                   Duplicate
@@ -1609,8 +1630,9 @@ export default function InventoryPage() {
                                                               color="danger"
                                                               variant="flat"
                                                               size="sm"
-                                                              onPress={() => handleDeleteUnit(unit.id)}
+                                                              onPress={() => handleDeleteBulk(bulk.id)}
                                                               startContent={<Icon icon="mdi:delete" width={16} height={16} />}
+                                                              isDisabled={!isBulkEditable(bulk)}
                                                             >
                                                               Remove
                                                             </Button>
@@ -1645,6 +1667,7 @@ export default function InventoryPage() {
                                         color="secondary"
                                         variant="flat"
                                         size="sm"
+                                        isDisabled={!isBulkEditable(bulk)}
                                       >
                                         <Icon icon="ion:duplicate" width={14} height={14} />
                                         Duplicate
@@ -1693,6 +1716,7 @@ export default function InventoryPage() {
                                     size="sm"
                                     onPress={() => handleDeleteBulk(bulk.id)}
                                     startContent={<Icon icon="mdi:delete" width={16} height={16} />}
+                                    isDisabled={!isBulkEditable(bulk)}
                                   >
                                     Remove
                                   </Button>

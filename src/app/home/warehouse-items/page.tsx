@@ -2,39 +2,38 @@
 
 import { createClient } from "@/utils/supabase/client";
 import {
+  Accordion,
+  AccordionItem,
+  AutocompleteItem,
+  Autocomplete,
   Button,
   Chip,
-  Form,
   Input,
+  Kbd,
   Modal,
   ModalBody,
   ModalContent,
   ModalFooter,
   ModalHeader,
+  Pagination,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
   Skeleton,
   Spinner,
   Textarea,
-  Autocomplete,
-  AutocompleteItem,
-  Accordion,
-  AccordionItem,
-  useDisclosure,
   Tooltip,
-  Card,
-  CardBody,
-  CardHeader,
-  CardFooter,
-  NumberInput
+  useDisclosure
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useRouter, useSearchParams } from "next/navigation";
 import { QRCodeCanvas } from "qrcode.react";
-import React, { lazy, memo, Suspense, useEffect, useState } from "react";
+import React, { lazy, memo, Suspense, useCallback, useEffect, useState } from "react";
 import { format } from "date-fns";
 
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { materialLight } from 'react-syntax-highlighter/dist/cjs/styles/prism';
+import { materialLight, materialDark } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 
 // Import server actions
 import CardList from "@/components/card-list";
@@ -48,8 +47,9 @@ import {
   getWarehouseInventoryItemUnits,
   WarehouseInventoryItem,
   WarehouseInventoryItemBulk,
-  WarehouseInventoryItemUnit
+  WarehouseInventoryItemUnit,
 } from "./actions";
+import { getOccupiedShelfLocations } from "../delivery/actions";
 
 // Lazy load 3D shelf selector
 const ShelfSelector3D = memo(lazy(() =>
@@ -77,7 +77,7 @@ export default function WarehouseItemsPage() {
   // Bulks and units state
   const [itemBulks, setItemBulks] = useState<WarehouseInventoryItemBulk[]>([]);
   const [itemUnits, setItemUnits] = useState<WarehouseInventoryItemUnit[]>([]);
-  
+
   // Expanded accordion state
   const [expandedBulks, setExpandedBulks] = useState<Set<string>>(new Set());
   const [expandedUnits, setExpandedUnits] = useState<Set<string>>(new Set());
@@ -86,8 +86,18 @@ export default function WarehouseItemsPage() {
   const qrCodeModal = useDisclosure();
   const locationModal = useDisclosure();
 
+  // Add this state for location modal
+  const [selectedBulkForLocation, setSelectedBulkForLocation] = useState<WarehouseInventoryItemBulk | null>(null);
+
   // Form state
   const [formData, setFormData] = useState<Partial<WarehouseInventoryItem>>({});
+
+  // 3D shelf selector states
+  const [floorConfigs, setFloorConfigs] = useState<any[]>([]);
+  const [occupiedLocations, setOccupiedLocations] = useState<any[]>([]);
+  const [highlightedFloor, setHighlightedFloor] = useState<number | null>(null);
+  const [externalSelection, setExternalSelection] = useState<any | undefined>(undefined);
+  const [shelfColorAssignments, setShelfColorAssignments] = useState<Array<any>>([]);
 
   // Input style for consistency
   const inputStyle = {
@@ -101,15 +111,66 @@ export default function WarehouseItemsPage() {
 
     // Create a clean object with essential properties
     const data = {
-      type: "warehouse_item",
       uuid: formData.uuid,
       inventory_uuid: formData.inventory_uuid,
-      name: formData.name,
+      delivery_uuid: formData.delivery_uuid,
       warehouse_uuid: formData.warehouse_uuid,
-      timestamp: new Date().toISOString()
+      company_uuid: formData.company_uuid,
+      name: formData.name
     };
 
     return JSON.stringify(data, null, space);
+  };
+
+  const handleViewBulkLocation = (bulk: WarehouseInventoryItemBulk) => {
+    setSelectedBulkForLocation(bulk);
+    
+    // Prepare the 3D visualization data
+    if (bulk.locations && bulk.locations.length > 0) {
+      const location = bulk.locations[0];
+      
+      // Set the highlighted floor
+      setHighlightedFloor(location.floor);
+      
+      // Set up external selection to highlight this location
+      setExternalSelection(location);
+      
+      // Create color assignments to highlight this bulk's location
+      setShelfColorAssignments([{
+        floor: location.floor,
+        group: location.group,
+        row: location.row,
+        column: location.column,
+        depth: location.depth || 0,
+        colorType: 'secondary' // Use secondary color (usually green) for highlighting
+      }]);
+      
+      // Load warehouse configuration if not already loaded
+      if (floorConfigs.length === 0) {
+        loadWarehouseConfiguration(formData.warehouse_uuid as string);
+      }
+    }
+    
+    locationModal.onOpen();
+  };
+
+  // Function to load warehouse configuration
+  const loadWarehouseConfiguration = async (warehouseId: string) => {
+    try {
+      // Find the warehouse in the list
+      const warehouse = warehouses.find(w => w.uuid === warehouseId);
+      if (warehouse && warehouse.warehouse_layout) {
+        setFloorConfigs(warehouse.warehouse_layout);
+        
+        // Load occupied locations
+        const occupiedResult = await getOccupiedShelfLocations(warehouseId);
+        if (occupiedResult.success) {
+          setOccupiedLocations(occupiedResult.data || []);
+        }
+      }
+    } catch (error) {
+      console.error("Error loading warehouse configuration:", error);
+    }
   };
 
   // Handle item search
@@ -223,6 +284,19 @@ export default function WarehouseItemsPage() {
     }
   };
 
+  // Function to format location code from a location object
+  const formatLocationCode = useCallback((location: any) => {
+    if (!location) return "";
+    
+    const floor = location.floor !== undefined ? location.floor + 1 : "";
+    const group = location.group !== undefined ? location.group + 1 : "";
+    const row = location.row !== undefined ? location.row + 1 : "";
+    const column = location.column !== undefined ? String.fromCharCode(65 + location.column) : "";
+    const depth = location.depth !== undefined ? location.depth + 1 : "";
+    
+    return `F${floor}-G${group}-R${row}-C${column}-D${depth}`;
+  }, []);
+
   // Add or update useEffect to watch for changes in search parameters
   useEffect(() => {
     if (!user?.company_uuid || isLoadingItems) return;
@@ -238,9 +312,14 @@ export default function WarehouseItemsPage() {
         if (result.success && result.data) {
           setSelectedItemId(warehouseItemId);
           setFormData(result.data);
-          
+
           // Load bulks for this item
           await loadItemBulks(warehouseItemId);
+          
+          // If the item has a warehouse_uuid, load its configuration
+          if (result.data.warehouse_uuid) {
+            await loadWarehouseConfiguration(result.data.warehouse_uuid);
+          }
         }
       } else if (inventoryItemId) {
         // Get warehouse item by inventory UUID
@@ -248,9 +327,14 @@ export default function WarehouseItemsPage() {
         if (result.success && result.data) {
           setSelectedItemId(result.data.uuid);
           setFormData(result.data);
-          
+
           // Load bulks for this item
           await loadItemBulks(result.data.uuid);
+          
+          // If the item has a warehouse_uuid, load its configuration
+          if (result.data.warehouse_uuid) {
+            await loadWarehouseConfiguration(result.data.warehouse_uuid);
+          }
 
           // Update URL to use warehouseItemId for consistency
           const params = new URLSearchParams(searchParams.toString());
@@ -281,7 +365,7 @@ export default function WarehouseItemsPage() {
     const initPage = async () => {
       try {
         setUser(window.userData);
-        
+
         // Fetch warehouse items
         const itemsResult = await getWarehouseInventoryItems(window.userData.company_uuid);
         setWarehouseItems(itemsResult.data || []);
@@ -326,7 +410,7 @@ export default function WarehouseItemsPage() {
             searchQuery
           );
           setWarehouseItems(refreshedItems.data || []);
-          
+
           // If we have a selected item, refresh its details including bulks and units
           if (selectedItemId) {
             const refreshedItem = await getWarehouseInventoryItem(selectedItemId);
@@ -360,23 +444,7 @@ export default function WarehouseItemsPage() {
           )}
         </div>
         <div className="flex gap-4">
-          {!user ? (
-            <>
-              <Skeleton className="h-10 w-32 rounded-xl" />
-            </>
-          ) : (
-            <>
-              <Button
-                color="primary"
-                variant="shadow"
-                onPress={() => qrCodeModal.onOpen()}
-                isDisabled={!selectedItemId}
-              >
-                <Icon icon="mdi:qrcode" className="mr-2" />
-                Generate QR Code
-              </Button>
-            </>
-          )}
+
         </div>
       </div>
       <div className="flex flex-col xl:flex-row gap-4">
@@ -456,8 +524,8 @@ export default function WarehouseItemsPage() {
                               {item.name}
                             </span>
                             <Chip color="default" variant={selectedItemId === item.uuid ? "shadow" : "flat"} size="sm">
-                              {typeof item.warehouse_inventory_item_bulks === 'object' 
-                                ? Object.keys(item.warehouse_inventory_item_bulks).length 
+                              {typeof item.warehouse_inventory_item_bulks === 'object'
+                                ? Object.keys(item.warehouse_inventory_item_bulks).length
                                 : 0} bulk(s)
                             </Chip>
                           </div>
@@ -496,371 +564,401 @@ export default function WarehouseItemsPage() {
         {/* Right side: Item Details */}
         <div className="xl:w-2/3">
           {selectedItemId ? (
-            <CardList>
-              <div>
-                <h2 className="text-xl font-semibold mb-4 w-full text-center">Item Details</h2>
-                <div className="space-y-4">
-                  {isLoading ? (
-                    <>
-                      <div className="space-y-2">
-                        <Skeleton className="h-16 w-full rounded-xl" />
-                      </div>
-                      <div className="space-y-2">
-                        <Skeleton className="h-24 w-full rounded-xl" />
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <Input
-                        label="Name"
-                        value={formData.name || ""}
-                        isReadOnly
-                        classNames={inputStyle}
-                        startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
-                      />
-
-                      {formData.description && (
-                        <Textarea
-                          label="Description"
-                          value={formData.description || ""}
-                          isReadOnly
-                          classNames={inputStyle}
-                          startContent={<Icon icon="mdi:text-box" className="text-default-500 mb-[0.2rem]" />}
-                        />
-                      )}
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="flex flex-col gap-2">
+              <CardList>
+                <div>
+                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Item Details</h2>
+                  <div className="space-y-4">
+                    {isLoading ? (
+                      <>
+                        <div className="space-y-2">
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                        </div>
+                        <div className="space-y-2">
+                          <Skeleton className="h-24 w-full rounded-xl" />
+                        </div>
+                      </>
+                    ) : (
+                      <>
                         <Input
-                          label="Status"
-                          value={formData.status || ""}
+                          label="Name"
+                          value={formData.name || ""}
                           isReadOnly
                           classNames={inputStyle}
-                          startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
+                          startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
                         />
 
-                        <Input
-                          label="Warehouse"
-                          value={warehouses.find(w => w.uuid === formData.warehouse_uuid)?.name || ""}
-                          isReadOnly
-                          classNames={inputStyle}
-                          startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
-                        />
-                      </div>
+                        {formData.description && (
+                          <Textarea
+                            label="Description"
+                            value={formData.description || ""}
+                            isReadOnly
+                            classNames={inputStyle}
+                            startContent={<Icon icon="mdi:text-box" className="text-default-500 mb-[0.2rem]" />}
+                          />
+                        )}
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <Input
-                          label="Created"
-                          value={formData.created_at ? format(new Date(formData.created_at), "MMM d, yyyy") : ""}
-                          isReadOnly
-                          classNames={inputStyle}
-                          startContent={<Icon icon="mdi:calendar" className="text-default-500 mb-[0.2rem]" />}
-                        />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <Input
+                            label="Status"
+                            value={formData.status || ""}
+                            isReadOnly
+                            classNames={inputStyle}
+                            startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
+                          />
 
-                        <Input
-                          label="Last Updated"
-                          value={formData.updated_at ? format(new Date(formData.updated_at), "MMM d, yyyy") : ""}
-                          isReadOnly
-                          classNames={inputStyle}
-                          startContent={<Icon icon="mdi:calendar-clock" className="text-default-500 mb-[0.2rem]" />}
-                        />
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
+                          <Input
+                            label="Warehouse"
+                            value={warehouses.find(w => w.uuid === formData.warehouse_uuid)?.name || ""}
+                            isReadOnly
+                            classNames={inputStyle}
+                            startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
+                          />
+                        </div>
 
-              <div>
-                <h2 className="text-xl font-semibold mb-4 w-full text-center">Bulk Items</h2>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center mb-4">
-                    <div className="flex items-center gap-2">
-                      {isLoadingBulks ? (
-                        <>
-                          <Skeleton className="h-6 w-20 rounded-xl" />
-                        </>
-                      ) : (
-                        <Chip color="default" variant="flat" size="sm">
-                          {itemBulks.length} bulk{itemBulks.length !== 1 ? "s" : ""}
-                        </Chip>
-                      )}
-                    </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <Input
+                            label="Created"
+                            value={formData.created_at ? format(new Date(formData.created_at), "MMM d, yyyy") : ""}
+                            isReadOnly
+                            classNames={inputStyle}
+                            startContent={<Icon icon="mdi:calendar" className="text-default-500 mb-[0.2rem]" />}
+                          />
+
+                          <Input
+                            label="Last Updated"
+                            value={formData.updated_at ? format(new Date(formData.updated_at), "MMM d, yyyy") : ""}
+                            isReadOnly
+                            classNames={inputStyle}
+                            startContent={<Icon icon="mdi:calendar-clock" className="text-default-500 mb-[0.2rem]" />}
+                          />
+                        </div>
+                      </>
+                    )}
                   </div>
+                </div>
 
-                  <AnimatePresence>
-                    {isLoadingBulks ? (
-                      <motion.div {...motionTransition}>
-                        <div className="space-y-4">
-                          <div className="p-4 border-2 border-default-200 rounded-xl space-y-4">
-                            <div className="flex justify-between">
-                              <Skeleton className="h-6 w-40 rounded-lg" />
-                              <Skeleton className="h-6 w-24 rounded-lg" />
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <Skeleton className="h-16 w-full rounded-xl" />
-                              <Skeleton className="h-16 w-full rounded-xl" />
-                              <Skeleton className="h-16 w-full rounded-xl" />
-                              <Skeleton className="h-16 w-full rounded-xl" />
+                <div>
+                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Bulk Items</h2>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center mb-4">
+                      <div className="flex items-center gap-2">
+                        {isLoadingBulks ? (
+                          <>
+                            <Skeleton className="h-6 w-20 rounded-xl" />
+                          </>
+                        ) : (
+                          <Chip color="default" variant="flat" size="sm">
+                            {itemBulks.length} bulk{itemBulks.length !== 1 ? "s" : ""}
+                          </Chip>
+                        )}
+                      </div>
+                    </div>
+
+                    <AnimatePresence>
+                      {isLoadingBulks ? (
+                        <motion.div {...motionTransition}>
+                          <div className="space-y-4">
+                            <div className="p-4 border-2 border-default-200 rounded-xl space-y-4">
+                              <div className="flex justify-between">
+                                <Skeleton className="h-6 w-40 rounded-lg" />
+                                <Skeleton className="h-6 w-24 rounded-lg" />
+                              </div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <Skeleton className="h-16 w-full rounded-xl" />
+                                <Skeleton className="h-16 w-full rounded-xl" />
+                                <Skeleton className="h-16 w-full rounded-xl" />
+                                <Skeleton className="h-16 w-full rounded-xl" />
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </motion.div>
-                    ) : itemBulks.length === 0 ? (
-                      <motion.div {...motionTransition}>
-                        <div className="py-8 h-48 text-center text-default-500 border border-dashed border-default-300 rounded-lg justify-center flex flex-col items-center">
-                          <Icon icon="mdi:package-variant-closed" className="mx-auto mb-2 opacity-50" width={40} height={40} />
-                          <p>No bulk items available for this warehouse item</p>
-                        </div>
-                      </motion.div>
-                    ) : null}
-                  </AnimatePresence>
+                        </motion.div>
+                      ) : itemBulks.length === 0 ? (
+                        <motion.div {...motionTransition}>
+                          <div className="py-8 h-48 text-center text-default-500 border border-dashed border-default-300 rounded-lg justify-center flex flex-col items-center">
+                            <Icon icon="mdi:package-variant-closed" className="mx-auto mb-2 opacity-50" width={40} height={40} />
+                            <p>No bulk items available for this warehouse item</p>
+                          </div>
+                        </motion.div>
+                      ) : null}
+                    </AnimatePresence>
 
-                  <AnimatePresence>
-                    {!isLoadingBulks && itemBulks.length > 0 && (
-                      <motion.div {...motionTransition}>
-                        <Accordion
-                          selectionMode="multiple"
-                          variant="splitted"
-                          selectedKeys={expandedBulks}
-                          onSelectionChange={(keys) => {
-                            setExpandedBulks(keys as Set<string>);
-                            // Load units when a bulk is expanded
-                            const newKeys = Array.from(keys as Set<string>);
-                            if (newKeys.length > 0 && !Array.from(expandedBulks).includes(newKeys[0])) {
-                              loadItemUnits(newKeys[0]);
-                            }
-                          }}
-                          itemClasses={{
-                            base: "p-0 w-full bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
-                            title: "font-normal text-lg font-semibold",
-                            trigger: "p-4 data-[hover=true]:bg-default-100 h-14 flex items-center transition-colors",
-                            indicator: "text-medium",
-                            content: "text-small p-0",
-                          }}
-                          className="w-full p-0 overflow-hidden"
-                        >
-                          {itemBulks.map(bulk => (
-                            <AccordionItem
-                              key={bulk.uuid}
-                              title={
-                                <div className="flex justify-between items-center w-full">
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-medium">
-                                      {bulk.is_single_item ? "Single Item" : `Bulk ${bulk.bulk_unit || ''}`}
-                                    </span>
-                                  </div>
-                                  <div className="flex gap-2">
-                                    <Chip color="primary" variant="flat" size="sm">
-                                      {bulk.unit_value} {bulk.unit}
-                                    </Chip>
-                                    {bulk.location_codes && (
-                                      <Chip color="success" variant="flat" size="sm">
-                                        {bulk.location_codes}
-                                      </Chip>
-                                    )}
-                                    {bulk.is_single_item && (
-                                      <Chip color="success" variant="flat" size="sm">
-                                        Single Item
-                                      </Chip>
-                                    )}
-                                  </div>
-                                </div>
+                    <AnimatePresence>
+                      {!isLoadingBulks && itemBulks.length > 0 && (
+                        <motion.div {...motionTransition}>
+                          <Accordion
+                            selectionMode="multiple"
+                            variant="splitted"
+                            selectedKeys={expandedBulks}
+                            onSelectionChange={(keys) => {
+                              setExpandedBulks(keys as Set<string>);
+                              // Load units when a bulk is expanded
+                              const newKeys = Array.from(keys as Set<string>);
+                              if (newKeys.length > 0 && !Array.from(expandedBulks).includes(newKeys[0])) {
+                                loadItemUnits(newKeys[0]);
                               }
-                            >
-                              <div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pb-0">
-                                  <Input
-                                    label="Unit"
-                                    value={`${bulk.unit_value} ${bulk.unit}`}
-                                    isReadOnly
-                                    classNames={inputStyle}
-                                    startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.2rem]" />}
-                                  />
-
-                                  <Input
-                                    label="Bulk Unit"
-                                    value={bulk.bulk_unit || "N/A"}
-                                    isReadOnly
-                                    classNames={inputStyle}
-                                    startContent={<Icon icon="mdi:cube-outline" className="text-default-500 mb-[0.2rem]" />}
-                                  />
-
-                                  <NumberInput
-                                    label="Cost"
-                                    value={bulk.cost}
-                                    isReadOnly
-                                    classNames={inputStyle}
-                                    startContent={<Icon icon="mdi:currency-php" className="text-default-500 mb-[0.2rem]" />}
-                                  />
-
-                                  <Input
-                                    label="Location"
-                                    value={bulk.location_codes || "Not assigned"}
-                                    isReadOnly
-                                    classNames={inputStyle}
-                                    startContent={<Icon icon="mdi:map-marker" className="text-default-500 mb-[0.2rem]" />}
-                                  />
-                                </div>
-
-                                <div className="p-4 pb-0">
-                                  {/* Show 3D location button if location exists */}
-                                  {bulk.locations && bulk.locations.length > 0 && (
-                                    <div className="flex justify-end mb-4">
-                                      <Button
-                                        color="secondary"
-                                        variant="flat"
-                                        onPress={() => locationModal.onOpen()}
-                                        startContent={<Icon icon="mdi:view-in-ar" />}
-                                      >
-                                        View 3D Location
-                                      </Button>
+                            }}
+                            itemClasses={{
+                              base: "p-0 w-full bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
+                              title: "font-normal text-lg font-semibold",
+                              trigger: "p-4 data-[hover=true]:bg-default-100 h-14 flex items-center transition-colors",
+                              indicator: "text-medium",
+                              content: "text-small p-0",
+                            }}
+                            className="w-full p-0 overflow-hidden"
+                          >
+                            {itemBulks.map(bulk => (
+                              <AccordionItem
+                                key={bulk.uuid}
+                                title={
+                                  <div className="flex justify-between items-center w-full">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-medium">
+                                        {bulk.is_single_item ? "Single Item" : `Bulk ${bulk.bulk_unit || ''}`}
+                                      </span>
                                     </div>
-                                  )}
-                                </div>
-
-                                <div className="overflow-hidden px-4 pb-4">
-                                  <div className="space-y-4 border-2 border-default-200 rounded-xl p-4">
-                                    <div className="flex justify-between items-center">
-                                      <h3 className="text-lg font-semibold">Units in this Bulk</h3>
-                                    </div>
-
-                                    <AnimatePresence>
-                                      {isLoadingUnits ? (
-                                        <motion.div {...motionTransition}>
-                                          <div className="flex items-center justify-center p-4">
-                                            <Spinner size="sm" />
-                                            <span className="ml-2">Loading units...</span>
-                                          </div>
-                                        </motion.div>
-                                      ) : itemUnits.length === 0 ? (
-                                        <motion.div {...motionTransition}>
-                                          <div className="py-4 h-48 text-center text-default-500 border border-dashed border-default-200 rounded-lg justify-center flex flex-col items-center">
-                                            <Icon icon="mdi:cube-outline" className="mx-auto mb-2 opacity-50" width={40} height={40} />
-                                            <p className="text-sm">No units available for this bulk</p>
-                                          </div>
-                                        </motion.div>
-                                      ) : (
-                                        <motion.div {...motionTransition}>
-                                          <Accordion
-                                            selectionMode="multiple"
-                                            variant="splitted"
-                                            selectedKeys={expandedUnits}
-                                            onSelectionChange={(keys) => setExpandedUnits(keys as Set<string>)}
-                                            itemClasses={{
-                                              base: "p-0 w-full bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
-                                              title: "font-normal text-lg font-semibold",
-                                              trigger: "p-4 data-[hover=true]:bg-default-100 h-14 flex items-center transition-colors",
-                                              indicator: "text-medium",
-                                              content: "text-small p-0",
-                                            }}
-                                            className="w-full p-0 overflow-hidden"
-                                          >
-                                            {itemUnits.map(unit => (
-                                              <AccordionItem
-                                                key={unit.uuid}
-                                                title={
-                                                  <div className="flex justify-between items-center w-full">
-                                                    <div className="flex items-center gap-2">
-                                                      <span>
-                                                        {unit.name || `Unit ${unit.code}`}
-                                                      </span>
-                                                    </div>
-                                                    <Chip size="sm" color="primary" variant="flat">
-                                                      {unit.unit_value} {unit.unit}
-                                                    </Chip>
-                                                  </div>
-                                                }
-                                              >
-                                                <div className="space-y-4">
-                                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4">
-                                                    <Input
-                                                      label="Item Code"
-                                                      value={unit.code || ""}
-                                                      isReadOnly
-                                                      classNames={inputStyle}
-                                                      startContent={<Icon icon="mdi:barcode" className="text-default-500 mb-[0.2rem]" />}
-                                                    />
-
-                                                    <Input
-                                                      label="Item Name"
-                                                      value={unit.name || ""}
-                                                      isReadOnly
-                                                      classNames={inputStyle}
-                                                      startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
-                                                    />
-
-                                                    <Input
-                                                      label="Unit"
-                                                      value={`${unit.unit_value} ${unit.unit}`}
-                                                      isReadOnly
-                                                      classNames={inputStyle}
-                                                      startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.2rem]" />}
-                                                    />
-
-                                                    <NumberInput
-                                                      label="Cost"
-                                                      value={unit.cost}
-                                                      isReadOnly
-                                                      classNames={inputStyle}
-                                                      startContent={<Icon icon="mdi:currency-php" className="text-default-500 mb-[0.2rem]" />}
-                                                    />
-                                                  </div>
-                                                </div>
-                                              </AccordionItem>
-                                            ))}
-                                          </Accordion>
-                                        </motion.div>
+                                    <div className="flex gap-2">
+                                      <Chip color="primary" variant="flat" size="sm">
+                                        {bulk.unit_value} {bulk.unit}
+                                      </Chip>
+                                      {bulk.location_codes && (
+                                        <Chip color="success" variant="flat" size="sm">
+                                          {bulk.location_codes}
+                                        </Chip>
                                       )}
-                                    </AnimatePresence>
+                                      {bulk.is_single_item && (
+                                        <Chip color="success" variant="flat" size="sm">
+                                          Single Item
+                                        </Chip>
+                                      )}
+                                    </div>
+                                  </div>
+                                }
+                              >
+                                <div>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pb-0">
+                                    <Input
+                                      label="Unit"
+                                      value={`${bulk.unit_value} ${bulk.unit}`}
+                                      isReadOnly
+                                      classNames={inputStyle}
+                                      startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.2rem]" />}
+                                    />
+
+                                    <Input
+                                      label="Bulk Unit"
+                                      value={bulk.bulk_unit || "N/A"}
+                                      isReadOnly
+                                      classNames={inputStyle}
+                                      startContent={<Icon icon="mdi:cube-outline" className="text-default-500 mb-[0.2rem]" />}
+                                    />
+
+                                    <Input
+                                      label="Cost"
+                                      value={`${bulk.cost}`}
+                                      isReadOnly
+                                      classNames={inputStyle}
+                                      startContent={<Icon icon="mdi:currency-php" className="text-default-500 mb-[0.2rem]" />}
+                                    />
+
+                                    <Input
+                                      label="Location"
+                                      value={bulk.location_codes || "Not assigned"}
+                                      isReadOnly
+                                      classNames={inputStyle}
+                                      startContent={<Icon icon="mdi:map-marker" className="text-default-500 mb-[0.2rem]" />}
+                                    />
+                                  </div>
+
+                                  <div className="p-4 pb-0">
+                                    {/* Show 3D location button if location exists */}
+                                    {/* {bulk.locations && bulk.locations.length > 0 && ( */}
+                                      <div className="flex justify-end mb-4">
+                                        <Button
+                                          color="secondary"
+                                          variant="shadow"
+                                          onPress={() => handleViewBulkLocation(bulk)}
+                                          startContent={<Icon icon="mdi:view-in-ar" />}
+                                        >
+                                          View 3D Location
+                                        </Button>
+                                      </div>
+                                    {/* )} */}
+                                  </div>
+
+                                  <div className="overflow-hidden px-4 pb-4">
+                                    <div className="space-y-4 border-2 border-default-200 rounded-xl p-4">
+                                      <div className="flex justify-between items-center">
+                                        <h3 className="text-lg font-semibold">Units in this Bulk</h3>
+                                      </div>
+
+                                      <AnimatePresence>
+                                        {isLoadingUnits ? (
+                                          <motion.div {...motionTransition}>
+                                            <div className="flex items-center justify-center p-4">
+                                              <Spinner size="sm" />
+                                              <span className="ml-2">Loading units...</span>
+                                            </div>
+                                          </motion.div>
+                                        ) : itemUnits.length === 0 ? (
+                                          <motion.div {...motionTransition}>
+                                            <div className="py-4 h-48 text-center text-default-500 border border-dashed border-default-200 rounded-lg justify-center flex flex-col items-center">
+                                              <Icon icon="mdi:cube-outline" className="mx-auto mb-2 opacity-50" width={40} height={40} />
+                                              <p className="text-sm">No units available for this bulk</p>
+                                            </div>
+                                          </motion.div>
+                                        ) : (
+                                          <motion.div {...motionTransition}>
+                                            <Accordion
+                                              selectionMode="multiple"
+                                              variant="splitted"
+                                              selectedKeys={expandedUnits}
+                                              onSelectionChange={(keys) => setExpandedUnits(keys as Set<string>)}
+                                              itemClasses={{
+                                                base: "p-0 w-full bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
+                                                title: "font-normal text-lg font-semibold",
+                                                trigger: "p-4 data-[hover=true]:bg-default-100 h-14 flex items-center transition-colors",
+                                                indicator: "text-medium",
+                                                content: "text-small p-0",
+                                              }}
+                                              className="w-full p-0 overflow-hidden"
+                                            >
+                                              {itemUnits.map(unit => (
+                                                <AccordionItem
+                                                  key={unit.uuid}
+                                                  title={
+                                                    <div className="flex justify-between items-center w-full">
+                                                      <div className="flex items-center gap-2">
+                                                        <span>
+                                                          {unit.name || `Unit ${unit.code}`}
+                                                        </span>
+                                                      </div>
+                                                      <Chip size="sm" color="primary" variant="flat">
+                                                        {unit.unit_value} {unit.unit}
+                                                      </Chip>
+                                                    </div>
+                                                  }
+                                                >
+                                                  <div className="space-y-4">
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4">
+                                                      <Input
+                                                        label="Item Code"
+                                                        value={unit.code || ""}
+                                                        isReadOnly
+                                                        classNames={inputStyle}
+                                                        startContent={<Icon icon="mdi:barcode" className="text-default-500 mb-[0.2rem]" />}
+                                                      />
+
+                                                      <Input
+                                                        label="Item Name"
+                                                        value={unit.name || ""}
+                                                        isReadOnly
+                                                        classNames={inputStyle}
+                                                        startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
+                                                      />
+
+                                                      <Input
+                                                        label="Unit"
+                                                        value={`${unit.unit_value} ${unit.unit}`}
+                                                        isReadOnly
+                                                        classNames={inputStyle}
+                                                        startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.2rem]" />}
+                                                      />
+
+                                                      <Input
+                                                        label="Cost"
+                                                        value={`${unit.cost}`}
+                                                        isReadOnly
+                                                        classNames={inputStyle}
+                                                        startContent={<Icon icon="mdi:currency-php" className="text-default-500 mb-[0.2rem]" />}
+                                                      />
+                                                    </div>
+                                                  </div>
+                                                </AccordionItem>
+                                              ))}
+                                            </Accordion>
+                                          </motion.div>
+                                        )}
+                                      </AnimatePresence>
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                            </AccordionItem>
-                          ))}
-                        </Accordion>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                              </AccordionItem>
+                            ))}
+                          </Accordion>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
                 </div>
-              </div>
+              </CardList>
 
-              <motion.div {...motionTransition}>
-                <div className="flex flex-col md:flex-row justify-center items-center gap-4">
+              <CardList>
+                {user && user.is_admin && (
+                  <div className="flex items-center justify-between h-full w-full">
+                    <span>View warehouse information</span>
+                    <Button
+                      variant="shadow"
+                      color="primary"
+                      onPress={handleViewWarehouse}
+                      className="my-1">
+                      <Icon icon="mdi:chevron-right" width={16} height={16} />
+                    </Button>
+                  </div>
+                )}
+                {user && user.is_admin && (
+                  <div className="flex items-center justify-between h-full w-full">
+                    <span>View inventory info</span>
+                    <Button
+                      variant="shadow"
+                      color="primary"
+                      onPress={handleViewInventory}
+                      className="my-1">
+                      <Icon icon="mdi:chevron-right" width={16} height={16} />
+                    </Button>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between h-full w-full">
+                  <span>View delivery info</span>
+                  <Button
+                    variant="shadow"
+                    color="primary"
+                    onPress={handleViewDelivery}
+                    className="my-1">
+                    <Icon icon="mdi:chevron-right" width={16} height={16} />
+                  </Button>
+                </div>
+                <div className="w-full flex gap-2 flex-row">
                   <Button
                     color="primary"
                     variant="shadow"
-                    className="w-full"
-                    onPress={handleViewInventory}
-                    isDisabled={!formData.inventory_uuid}
-                    startContent={<Icon icon="mdi:archive-outline" />}
+                    className="flex-1 basis-0"
+                    onPress={locationModal.onOpen}
+                    isDisabled={!selectedItemId || itemBulks.length === 0 }
+                      // || !itemBulks.some(bulk => bulk.locations && bulk.locations.length > 0)}
                   >
-                    View Inventory Item
+                    <div className="flex items-center gap-2">
+                      <Icon icon="mdi:map-marker" />
+                      <span>View Location</span>
+                    </div>
                   </Button>
 
                   <Button
                     color="secondary"
                     variant="shadow"
-                    className="w-full"
-                    onPress={handleViewWarehouse}
-                    isDisabled={!formData.warehouse_uuid}
-                    startContent={<Icon icon="mdi:warehouse" />}
+                    className="flex-1 basis-0"
+                    onPress={qrCodeModal.onOpen}
+                    isDisabled={!selectedItemId}
                   >
-                    View Warehouse
+                    <div className="flex items-center gap-2">
+                      <Icon icon="mdi:qrcode" />
+                      <span>Show QR Code</span>
+                    </div>
                   </Button>
-
-                  {formData.delivery_uuid && (
-                    <Button
-                      color="warning"
-                      variant="shadow"
-                      className="w-full"
-                      onPress={handleViewDelivery}
-                      startContent={<Icon icon="mdi:truck-delivery" />}
-                    >
-                      View Delivery
-                    </Button>
-                  )}
                 </div>
-              </motion.div>
-            </CardList>
+              </CardList>
+            </div>
           ) : (
             <div className="flex flex-col items-center justify-center p-12 border border-dashed border-default-300 rounded-2xl bg-background">
               <Icon icon="mdi:package-variant" className="text-default-300" width={64} height={64} />
@@ -879,8 +977,8 @@ export default function WarehouseItemsPage() {
                 }}
                 isDisabled={warehouseItems.length === 0}
               >
-                <Icon icon="mdi:qrcode-scan" className="mr-2" />
-                Find Item
+                <Icon icon="mdi:package-variant" className="mr-2" />
+                View First Item
               </Button>
             </div>
           )}
@@ -888,41 +986,52 @@ export default function WarehouseItemsPage() {
       </div>
 
       {/* Modal for QR Code */}
-      <Modal isOpen={qrCodeModal.isOpen} onClose={qrCodeModal.onClose} size="lg">
+      <Modal
+        isOpen={qrCodeModal.isOpen} onClose={qrCodeModal.onClose}
+        placement="auto"
+        backdrop="blur"
+        size="lg"
+        classNames={{
+          backdrop: "bg-background/50"
+        }}
+      >
         <ModalContent>
           <ModalHeader>Item QR Code</ModalHeader>
-          <ModalBody>
-            <div className="flex flex-col items-center">
-              <div className="bg-white p-4 rounded-xl">
-                <QRCodeCanvas
-                  value={generateItemJson()}
-                  size={256}
-                  bgColor="#ffffff"
-                  fgColor="#000000"
-                  level="L"
-                  includeMargin={false}
-                />
-              </div>
-              <p className="text-center mt-4 text-default-600">
-                Scan this code to quickly access this warehouse item
-              </p>
-              <div className="mt-6 w-full">
-                <SyntaxHighlighter
-                  language="json"
-                  style={materialLight}
-                  customStyle={{ borderRadius: '0.5rem' }}
-                >
-                  {generateItemJson(2)}
-                </SyntaxHighlighter>
-              </div>
+          <ModalBody className="flex flex-col items-center">
+            <div className="bg-white rounded-xl overflow-hidden">
+              <QRCodeCanvas
+                id="qrcode"
+                value={generateItemJson()}
+                size={320}
+                marginSize={4}
+                level="L"
+              />
+            </div>
+            <p className="text-center mt-4 text-default-600">
+              Scan this code to get warehouse item details
+            </p>
+            <div className="mt-4 w-full bg-default overflow-auto max-h-64 bg-default-50 rounded-xl">
+              <SyntaxHighlighter
+                language="json"
+                style={window.resolveTheme === 'dark' ? materialDark : materialLight}
+                customStyle={{
+                  margin: 0,
+                  borderRadius: '0.5rem',
+                  fontSize: '0.75rem',
+                }}
+              >
+                {generateItemJson(2)}
+              </SyntaxHighlighter>
             </div>
           </ModalBody>
-          <ModalFooter>
-            <Button variant="flat" onPress={qrCodeModal.onClose}>
+          <ModalFooter className="flex justify-end p-4 gap-4">
+            <Button
+              color="default"
+              onPress={qrCodeModal.onClose}>
               Close
             </Button>
-            <Button 
-              color="primary" 
+            <Button
+              color="primary"
               variant="shadow"
               onPress={() => {
                 // Create an image from the QR code and download it
@@ -938,42 +1047,153 @@ export default function WarehouseItemsPage() {
                 }
               }}
             >
+              <Icon icon="mdi:download" className="mr-1" />
               Download QR
             </Button>
           </ModalFooter>
         </ModalContent>
       </Modal>
 
-      {/* Modal for 3D Location View */}
-      {/* <Modal isOpen={locationModal.isOpen} onClose={locationModal.onClose} size="xl">
+      {/* Modal for 3D Location Viewer */}
+      <Modal 
+        isOpen={locationModal.isOpen} 
+        onClose={locationModal.onClose}
+        placement="auto" 
+        backdrop="blur" 
+        size="5xl"
+        classNames={{ backdrop: "bg-background/50", wrapper: 'overflow-hidden' }}
+      >
         <ModalContent>
-          <ModalHeader>3D Location View</ModalHeader>
-          <ModalBody>
-            <div className="h-[500px] w-full">
-              <Suspense fallback={<div className="flex items-center justify-center h-full"><Spinner size="lg" /></div>}>
-                {itemBulks.length > 0 && itemBulks[0].locations && (
-                  <ShelfSelector3D
-                    floorConfig={{
-                      floor: 1,
-                      matrix: Array(10).fill(Array(10).fill(2)), // Default matrix
-                      name: "Warehouse Floor"
-                    }}
-                    readOnly={true}
-                    preselectedLocations={itemBulks[0].locations}
-                    occupiedLocations={[]}
-                    onSelectionChange={() => {}}
-                  />
-                )}
+          <ModalHeader>
+            {selectedBulkForLocation && (
+              <>
+                Location for{" "}
+                <span className="text-primary">{formData.name}</span> -{" "}
+                <span className="text-secondary">
+                  {selectedBulkForLocation.is_single_item ? "Single Item" : `Bulk ${selectedBulkForLocation.bulk_unit || ''}`}
+                </span>
+              </>
+            )}
+          </ModalHeader>
+          <ModalBody className='p-0'>
+            <div className="h-[80vh] bg-primary-50 rounded-md overflow-hidden relative">
+              <Suspense fallback={
+                <div className="flex items-center justify-center h-full">
+                  <Spinner size="lg" color="primary" />
+                  <span className="ml-2">Loading 3D viewer...</span>
+                </div>
+              }>
+                <ShelfSelector3D
+                  floors={floorConfigs}
+                  onSelect={() => {}}
+                  occupiedLocations={occupiedLocations}
+                  canSelectOccupiedLocations={false}
+                  className="w-full h-full"
+                  highlightedFloor={highlightedFloor}
+                  onHighlightFloor={setHighlightedFloor}
+                  externalSelection={externalSelection}
+                  cameraOffsetY={-0.25}
+                  shelfColorAssignments={shelfColorAssignments}
+                />
               </Suspense>
+
+              <AnimatePresence>
+                {selectedBulkForLocation && selectedBulkForLocation.locations && selectedBulkForLocation.locations.length > 0 && (
+                  <motion.div {...motionTransition} className="absolute top-4 right-4 flex items-center gap-2 bg-background/80 rounded-2xl backdrop-blur-lg p-4">
+                    <span className="text-sm font-semibold">
+                      Location Code: <b>{selectedBulkForLocation.location_codes || formatLocationCode(selectedBulkForLocation.locations[0])}</b>
+                    </span>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </ModalBody>
-          <ModalFooter>
-            <Button variant="flat" onPress={locationModal.onClose}>
+          <ModalFooter className="flex justify-between gap-4 p-4">
+            <Popover showArrow offset={10} placement="bottom-end">
+              <PopoverTrigger>
+                <Button className="capitalize" color="warning" variant="flat">
+                  <Icon icon="heroicons:question-mark-circle-solid" className="w-4 h-4 mr-1" />
+                  Help
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="p-4 max-w-sm">
+                <div className="flex items-center gap-2 mb-4">
+                  <Icon icon="heroicons:lifebuoy" className="w-5 h-5 text-warning-500" width={20} />
+                  <h3 className="font-semibold text-lg">3D Navigation Controls</h3>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="font-medium mb-2">Mouse Controls:</h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-start gap-2">
+                        <Icon icon="heroicons:cursor-arrow-ripple" className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary-600" />
+                        <p><strong>Left Click</strong>: Select a shelf</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Icon icon="heroicons:hand-raised" className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary-600" />
+                        <p><strong>Click + Drag</strong>: Rotate camera around scene</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Icon icon="heroicons:cursor-arrow-rays" className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary-600" />
+                        <p><strong>Right Click + Drag</strong>: Pan camera</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Icon icon="heroicons:view-columns" className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary-600" />
+                        <p><strong>Mouse Wheel</strong>: Zoom in/out</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="font-medium mb-2">Keyboard Controls:</h4>
+                    <div className="space-y-2 text-sm grid grid-cols-2 gap-x-4">
+                      <div className="flex items-center gap-2">
+                        <Kbd className="border border-default-300">W</Kbd>
+                        <p className="my-auto">Forward</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Kbd className="border border-default-300">S</Kbd>
+                        <p className="my-auto">Backward</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Kbd className="border border-default-300">A</Kbd>
+                        <p className="my-auto">Left</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Kbd className="border border-default-300">D</Kbd>
+                        <p className="my-auto">Right</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 border-t pt-3 border-default-200 w-full">
+                  <h4 className="font-medium mb-2">Color Legend:</h4>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-primary-400"></div>
+                      <span className="text-xs">Highlighted</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-success-400"></div>
+                      <span className="text-xs">Selected</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-warning-400"></div>
+                      <span className="text-xs">Occupied</span>
+                    </div>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            <Button color="primary" variant="shadow" onPress={locationModal.onClose}>
               Close
             </Button>
           </ModalFooter>
         </ModalContent>
-      </Modal> */}
+      </Modal>
     </div>
   );
 }

@@ -108,7 +108,7 @@ export async function getInventoryItems(companyUuid: string, searchQuery?: strin
 /**
  * Fetches a single inventory item with its bulks and units
  */
-export async function getInventoryItem(uuid: string) {
+export async function getInventoryItem(uuid: string, getItemsInWarehouse: boolean = false) {
   const supabase = await createClient();
 
   try {
@@ -122,11 +122,16 @@ export async function getInventoryItem(uuid: string) {
     if (itemError) throw itemError;
 
     // Then get all bulk items for this inventory item
-    const { data: bulks, error: bulksError } = await supabase
+    let queryBulk = supabase
       .from("inventory_item_bulk")
       .select("*")
-      .eq("inventory_uuid", uuid);
+      .eq("inventory_uuid", uuid)
 
+    if (!getItemsInWarehouse) 
+      queryBulk = queryBulk.neq("status", "IN_WAREHOUSE");
+
+    const { data: bulks, error: bulksError } = await queryBulk;
+    
     if (bulksError) throw bulksError;
 
     // Then get all unit items
