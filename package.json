@@ -13,6 +13,7 @@
     "@heroui/react": "^2.7.8",
     "@heroui/use-infinite-scroll": "^2.2.7",
     "@heroui/use-theme": "^2.1.6",
+    "@react-pdf/renderer": "^4.3.0",
     "@react-three/drei": "^10.0.6",
     "@react-three/fiber": "^9.1.2",
     "@react-three/postprocessing": "^3.0.4",

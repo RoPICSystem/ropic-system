@@ -38,6 +38,11 @@ import { getWarehouses } from "../warehouses/actions";
 import { getInventoryItems } from "../inventory/actions";
 import { formatDate } from "@/utils/tools";
 
+// Add these imports to the existing imports at the top of the file
+import { generatePdfBlob } from './pdf-document';
+import { getDeliveryHistory } from '../delivery/actions';
+import { getCompanyData } from "../company/actions";
+
 export default function ReorderPointPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -67,6 +72,64 @@ export default function ReorderPointPage() {
     inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
   };
   const autoCompleteStyle = { classNames: inputStyle };
+
+  // Add to the existing state declarations in the ReorderPointPage component
+  const [isPdfGenerating, setIsPdfGenerating] = useState(false);
+
+  // Add this function inside the ReorderPointPage component
+  const handleGeneratePdf = async () => {
+    setIsPdfGenerating(true);
+
+    try {
+      // Prepare logs with resolved names
+      const preparedLogs = selectedItemId
+        ? [{
+          ...formData as ReorderPointLog,
+          inventoryItemName: getInventoryItemName(formData.inventory_uuid || ""),
+          warehouseName: getWarehouseName(formData.warehouse_uuid || "")
+        }]
+        : reorderPointLogs.map(log => ({
+          ...log,
+          inventoryItemName: getInventoryItemName(log.inventory_uuid),
+          warehouseName: getWarehouseName(log.warehouse_uuid)
+        }));
+
+      // Get delivery history
+      let history: { uuid: any; inventory_uuid: any; delivery_date: any; status: any; location_codes: any; recipient_name: any; }[] = [];
+      if (selectedItemId && formData.inventory_uuid) {
+        const result = await getDeliveryHistory(formData.inventory_uuid as string);
+        if (result.success) {
+          history = result.data;
+        }
+      }
+
+      const companyData = await getCompanyData(window.userData.company_uuid);
+      
+
+      // Generate PDF
+      const pdfBlob = await generatePdfBlob({
+        logs: preparedLogs,
+        deliveryHistory: history,
+        warehouseName: selectedWarehouse ? getWarehouseName(selectedWarehouse) : "All Warehouses",
+        companyName: companyData.data?.name || "Your Company",
+        dateGenerated: new Date().toLocaleString()
+      });
+
+      // Create download link
+      const url = URL.createObjectURL(pdfBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `reorder-point-report-${new Date().toISOString().split('T')[0]}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+    } catch (error) {
+      console.error("Error generating PDF:", error);
+    } finally {
+      setIsPdfGenerating(false);
+    }
+  };
 
   // Helper function to get status chip color
   const getStatusColor = (status: InventoryStatus): "success" | "warning" | "danger" | "default" => {
@@ -364,6 +427,17 @@ export default function ReorderPointPage() {
             startContent={!isLoading && <Icon icon="mdi:refresh" />}
           >
             Recalculate All
+          </Button>
+
+          {/* Add PDF Export Button */}
+          <Button
+            color="secondary"
+            variant="shadow"
+            onPress={handleGeneratePdf}
+            isLoading={isPdfGenerating}
+            startContent={!isPdfGenerating && <Icon icon="mdi:file-pdf-box" />}
+          >
+            Export PDF
           </Button>
         </div>
       </div>
@@ -807,6 +881,20 @@ export default function ReorderPointPage() {
                     <div className="flex items-center gap-2">
                       {!isLoading && <Icon icon="mdi:refresh" />}
                       <span>Recalculate</span>
+                    </div>
+                  </Button>
+
+                  {/* Add PDF Export Button */}
+                  <Button
+                    color="success"
+                    variant="shadow"
+                    className="flex-1 basis-0"
+                    onPress={handleGeneratePdf}
+                    isLoading={isPdfGenerating}
+                  >
+                    <div className="flex items-center gap-2">
+                      {!isPdfGenerating && <Icon icon="mdi:file-pdf-box" />}
+                      <span>Export PDF</span>
                     </div>
                   </Button>
                 </div>

@@ -841,3 +841,34 @@ function processGroupsMatrix(floorMatrix: number[][], floorIndex: number) {
 
   return { groups, groupPositions };
 }
+
+// Add this function to the existing actions.tsx file
+
+/**
+ * Fetches delivery history for a specific inventory item
+ */
+export async function getDeliveryHistory(inventoryUuid: string) {
+  const supabase = await createClient();
+
+  try {
+    const { data, error } = await supabase
+      .from("delivery_items")
+      .select("uuid, inventory_uuid, delivery_date, status, location_codes, recipient_name")
+      .eq("inventory_uuid", inventoryUuid)
+      .order("delivery_date", { ascending: false });
+
+    if (error) throw error;
+
+    return {
+      success: true,
+      data: data || []
+    };
+  } catch (error: any) {
+    console.error("Error fetching delivery history:", error);
+    return {
+      success: false,
+      error: error.message || "Failed to fetch delivery history",
+      data: []
+    };
+  }
+}
