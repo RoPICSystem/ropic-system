@@ -41,7 +41,9 @@ export interface InventoryItem {
   name: string;
   description?: string;
   inventory_item_bulks: string[];
+  inventory_item_bulks_length?: number;
   status?: string;
+  properties: Record<string, any>;
   created_at: Date;
   updated_at: Date;
 }
@@ -74,16 +76,7 @@ export async function getInventoryItems(companyUuid: string, searchQuery?: strin
   try {
     let query = supabase
       .from("inventory_items")
-      .select(`
-        uuid,
-        company_uuid,
-        admin_uuid,
-        name,
-        description,
-        inventory_item_bulks,
-        created_at,
-        updated_at
-      `)
+      .select('*')
       .eq("company_uuid", companyUuid)
       .order("name");
 
@@ -95,7 +88,28 @@ export async function getInventoryItems(companyUuid: string, searchQuery?: strin
 
     if (error) throw error;
 
-    return { success: true, data };
+    // For each inventory item, get the available bulk count
+    const itemsWithBulkCount = await Promise.all(data.map(async (item) => {
+      // Get available bulks using our function
+      const { data: bulks, error: bulksError } = await supabase
+        .rpc('get_available_inventory_bulks', { inventory_id: item.uuid });
+
+      if (bulksError) {
+        console.error("Error getting bulks:", bulksError);
+        return {
+          ...item,
+          inventory_item_bulks_length: 0
+        };
+      }
+      
+      return {
+        ...item,
+        inventory_item_bulks_length: bulks.length,
+        inventory_item_bulks: bulks
+      };
+    }));
+
+    return { success: true, data: itemsWithBulkCount };
   } catch (error) {
     console.error("Error fetching inventory items:", error);
     return {

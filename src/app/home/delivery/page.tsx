@@ -45,6 +45,7 @@ import {
 import jsQR from "jsqr";
 import { InventoryItem } from '../inventory/actions';
 import { Warehouse } from '../warehouses/actions';
+import { formatDate } from '@/utils/tools';
 
 // Import the ShelfSelector3D component
 const ShelfSelector3D = lazy(() =>
@@ -247,7 +248,7 @@ export default function DeliveryPage() {
   };
 
   const filteredOccupiedLocations = useMemo(() => {
-    return occupiedLocations.filter(loc => 
+    return occupiedLocations.filter(loc =>
       !shelfColorAssignments.some(
         assignment =>
           assignment.floor === loc.floor &&
@@ -298,6 +299,7 @@ export default function DeliveryPage() {
 
     setIsLoadingBulks(true);
     try {
+      console.log("Status:", formData.status);
       const result = await getInventoryItemBulks(inventoryItemUuid, formData.status === "DELIVERED")
       if (result.success) {
         setInventoryBulks(result.data);
@@ -398,7 +400,7 @@ export default function DeliveryPage() {
       ? locations[currentBulkLocationIndex]
       : null;
 
-    // 1. Add all selected bulk locations as secondary color (green), except the current one
+    // 1. Add all selected bulk locations as secondary color, except the current one
     if (locations && locations.length > 0) {
       locations.forEach((location, index) => {
         if (location && location.floor !== undefined) {
@@ -412,13 +414,13 @@ export default function DeliveryPage() {
             row: location.row,
             column: location.column,
             depth: location.depth || 0,
-            colorType: 'tertiary'
+            colorType: 'secondary'
           });
         }
       });
     }
 
-    // 2. Add the currently focused bulk location as tertiary (blue)
+    // 2. Add the currently focused bulk location as tertiary 
     if (currentLocation && currentLocation.floor !== undefined) {
       assignments.push({
         floor: currentLocation.floor,
@@ -426,7 +428,7 @@ export default function DeliveryPage() {
         row: currentLocation.row,
         column: currentLocation.column,
         depth: currentLocation.depth || 0,
-        colorType: 'secondary' // Blue for currently selected bulk
+        colorType: 'tertiary'
       });
     }
 
@@ -451,6 +453,39 @@ export default function DeliveryPage() {
 
       // Set external selection for the 3D viewer
       setExternalSelection(location);
+
+      // Also set temp values for the modal
+      setTempSelectedFloor(location.floor);
+      setTempSelectedGroup(location.group);
+      setTempSelectedRow(location.row);
+      setTempSelectedColumn(location.column);
+      setTempSelectedDepth(location.depth || 0);
+      setTempSelectedColumnCode(parseColumn(location.column) || "");
+      setTempSelectedCode(locationCodes[bulkIndex] || "");
+    } else {
+      // Reset all shelf selection state if no location exists for this bulk
+      setSelectedFloor(null);
+      setSelectedGroup(null);
+      setSelectedRow(null);
+      setSelectedColumn(null);
+      setSelectedDepth(null);
+      setSelectedColumnCode("");
+      setSelectedCode("");
+
+      // Also reset temporary selection values
+      setTempSelectedFloor(null);
+      setTempSelectedGroup(null);
+      setTempSelectedRow(null);
+      setTempSelectedColumn(null);
+      setTempSelectedDepth(null);
+      setTempSelectedColumnCode("");
+      setTempSelectedCode("");
+
+      // Clear external selection to ensure nothing is selected in 3D viewer
+      setExternalSelection(undefined);
+
+      // Reset highlighted floor
+      setHighlightedFloor(null);
     }
 
     // Open the location selector modal
@@ -806,32 +841,32 @@ export default function DeliveryPage() {
         // Update existing delivery
         result = await updateDeliveryItem(selectedDeliveryId, newData);
 
-        // // Update inventory item and bulk statuses to match delivery status
-        // if (result.success && formData.status) {
-        //   // Set inventory status to ON_DELIVERY when delivery status is IN_TRANSIT
-        //   const inventoryStatus = formData.status === "IN_TRANSIT" ? "ON_DELIVERY" : formData.status;
-        //   await updateInventoryItemStatus(formData.inventory_uuid as string, inventoryStatus);
+        // Update inventory item and bulk statuses to match delivery status
+        if (result.success && formData.status) {
+          // Set inventory status to ON_DELIVERY when delivery status is IN_TRANSIT
+          const inventoryStatus = formData.status === "IN_TRANSIT" ? "ON_DELIVERY" : formData.status;
+          await updateInventoryItemStatus(formData.inventory_uuid as string, inventoryStatus);
 
-        //   // Update bulk statuses if they're selected
-        //   if (formData.inventory_item_bulk_uuids && formData.inventory_item_bulk_uuids.length > 0) {
-        //     await updateInventoryItemBulksStatus(formData.inventory_item_bulk_uuids, inventoryStatus);
-        //   }
-        // }
+          // Update bulk statuses if they're selected
+          if (formData.inventory_item_bulk_uuids && formData.inventory_item_bulk_uuids.length > 0) {
+            await updateInventoryItemBulksStatus(formData.inventory_item_bulk_uuids, inventoryStatus);
+          }
+        }
       } else {
         // Create new delivery
         result = await createDeliveryItem(newData as any);
 
-        // // Update inventory item status to match delivery status
-        // if (result.success && formData.inventory_uuid && formData.status) {
-        //   // Set inventory status to ON_DELIVERY when delivery status is IN_TRANSIT
-        //   const inventoryStatus = formData.status === "IN_TRANSIT" ? "ON_DELIVERY" : formData.status;
-        //   await updateInventoryItemStatus(formData.inventory_uuid, inventoryStatus);
+        console.log("Updating inventory item status:", result.data);
+        // Update inventory item status to match delivery status
+        if (result.success && formData.inventory_uuid && formData.status) {
+          // Set inventory status to ON_DELIVERY when delivery status is IN_TRANSIT
+          console.log(await updateInventoryItemStatus(formData.inventory_uuid, "PENDING"));
 
-        //   // Update bulk statuses if they're selected
-        //   if (formData.inventory_item_bulk_uuids && formData.inventory_item_bulk_uuids.length > 0) {
-        //     await updateInventoryItemBulksStatus(formData.inventory_item_bulk_uuids, inventoryStatus);
-        //   }
-        // }
+          // Update bulk statuses if they're selected
+          if (formData.inventory_item_bulk_uuids && formData.inventory_item_bulk_uuids.length > 0) {
+            console.log(await updateInventoryItemBulksStatus(formData.inventory_item_bulk_uuids, "PENDING"));
+          }
+        }
       }
 
       // Handle successful creation/update
@@ -1687,16 +1722,14 @@ export default function DeliveryPage() {
                         </div>
                         {/* Footer - always at the bottom */}
                         <div className={`flex items-center gap-2 border-t ${selectedDeliveryId === delivery.uuid ? 'border-primary-300' : 'border-default-100'} p-3`}>
-                          <Chip color={getStatusColor(delivery.status)} variant={selectedDeliveryId === delivery.uuid ? "shadow" : "flat"} size="sm">
-                            {delivery.status.replace('_', ' ')}
+                          <Chip 
+                            color={selectedDeliveryId === delivery.uuid ? "default" : "primary"}
+                            variant={selectedDeliveryId === delivery.uuid ? "shadow" : "flat"}
+                            size="sm">
+                            {formatDate(delivery.delivery_date)}
                           </Chip>
-                          <Chip color="default" variant={selectedDeliveryId === delivery.uuid ? "shadow" : "flat"} size="sm">
-                            {(() => {
-                              const deliveryDate = new Date(delivery.delivery_date);
-                              const currentYear = new Date().getFullYear();
-                              const deliveryYear = deliveryDate.getFullYear();
-                              return deliveryYear < currentYear ? format(deliveryDate, "MMM d, ''yy") : format(deliveryDate, "MMM d");
-                            })()}
+                          <Chip color={getStatusColor(delivery.status)} variant={selectedDeliveryId === delivery.uuid ? "shadow" : "flat"} size="sm">
+                            {delivery.status.replaceAll('_', ' ')}
                           </Chip>
                           {delivery.operator_uuid && (
                             <Chip color="success" variant={selectedDeliveryId === delivery.uuid ? "shadow" : "flat"} size="sm">
@@ -1927,7 +1960,7 @@ export default function DeliveryPage() {
 
                 <div>
                   <h2 className="text-xl font-semibold mb-4 w-full text-center">
-                    Inventory to Deliver
+                    {formData.status === "DELIVERED" ? "Inventory Details" : "Inventory to Deliver"}
                   </h2>
                   <div className="space-y-4">
                     {/* Inventory Item Selection */}
@@ -1977,8 +2010,15 @@ export default function DeliveryPage() {
                       <div className="border-2 border-default-200 rounded-xl bg-gradient-to-b from-background to-default-50/30">
                         <div className="flex justify-between items-center border-b border-default-200 p-4">
                           <h3 className="text-md font-medium">
-                            {formData.status === "PENDING" ? "Select Bulk Items to Deliver" : "Selected Bulk Items"}
+                            {formData.status === "PENDING" ? "Select Bulk Items to Deliver" :
+                              formData.status === "DELIVERED" ? "Bulk Items Delivered" : "Selected Bulk Items"}
                           </h3>
+                          {formData.status === "DELIVERED" && (
+                            <span className="text-sm text-default-600">
+                              {selectedBulks.length} bulks
+                            </span>
+                          )}
+
                           {(isDeliveryProcessing() && user.is_admin) && (
                             <Button
                               size="sm"
@@ -2005,9 +2045,11 @@ export default function DeliveryPage() {
                             </div>
                           ) : (
                             <div className="space-y-2">
-                              <div className="flex flex-row-reverse justify-between items-center mb-4">
-                                <span className="text-sm text-default-600">{selectedBulks.length} of {inventoryBulks.length} selected</span>
-                                {(isDeliveryProcessing() && user.is_admin) && (
+                              {(isDeliveryProcessing() && user.is_admin) && (
+                                <div className="flex flex-row-reverse justify-between items-center mb-4">
+                                  <span className="text-sm text-default-600">
+                                    {selectedBulks.length} of {inventoryBulks.length} selected
+                                  </span>
                                   <Checkbox
                                     isSelected={selectedBulks.length === inventoryBulks
                                       .filter(bulk => bulk.status === "AVAILABLE" || prevSelectedBulks.includes(bulk.uuid))
@@ -2046,8 +2088,8 @@ export default function DeliveryPage() {
                                   >
                                     Select All
                                   </Checkbox>
-                                )}
-                              </div>
+                                </div>
+                              )}
 
                               <ScrollShadow className="max-h-96">
                                 <div className="space-y-2">
@@ -2106,17 +2148,18 @@ export default function DeliveryPage() {
                                           >
                                             {locationCodes[selectedBulks.indexOf(bulk.uuid)] || "No location"}
                                           </Chip>
-                                          {(isDeliveryProcessing() && user.is_admin)  && (
-                                            <Button
-                                              size="sm"
-                                              color="primary"
-                                              variant="flat"
-                                              onPress={() => handleAssignLocation(selectedBulks.indexOf(bulk.uuid))}
-                                              isDisabled={isWarehouseNotSet() || isFloorConfigNotSet() || !user.is_admin}
-                                            >
-                                              {locationCodes[selectedBulks.indexOf(bulk.uuid)] ? "Change Location" : "Assign Location"}
-                                            </Button>)
-                                          }
+                                          {/* {(isDeliveryProcessing() && user.is_admin) && ( */}
+                                          <Button
+                                            size="sm"
+                                            color="primary"
+                                            variant="flat"
+                                            onPress={() => handleAssignLocation(selectedBulks.indexOf(bulk.uuid))}
+                                            isDisabled={isWarehouseNotSet() || isFloorConfigNotSet()}
+                                          >
+                                            {(formData.status === "DELIVERED" || formData.status === "CANCELLED" || !user.is_admin) ? "View Location" :
+                                              locationCodes[selectedBulks.indexOf(bulk.uuid)] ? "Change Location" : "Assign Location"}
+                                          </Button>
+                                          {/* )} */}
                                         </div>
                                       )}
                                     </div>
@@ -2198,7 +2241,7 @@ export default function DeliveryPage() {
                             variant="shadow"
                             className="px-3 font-medium"
                           >
-                            {formData.status?.replace('_', ' ') || "PENDING"}
+                            {formData.status?.replaceAll('_', ' ') || "PENDING"}
                           </Chip>
                         </div>
 
@@ -2238,7 +2281,7 @@ export default function DeliveryPage() {
                                               className="font-medium"
                                             >
                                               <Icon icon={statusIcon} className="mr-1" />
-                                              {status.replace('_', ' ')}
+                                              {status.replaceAll('_', ' ')}
                                             </Chip>
                                             <div className="text-xs text-default-500 flex items-center">
                                               <Icon icon="mdi:calendar-clock" className="mr-1" />
@@ -2529,6 +2572,7 @@ export default function DeliveryPage() {
                 />
               </Suspense>
 
+              {/* Shelf controls */}
               <AnimatePresence>
                 {tempSelectedCode &&
                   <motion.div {...motionTransition} className="!scale-75 absolute overflow-hidden bottom-0 -left-[4.25rem] flex flex-col gap-2 bg-background/50 rounded-2xl backdrop-blur-lg md:w-auto w-[calc(100%-2rem)]">

@@ -19,6 +19,7 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
+  ScrollShadow,
   Skeleton,
   Spinner,
   Textarea,
@@ -50,7 +51,8 @@ import {
   WarehouseInventoryItemUnit,
 } from "./actions";
 import { getOccupiedShelfLocations } from "../delivery/actions";
-
+import { formatCode } from '@/utils/floorplan';
+import { formatDate } from "@/utils/tools";
 // Lazy load 3D shelf selector
 const ShelfSelector3D = memo(lazy(() =>
   import("@/components/shelf-selector-3d").then(mod => ({
@@ -99,6 +101,25 @@ export default function WarehouseItemsPage() {
   const [externalSelection, setExternalSelection] = useState<any | undefined>(undefined);
   const [shelfColorAssignments, setShelfColorAssignments] = useState<Array<any>>([]);
 
+  // Add these state variables near the top of your component
+  const [tempSelectedFloor, setTempSelectedFloor] = useState<number | null>(null);
+  const [tempSelectedColumnCode, setTempSelectedColumnCode] = useState<string>("");
+  const [tempSelectedColumn, setTempSelectedColumn] = useState<number | null>(null);
+  const [tempSelectedRow, setTempSelectedRow] = useState<number | null>(null);
+  const [tempSelectedGroup, setTempSelectedGroup] = useState<number | null>(null);
+  const [tempSelectedCode, setTempSelectedCode] = useState("");
+  const [tempSelectedDepth, setTempSelectedDepth] = useState<number | null>(null);
+
+  // Add state for maximum values
+  const [maxGroupId, setMaxGroupId] = useState(0);
+  const [maxRow, setMaxRow] = useState(0);
+  const [maxColumn, setMaxColumn] = useState(0);
+  const [maxDepth, setMaxDepth] = useState(0);
+  const [isSelectedLocationOccupied, setIsSelectedLocationOccupied] = useState(false);
+
+  // Add near your other state variables
+  const [currentBulkIndex, setCurrentBulkIndex] = useState<number | null>(null);
+
   // Input style for consistency
   const inputStyle = {
     inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
@@ -127,22 +148,26 @@ export default function WarehouseItemsPage() {
 
     // Prepare the 3D visualization data
     if (bulk.location) {
-
       // Set the highlighted floor
       setHighlightedFloor(bulk.location.floor || 0);
+
+      // Update temp selected states
+      setTempSelectedFloor(bulk.location.floor || 0);
+      setTempSelectedGroup(bulk.location.group || 0);
+      setTempSelectedRow(bulk.location.row || 0);
+      setTempSelectedColumn(bulk.location.column || 0);
+      setTempSelectedDepth(bulk.location.depth || 0);
+      setTempSelectedColumnCode(String.fromCharCode(65 + (bulk.location.column || 0)));
+
+      // Generate location code
+      setTempSelectedCode(formatCode(bulk.location));
 
       // Set up external selection to highlight this location
       setExternalSelection(bulk.location);
 
-      // Create color assignments to highlight this bulk's location
-      setShelfColorAssignments([{
-        floor: bulk.location.floor,
-        group: bulk.location.group,
-        row: bulk.location.row,
-        column: bulk.location.column,
-        depth: bulk.location.depth || 0,
-        colorType: 'secondary' // Use secondary color (usually green) for highlighting
-      }]);
+      // Find the index of the selected bulk in the itemBulks array
+      const bulkIndex = itemBulks.findIndex(b => b.uuid === bulk.uuid);
+      setCurrentBulkIndex(bulkIndex);
 
       // Load warehouse configuration if not already loaded
       if (floorConfigs.length === 0) {
@@ -151,6 +176,131 @@ export default function WarehouseItemsPage() {
     }
 
     locationModal.onOpen();
+  };
+
+  // Add these handler functions
+  const handleShelfSelection = (location: any) => {
+    const floorNumber = location.floor || 0;
+    const columnNumber = location.column || 0;
+    const columnCode = String.fromCharCode(65 + (columnNumber || 0));
+    const rowNumber = location.row || 0;
+    const groupNumber = location.group || 0;
+    const depthNumber = location.depth || 0;
+
+    // Update temporary selections with numerical values
+    setTempSelectedFloor(floorNumber);
+    setTempSelectedColumn(columnNumber);
+    setTempSelectedColumnCode(columnCode);
+    setTempSelectedRow(rowNumber);
+    setTempSelectedGroup(groupNumber);
+    setTempSelectedDepth(depthNumber);
+
+    // Use formatCode for consistent code formatting
+    setTempSelectedCode(formatCode(location));
+
+    // Set the highlighted floor
+    setHighlightedFloor(location.floor || 0);
+
+    // Update maximum values if available
+    if (location.max_group !== undefined) setMaxGroupId(location.max_group);
+    if (location.max_row !== undefined) setMaxRow(location.max_row);
+    if (location.max_column !== undefined) setMaxColumn(location.max_column);
+    if (location.max_depth !== undefined) setMaxDepth(location.max_depth);
+  };
+
+  const handleFloorChange = (floorNum: number) => {
+    const floorIndex = floorNum - 1;
+    setTempSelectedFloor(floorIndex);
+    setHighlightedFloor(floorIndex);
+
+    if (tempSelectedGroup !== null) {
+      const location = {
+        floor: floorIndex,
+        group: tempSelectedGroup,
+        row: tempSelectedRow !== null ? tempSelectedRow : 0,
+        column: tempSelectedColumn !== null ? tempSelectedColumn : 0,
+        depth: tempSelectedDepth !== null ? tempSelectedDepth : 0
+      };
+      setExternalSelection(location);
+
+      // Use formatCode for consistent formatting
+      setTempSelectedCode(formatCode(location));
+    }
+  };
+
+  const handleGroupChange = (groupId: number) => {
+    const adjustedId = groupId - 1;
+    setTempSelectedGroup(adjustedId);
+
+    if (tempSelectedFloor !== null && highlightedFloor !== null) {
+      const location = {
+        floor: highlightedFloor,
+        group: adjustedId,
+        row: tempSelectedRow !== null ? tempSelectedRow : 0,
+        column: tempSelectedColumn !== null ? tempSelectedColumn : 0,
+        depth: tempSelectedDepth !== null ? tempSelectedDepth : 0
+      };
+      setExternalSelection(location);
+
+      setTempSelectedCode(formatCode(location));
+    }
+  };
+
+  const handleRowChange = (rowNum: number) => {
+    const adjustedRow = rowNum - 1;
+    setTempSelectedRow(adjustedRow);
+
+    if (tempSelectedFloor !== null && highlightedFloor !== null && tempSelectedGroup !== null) {
+      const location = {
+        floor: highlightedFloor,
+        group: tempSelectedGroup,
+        row: adjustedRow,
+        column: tempSelectedColumn !== null ? tempSelectedColumn : 0,
+        depth: tempSelectedDepth !== null ? tempSelectedDepth : 0
+      };
+      setExternalSelection(location);
+
+      setTempSelectedCode(formatCode(location));
+    }
+  };
+
+  const handleColumnChange = (colNum: number) => {
+    const adjustedCol = colNum - 1;
+    const colLetter = String.fromCharCode(64 + colNum);
+
+    setTempSelectedColumn(adjustedCol);
+    setTempSelectedColumnCode(colLetter);
+
+    if (tempSelectedFloor !== null && highlightedFloor !== null && tempSelectedGroup !== null) {
+      const location = {
+        floor: highlightedFloor,
+        group: tempSelectedGroup,
+        row: tempSelectedRow !== null ? tempSelectedRow : 0,
+        column: adjustedCol,
+        depth: tempSelectedDepth !== null ? tempSelectedDepth : 0
+      };
+      setExternalSelection(location);
+
+      setTempSelectedCode(formatCode(location));
+    }
+  };
+
+  const handleDepthChange = (depthNum: number) => {
+    const adjustedDepth = depthNum - 1;
+    setTempSelectedDepth(adjustedDepth);
+
+    if (tempSelectedFloor !== null && highlightedFloor !== null && tempSelectedGroup !== null) {
+      const location = {
+        floor: highlightedFloor,
+        group: tempSelectedGroup,
+        row: tempSelectedRow !== null ? tempSelectedRow : 0,
+        column: tempSelectedColumn !== null ? tempSelectedColumn : 0,
+        depth: adjustedDepth
+      };
+      setExternalSelection(location);
+
+      setTempSelectedCode(formatCode(location));
+    }
   };
 
   // Function to load warehouse configuration
@@ -442,6 +592,50 @@ export default function WarehouseItemsPage() {
     };
   }, [user?.company_uuid, searchQuery, selectedWarehouse, selectedItemId]);
 
+  // Add this useEffect after your other useEffects
+  useEffect(() => {
+    const assignments: Array<any> = [];
+
+    // Only process if we have bulks with locations
+    const bulksWithLocations = itemBulks.filter(bulk => bulk.location);
+
+    if (bulksWithLocations.length > 0) {
+      // Add all bulk locations as secondary color (green), except the current one
+      bulksWithLocations.forEach((bulk, index) => {
+        if (currentBulkIndex !== null && index === currentBulkIndex) {
+          // Skip current - will add as tertiary below
+          return;
+        }
+
+        if (bulk.location) {
+          assignments.push({
+            floor: bulk.location.floor,
+            group: bulk.location.group,
+            row: bulk.location.row,
+            column: bulk.location.column,
+            depth: bulk.location.depth || 0,
+            colorType: 'secondary'
+          });
+        }
+      });
+
+      // Add the currently focused bulk location as tertiary (blue)
+      if (currentBulkIndex !== null && bulksWithLocations[currentBulkIndex]?.location) {
+        const currentLocation = bulksWithLocations[currentBulkIndex].location;
+        assignments.push({
+          floor: currentLocation.floor,
+          group: currentLocation.group,
+          row: currentLocation.row,
+          column: currentLocation.column,
+          depth: currentLocation.depth || 0,
+          colorType: 'tertiary'
+        });
+      }
+    }
+
+    setShelfColorAssignments(assignments);
+  }, [itemBulks, currentBulkIndex]);
+
   return (
     <div className="container mx-auto p-2 max-w-4xl">
       <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
@@ -486,30 +680,81 @@ export default function WarehouseItemsPage() {
                     onClear={() => handleSearch("")}
                     startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
                   />
-
-                  <Autocomplete
-                    name="warehouse_uuid"
-                    label="Filter by Warehouse"
-                    placeholder="All Warehouses"
-                    selectedKey={selectedWarehouse || ""}
-                    onSelectionChange={(e) => handleWarehouseChange(`${e}` || null)}
-                    startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
-                    inputProps={autoCompleteStyle}
-                  >
-                    {[
-                      (<AutocompleteItem key="">All Warehouses</AutocompleteItem>),
-                      ...warehouses.map((warehouse) => (
-                        <AutocompleteItem key={warehouse.uuid}>
-                          {warehouse.name}
-                        </AutocompleteItem>
-                      ))]}
-                  </Autocomplete>
+                
+                  {/* Replace the single Autocomplete with this new filter UI */}
+                  <div className="flex items-center gap-2 mt-2">
+                    <Popover placement="bottom-start">
+                      <PopoverTrigger>
+                        <Button
+                          variant="flat"
+                          color="default"
+                          className="w-24 h-10 rounded-lg !outline-none rounded-xl"
+                          startContent={<Icon icon="mdi:filter-variant" className="text-default-500" />}
+                        >
+                          Filters
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="p-4 w-80">
+                        <div className="space-y-4">
+                          <Autocomplete
+                            name="warehouse_uuid"
+                            label="Filter by Warehouse"
+                            placeholder="All Warehouses"
+                            selectedKey={selectedWarehouse || ""}
+                            onSelectionChange={(e) => handleWarehouseChange(`${e}` || null)}
+                            startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
+                            inputProps={autoCompleteStyle}
+                          >
+                            {[
+                              (<AutocompleteItem key="">All Warehouses</AutocompleteItem>),
+                              ...warehouses.map((warehouse) => (
+                                <AutocompleteItem key={warehouse.uuid}>
+                                  {warehouse.name}
+                                </AutocompleteItem>
+                              ))]}
+                          </Autocomplete>
+                          
+                          {/* You can add more filter options here in the future */}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                
+                    <ScrollShadow orientation="horizontal" className="flex-1 overflow-x-auto" hideScrollBar>
+                      <div className="inline-flex items-center gap-2">
+                        {selectedWarehouse && (
+                          <Chip
+                            variant="flat"
+                            color="primary"
+                            onClose={() => handleWarehouseChange(null)}
+                            size="sm"
+                            className="h-8 p-2"
+                          >
+                            <div className="flex items-center gap-1">
+                              <Icon icon="mdi:warehouse" className="text-xs" />
+                              {warehouses.find(w => w.uuid === selectedWarehouse)?.name || 'Unknown Warehouse'}
+                            </div>
+                          </Chip>
+                        )}
+                
+                        {selectedWarehouse && (
+                          <Button
+                            size="sm"
+                            variant="light"
+                            className="rounded-lg"
+                            onPress={() => handleWarehouseChange(null)}
+                          >
+                            Clear all
+                          </Button>
+                        )}
+                      </div>
+                    </ScrollShadow>
+                  </div>
                 </div>
               )}
             </div>
             <div className="h-full absolute w-full">
               {!user || isLoadingItems ? (
-                <div className="space-y-4 mt-1 p-4 pt-[13.25rem] h-full relative">
+                <div className="space-y-4 mt-1 p-4 pt-[11.5rem] h-full relative">
                   {[...Array(10)].map((_, i) => (
                     <Skeleton key={i} className="w-full min-h-[7.5rem] rounded-xl" />
                   ))}
@@ -520,7 +765,7 @@ export default function WarehouseItemsPage() {
                 </div>
               ) : !isLoadingItems && warehouseItems.length !== 0 ? (
                 <div
-                  className='space-y-4 p-4 overflow-y-auto pt-[13.25rem] xl:h-full h-[42rem]'>
+                  className='space-y-4 p-4 overflow-y-auto pt-[12rem] xl:h-full h-[42rem]'>
                   {warehouseItems.map((item) => (
                     <Button
                       key={item.uuid}
@@ -549,11 +794,14 @@ export default function WarehouseItemsPage() {
 
                         {/* Footer - always at the bottom */}
                         <div className={`flex items-center gap-2 border-t ${selectedItemId === item.uuid ? 'border-primary-300' : 'border-default-100'} p-3`}>
+                          <Chip 
+                            color={selectedItemId === item.uuid ? "default" : "primary"}
+                            variant={selectedItemId === item.uuid ? "shadow" : "flat"}
+                            size="sm">
+                            {formatDate(item.created_at || "")}
+                          </Chip>
                           <Chip color={item.status === "AVAILABLE" ? "success" : "warning"} variant={selectedItemId === item.uuid ? "shadow" : "flat"} size="sm">
                             {item.status}
-                          </Chip>
-                          <Chip color="secondary" variant={selectedItemId === item.uuid ? "shadow" : "flat"} size="sm">
-                            {format(new Date(item.created_at || ""), "MMM d, yyyy")}
                           </Chip>
                         </div>
                       </div>
@@ -783,23 +1031,7 @@ export default function WarehouseItemsPage() {
                                     />
                                   </div>
 
-                                  <div className="p-4 pb-0">
-                                    {/* Show 3D location button if location exists */}
-                                    {bulk.location && (
-                                      <div className="flex justify-end mb-4">
-                                        <Button
-                                          color="secondary"
-                                          variant="shadow"
-                                          onPress={() => handleViewBulkLocation(bulk)}
-                                          startContent={<Icon icon="mdi:view-in-ar" />}
-                                        >
-                                          View 3D Location
-                                        </Button>
-                                      </div>
-                                    )}
-                                  </div>
-
-                                  <div className="overflow-hidden px-4 pb-4">
+                                  <div className="overflow-hidden px-4 py-4">
                                     <div className="space-y-4 border-2 border-default-200 rounded-xl p-4">
                                       <div className="flex justify-between items-center">
                                         <h3 className="text-lg font-semibold">Units in this Bulk</h3>
@@ -894,6 +1126,25 @@ export default function WarehouseItemsPage() {
                                         )}
                                       </AnimatePresence>
                                     </div>
+                                  </div>
+
+
+                                  {/* <div className="p-4 pb-0"> */}
+                                  <div className="flex justify-end gap-2 bg-default-100/50 p-4">
+                                    {bulk.location && (
+                                      <div className="flex justify-end">
+                                        <Button
+                                          color="secondary"
+                                          variant="flat"
+                                          size="sm"
+                                          onPress={() => handleViewBulkLocation(bulk)}
+                                          startContent={<Icon icon="mdi:view-in-ar" />}
+                                        >
+                                          View 3D Location
+                                        </Button>
+                                      </div>
+                                    )}
+
                                   </div>
                                 </div>
                               </AccordionItem>
@@ -1080,11 +1331,7 @@ export default function WarehouseItemsPage() {
           <ModalHeader>
             {selectedBulkForLocation && (
               <>
-                Location for{" "}
-                <span className="text-primary">{formData.name}</span> -{" "}
-                <span className="text-secondary">
-                  {selectedBulkForLocation.is_single_item ? "Single Item" : `Bulk ${selectedBulkForLocation.bulk_unit || ''}`}
-                </span>
+                Location for {formData.name}
               </>
             )}
           </ModalHeader>
@@ -1098,7 +1345,7 @@ export default function WarehouseItemsPage() {
               }>
                 <ShelfSelector3D
                   floors={floorConfigs}
-                  onSelect={() => { }}
+                  onSelect={handleShelfSelection}
                   occupiedLocations={filteredOccupiedLocations}
                   canSelectOccupiedLocations={true}
                   className="w-full h-full"
@@ -1110,9 +1357,55 @@ export default function WarehouseItemsPage() {
                 />
               </Suspense>
 
+              {/* Shelf controls */}
+              <AnimatePresence>
+                {tempSelectedCode &&
+                  <motion.div {...motionTransition} className="!scale-75 absolute overflow-hidden bottom-0 -left-[4.25rem] flex flex-col gap-2 bg-background/50 rounded-2xl backdrop-blur-lg md:w-auto w-[calc(100%-2rem)]">
+                    <div className="grid md:grid-cols-2 grid-cols-1 gap-3 p-4">
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold w-16">Floor</span>
+                          <Pagination classNames={{ item: "bg-default/25" }} initialPage={0} size="sm" page={(tempSelectedFloor || 0) + 1} total={floorConfigs.length} onChange={handleFloorChange} />
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold w-16">Group</span>
+                          <Pagination classNames={{ item: "bg-default/25" }} initialPage={1} size="sm" page={(tempSelectedGroup || 0) + 1} total={maxGroupId + 1} onChange={handleGroupChange} />
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-2 md:border-default md:border-l md:pl-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold w-16">Row</span>
+                          <Pagination classNames={{ item: "bg-default/25" }} initialPage={1} size="sm" page={(tempSelectedRow || 0) + 1} total={maxRow + 1} onChange={handleRowChange} />
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold w-16">Column</span>
+                          <Pagination classNames={{ item: "bg-default/25" }} initialPage={1} size="sm" page={(tempSelectedColumn || 0) + 1} total={maxColumn + 1} onChange={handleColumnChange} />
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold w-16">Depth</span>
+                          <Pagination classNames={{ item: "bg-default/25" }} initialPage={1} size="sm" page={(tempSelectedDepth || 0) + 1} total={maxDepth + 1} onChange={handleDepthChange} />
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                }
+              </AnimatePresence>
+
+              <AnimatePresence>
+                {tempSelectedCode &&
+                  <motion.div {...motionTransition} className="absolute top-4 right-4 flex items-center gap-2 bg-background/50 rounded-2xl backdrop-blur-lg">
+                    <span className="text-sm font-semibold p-4">CODE: <b>{tempSelectedCode}</b></span>
+                  </motion.div>
+                }
+              </AnimatePresence>
+
               <AnimatePresence>
                 {selectedBulkForLocation && selectedBulkForLocation.location && (
-                  <motion.div {...motionTransition} className="absolute top-4 right-4 flex items-center gap-2 bg-background/80 rounded-2xl backdrop-blur-lg p-4">
+                  <motion.div {...motionTransition} className="absolute top-4 left-4 flex items-center gap-2 bg-background/80 rounded-2xl backdrop-blur-lg p-4">
                     <span className="text-sm font-semibold">
                       Location Code: <b>{selectedBulkForLocation.location_code || formatLocationCode(selectedBulkForLocation.location)}</b>
                     </span>
@@ -1135,10 +1428,9 @@ export default function WarehouseItemsPage() {
                   <h3 className="font-semibold text-lg">3D Navigation Controls</h3>
                 </div>
 
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="font-medium mb-2">Mouse Controls:</h4>
-                    <div className="space-y-2 text-sm">
+                <Accordion variant="splitted">
+                  <AccordionItem key="mouse" aria-label="Mouse Controls" title="Mouse Controls" className="text-sm overflow-hidden bg-primary-50">
+                    <div className="space-y-2 pb-2">
                       <div className="flex items-start gap-2">
                         <Icon icon="heroicons:cursor-arrow-ripple" className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary-600" />
                         <p><strong>Left Click</strong>: Select a shelf</p>
@@ -1156,47 +1448,115 @@ export default function WarehouseItemsPage() {
                         <p><strong>Mouse Wheel</strong>: Zoom in/out</p>
                       </div>
                     </div>
-                  </div>
+                  </AccordionItem>
 
-                  <div>
-                    <h4 className="font-medium mb-2">Keyboard Controls:</h4>
-                    <div className="space-y-2 text-sm grid grid-cols-2 gap-x-4">
-                      <div className="flex items-center gap-2">
+                  <AccordionItem key="keyboard" aria-label="Keyboard Controls" title="Keyboard Controls" className="text-sm overflow-hidden bg-primary-50">
+                    <div className="space-y-2 pb-2">
+                      <div className="flex items-start gap-2">
                         <Kbd className="border border-default-300">W</Kbd>
-                        <p className="my-auto">Forward</p>
+                        <p className="my-auto">Move camera forward</p>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-start gap-2">
                         <Kbd className="border border-default-300">S</Kbd>
-                        <p className="my-auto">Backward</p>
+                        <p className="my-auto">Move camera backward</p>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-start gap-2">
                         <Kbd className="border border-default-300">A</Kbd>
-                        <p className="my-auto">Left</p>
+                        <p className="my-auto">Move camera left</p>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-start gap-2">
                         <Kbd className="border border-default-300">D</Kbd>
-                        <p className="my-auto">Right</p>
+                        <p className="my-auto">Move camera right</p>
                       </div>
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300" keys={['shift']}>W</Kbd>
+                        <p className="my-auto">Move camera up</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300" keys={['shift']}>S</Kbd>
+                        <p className="my-auto">Move camera down</p>
+                      </div>
+                    </div>
+                  </AccordionItem>
+
+                  <AccordionItem key="shelf-navigation" aria-label="Shelf Navigation" title="Shelf Navigation" className="text-sm overflow-hidden bg-primary-50">
+                    <div className="space-y-2 pb-2">
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300" keys={['left']}></Kbd>
+                        <p>Move to previous shelf or group</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300" keys={['right']}></Kbd>
+                        <p>Move to next shelf or group</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300" keys={['up']}></Kbd>
+                        <p>Move to shelf above</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300" keys={['down']}></Kbd>
+                        <p>Move to shelf below</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="flex">
+                          <Kbd className="border border-default-300" keys={['shift']}></Kbd>
+                          <span className="mx-1">+</span>
+                          <Kbd className="border border-default-300" keys={['up', 'down', 'left', 'right']}></Kbd>
+                        </div>
+                        <p>Navigate between shelf groups</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="flex">
+                          <Kbd className="border border-default-300" keys={['ctrl']}></Kbd>
+                          <span className="mx-1">+</span>
+                          <Kbd className="border border-default-300" keys={['up', 'down']}></Kbd>
+                        </div>
+                        <p>Navigate shelf depth (front/back)</p>
+                      </div>
+                    </div>
+                  </AccordionItem>
+                </Accordion>
+
+                <div className="mt-4 border-t pt-3 border-default-200 w-full px-4">
+                  <h4 className="font-medium mb-2">Color Legend:</h4>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: window.shelfSelectorColors?.floorColor }}></div>
+                      <span className="text-xs">Floor</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: window.shelfSelectorColors?.floorHighlightedColor }}></div>
+                      <span className="text-xs">Selected Floor</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: window.shelfSelectorColors?.groupColor }}></div>
+                      <span className="text-xs">Group</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: window.shelfSelectorColors?.groupSelectedColor }}></div>
+                      <span className="text-xs">Selected Group</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: window.shelfSelectorColors?.shelfColor }}></div>
+                      <span className="text-xs">Shelf</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: window.shelfSelectorColors?.shelfHoverColor }}></div>
+                      <span className="text-xs">Hovered Shelf</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: window.shelfSelectorColors?.shelfSelectedColor }}></div>
+                      <span className="text-xs">Selected Shelf</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: window.shelfSelectorColors?.occupiedShelfColor }}></div>
+                      <span className="text-xs">Occupied Shelf</span>
                     </div>
                   </div>
                 </div>
 
-                <div className="mt-4 border-t pt-3 border-default-200 w-full">
-                  <h4 className="font-medium mb-2">Color Legend:</h4>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-primary-400"></div>
-                      <span className="text-xs">Highlighted</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-success-400"></div>
-                      <span className="text-xs">Selected</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-warning-400"></div>
-                      <span className="text-xs">Occupied</span>
-                    </div>
-                  </div>
+                <div className="mt-4 text-xs text-default-500">
+                  Tip: Use WASD and arrow keys for easiest navigation through the warehouse.
                 </div>
               </PopoverContent>
             </Popover>

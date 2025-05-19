@@ -1772,40 +1772,67 @@ export const ShelfSelector3D = memo(({
   useEffect(() => {
     // First, ensure the scene is ready
     setIsInitialized(true);
-
+  
     const tryAnimation = (attemptsLeft = 5) => {
       if (initialAnimationTriggered.current) return;
-
+  
       const animator = ensureCameraAnimator();
-
+  
       if (animator && controlsRef.current) {
-        // Calculate better camera position based on scene size
-        const maxWidth = Math.max(...floors.map(floor => floor.matrix[0].length));
-        const targetPosition = new THREE.Vector3(
-          cameraOffsetX,
-          buildingCenterPosition[1],
-          maxWidth * 0.6
-        );
-        const targetLookAt = new THREE.Vector3(...buildingCenterPosition);
-
-        console.log("Starting initial camera animation");
-        animator.animateCamera(targetPosition, targetLookAt);
-        initialAnimationTriggered.current = true;
-
-        // Set the controls target to match
-        controlsRef.current.target.copy(targetLookAt);
+        // Check if there's already a selected location
+        if (selectedLocation) {
+          // Focus on the selected shelf
+          focusOnShelf(selectedLocation);
+          initialAnimationTriggered.current = true;
+        } 
+        // If no selection exists, but an external selection is provided
+        else if (externalSelection && externalSelection.floor !== undefined) {
+          // Create a validated version of the external selection
+          const validatedSelection = { ...externalSelection };
+          
+          // Validate floor index
+          validatedSelection.floor = Math.max(0, Math.min(validatedSelection.floor || 0, floors.length - 1));
+          
+          // Get the floor matrix for further validation
+          const floorMatrix = floors[validatedSelection.floor].matrix;
+          const { groups } = processGroupsMatrix(floorMatrix, validatedSelection.floor);
+          
+          // Validate group
+          const maxGroupId = groups.length > 0 ? Math.max(...groups.map((g: { id: any; }) => g.id)) : 0;
+          validatedSelection.group = Math.max(0, Math.min(validatedSelection.group || 0, maxGroupId));
+          
+          // Focus on the validated external selection
+          focusOnShelf(validatedSelection);
+          initialAnimationTriggered.current = true;
+        } 
+        // Default: focus on center of floorplan if no selection exists
+        else {
+          // Calculate better camera position based on scene size
+          const maxWidth = Math.max(...floors.map(floor => floor.matrix[0].length));
+          const targetPosition = new THREE.Vector3(
+            cameraOffsetX,
+            buildingCenterPosition[1],
+            maxWidth * 1.5
+          );
+          const targetLookAt = new THREE.Vector3(...buildingCenterPosition);
+  
+          console.log("Starting initial camera animation to center view");
+          animator.animateCamera(targetPosition, targetLookAt);
+          initialAnimationTriggered.current = true;
+  
+          // Set the controls target to match
+          controlsRef.current.target.copy(targetLookAt);
+        }
       } else if (attemptsLeft > 0) {
         setTimeout(() => tryAnimation(attemptsLeft - 1), 200);
       }
     };
-
-    // First attempt after a short delay
+  
+    // First attempt after a short delay to ensure component is fully rendered
     const timer = setTimeout(() => tryAnimation(), 800);
-
+  
     return () => clearTimeout(timer);
-  }, [buildingCenterPosition, floors, cameraOffsetX, controlsRef]);
-
-
+  }, [buildingCenterPosition, floors, focusOnShelf, cameraOffsetX, controlsRef, selectedLocation, externalSelection]);
 
   // on change of background color
   useEffect(() => {

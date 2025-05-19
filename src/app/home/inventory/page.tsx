@@ -47,6 +47,7 @@ import {
   getUnitOptions,
   updateInventoryItem
 } from './actions';
+import { formatDate } from "@/utils/tools";
 
 export default function InventoryPage() {
   const router = useRouter();
@@ -301,13 +302,17 @@ export default function InventoryPage() {
       }
     }
 
+    // Get the parent bulk to inherit its unit
+    const parentBulk = bulkItems.find(b => b.id === bulkId);
+    if (!parentBulk) return;
+
     const newUnit = {
       id: nextUnitId,
       bulkId,
       company_uuid: user?.company_uuid || "",
       code: "",
       unit_value: 0,
-      unit: "",
+      unit: parentBulk.unit || "", // Always inherit unit from parent bulk
       name: inheritedItemName, // Use the inherited name if available
       cost: 0,
       properties: {},
@@ -361,6 +366,7 @@ export default function InventoryPage() {
           bulkId: newBulkId,
           uuid: undefined,
           inventory_item_bulk_uuid: undefined,
+          unit: bulkToDuplicate.unit || unit.unit, // Ensure it inherits parent bulk's unit
           isNew: true
         });
       });
@@ -373,7 +379,7 @@ export default function InventoryPage() {
           company_uuid: user?.company_uuid || "",
           code: "",
           unit_value: bulkToDuplicate.unit_value || 0,
-          unit: bulkToDuplicate.unit || "",
+          unit: bulkToDuplicate.unit || "", // Always use bulk's unit
           name: "",
           cost: bulkToDuplicate.cost || 0,
           properties: {},
@@ -406,6 +412,10 @@ export default function InventoryPage() {
     let firstNewUnitId = nextUnitId;
     const bulkId = unitToDuplicate.bulkId;
 
+    // Get the parent bulk to ensure we use its unit
+    const parentBulk = bulkItems.find(b => b.id === bulkId);
+    if (!parentBulk) return;
+
     // Create the specified number of duplicates
     for (let i = 0; i < count; i++) {
       newUnits.push({
@@ -413,6 +423,7 @@ export default function InventoryPage() {
         id: nextUnitId + i,
         uuid: undefined,
         inventory_item_bulk_uuid: undefined,
+        unit: parentBulk.unit || unitToDuplicate.unit, // Ensure it inherits parent bulk's unit
         isNew: true
       });
     }
@@ -426,6 +437,7 @@ export default function InventoryPage() {
         ...newUnits,
         ...prevUnits.filter(u => u.bulkId === bulkId)
       ];
+
       const totalCost = allBulkUnits.reduce((sum, u) => sum + (u.cost || 0), 0);
 
       // Update the bulk's cost
@@ -448,6 +460,13 @@ export default function InventoryPage() {
       bulk.id === bulkId ? { ...bulk, [field]: value } : bulk
     ));
 
+    // When the unit changes, update all child units
+    if (field === 'unit') {
+      setUnitItems(prevUnits => prevUnits.map(unit =>
+        unit.bulkId === bulkId ? { ...unit, unit: value } : unit
+      ));
+    }
+
     // Special handling when toggling single item mode
     if (field === 'is_single_item') {
       if (value === true) {
@@ -462,7 +481,7 @@ export default function InventoryPage() {
             company_uuid: user?.company_uuid || "",
             code: "",
             unit_value: bulk.unit_value || 0,
-            unit: bulk.unit || "",
+            unit: bulk.unit || "", // Always inherit unit from bulk
             name: "",
             cost: bulk.cost || 0,
             properties: {},
@@ -592,32 +611,18 @@ export default function InventoryPage() {
       const bulk = prevBulks.find(b => b.id === bulkId);
       if (!bulk || bulkUnits.length === 0 || bulk.is_single_item) return prevBulks;
 
-      // Check if all units have the same unit type
-      const firstUnitType = bulkUnits[0].unit;
-      const allSameUnit = firstUnitType && bulkUnits.every(unit => unit.unit === firstUnitType);
+      // Calculate the sum of all unit values - unit type is already enforced
+      const totalUnitValue = bulkUnits.reduce((sum, unit) =>
+        sum + (unit.unit_value || 0), 0);
 
       return prevBulks.map(bulk => {
         if (bulk.id !== bulkId) return bulk;
 
-        if (allSameUnit && firstUnitType) {
-          // Calculate the sum of all unit values
-          const totalUnitValue = bulkUnits.reduce((sum, unit) =>
-            sum + (unit.unit_value || 0), 0);
-
-          // Update with same unit type and total value
-          return {
-            ...bulk,
-            unit: firstUnitType,
-            unit_value: totalUnitValue
-          };
-        } else {
-          // Clear unit and value if mixed types
-          return {
-            ...bulk,
-            unit: "",
-            unit_value: 0
-          };
-        }
+        // Update with total value - unit stays the same
+        return {
+          ...bulk,
+          unit_value: totalUnitValue
+        };
       });
     });
   };
@@ -787,10 +792,11 @@ export default function InventoryPage() {
     }
 
     for (const unit of unitItems) {
-      if (!unit.code || !unit.name || !unit.unit || typeof unit.unit_value !== 'number' || unit.unit_value <= 0 || typeof unit.cost !== 'number' || unit.cost <= 0) {
-        setError("All units require item code, name, unit, valid unit value, and cost");
+      if (!unit.code || !unit.name || typeof unit.unit_value !== 'number' || unit.unit_value <= 0 || typeof unit.cost !== 'number' || unit.cost <= 0) {
+        setError("All units require item code, name, valid unit value, and cost");
         return false;
       }
+      // Note: We no longer check for unit since it's inherited from the bulk
     }
 
     return true;
@@ -1030,7 +1036,7 @@ export default function InventoryPage() {
                               {item.name}
                             </span>
                             <Chip color="default" variant={selectedItemId === item.uuid ? "shadow" : "flat"} size="sm">
-                              {item.inventory_item_bulks?.length || 0} bulk(s)
+                              {item.inventory_item_bulks_length || 0} bulk(s)
                             </Chip>
                           </div>
                           {item.description && (
@@ -1043,15 +1049,11 @@ export default function InventoryPage() {
                         {/* Footer - always at the bottom */}
                         <div className={`flex items-center gap-2 border-t ${selectedItemId === item.uuid ? 'border-primary-300' : 'border-default-100'} p-3`}>
                           <Chip
-                            color={selectedItemId === item.uuid ? "primary" : "default"}
+                            color={selectedItemId === item.uuid ? "default" : "primary"}
                             variant={selectedItemId === item.uuid ? "shadow" : "flat"}
                             size="sm"
                           >
-                            {new Date(item.created_at).toLocaleDateString("en-US", {
-                              year: "numeric",
-                              month: "2-digit",
-                              day: "2-digit",
-                            })}
+                            {formatDate(item.created_at.toString())}
                           </Chip>
                         </div>
                       </div>
@@ -1258,7 +1260,7 @@ export default function InventoryPage() {
                                     isRequired
                                     isDisabled={!isBulkEditable(bulk)}
                                     inputProps={autoCompleteStyle}
-                                    startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.2rem]" />}
+                                    startContent={<Icon icon="mdi:ruler" className="text-default-500 -mb-[0.1rem]" width={24}  />}
                                   >
                                     {unitOptions.map((unit) => (
                                       <AutocompleteItem key={unit}>{unit}</AutocompleteItem>
@@ -1274,7 +1276,7 @@ export default function InventoryPage() {
                                     isDisabled={!isBulkEditable(bulk)}
                                     min={0}
                                     classNames={inputStyle}
-                                    startContent={<Icon icon="mdi:numeric" className="text-default-500 mb-[0.2rem]" />}
+                                    startContent={<Icon icon="mdi:numeric" className="text-default-500 mb-[0.1rem]" width={16} />}
                                   />
 
                                   <Autocomplete
@@ -1285,7 +1287,7 @@ export default function InventoryPage() {
                                     isRequired
                                     isDisabled={!isBulkEditable(bulk)}
                                     inputProps={autoCompleteStyle}
-                                    startContent={<Icon icon="mdi:cube-outline" className="text-default-500 mb-[0.2rem]" />}
+                                    startContent={<Icon icon="mdi:cube-outline" className="text-default-500 -mb-[0.1rem]" width={24} />}
                                   >
                                     {bulkUnitOptions.map((unit) => (
                                       <AutocompleteItem key={unit}>{unit}</AutocompleteItem>
@@ -1349,14 +1351,14 @@ export default function InventoryPage() {
                                                 if (unit) {
                                                   handleUnitChange(unit.id, 'code', e.target.value);
                                                 } else {
-                                                  // Create a single unit for this bulk
+                                                  // Create a single unit for this bulk with inherited unit
                                                   const newUnit = {
                                                     id: nextUnitId,
                                                     bulkId: bulk.id,
                                                     company_uuid: user.company_uuid,
                                                     code: e.target.value,
                                                     unit_value: bulk.unit_value || 0,
-                                                    unit: bulk.unit || "",
+                                                    unit: bulk.unit || "", // Always inherit from bulk
                                                     name: "",
                                                     cost: bulk.cost || 0,
                                                     properties: {},
@@ -1391,7 +1393,7 @@ export default function InventoryPage() {
                                                     company_uuid: user.company_uuid,
                                                     code: "",
                                                     unit_value: bulk.unit_value || 0,
-                                                    unit: bulk.unit || "",
+                                                    unit: bulk.unit || "", // Always inherit from bulk
                                                     name: e.target.value,
                                                     cost: bulk.cost || 0,
                                                     properties: {},
@@ -1516,20 +1518,6 @@ export default function InventoryPage() {
                                                               startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
                                                             />
 
-                                                            <Autocomplete
-                                                              label="Unit"
-                                                              placeholder="Select unit"
-                                                              selectedKey={unit.unit || ""}
-                                                              onSelectionChange={(key) => handleUnitChange(unit.id, 'unit', key)}
-                                                              isRequired
-                                                              inputProps={autoCompleteStyle}
-                                                              startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.2rem]" />}
-                                                            >
-                                                              {unitOptions.map((unitOption) => (
-                                                                <AutocompleteItem key={unitOption}>{unitOption}</AutocompleteItem>
-                                                              ))}
-                                                            </Autocomplete>
-
                                                             <NumberInput
                                                               label="Unit Value"
                                                               placeholder="0"
@@ -1538,7 +1526,17 @@ export default function InventoryPage() {
                                                               isRequired
                                                               min={0}
                                                               classNames={inputStyle}
-                                                              startContent={<Icon icon="mdi:numeric" className="text-default-500 mb-[0.2rem]" />}
+                                                              endContent={
+                                                                <Chip
+                                                                  color="primary"
+                                                                  variant="flat"
+                                                                  size="sm"
+                                                                  className="absolute right-10 bottom-2"
+                                                                >
+                                                                  {unit.unit}
+                                                                </Chip>
+                                                              }
+                                                              startContent={<Icon icon="mdi:numeric" className="text-default-500 mb-[0.2rem] w-6" />}
                                                             />
 
                                                             <NumberInput

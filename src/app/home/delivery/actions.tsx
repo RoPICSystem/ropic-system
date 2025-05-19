@@ -60,7 +60,8 @@ export async function createDeliveryItem(
     const { data, error } = await supabase
       .from("delivery_items")
       .insert(formData)
-      .select();
+      .select()
+      .single();
 
     if (error) {
       throw error;
@@ -148,7 +149,8 @@ export async function updateInventoryItemUnitsStatus(bulkUuids: string[], status
       .from("inventory_item_unit")
       .update({ status })
       .in("inventory_item_bulk_uuid", bulkUuids)
-      .select();
+      .select()
+  
 
     if (error) {
       throw error;
@@ -307,10 +309,11 @@ export async function getInventoryItemBulks(inventoryItemUuid: string, getItemsI
       .order("created_at", { ascending: false });
 
     if (!getItemsInWarehouse) 
-      query = query.eq("is_single_item", true);
+      query = query.neq("status", "IN_WAREHOUSE");
 
+    
     const { data, error } = await query;
-
+    
     if (error) {
       throw error;
     }
