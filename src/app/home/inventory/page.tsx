@@ -6,6 +6,7 @@ import { createClient } from "@/utils/supabase/client";
 import {
   Accordion,
   AccordionItem,
+  addToast,
   Alert,
   Autocomplete,
   AutocompleteItem,
@@ -47,7 +48,7 @@ import {
   getUnitOptions,
   updateInventoryItem
 } from './actions';
-import { formatDate } from "@/utils/tools";
+import { copyToClipboard, formatDate, formatNumber } from "@/utils/tools";
 
 export default function InventoryPage() {
   const router = useRouter();
@@ -67,13 +68,16 @@ export default function InventoryPage() {
 
   // Form state
   const [inventoryForm, setInventoryForm] = useState<{
+    uuid?: string;
     name: string;
     description: string;
+    unit: string; // Add this field
     company_uuid: string;
   }>({
     name: "",
     description: "",
-    company_uuid: "",
+    unit: "", // Initialize with empty string
+    company_uuid: user?.company_uuid || "",
   });
 
   // Bulk items state
@@ -169,8 +173,10 @@ export default function InventoryPage() {
           const item = result.data;
 
           setInventoryForm({
+            uuid: item.uuid,
             name: item.name,
             description: item.description || "",
+            unit: item.unit || "",
             company_uuid: item.company_uuid,
           });
 
@@ -230,6 +236,7 @@ export default function InventoryPage() {
     setInventoryForm({
       name: "",
       description: "",
+      unit: "",
       company_uuid: user?.company_uuid || "",
     });
     setBulkItems([]);
@@ -241,6 +248,11 @@ export default function InventoryPage() {
 
   const isBulkEditable = (bulk: any) => {
     return !bulk.status || bulk.status === "AVAILABLE";
+  };
+
+  const calculateBulkTotalUnits = (bulkId: number) => {
+    const units = unitItems.filter(unit => unit.bulkId === bulkId);
+    return units.reduce((total, unit) => total + (unit.unit_value || 0), 0);
   };
 
   const handleNewItem = () => {
@@ -271,7 +283,7 @@ export default function InventoryPage() {
     const newBulk = {
       id: nextBulkId,
       company_uuid: user?.company_uuid || "",
-      unit: "",
+      unit: inventoryForm.unit,
       unit_value: 0,
       bulk_unit: "",
       cost: 0,
@@ -286,6 +298,16 @@ export default function InventoryPage() {
 
     // Set only the new bulk to be expanded
     setExpandedBulks(new Set([`${nextBulkId}`]));
+  };
+
+  const handleInventoryFormChange = (field: string, value: any) => {
+    setInventoryForm(prev => ({ ...prev, [field]: value }));
+
+    // If unit changed, update all bulks and units
+    if (field === 'unit') {
+      setBulkItems(prev => prev.map(bulk => ({ ...bulk, unit: value })));
+      setUnitItems(prev => prev.map(unit => ({ ...unit, unit: value })));
+    }
   };
 
   // Modify the handleAddUnit function
@@ -467,7 +489,40 @@ export default function InventoryPage() {
       ));
     }
 
-    // Special handling when toggling single item mode
+    // When the bulk unit value changes, distribute it proportionally to all units
+    if (field === 'unit_value' && typeof value === 'number') {
+      setUnitItems(prevUnits => {
+        // Get units belonging to this bulk
+        const bulkUnits = prevUnits.filter(unit => unit.bulkId === bulkId);
+
+        if (bulkUnits.length === 0) return prevUnits;
+
+        // Calculate current total unit value
+        const currentTotal = bulkUnits.reduce((sum, unit) => sum + (unit.unit_value || 0), 0);
+
+        // Handle cases where current total is zero (avoid division by zero)
+        if (currentTotal <= 0) {
+          // Distribute evenly among all units
+          const equalValue = value / bulkUnits.length;
+          return prevUnits.map(unit =>
+            unit.bulkId === bulkId ? { ...unit, unit_value: equalValue } : unit
+          );
+        }
+
+        // Otherwise distribute proportionally
+        const ratio = value / currentTotal;
+
+        return prevUnits.map(unit => {
+          if (unit.bulkId === bulkId) {
+            // Apply the ratio to maintain proportional distribution
+            return { ...unit, unit_value: (unit.unit_value || 0) * ratio };
+          }
+          return unit;
+        });
+      });
+    }
+
+    // Special handling for single item mode
     if (field === 'is_single_item') {
       if (value === true) {
         // When enabling single item mode, add a single unit if none exists
@@ -564,6 +619,14 @@ export default function InventoryPage() {
     }));
   };
 
+  const calculateTotalInventoryUnits = () => {
+    return bulkItems.reduce((total, bulk) => {
+      const bulkUnits = unitItems.filter(unit => unit.bulkId === bulk.id);
+      const bulkTotal = bulkUnits.reduce((sum, unit) => sum + (unit.unit_value || 0), 0);
+      return total + bulkTotal;
+    }, 0);
+  };
+
   // Modify handleUnitChange to include the auto-fill logic
   const handleUnitChange = (unitId: number, field: keyof InventoryItemUnit, value: any) => {
     // Update unit immediately and get the new state
@@ -606,23 +669,21 @@ export default function InventoryPage() {
   const updateBulkFromUnits = (bulkId: number, latestUnitItems = unitItems) => {
     const bulkUnits = latestUnitItems.filter(unit => unit.bulkId === bulkId);
 
-    // Find the bulk immediately from current state
     setBulkItems(prevBulks => {
       const bulk = prevBulks.find(b => b.id === bulkId);
-      if (!bulk || bulkUnits.length === 0 || bulk.is_single_item) return prevBulks;
+      if (!bulk) return prevBulks;
 
-      // Calculate the sum of all unit values - unit type is already enforced
-      const totalUnitValue = bulkUnits.reduce((sum, unit) =>
-        sum + (unit.unit_value || 0), 0);
+      // If it's a single-item bulk, units are managed separately
+      if (bulk.is_single_item) return prevBulks;
 
-      return prevBulks.map(bulk => {
-        if (bulk.id !== bulkId) return bulk;
+      // Calculate total, default to current bulk value if no units
+      const totalUnitValue = bulkUnits.length > 0
+        ? bulkUnits.reduce((sum, unit) => sum + (unit.unit_value || 0), 0)
+        : bulk.unit_value;
 
-        // Update with total value - unit stays the same
-        return {
-          ...bulk,
-          unit_value: totalUnitValue
-        };
+      return prevBulks.map(b => {
+        if (b.id !== bulkId) return b;
+        return { ...b, unit_value: totalUnitValue };
       });
     });
   };
@@ -778,25 +839,30 @@ export default function InventoryPage() {
       return false;
     }
 
+    // Add this in the validateForm function
     for (const bulk of bulkItems) {
-      if (!bulk.unit || !bulk.bulk_unit || typeof bulk.unit_value !== 'number' || bulk.unit_value <= 0) {
-        setError("All bulk items require unit, bulk unit, and a valid unit value");
-        return false;
-      }
+      // Existing validation...
 
+      // Ensure unit values match bulk value (with minimal rounding error)
       const bulkUnits = unitItems.filter(unit => unit.bulkId === bulk.id);
-      if (bulkUnits.length === 0 && !bulk.is_single_item) {
-        setError("Each bulk must contain at least one unit unless marked as a single item");
+      const unitTotal = bulkUnits.reduce((sum, unit) => sum + (unit.unit_value || 0), 0);
+
+      // Allow small rounding errors (0.001 or 0.1% difference)
+      const discrepancy = Math.abs(unitTotal - (bulk.unit_value || 0));
+      const discrepancyPercent = (bulk.unit_value || 0) > 0 ? (discrepancy / (bulk.unit_value || 0)) * 100 : 0;
+
+      if (discrepancy > 0.001 && discrepancyPercent > 0.1) {
+        setError(`Bulk "${bulk.bulk_unit}" total units (${unitTotal}) don't match bulk value (${bulk.unit_value})`);
         return false;
       }
     }
 
     for (const unit of unitItems) {
+      // Remove unit check since it's inherited from the bulk
       if (!unit.code || !unit.name || typeof unit.unit_value !== 'number' || unit.unit_value <= 0 || typeof unit.cost !== 'number' || unit.cost <= 0) {
         setError("All units require item code, name, valid unit value, and cost");
         return false;
       }
-      // Note: We no longer check for unit since it's inherited from the bulk
     }
 
     return true;
@@ -822,9 +888,9 @@ export default function InventoryPage() {
           .map(bulk => ({
             uuid: bulk.uuid as string,
             unit: bulk.unit,
-            unit_value: bulk.unit_value,
+            unit_value: bulk.unit_value as number,
             bulk_unit: bulk.bulk_unit,
-            cost: bulk.cost,
+            cost: bulk.cost as number,
             is_single_item: bulk.is_single_item,
             properties: bulk.properties,
           }));
@@ -834,10 +900,10 @@ export default function InventoryPage() {
           .map(unit => ({
             uuid: unit.uuid as string,
             code: unit.code,
-            unit_value: unit.unit_value,
+            unit_value: unit.unit_value as number,
             unit: unit.unit,
             name: unit.name,
-            cost: unit.cost,
+            cost: unit.cost as number,
             properties: unit.properties,
           }));
 
@@ -896,6 +962,7 @@ export default function InventoryPage() {
         const newItem = {
           company_uuid: user.company_uuid,
           name: inventoryForm.name,
+          unit: inventoryForm.unit,
           description: inventoryForm.description,
           admin_uuid: user.uuid,
         };
@@ -1097,15 +1164,51 @@ export default function InventoryPage() {
                   </>
                 ) : (
                   <>
-                    <Input
-                      label="Item Name"
-                      value={inventoryForm.name}
-                      onChange={(e) => setInventoryForm({ ...inventoryForm, name: e.target.value })}
-                      isRequired
-                      placeholder="Enter item name"
-                      classNames={inputStyle}
-                      startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
-                    />
+                    {inventoryForm.uuid && (
+                      <Input
+                        label="Inventory Identifier"
+                        value={inventoryForm.uuid}
+                        isReadOnly
+                        classNames={inputStyle}
+                        startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
+                        endContent={
+                          <Button
+                            variant="flat"
+                            color="default"
+                            isIconOnly
+                            onPress={() => copyToClipboard(inventoryForm.uuid || "")}
+                          >
+                            <Icon icon="mdi:content-copy" className="text-default-500" />
+                          </Button>
+                        }
+                      />
+                    )}
+
+                    <div className="flex items-center justify-between gap-4">
+                      <Input
+                        label="Item Name"
+                        value={inventoryForm.name}
+                        onChange={(e) => setInventoryForm({ ...inventoryForm, name: e.target.value })}
+                        isRequired
+                        placeholder="Enter item name"
+                        classNames={inputStyle}
+                        startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
+                      />
+
+                      <Autocomplete
+                        label="Item Unit"
+                        placeholder="Select unit"
+                        selectedKey={inventoryForm.unit}
+                        onSelectionChange={(key) => handleInventoryFormChange('unit', key)}
+                        startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.1rem]" />}
+                        isRequired
+                        inputProps={autoCompleteStyle}
+                      >
+                        {unitOptions.map((unit) => (
+                          <AutocompleteItem key={unit}>{unit}</AutocompleteItem>
+                        ))}
+                      </Autocomplete>
+                    </div>
 
                     <Textarea
                       label="Description"
@@ -1130,15 +1233,25 @@ export default function InventoryPage() {
                       <>
                         <Skeleton className="h-6 w-20 rounded-xl" />
                         <Skeleton className="h-6 w-20 rounded-xl" />
+                        <Skeleton className="h-6 w-20 rounded-xl" />
                       </>
                     ) : (
                       <>
-                        <Chip color="default" variant="flat" size="sm">
-                          {bulkItems.length} bulk{bulkItems.length > 1 ? "s" : ""}
-                        </Chip>
-                        <Chip color="default" variant="flat" size="sm">
-                          {unitItems.length} unit{unitItems.length > 1 ? "s" : ""}
-                        </Chip>
+                        {bulkItems.length > 0 && (
+                          <Chip color="default" variant="flat" size="sm">
+                            {bulkItems.length} bulk{bulkItems.length > 1 ? "s" : ""}
+                          </Chip>
+                        )}
+                        {unitItems.length > 0 && (
+                          <Chip color="default" variant="flat" size="sm">
+                            {unitItems.length} unit{unitItems.length > 1 ? "s" : ""}
+                          </Chip>
+                        )}
+                        {calculateTotalInventoryUnits() > 0 && (
+                          <Chip color="default" variant="flat" size="sm">
+                            {formatNumber(calculateTotalInventoryUnits())} {inventoryForm.unit}
+                          </Chip>
+                        )}
                       </>
                     )}
                   </div>
@@ -1233,9 +1346,11 @@ export default function InventoryPage() {
                                     <span className="font-medium">Bulk {bulk.id}</span>
                                   </div>
                                   <div className="flex gap-2">
-                                    <Chip color="primary" variant="flat" size="sm">
-                                      {bulk.unit_value} {bulk.unit}
-                                    </Chip>
+                                    {bulk.unit && bulk.unit !== "" && bulk.unit_value! > 0 && (
+                                      <Chip color="primary" variant="flat" size="sm">
+                                        {formatNumber(bulk.unit_value || 0)} {bulk.unit}
+                                      </Chip>
+                                    )}
                                     {bulk.bulk_unit && (
                                       <Chip color="secondary" variant="flat" size="sm">
                                         {bulk.bulk_unit}
@@ -1251,22 +1366,27 @@ export default function InventoryPage() {
                               }
                             >
                               <div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pb-0">
-                                  <Autocomplete
-                                    label="Unit"
-                                    placeholder="Select unit"
-                                    selectedKey={bulk.unit || ""}
-                                    onSelectionChange={(key) => handleBulkChange(bulk.id, 'unit', key)}
-                                    isRequired
-                                    isDisabled={!isBulkEditable(bulk)}
-                                    inputProps={autoCompleteStyle}
-                                    startContent={<Icon icon="mdi:ruler" className="text-default-500 -mb-[0.1rem]" width={24}  />}
-                                  >
-                                    {unitOptions.map((unit) => (
-                                      <AutocompleteItem key={unit}>{unit}</AutocompleteItem>
-                                    ))}
-                                  </Autocomplete>
+                                {bulk.uuid && (
+                                  <Input
+                                    label="Bulk Identifier"
+                                    value={bulk.uuid}
+                                    isReadOnly
+                                    classNames={{ inputWrapper: inputStyle.inputWrapper, base: "p-4 pb-0" }}
+                                    startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
+                                    endContent={
+                                      <Button
+                                        variant="flat"
+                                        color="default"
+                                        isIconOnly
+                                        onPress={() => copyToClipboard(bulk.uuid || "")}
+                                      >
+                                        <Icon icon="mdi:content-copy" className="text-default-500" />
+                                      </Button>
+                                    }
+                                  />
+                                )}
 
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pb-0">
                                   <NumberInput
                                     label="Unit Value"
                                     placeholder="0"
@@ -1274,25 +1394,24 @@ export default function InventoryPage() {
                                     onValueChange={(value) => handleBulkChange(bulk.id, 'unit_value', value)}
                                     isRequired
                                     isDisabled={!isBulkEditable(bulk)}
-                                    min={0}
+                                    minValue={0}
                                     classNames={inputStyle}
+                                    endContent={
+                                      <div className="absolute right-10 bottom-2">
+                                        {inventoryForm.unit && (
+                                          <Chip
+                                            color="primary"
+                                            variant="flat"
+                                            size="sm"
+                                          >
+                                            {inventoryForm.unit}
+                                          </Chip>
+                                        )}
+                                      </div>
+
+                                    }
                                     startContent={<Icon icon="mdi:numeric" className="text-default-500 mb-[0.1rem]" width={16} />}
                                   />
-
-                                  <Autocomplete
-                                    label="Bulk Unit"
-                                    placeholder="Select bulk unit"
-                                    selectedKey={bulk.bulk_unit || ""}
-                                    onSelectionChange={(key) => handleBulkChange(bulk.id, 'bulk_unit', key)}
-                                    isRequired
-                                    isDisabled={!isBulkEditable(bulk)}
-                                    inputProps={autoCompleteStyle}
-                                    startContent={<Icon icon="mdi:cube-outline" className="text-default-500 -mb-[0.1rem]" width={24} />}
-                                  >
-                                    {bulkUnitOptions.map((unit) => (
-                                      <AutocompleteItem key={unit}>{unit}</AutocompleteItem>
-                                    ))}
-                                  </Autocomplete>
 
                                   <NumberInput
                                     label="Total Cost"
@@ -1301,7 +1420,7 @@ export default function InventoryPage() {
                                     onValueChange={(value) => handleBulkChange(bulk.id, 'cost', value)}
                                     isRequired
                                     isDisabled={!isBulkEditable(bulk)}
-                                    min={0}
+                                    minValue={0}
                                     classNames={inputStyle}
                                     startContent={
                                       <div className="flex items-center">
@@ -1309,7 +1428,26 @@ export default function InventoryPage() {
                                       </div>
                                     }
                                   />
+
                                 </div>
+
+                                <Autocomplete
+                                  label="Bulk Unit"
+                                  placeholder="Select bulk unit"
+                                  selectedKey={bulk.bulk_unit || ""}
+                                  onSelectionChange={(key) => handleBulkChange(bulk.id, 'bulk_unit', key)}
+                                  isRequired
+                                  isDisabled={!isBulkEditable(bulk)}
+                                  inputProps={autoCompleteStyle}
+                                  classNames={{ base: "p-4 pb-0" }}
+                                  startContent={<Icon icon="mdi:cube-outline"
+                                    className="text-default-500 -mb-[0.1rem]" width={24} />}
+                                >
+                                  {bulkUnitOptions.map((unit) => (
+                                    <AutocompleteItem key={unit}>{unit}</AutocompleteItem>
+                                  ))}
+                                </Autocomplete>
+
 
                                 <div className="flex items-center">
                                   <Switch
@@ -1331,12 +1469,31 @@ export default function InventoryPage() {
                                         <div className="space-y-4 border-2 border-default-200 rounded-xl p-4">
                                           <div className="flex justify-between items-center">
                                             <h3 className="text-lg font-semibold">Single Item Details</h3>
-                                            <Tooltip content="For single items, these details will be used for the automatically generated unit">
+                                            <Tooltip
+                                              content="For single items, these details will be used for the automatically generated unit">
                                               <span>
-                                                <Icon icon="mdi:information-outline" className="text-default-500" />
+                                                <Icon icon="mdi:information-outline" className="text-default-500" width={16} height={16} />
                                               </span>
                                             </Tooltip>
                                           </div>
+
+                                          <Input
+                                            label="Warehouse Unit Identifier"
+                                            value={unitItems.find(u => u.bulkId === bulk.id)?.uuid || ""}
+                                            isReadOnly
+                                            classNames={{ inputWrapper: inputStyle.inputWrapper }}
+                                            startContent={<Icon icon="mdi:cube-outline" className="text-default-500 mb-[0.2rem]" />}
+                                            endContent={
+                                              <Button
+                                                variant="flat"
+                                                color="default"
+                                                isIconOnly
+                                                onPress={() => copyToClipboard(unitItems.find(u => u.bulkId === bulk.id)?.uuid || "")}
+                                              >
+                                                <Icon icon="mdi:content-copy" className="text-default-500" />
+                                              </Button>
+                                            }
+                                          />
 
                                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                             <Input
@@ -1490,14 +1647,37 @@ export default function InventoryPage() {
                                                                   `Unit ${unit.id}`}
                                                               </span>
                                                             </div>
-                                                            <Chip size="sm" color="primary" variant="flat">
-                                                              {unit.unit_value} {unit.unit}
-                                                            </Chip>
+                                                            {unit.unit_value! > 0 && unit.unit && unit.unit !== "" &&
+                                                              <Chip size="sm" color="primary" variant="flat">
+                                                                {formatNumber(unit.unit_value || 0)} {unit.unit}
+                                                              </Chip>
+                                                            }
                                                           </div>
                                                         }
                                                       >
                                                         <div className="space-y-4">
-                                                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pb-0">
+                                                          {unit.uuid && (
+                                                            <Input
+                                                              label="Item Identifier"
+                                                              value={unit.uuid}
+                                                              isReadOnly
+                                                              classNames={{ inputWrapper: inputStyle.inputWrapper, base: "p-4 pb-0" }}
+                                                              startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
+                                                              endContent={
+                                                                <Button
+                                                                  variant="flat"
+                                                                  color="default"
+                                                                  isIconOnly
+                                                                  onPress={() => copyToClipboard(unit.uuid || "")}
+                                                                >
+                                                                  <Icon icon="mdi:content-copy" className="text-default-500" />
+                                                                </Button>
+                                                              }
+                                                            />
+                                                          )}
+
+
+                                                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 py-0">
                                                             <Input
                                                               label="Item Code"
                                                               placeholder="Enter code"
@@ -1524,17 +1704,20 @@ export default function InventoryPage() {
                                                               value={unit.unit_value || 0}
                                                               onValueChange={(value) => handleUnitChange(unit.id, 'unit_value', value)}
                                                               isRequired
-                                                              min={0}
+                                                              minValue={0}
                                                               classNames={inputStyle}
                                                               endContent={
-                                                                <Chip
-                                                                  color="primary"
-                                                                  variant="flat"
-                                                                  size="sm"
-                                                                  className="absolute right-10 bottom-2"
-                                                                >
-                                                                  {unit.unit}
-                                                                </Chip>
+                                                                <div className="absolute right-10 bottom-2">
+                                                                  {unit.unit && unit.unit !== "" &&
+                                                                    <Chip
+                                                                      color="primary"
+                                                                      variant="flat"
+                                                                      size="sm"
+                                                                    >
+                                                                      {unit.unit}
+                                                                    </Chip>
+                                                                  }
+                                                                </div>
                                                               }
                                                               startContent={<Icon icon="mdi:numeric" className="text-default-500 mb-[0.2rem] w-6" />}
                                                             />
@@ -1545,7 +1728,7 @@ export default function InventoryPage() {
                                                               value={unit.cost || 0}
                                                               onValueChange={(value) => handleUnitChange(unit.id, 'cost', value)}
                                                               isRequired
-                                                              min={0}
+                                                              minValue={0}
                                                               classNames={{
                                                                 inputWrapper: `${inputStyle.inputWrapper} md:col-span-2`
                                                               }}
@@ -1628,7 +1811,7 @@ export default function InventoryPage() {
                                                               color="danger"
                                                               variant="flat"
                                                               size="sm"
-                                                              onPress={() => handleDeleteBulk(bulk.id)}
+                                                              onPress={() => handleDeleteUnit(unit.id)}
                                                               startContent={<Icon icon="mdi:delete" width={16} height={16} />}
                                                               isDisabled={!isBulkEditable(bulk)}
                                                             >

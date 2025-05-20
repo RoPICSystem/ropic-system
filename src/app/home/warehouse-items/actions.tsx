@@ -16,6 +16,7 @@ export interface WarehouseInventoryItem {
   description?: string;
   name: string;
   status: string;
+  unit: string;
   properties?: any; // JSONB type
   
   created_at?: string;

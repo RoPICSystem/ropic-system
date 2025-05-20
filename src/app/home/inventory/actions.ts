@@ -40,6 +40,7 @@ export interface InventoryItem {
   admin_uuid: string;
   name: string;
   description?: string;
+  unit: string;
   inventory_item_bulks: string[];
   inventory_item_bulks_length?: number;
   status?: string;
@@ -183,34 +184,31 @@ export async function getInventoryItem(uuid: string, getItemsInWarehouse: boolea
  */
 
 export async function createInventoryItem(
-  item: Pick<InventoryItem, "company_uuid" | "name" | "description" | "admin_uuid">,
+  item: Pick<InventoryItem, "company_uuid" | "name" | "description" | "admin_uuid" | "unit">,
   bulks: Pick<InventoryItemBulk, "company_uuid" | "unit" | "unit_value" | "bulk_unit" | "cost" | "is_single_item" | "properties">[],
   units: (Pick<InventoryItemUnit, "company_uuid" | "code" | "unit_value" | "unit" | "name" | "cost" | "properties"> & { _bulkIndex?: number })[]
 ) {
   const supabase = await createClient();
 
-  console.log("Creating inventory item with bulks and units:", item);
-  console.log("Bulks data:", bulks);
-  console.log("Units data with _bulkIndex values:", units.map(u => ({ ...u, _bulkIndex: u._bulkIndex })));
-
   try {
-    // Create the inventory item
+    // Create the inventory item with unit field
     const { data: inventoryItem, error: inventoryError } = await supabase
       .from("inventory_items")
       .insert({
         company_uuid: item.company_uuid,
         name: item.name,
         description: item.description,
-        admin_uuid: item.admin_uuid
+        admin_uuid: item.admin_uuid,
+        unit: item.unit
       })
       .select()
       .single();
 
     if (inventoryError) throw inventoryError;
 
-    // Create bulk items and store their UUIDs
+    // When creating bulks, use the item's unit as default if not specified
     const createdBulkUuids: string[] = [];
-    const singleItemBulkMap = new Map(); // Track which bulks are single items by index
+    const singleItemBulkMap = new Map();
 
     for (let i = 0; i < bulks.length; i++) {
       const bulk = bulks[i];
@@ -219,7 +217,7 @@ export async function createInventoryItem(
         .insert({
           company_uuid: bulk.company_uuid,
           inventory_uuid: inventoryItem.uuid,
-          unit: bulk.unit,
+          unit: item.unit,
           unit_value: bulk.unit_value,
           bulk_unit: bulk.bulk_unit,
           cost: bulk.cost,

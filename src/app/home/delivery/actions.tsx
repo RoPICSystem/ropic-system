@@ -86,6 +86,8 @@ export async function updateDeliveryItem(
 ) {
   const supabase = await createClient();
 
+  console.log("Updating delivery item with UUID:", formData);
+
   try {
     // Update the delivery item
     const { data, error } = await supabase
@@ -440,23 +442,57 @@ export async function createWarehouseInventoryItems(
 
     if (bulksError) throw bulksError;
 
-    // Create warehouse inventory item records
-    const { data: warehouseInv, error: whInvError } = await supabase
+    // Check if this inventory item already exists in the warehouse
+    const { data: existingWarehouseInv, error: existingError } = await supabase
       .from("warehouse_inventory_items")
-      .insert({
-        admin_uuid: inventoryItem.admin_uuid,
-        warehouse_uuid: warehouseUuid,
-        company_uuid: inventoryItem.company_uuid,
-        delivery_uuid: deliveryUuid,
-        inventory_uuid: inventoryUuid,
-
-        name: inventoryItem.name,
-        description: inventoryItem.description
-      })
-      .select()
+      .select("*")
+      .eq("warehouse_uuid", warehouseUuid)
+      .eq("inventory_uuid", inventoryUuid)
       .single();
+    
+    let warehouseInv;
+    
+    if (existingError && existingError.code !== 'PGRST116') {
+      // If there's an error that's not "no rows returned", throw it
+      throw existingError;
+    }
+    
+    if (existingWarehouseInv) {
+      // Update existing warehouse inventory item
+      // Note: Not updating delivery_uuid as per requirements
+      const { data: updatedWarehouseInv, error: updateError } = await supabase
+        .from("warehouse_inventory_items")
+        .update({
+          admin_uuid: inventoryItem.admin_uuid,
+          company_uuid: inventoryItem.company_uuid,
+          name: inventoryItem.name,
+          description: inventoryItem.description
+        })
+        .eq("uuid", existingWarehouseInv.uuid)
+        .select()
+        .single();
 
-    if (whInvError) throw whInvError;
+      if (updateError) throw updateError;
+      warehouseInv = updatedWarehouseInv;
+    } else {
+      // Create new warehouse inventory item records
+      const { data: newWarehouseInv, error: whInvError } = await supabase
+        .from("warehouse_inventory_items")
+        .insert({
+          admin_uuid: inventoryItem.admin_uuid,
+          warehouse_uuid: warehouseUuid,
+          company_uuid: inventoryItem.company_uuid,
+          inventory_uuid: inventoryUuid,
+          name: inventoryItem.name,
+          description: inventoryItem.description
+          // Note: Not including delivery_uuid as per requirements
+        })
+        .select()
+        .single();
+
+      if (whInvError) throw whInvError;
+      warehouseInv = newWarehouseInv;
+    }
 
     // Create warehouse inventory bulk items for each bulk
     const warehouseBulkPromises = bulks.map(async (bulk, index) => {
@@ -540,11 +576,24 @@ export async function createWarehouseInventoryItems(
 
     const warehouseBulks = await Promise.all(warehouseBulkPromises);
 
-    // add the warehouse_inventory_item_bulks to the warehouse inventory item
+    // Add the new warehouse_inventory_item_bulks to the warehouse inventory item's list
+    // First, get existing bulks to append the new ones
+    let existingBulkUuids: string[] = [];
+    if (existingWarehouseInv && existingWarehouseInv.warehouse_inventory_item_bulks) {
+      // If it's a string array, use it directly; if it's a JSON string, parse it
+      existingBulkUuids = Array.isArray(existingWarehouseInv.warehouse_inventory_item_bulks) 
+        ? existingWarehouseInv.warehouse_inventory_item_bulks 
+        : JSON.parse(existingWarehouseInv.warehouse_inventory_item_bulks);
+    }
+
+    const newBulkUuids = warehouseBulks.map((bulk: any) => bulk.uuid);
+    const allBulkUuids = [...existingBulkUuids, ...newBulkUuids];
+
+    // Update the warehouse inventory item with all bulk UUIDs
     const { data: updatedWarehouseInv, error: updateError } = await supabase
       .from("warehouse_inventory_items")
       .update({
-        warehouse_inventory_item_bulks: warehouseBulks.map((bulk: any) => bulk.uuid)
+        warehouse_inventory_item_bulks: allBulkUuids
       })
       .eq("uuid", warehouseInv.uuid)
       .select()
@@ -552,19 +601,18 @@ export async function createWarehouseInventoryItems(
 
     if (updateError) throw updateError;
 
-
     return {
       success: true,
       data: {
-        warehouseInventory: warehouseInv,
+        warehouseInventory: updatedWarehouseInv,
         warehouseBulks
       }
     };
   } catch (error: Error | any) {
-    console.error("Error creating warehouse inventory items:", error);
+    console.error("Error creating/updating warehouse inventory items:", error);
     return {
       success: false,
-      error: `Failed to create warehouse inventory items: ${error.message || "Unknown error"}`,
+      error: `Failed to create/update warehouse inventory items: ${error.message || "Unknown error"}`,
     };
   }
 }
