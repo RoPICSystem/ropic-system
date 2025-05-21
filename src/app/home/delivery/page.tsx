@@ -144,6 +144,11 @@ export default function DeliveryPage() {
   const [shelfColorAssignments, setShelfColorAssignments] = useState<Array<ShelfSelectorColorAssignment>>([]);
   const [showControls, setShowControls] = useState(false);
 
+  // Add new state variables after other state declarations
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [warehouseFilter, setWarehouseFilter] = useState<string | null>(null);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+
 
   // Form state
   const [formData, setFormData] = useState<Partial<DeliveryItem>>({
@@ -493,14 +498,24 @@ export default function DeliveryPage() {
     onOpen();
   };
 
-  // Handle item search
-  const handleSearch = async (query: string) => {
+
+  // Update handleSearch to accept filter parameters
+  const handleSearch = async (query: string, status?: string | null, warehouse?: string | null) => {
     setSearchQuery(query);
 
     try {
       setIsLoadingItems(true);
 
-      const result = await getDeliveryItems(user.company_uuid, query);
+      // Use provided parameters or fall back to state values
+      const statusToUse = status !== undefined ? status : statusFilter;
+      const warehouseToUse = warehouse !== undefined ? warehouse : warehouseFilter;
+
+      const result = await getDeliveryItems(
+        user.company_uuid,
+        query,
+        statusToUse,
+        warehouseToUse
+      );
       setDeliveryItems(result.data || []);
     } catch (error) {
       console.error("Error searching delivery items:", error);
@@ -508,6 +523,20 @@ export default function DeliveryPage() {
       setIsLoadingItems(false);
     }
   };
+
+  // Update filter change handlers to pass new values directly
+  const handleStatusFilterChange = (status: string | null) => {
+    setStatusFilter(status);
+    // Pass the new status value directly to avoid using stale state
+    handleSearch(searchQuery, status, warehouseFilter);
+  };
+
+  const handleWarehouseFilterChange = (warehouseId: string | null) => {
+    setWarehouseFilter(warehouseId);
+    // Pass the new warehouse value directly to avoid using stale state
+    handleSearch(searchQuery, statusFilter, warehouseId);
+  };
+
 
   // Handle inventory item selection
   const handleInventoryItemChange = async (inventoryItemUuid: string) => {
@@ -1529,7 +1558,7 @@ export default function DeliveryPage() {
     initPage();
   }, []);
 
-  // Set up real-time updates
+  // Update useEffect with real-time subscription to include filter parameters
   useEffect(() => {
     if (!user?.company_uuid) return;
 
@@ -1549,8 +1578,13 @@ export default function DeliveryPage() {
         async (payload) => {
           console.log('Real-time delivery update received:', payload);
 
-          // Refresh delivery items
-          const refreshedItems = await getDeliveryItems(user.company_uuid, searchQuery);
+          // Refresh delivery items with filters
+          const refreshedItems = await getDeliveryItems(
+            user.company_uuid,
+            searchQuery,
+            statusFilter,
+            warehouseFilter
+          );
           setDeliveryItems(refreshedItems.data || []);
         }
       )
@@ -1587,7 +1621,8 @@ export default function DeliveryPage() {
       supabase.removeChannel(deliveryChannel);
       supabase.removeChannel(inventoryChannel);
     };
-  }, [user?.company_uuid, searchQuery, selectedItem, loadInventoryBulks]);
+  }, [user?.company_uuid, searchQuery, statusFilter, warehouseFilter, selectedItem, loadInventoryBulks]);
+
 
   useEffect(() => {
     // When the delivery status changes to DELIVERED, we want to ensure location fields are ready
@@ -1684,10 +1719,136 @@ export default function DeliveryPage() {
                   startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
                 />
               )}
+              {!user ? null : (
+                <div className="flex items-center gap-2 mt-4">
+                  <ScrollShadow orientation="horizontal" className="flex-1 overflow-x-auto" hideScrollBar>
+                    <div className="inline-flex items-center gap-2">
+                      <Popover
+                        isOpen={isFilterOpen}
+                        onOpenChange={setIsFilterOpen}
+                        classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
+                        motionProps={popoverTransition()}
+                        placement="bottom-start">
+                        <PopoverTrigger>
+                          <Button
+                            variant="flat"
+                            color="default"
+                            className="w-24 h-10 rounded-lg !outline-none rounded-xl"
+                            startContent={<Icon icon="mdi:filter-variant" className="text-default-500" />}
+                          >
+                            Filters
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="p-4 w-80 p-0 overflow-hidden">
+                          <div>
+                            <div className="space-y-4 p-4">
+                              <h3 className="text-lg font-semibold items-center w-full text-center">
+                                Filter Options
+                              </h3>
+
+                              {/* Warehouse filter */}
+                              <Autocomplete
+                                name="warehouse_filter"
+                                label="Filter by Warehouse"
+                                placeholder="All Warehouses"
+                                selectedKey={warehouseFilter || ""}
+                                onSelectionChange={(key) => handleWarehouseFilterChange(key as string || null)}
+                                startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
+                                inputProps={autoCompleteStyle}
+                              >
+                                {[
+                                  (<AutocompleteItem key="">All Warehouses</AutocompleteItem>),
+                                  ...warehouses.map((warehouse) => (
+                                    <AutocompleteItem key={warehouse.uuid}>
+                                      {warehouse.name}
+                                    </AutocompleteItem>
+                                  ))]}
+                              </Autocomplete>
+
+                              {/* Status filter */}
+                              <Autocomplete
+                                name="status_filter"
+                                label="Filter by Status"
+                                placeholder="All Statuses"
+                                selectedKey={statusFilter || ""}
+                                onSelectionChange={(key) => handleStatusFilterChange(key as string || null)}
+                                startContent={<Icon icon="mdi:filter-variant" className="text-default-500 mb-[0.2rem]" />}
+                                inputProps={autoCompleteStyle}
+                              >
+                                <AutocompleteItem key="">All Statuses</AutocompleteItem>
+                                <AutocompleteItem key="PENDING">Pending</AutocompleteItem>
+                                <AutocompleteItem key="PROCESSING">Processing</AutocompleteItem>
+                                <AutocompleteItem key="IN_TRANSIT">In Transit</AutocompleteItem>
+                                <AutocompleteItem key="DELIVERED">Delivered</AutocompleteItem>
+                                <AutocompleteItem key="CANCELLED">Cancelled</AutocompleteItem>
+                              </Autocomplete>
+                            </div>
+
+                            <div className="p-4 border-t border-default-200 flex justify-end gap-2 bg-default-100/50">
+                              <Button
+                                size="sm"
+                                variant="flat"
+                                onPress={() => setIsFilterOpen(false)}
+                              >
+                                Close
+                              </Button>
+                            </div>
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+
+                      {/* Display selected filters as chips */}
+                      {warehouseFilter && (
+                        <Chip
+                          variant="flat"
+                          color="primary"
+                          onClose={() => handleWarehouseFilterChange(null)}
+                          size="sm"
+                          className="h-8 p-2"
+                        >
+                          <div className="flex items-center gap-1">
+                            <Icon icon="mdi:warehouse" className="text-xs" />
+                            {warehouses.find(w => w.uuid === warehouseFilter)?.name || 'Unknown Warehouse'}
+                          </div>
+                        </Chip>
+                      )}
+
+                      {statusFilter && (
+                        <Chip
+                          variant="flat"
+                          color={getStatusColor(statusFilter)}
+                          onClose={() => handleStatusFilterChange(null)}
+                          size="sm"
+                          className="h-8 p-2"
+                        >
+                          <div className="flex items-center gap-1">
+                            <Icon icon="mdi:filter-variant" className="text-xs" />
+                            {statusFilter.replaceAll('_', ' ')}
+                          </div>
+                        </Chip>
+                      )}
+
+                      {(warehouseFilter || statusFilter) && (
+                        <Button
+                          size="sm"
+                          variant="light"
+                          className="rounded-lg"
+                          onPress={() => {
+                            handleWarehouseFilterChange(null);
+                            handleStatusFilterChange(null);
+                          }}
+                        >
+                          Clear all
+                        </Button>
+                      )}
+                    </div>
+                  </ScrollShadow>
+                </div>
+              )}
             </div>
             <div className="h-full absolute w-full">
               {!user || isLoadingItems ? (
-                <div className="space-y-4 p-4 mt-1 pt-32 h-full relative">
+                <div className="space-y-4 mt-1 p-4 pt-[11.5rem] h-full relative">
                   {[...Array(10)].map((_, i) => (
                     <Skeleton key={i} className="w-full min-h-[7.5rem] rounded-xl" />
                   ))}
@@ -1697,7 +1858,8 @@ export default function DeliveryPage() {
                   </div>
                 </div>
               ) : !isLoadingItems && deliveryItems.length !== 0 ? (
-                <div className='space-y-4 p-4 overflow-y-auto pt-[8.25rem] xl:h-full h-[42rem]'>
+                <div
+                  className='space-y-4 p-4 overflow-y-auto pt-[12rem] xl:h-full h-[42rem]'>
                   {deliveryItems.map((delivery) => (
                     <Button
                       key={delivery.uuid}

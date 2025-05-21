@@ -202,7 +202,12 @@ export async function updateInventoryItemBulksStatus(bulkUuids: string[], status
 /**
  * Fetches delivery items with optional search
  */
-export async function getDeliveryItems(companyUuid?: string, search: string = "") {
+export async function getDeliveryItems(
+  companyUuid?: string, 
+  search: string = "",
+  status?: string | null,
+  warehouseUuid?: string | null
+) {
   const supabase = await createClient();
 
   try {
@@ -228,6 +233,16 @@ export async function getDeliveryItems(companyUuid?: string, search: string = ""
       query = query.or(
         `name.ilike.%${search}%,description.ilike.%${search}%`, { referencedTable: "inventory_item" }
       );
+    }
+    
+    // Apply status filter if provided
+    if (status) {
+      query = query.eq("status", status);
+    }
+
+    // Apply warehouse filter if provided
+    if (warehouseUuid) {
+      query = query.eq("warehouse_uuid", warehouseUuid);
     }
 
     // Execute the query
