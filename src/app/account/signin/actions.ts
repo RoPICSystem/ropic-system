@@ -3,6 +3,13 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/utils/supabase/server'
+import { getUserProfile } from '@/utils/supabase/server/user';
+
+declare global {
+  interface Window {
+    userData?: any;
+  }
+}
 
 export async function signin(formData: FormData):
   Promise<{ error?: string, success?: boolean }> {
@@ -22,6 +29,19 @@ export async function signin(formData: FormData):
     console.error('Sign-in error:', error)
     return { error: error.message }
   }
+
+
+  const { data, error: userError } = await getUserProfile();
+
+  if (userError) {
+    console.error("Error fetching user profile:", error);
+    return { error: `${userError}`}
+  }
+
+  if (typeof window !== "undefined") {
+    window.userData = data;
+  };
+
 
   // Revalidate cache to reflect the new authentication state
   revalidatePath('/', 'layout')
