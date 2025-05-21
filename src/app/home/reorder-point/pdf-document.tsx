@@ -230,6 +230,7 @@ interface ReorderPointPDFProps {
   warehouseName: string;
   companyName: string;
   dateGenerated: string;
+  inventoryNameMap?: Record<string, string>;
 }
 
 // PDF Document Component
@@ -238,7 +239,8 @@ export const ReorderPointPDF = ({
   deliveryHistory,
   warehouseName,
   companyName,
-  dateGenerated
+  dateGenerated,
+  inventoryNameMap
 }: ReorderPointPDFProps) => (
   <Document>
     <Page size="A4" style={styles.page}>
@@ -339,16 +341,19 @@ export const ReorderPointPDF = ({
           <View style={styles.tableContainer}>
             <View style={styles.table}>
               <View style={[styles.tableRow, styles.tableHeader]}>
-                <View style={[styles.tableHeaderCell, { flex: 1 }]}>
+                <View style={[styles.tableHeaderCell, { flex: 1.65 }]}>
+                  <Text>Item</Text>
+                </View>
+                <View style={[styles.tableHeaderCell, { flex: 0.6 }]}>
                   <Text>Date</Text>
                 </View>
-                <View style={[styles.tableHeaderCell, { flex: 1 }]}>
+                <View style={[styles.tableHeaderCell, { flex: 0.85 }]}>
                   <Text>Status</Text>
                 </View>
-                <View style={[styles.tableHeaderCell, { flex: 1.5 }]}>
+                <View style={[styles.tableHeaderCell, { flex: 1.1 }]}>
                   <Text>Location</Text>
                 </View>
-                <View style={[styles.tableHeaderCell, { flex: 1 }]}>
+                <View style={[styles.tableHeaderCell, { flex: 1.65 }]}>
                   <Text>Recipient</Text>
                 </View>
               </View>
@@ -358,19 +363,20 @@ export const ReorderPointPDF = ({
                   styles.tableRow,
                   index % 2 === 1 ? { backgroundColor: '#F7FAFC' } : {}
                 ]}>
-                  <View style={[styles.tableCell, { flex: 1 }]}>
+                  <View style={[styles.tableCell, { flex: 1.65 }]}>
+                    <Text>{delivery.inventoryItemName || inventoryNameMap?.[delivery.inventory_uuid] || "Unknown Item"}</Text>
+                  </View>
+                  <View style={[styles.tableCell, { flex: 0.6 }]}>
                     <Text>{new Date(delivery.delivery_date).toLocaleDateString()}</Text>
                   </View>
-                  <View style={[styles.tableCell, { flex: 1 }]}>
-                    <Text>{formatStatus(delivery.status)}</Text>
+                  <View style={[styles.tableCell, { flex: 0.85 }]}>
+                    <Text>{delivery.status}</Text>
                   </View>
-                  <View style={[styles.tableCell, { flex: 1.5 }]}>
-                    <Text>{Array.isArray(delivery.location_codes) && delivery.location_codes.length > 0 
-                      ? delivery.location_codes.join(', ') 
-                      : 'N/A'}</Text>
+                  <View style={[styles.tableCell, { flex: 1.1 }]}>
+                    <Text>{Array.isArray(delivery.location_codes) ? delivery.location_codes.join(", ") : delivery.location_codes || "N/A"}</Text>
                   </View>
-                  <View style={[styles.tableCell, { flex: 1 }]}>
-                    <Text>{delivery.recipient_name || 'N/A'}</Text>
+                  <View style={[styles.tableCell, { flex: 1.65 }]}>
+                    <Text>{delivery.recipient_name || "N/A"}</Text>
                   </View>
                 </View>
               ))}

@@ -38,7 +38,7 @@ import { materialLight, materialDark } from 'react-syntax-highlighter/dist/cjs/s
 
 // Import server actions
 import CardList from "@/components/card-list";
-import { motionTransition } from "@/utils/anim";
+import { motionTransition, popoverTransition } from "@/utils/anim";
 import {
   getWarehouseInventoryItems,
   getWarehouseInventoryItem,
@@ -101,14 +101,7 @@ export default function WarehouseItemsPage() {
   const [externalSelection, setExternalSelection] = useState<any | undefined>(undefined);
   const [shelfColorAssignments, setShelfColorAssignments] = useState<Array<any>>([]);
 
-  // Remove these state variables
-  // const [tempSelectedFloor, setTempSelectedFloor] = useState<number | null>(null);
-  // const [tempSelectedColumnCode, setTempSelectedColumnCode] = useState<string>("");
-  // const [tempSelectedColumn, setTempSelectedColumn] = useState<number | null>(null);
-  // const [tempSelectedRow, setTempSelectedRow] = useState<number | null>(null);
-  // const [tempSelectedGroup, setTempSelectedGroup] = useState<number | null>(null);
-  // const [tempSelectedCode, setTempSelectedCode] = useState("");
-  // const [tempSelectedDepth, setTempSelectedDepth] = useState<number | null>(null);
+  const [isSearchFilterOpen, setIsSearchFilterOpen] = useState(false);
 
   // Add this derived state
   const [locationCode, setLocationCode] = useState("");
@@ -139,7 +132,6 @@ export default function WarehouseItemsPage() {
     const data = {
       uuid: formData.uuid,
       inventory_uuid: formData.inventory_uuid,
-      delivery_uuid: formData.delivery_uuid,
       warehouse_uuid: formData.warehouse_uuid,
       company_uuid: formData.company_uuid,
       name: formData.name
@@ -340,9 +332,7 @@ export default function WarehouseItemsPage() {
 
   // Handle view delivery details
   const handleViewDelivery = (deliveryId: string) => {
-    if (formData.delivery_uuid) {
-      router.push(`/home/delivery?deliveryId=${deliveryId}`);
-    }
+    router.push(`/home/delivery?deliveryId=${deliveryId}`);
   };
 
   // Function to load bulks for an item
@@ -627,7 +617,13 @@ export default function WarehouseItemsPage() {
 
                   {/* Replace the single Autocomplete with this new filter UI */}
                   <div className="flex items-center gap-2 mt-2">
-                    <Popover placement="bottom-start">
+                    <Popover
+                      isOpen={isSearchFilterOpen}
+                      onOpenChange={setIsSearchFilterOpen}
+                      classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
+                      motionProps={popoverTransition()}
+                      offset={10}
+                      placement="bottom-start">
                       <PopoverTrigger>
                         <Button
                           variant="flat"
@@ -638,27 +634,44 @@ export default function WarehouseItemsPage() {
                           Filters
                         </Button>
                       </PopoverTrigger>
-                      <PopoverContent className="p-4 w-80">
-                        <div className="space-y-4">
-                          <Autocomplete
-                            name="warehouse_uuid"
-                            label="Filter by Warehouse"
-                            placeholder="All Warehouses"
-                            selectedKey={selectedWarehouse || ""}
-                            onSelectionChange={(e) => handleWarehouseChange(`${e}` || null)}
-                            startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
-                            inputProps={autoCompleteStyle}
-                          >
-                            {[
-                              (<AutocompleteItem key="">All Warehouses</AutocompleteItem>),
-                              ...warehouses.map((warehouse) => (
-                                <AutocompleteItem key={warehouse.uuid}>
-                                  {warehouse.name}
-                                </AutocompleteItem>
-                              ))]}
-                          </Autocomplete>
+                      <PopoverContent className="p-4 w-80 p-0">
+                        <div>
+                          <div className="space-y-4 p-4">
+                            <h3 className="text-lg font-semibold items-center w-full text-center">
+                              Filter Options
+                            </h3>
 
-                          {/* You can add more filter options here in the future */}
+                            {/* Warehouse filter */}
+                            <Autocomplete
+                              name="warehouse_uuid"
+                              label="Filter by Warehouse"
+                              placeholder="All Warehouses"
+                              selectedKey={selectedWarehouse || ""}
+                              onSelectionChange={(e) => handleWarehouseChange(`${e}` || null)}
+                              startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
+                              inputProps={autoCompleteStyle}
+                            >
+                              {[
+                                (<AutocompleteItem key="">All Warehouses</AutocompleteItem>),
+                                ...warehouses.map((warehouse) => (
+                                  <AutocompleteItem key={warehouse.uuid}>
+                                    {warehouse.name}
+                                  </AutocompleteItem>
+                                ))]}
+                            </Autocomplete>
+
+                          </div>
+
+                          <div className="p-4 border-t border-default-200 flex justify-end gap-2  bg-default-100/50 ">
+                            <Button
+                              size="sm"
+                              variant="flat"
+                              onPress={() => setIsSearchFilterOpen(false)}
+                            >
+                              Close
+                            </Button>
+
+                          </div>
                         </div>
                       </PopoverContent>
                     </Popover>
@@ -1038,7 +1051,7 @@ export default function WarehouseItemsPage() {
                                                 label="Warehouse Unit Identifier"
                                                 value={itemUnits[0].uuid}
                                                 isReadOnly
-                                                classNames={{ inputWrapper: inputStyle.inputWrapper}}
+                                                classNames={{ inputWrapper: inputStyle.inputWrapper }}
                                                 startContent={<Icon icon="mdi:cube-outline" className="text-default-500 mb-[0.2rem]" />}
                                                 endContent={
                                                   <Button
@@ -1505,7 +1518,7 @@ export default function WarehouseItemsPage() {
                         </div>
                       </div>
 
-                      <div className="flex flex-col gap-2 md:border-default md:border-l md:pl-3">
+                      <div className="flex flex-col gap-2 md:pl-2">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-semibold w-16">Row</span>
                           <div className="flex items-center gap-1">
@@ -1592,19 +1605,6 @@ export default function WarehouseItemsPage() {
                 }
               </AnimatePresence>
 
-
-              <AnimatePresence>
-                {locationCode &&
-                  <motion.div {...motionTransition} className="absolute overflow-hidden top-4 right-4 flex items-start gap-2 bg-background/50 rounded-2xl backdrop-blur-lg flex flex-col p-4">
-                    {selectedBulkForLocation && selectedBulkForLocation.location && (
-                      <span className="text-sm font-semibold"> Selected Code: <b>{selectedBulkForLocation.location_code || formatCode(selectedBulkForLocation.location)}</b></span>
-                    )}
-                    <span className="text-sm font-semibold">Current Code: <b>{locationCode}</b></span>
-                  </motion.div>
-                }
-              </AnimatePresence>
-
-
               <AnimatePresence>
                 {(locationCode || showControls) &&
                   <motion.div {...motionTransition}
@@ -1623,10 +1623,25 @@ export default function WarehouseItemsPage() {
                   </motion.div>
                 }
               </AnimatePresence>
+
+              <AnimatePresence>
+                {locationCode &&
+                  <motion.div {...motionTransition} className="absolute overflow-hidden top-4 right-4 flex items-start gap-2 bg-background/50 rounded-2xl backdrop-blur-lg flex flex-col p-4">
+                    {selectedBulkForLocation && selectedBulkForLocation.location && (
+                      <span className="text-sm font-semibold"> Selected Code: <b>{selectedBulkForLocation.location_code || formatCode(selectedBulkForLocation.location)}</b></span>
+                    )}
+                    <span className="text-sm font-semibold">Current Code: <b>{locationCode}</b></span>
+                  </motion.div>
+                }
+              </AnimatePresence>
+
             </div>
           </ModalBody>
           <ModalFooter className="flex justify-between gap-4 p-4">
-            <Popover showArrow offset={10} placement="bottom-end">
+            <Popover
+              classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
+              motionProps={popoverTransition(false)}
+              placement="bottom">
               <PopoverTrigger>
                 <Button className="capitalize" color="warning" variant="flat">
                   <Icon icon="heroicons:question-mark-circle-solid" className="w-4 h-4 mr-1" />

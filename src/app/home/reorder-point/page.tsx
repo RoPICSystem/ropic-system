@@ -7,6 +7,7 @@ import {
   AutocompleteItem,
   Autocomplete,
   Button,
+  Checkbox,
   Chip,
   Input,
   Modal,
@@ -32,7 +33,7 @@ import { format } from "date-fns";
 
 // Import server actions
 import CardList from "@/components/card-list";
-import { motionTransition } from "@/utils/anim";
+import { motionTransition, popoverTransition } from "@/utils/anim";
 import { getReorderPointLogs, updateCustomSafetyStock, triggerReorderPointCalculation, InventoryStatus, ReorderPointLog } from "./actions";
 import { getWarehouses } from "../warehouses/actions";
 import { getInventoryItems } from "../inventory/actions";
@@ -67,6 +68,9 @@ export default function ReorderPointPage() {
   const [customSafetyStock, setCustomSafetyStock] = useState<number | null>(null);
   const [safetyStockNotes, setSafetyStockNotes] = useState("");
 
+  const [isSearchFilterOpen, setIsSearchFilterOpen] = useState(false);
+  const [isExportSearchFilterOpen, setIsExportSearchFilterOpen] = useState(false);
+
   // Input style for consistency
   const inputStyle = {
     inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
@@ -75,6 +79,59 @@ export default function ReorderPointPage() {
 
   // Add to the existing state declarations in the ReorderPointPage component
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
+  // After existing state declarations in ReorderPointPage component
+  const [pdfExportState, setPdfExportState] = useState({
+    isPopoverOpen: false,
+    selectedLogs: [] as string[],
+    searchQuery: "",
+    statusFilter: null as InventoryStatus | null,
+    warehouseFilter: null as string | null,
+  });
+
+  // Add this function to handle PDF export log selection
+  const handleTogglePdfLogSelection = (logId: string) => {
+    setPdfExportState(prev => {
+      if (prev.selectedLogs.includes(logId)) {
+        return { ...prev, selectedLogs: prev.selectedLogs.filter(id => id !== logId) };
+      } else {
+        return { ...prev, selectedLogs: [...prev.selectedLogs, logId] };
+      }
+    });
+  };
+
+  // Add this function to filter logs for PDF export
+  const getFilteredPdfLogs = useCallback(() => {
+    let filteredLogs = [...reorderPointLogs];
+
+    // Apply search filter
+    if (pdfExportState.searchQuery) {
+      const query = pdfExportState.searchQuery.toLowerCase();
+      const matchingItemIds = inventoryItems
+        .filter(item => item.name.toLowerCase().includes(query))
+        .map(item => item.uuid);
+
+      filteredLogs = filteredLogs.filter(log =>
+        matchingItemIds.includes(log.inventory_uuid)
+      );
+    }
+
+    // Apply status filter
+    if (pdfExportState.statusFilter) {
+      filteredLogs = filteredLogs.filter(log =>
+        log.status === pdfExportState.statusFilter
+      );
+    }
+
+    // Apply warehouse filter
+    if (pdfExportState.warehouseFilter) {
+      filteredLogs = filteredLogs.filter(log =>
+        log.warehouse_uuid === pdfExportState.warehouseFilter
+      );
+    }
+
+    return filteredLogs;
+  }, [reorderPointLogs, pdfExportState, inventoryItems]);
+
 
   // Add this function inside the ReorderPointPage component
   const handleGeneratePdf = async () => {
@@ -94,36 +151,54 @@ export default function ReorderPointPage() {
           warehouseName: getWarehouseName(log.warehouse_uuid)
         }));
 
-      // Get delivery history
-      let history: { uuid: any; inventory_uuid: any; delivery_date: any; status: any; location_codes: any; recipient_name: any; }[] = [];
-      if (selectedItemId && formData.inventory_uuid) {
-        const result = await getDeliveryHistory(formData.inventory_uuid as string);
-        if (result.success) {
-          history = result.data;
+      // Get delivery history for all items
+      let allDeliveryHistory: any[] = [];
+
+      // Create a mapping of inventory IDs to their names for the delivery history
+      const inventoryNameMap: Record<string, string> = {};
+
+      // Fetch history for each item in parallel
+      const historyPromises = preparedLogs.map(async (log) => {
+        if (log.inventory_uuid) {
+          inventoryNameMap[log.inventory_uuid] = log.inventoryItemName || "";
+          const result = await getDeliveryHistory(log.inventory_uuid);
+          if (result.success) {
+            // Add inventory name to each delivery history record
+            return result.data.map(delivery => ({
+              ...delivery,
+              inventoryItemName: log.inventoryItemName
+            }));
+          }
         }
-      }
+        return [];
+      });
+
+      // Wait for all history requests to complete
+      const historyResults = await Promise.all(historyPromises);
+
+      // Combine all delivery histories
+      allDeliveryHistory = historyResults.flat();
 
       const companyData = await getCompanyData(window.userData.company_uuid);
-      
 
       // Generate PDF
       const pdfBlob = await generatePdfBlob({
         logs: preparedLogs,
-        deliveryHistory: history,
+        deliveryHistory: allDeliveryHistory,
         warehouseName: selectedWarehouse ? getWarehouseName(selectedWarehouse) : "All Warehouses",
         companyName: companyData.data?.name || "Your Company",
-        dateGenerated: new Date().toLocaleString()
+        dateGenerated: new Date().toLocaleString(),
+        inventoryNameMap  // Pass the mapping of inventory IDs to names
       });
 
       // Create download link
       const url = URL.createObjectURL(pdfBlob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `reorder-point-report-${new Date().toISOString().split('T')[0]}.pdf`;
+      link.download = `Reorder_Point_Report_${new Date().toISOString().split('T')[0]}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-
     } catch (error) {
       console.error("Error generating PDF:", error);
     } finally {
@@ -204,6 +279,88 @@ export default function ReorderPointPage() {
       console.error("Error filtering by status:", error);
     } finally {
       setIsLoadingItems(false);
+    }
+  };
+
+  // Add this new function next to the existing handleGeneratePdf function
+  const handleGeneratePdfFiltered = async (selectedLogIds: string[]) => {
+    setIsPdfGenerating(true);
+
+    try {
+      // Get selected logs
+      const logsToExport = selectedLogIds.length > 0
+        ? reorderPointLogs.filter(log => selectedLogIds.includes(log.uuid))
+        : (selectedItemId
+          ? [reorderPointLogs.find(log => log.uuid === selectedItemId)!]
+          : reorderPointLogs);
+
+      // Prepare logs with resolved names
+      const preparedLogs = logsToExport.map(log => ({
+        ...log,
+        inventoryItemName: getInventoryItemName(log.inventory_uuid),
+        warehouseName: getWarehouseName(log.warehouse_uuid)
+      }));
+
+      // Get delivery history for all selected items
+      let allDeliveryHistory: any[] = [];
+
+      // Create a mapping of inventory IDs to their names for the delivery history
+      const inventoryNameMap: Record<string, string> = {};
+
+      // Fetch history for each selected item in parallel
+      const historyPromises = preparedLogs.map(async (log) => {
+        if (log.inventory_uuid) {
+          inventoryNameMap[log.inventory_uuid] = log.inventoryItemName || "";
+          const result = await getDeliveryHistory(log.inventory_uuid);
+          if (result.success) {
+            // Add inventory name to each delivery history record
+            return result.data.map(delivery => ({
+              ...delivery,
+              inventoryItemName: log.inventoryItemName
+            }));
+          }
+        }
+        return [];
+      });
+
+      // Wait for all history requests to complete
+      const historyResults = await Promise.all(historyPromises);
+
+      // Combine all delivery histories
+      allDeliveryHistory = historyResults.flat();
+
+      const companyData = await getCompanyData(window.userData.company_uuid);
+
+      // Determine warehouse name for the report
+      let warehouseNameForReport = "All Warehouses";
+      if (preparedLogs.length === 1) {
+        warehouseNameForReport = preparedLogs[0].warehouseName || "All Warehouses";
+      } else if (selectedWarehouse) {
+        warehouseNameForReport = getWarehouseName(selectedWarehouse);
+      }
+
+      // Generate PDF
+      const pdfBlob = await generatePdfBlob({
+        logs: preparedLogs,
+        deliveryHistory: allDeliveryHistory,
+        warehouseName: warehouseNameForReport,
+        companyName: companyData.data?.name || "Your Company",
+        dateGenerated: new Date().toLocaleString(),
+        inventoryNameMap
+      });
+
+      // Create download link
+      const url = URL.createObjectURL(pdfBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Reorder_Point_Report_${new Date().toISOString().split('T')[0]}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (error) {
+      console.error("Error generating PDF:", error);
+    } finally {
+      setIsPdfGenerating(false);
     }
   };
 
@@ -295,6 +452,8 @@ export default function ReorderPointPage() {
       router.push(`/home/warehouses?warehouseId=${formData.warehouse_uuid}`);
     }
   };
+
+
 
   // Effect to handle URL params (logId)
   useEffect(() => {
@@ -430,15 +589,251 @@ export default function ReorderPointPage() {
           </Button>
 
           {/* Add PDF Export Button */}
-          <Button
-            color="secondary"
-            variant="shadow"
-            onPress={handleGeneratePdf}
-            isLoading={isPdfGenerating}
-            startContent={!isPdfGenerating && <Icon icon="mdi:file-pdf-box" />}
+          <Popover
+            isOpen={pdfExportState.isPopoverOpen}
+            onOpenChange={(open) => {
+              setPdfExportState(prev => ({
+                ...prev,
+                isPopoverOpen: open,
+                // When opening, default to selected item or clear selection
+                selectedLogs: open
+                  ? (selectedItemId ? [selectedItemId] : [])
+                  : prev.selectedLogs,
+                searchQuery: "",
+                statusFilter: null,
+                warehouseFilter: null
+              }));
+            }}
+            motionProps={popoverTransition()}
+            classNames={{ content: "backdrop-blur-lg bg-background/65" }}
+            placement="bottom-end"
           >
-            Export PDF
-          </Button>
+            <PopoverTrigger>
+              <Button
+                color="secondary"
+                variant="shadow"
+                startContent={!isPdfGenerating && <Icon icon="mdi:file-pdf-box" />}
+                isLoading={isPdfGenerating}
+              >
+                Export PDF
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-96 p-0">
+              <div className="w-full">
+                <div className="px-4 pt-4 text-center">
+                  <h3 className="text-lg font-semibold">Export Reorder Point Report</h3>
+                  <p className="text-sm text-default-500">Select items to include in the PDF report</p>
+                </div>
+
+                <div className="p-4 border-b border-default-200 space-y-3">
+                  <Input
+                    placeholder="Search items..."
+                    value={pdfExportState.searchQuery}
+                    onChange={(e) => setPdfExportState(prev => ({ ...prev, searchQuery: e.target.value }))}
+                    isClearable
+                    onClear={() => setPdfExportState(prev => ({ ...prev, searchQuery: "" }))}
+                    startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
+                  />
+                  <div className="flex items-center gap-2 mt-2">
+                    <ScrollShadow orientation="horizontal" className="flex-1 overflow-x-auto" hideScrollBar>
+                      <div className="inline-flex items-center gap-2">
+                        <Popover
+                          isOpen={isExportSearchFilterOpen}
+                          onOpenChange={setIsExportSearchFilterOpen}
+                          classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
+                          motionProps={popoverTransition()}
+                          placement="bottom-start">
+                          <PopoverTrigger>
+                            <Button
+                              variant="flat"
+                              color="default"
+                              onPress={() => setIsExportSearchFilterOpen(true)}
+                              className="w-24 h-10 rounded-lg !outline-none rounded-xl"
+                              startContent={<Icon icon="mdi:filter-variant" className="text-default-500" />}
+                            >
+                              Filters
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="p-4 w-80 p-0">
+                            <div>
+                              <div className="space-y-4 p-4">
+                                <h3 className="text-lg font-semibold items-center w-full text-center">
+                                  Filter Options
+                                </h3>
+
+                                {/* Warehouse filter */}
+                                <Autocomplete
+                                  name="warehouse_uuid"
+                                  label="Filter by Warehouse"
+                                  placeholder="All Warehouses"
+                                  selectedKey={pdfExportState.warehouseFilter || ""}
+                                  onSelectionChange={(key) => setPdfExportState(prev => ({ ...prev, warehouseFilter: key as string || null }))}
+                                  startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
+                                  inputProps={autoCompleteStyle}
+                                >
+                                  {[
+                                    (<AutocompleteItem key="">All Warehouses</AutocompleteItem>),
+                                    ...warehouses.map((warehouse) => (
+                                      <AutocompleteItem key={warehouse.uuid}>
+                                        {warehouse.name}
+                                      </AutocompleteItem>
+                                    ))]}
+                                </Autocomplete>
+
+                                <Autocomplete
+                                  name="status_filter"
+                                  label="Filter by Status"
+                                  placeholder="All Statuses"
+                                  selectedKey={pdfExportState.statusFilter || ""}
+                                  onSelectionChange={(key) => setPdfExportState(prev => ({ ...prev, statusFilter: key as InventoryStatus || null }))}
+                                  startContent={<Icon icon="mdi:filter-variant" className="text-default-500 mb-[0.2rem]" />}
+                                  inputProps={autoCompleteStyle}
+                                >
+                                  <AutocompleteItem key="">All Statuses</AutocompleteItem>
+                                  <AutocompleteItem key="IN_STOCK">In Stock</AutocompleteItem>
+                                  <AutocompleteItem key="WARNING">Warning</AutocompleteItem>
+                                  <AutocompleteItem key="CRITICAL">Critical</AutocompleteItem>
+                                  <AutocompleteItem key="OUT_OF_STOCK">Out of Stock</AutocompleteItem>
+                                </Autocomplete>
+                              </div>
+                              <div className="p-4 border-t border-default-200 flex justify-end gap-2  bg-default-100/50 ">
+                                <Button
+                                  size="sm"
+                                  variant="flat"
+                                  onPress={() => setIsExportSearchFilterOpen(false)}
+                                >
+                                  Close
+                                </Button>
+
+                              </div>
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+
+                        {pdfExportState.warehouseFilter && (
+                          <Chip
+                            variant="flat"
+                            color="primary"
+                            onClose={() => setPdfExportState(prev => ({ ...prev, warehouseFilter: null }))}
+                            size="sm"
+                            className="h-8 p-2"
+                          >
+                            <div className="flex items-center gap-1">
+                              <Icon icon="mdi:warehouse" className="text-xs" />
+                              {getWarehouseName(pdfExportState.warehouseFilter)}
+                            </div>
+                          </Chip>
+                        )}
+
+                        {pdfExportState.statusFilter && (
+                          <Chip
+                            variant="flat"
+                            color={getStatusColor(pdfExportState.statusFilter)}
+                            onClose={() => setPdfExportState(prev => ({ ...prev, statusFilter: null }))}
+                            size="sm"
+                            className="h-8 p-2"
+                          >
+                            <div className="flex items-center gap-1">
+                              <Icon icon="mdi:filter-variant" className="text-xs" />
+                              {pdfExportState.statusFilter.replaceAll('_', ' ')}
+                            </div>
+                          </Chip>
+                        )}
+
+                        {(pdfExportState.warehouseFilter || pdfExportState.statusFilter) && (
+                          <Button
+                            size="sm"
+                            variant="light"
+                            className="rounded-lg"
+                            onPress={() => {
+                              setPdfExportState(prev => ({ ...prev, warehouseFilter: null }));
+                              setPdfExportState(prev => ({ ...prev, statusFilter: null }));
+                            }}
+                          >
+                            Clear all
+                          </Button>
+                        )}
+                      </div>
+                    </ScrollShadow>
+                  </div>
+                </div>
+
+                <div className="max-h-64 overflow-y-auto">
+                  {getFilteredPdfLogs().length === 0 ? (
+                    <div className="p-4 text-center text-default-500">
+                      No items match the selected filters
+                    </div>
+                  ) : (
+                    <div className="p-2">
+                      <div className="flex items-center justify-between px-2 pt-2 pb-4">
+                        <Checkbox
+                          isSelected={pdfExportState.selectedLogs.length === getFilteredPdfLogs().length && getFilteredPdfLogs().length > 0}
+                          isIndeterminate={pdfExportState.selectedLogs.length > 0 && pdfExportState.selectedLogs.length < getFilteredPdfLogs().length}
+                          onValueChange={(selected) => {
+                            if (selected) {
+                              setPdfExportState(prev => ({
+                                ...prev,
+                                selectedLogs: getFilteredPdfLogs().map(log => log.uuid)
+                              }));
+                            } else {
+                              setPdfExportState(prev => ({ ...prev, selectedLogs: [] }));
+                            }
+                          }}
+                        >
+                          <span className="text-small font-medium pl-2">Select All</span>
+                        </Checkbox>
+                        <span className="text-small text-default-400">
+                          {pdfExportState.selectedLogs.length} selected
+                        </span>
+                      </div>
+
+                      {getFilteredPdfLogs().map((log) => (
+                        <div key={log.uuid} className="flex items-center gap-2 p-2 hover:bg-default-100 rounded-md cursor-pointer transition-all duration-200">
+                          <Checkbox
+                            isSelected={pdfExportState.selectedLogs.includes(log.uuid)}
+                            onValueChange={() => handleTogglePdfLogSelection(log.uuid)}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-small truncate">
+                              {getInventoryItemName(log.inventory_uuid)}
+                            </div>
+                            <div className="text-tiny text-default-400 truncate">
+                              {getWarehouseName(log.warehouse_uuid)} • {formatDate(log.updated_at)}
+                            </div>
+                          </div>
+                          <Chip color={getStatusColor(log.status)} size="sm" variant="flat">
+                            {log.status.replaceAll('_', ' ')}
+                          </Chip>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-4 border-t border-default-200 flex justify-end gap-2  bg-default-100/50 ">
+                  <Button
+                    size="sm"
+                    variant="flat"
+                    onPress={() => setPdfExportState(prev => ({ ...prev, isPopoverOpen: false }))}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    color="primary"
+                    isDisabled={pdfExportState.selectedLogs.length === 0}
+                    isLoading={isPdfGenerating}
+                    onPress={() => {
+                      setPdfExportState(prev => ({ ...prev, isPopoverOpen: false }));
+                      handleGeneratePdfFiltered(pdfExportState.selectedLogs);
+                    }}
+                  >
+                    Generate PDF
+                  </Button>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
       <div className="flex flex-col xl:flex-row gap-4">
@@ -450,7 +845,7 @@ export default function ReorderPointPage() {
         >
           <div className="flex flex-col h-full">
             <div className="p-4 sticky top-0 z-20 bg-background/80 border-b border-default-200 backdrop-blur-lg shadow-sm">
-              <h2 className="text-xl font-semibold mb-4 w-full text-center">Inventory Items</h2>
+              <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouse Items</h2>
 
               {!user ? (
                 <>
@@ -474,7 +869,12 @@ export default function ReorderPointPage() {
                   <div className="flex items-center gap-2 mt-2">
                     <ScrollShadow orientation="horizontal" className="flex-1 overflow-x-auto" hideScrollBar>
                       <div className="inline-flex items-center gap-2">
-                        <Popover placement="bottom-start">
+                        <Popover
+                          isOpen={isSearchFilterOpen}
+                          onOpenChange={setIsSearchFilterOpen}
+                          classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
+                          motionProps={popoverTransition()}
+                          placement="bottom-start">
                           <PopoverTrigger>
                             <Button
                               variant="flat"
@@ -485,41 +885,60 @@ export default function ReorderPointPage() {
                               Filters
                             </Button>
                           </PopoverTrigger>
-                          <PopoverContent className="p-4 w-80">
-                            <div className="space-y-4">
-                              <Autocomplete
-                                name="warehouse_uuid"
-                                label="Filter by Warehouse"
-                                placeholder="All Warehouses"
-                                selectedKey={selectedWarehouse || ""}
-                                onSelectionChange={(e) => handleWarehouseChange(`${e}` || null)}
-                                startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
-                                inputProps={autoCompleteStyle}
-                              >
-                                {[
-                                  (<AutocompleteItem key="">All Warehouses</AutocompleteItem>),
-                                  ...warehouses.map((warehouse) => (
-                                    <AutocompleteItem key={warehouse.uuid}>
-                                      {warehouse.name}
-                                    </AutocompleteItem>
-                                  ))]}
-                              </Autocomplete>
+                          <PopoverContent className="p-4 w-80 p-0 overflow-hidden">
+                            <div>
+                              <div className="space-y-4 p-4">
+                                <h3 className="text-lg font-semibold items-center w-full text-center">
+                                  Filter Options
+                                </h3>
 
-                              <Autocomplete
-                                name="status_filter"
-                                label="Filter by Status"
-                                placeholder="All Statuses"
-                                selectedKey={statusFilter || ""}
-                                onSelectionChange={(e) => handleStatusFilterChange(e as InventoryStatus || null)}
-                                startContent={<Icon icon="mdi:filter-variant" className="text-default-500 mb-[0.2rem]" />}
-                                inputProps={autoCompleteStyle}
-                              >
-                                <AutocompleteItem key="">All Statuses</AutocompleteItem>
-                                <AutocompleteItem key="IN_STOCK">In Stock</AutocompleteItem>
-                                <AutocompleteItem key="WARNING">Warning</AutocompleteItem>
-                                <AutocompleteItem key="CRITICAL">Critical</AutocompleteItem>
-                                <AutocompleteItem key="OUT_OF_STOCK">Out of Stock</AutocompleteItem>
-                              </Autocomplete>
+                                {/* Warehouse filter */}
+                                <Autocomplete
+                                  name="warehouse_uuid"
+                                  label="Filter by Warehouse"
+                                  placeholder="All Warehouses"
+                                  selectedKey={selectedWarehouse || ""}
+                                  onSelectionChange={(e) => handleWarehouseChange(`${e}` || null)}
+                                  startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
+                                  inputProps={autoCompleteStyle}
+                                >
+                                  {[
+                                    (<AutocompleteItem key="">All Warehouses</AutocompleteItem>),
+                                    ...warehouses.map((warehouse) => (
+                                      <AutocompleteItem key={warehouse.uuid}>
+                                        {warehouse.name}
+                                      </AutocompleteItem>
+                                    ))]}
+                                </Autocomplete>
+
+                                <Autocomplete
+                                  name="status_filter"
+                                  label="Filter by Status"
+                                  placeholder="All Statuses"
+                                  selectedKey={statusFilter || ""}
+                                  onSelectionChange={(e) => handleStatusFilterChange(e as InventoryStatus || null)}
+                                  startContent={<Icon icon="mdi:filter-variant" className="text-default-500 mb-[0.2rem]" />}
+                                  inputProps={autoCompleteStyle}
+                                >
+                                  <AutocompleteItem key="">All Statuses</AutocompleteItem>
+                                  <AutocompleteItem key="IN_STOCK">In Stock</AutocompleteItem>
+                                  <AutocompleteItem key="WARNING">Warning</AutocompleteItem>
+                                  <AutocompleteItem key="CRITICAL">Critical</AutocompleteItem>
+                                  <AutocompleteItem key="OUT_OF_STOCK">Out of Stock</AutocompleteItem>
+                                </Autocomplete>
+
+                              </div>
+
+                              <div className="p-4 border-t border-default-200 flex justify-end gap-2  bg-default-100/50 ">
+                                <Button
+                                  size="sm"
+                                  variant="flat"
+                                  onPress={() => setIsSearchFilterOpen(false)}
+                                >
+                                  Close
+                                </Button>
+
+                              </div>
                             </div>
                           </PopoverContent>
                         </Popover>
@@ -659,7 +1078,14 @@ export default function ReorderPointPage() {
             <div className="flex flex-col gap-2">
               <CardList>
                 <div>
-                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Inventory Status</h2>
+                  <div className="relative">
+                    <h2 className="text-xl font-semibold mb-4 w-full text-center">Inventory Status</h2>
+                    <Chip
+                      className="absolute right-0 bottom-0"
+                      color={getStatusColor(formData.status as InventoryStatus)} size="sm">
+                      {formData.status?.replaceAll('_', ' ')}
+                    </Chip>
+                  </div>
                   <div className="space-y-4">
                     {isLoading ? (
                       <>
@@ -697,23 +1123,6 @@ export default function ReorderPointPage() {
                             startContent={<Icon icon="mdi:package-variant-closed" className="text-default-500 mb-[0.1rem]" />}
                           />
 
-                          <Input
-                            label="Status"
-                            value={formData.status?.replaceAll('_', ' ') || ""}
-                            isReadOnly
-                            classNames={inputStyle}
-                            startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.1rem]" />}
-                            endContent={
-                              <Chip
-                                className="absolute right-3 bottom-2"
-                                color={getStatusColor(formData.status as InventoryStatus)} size="sm">
-                                {formData.status?.replaceAll('_', ' ')}
-                              </Chip>
-                            }
-                          />
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <Input
                             label="Last Updated"
                             value={formData.updated_at ? format(new Date(formData.updated_at), "MMM d, yyyy") : ""}
@@ -881,20 +1290,6 @@ export default function ReorderPointPage() {
                     <div className="flex items-center gap-2">
                       {!isLoading && <Icon icon="mdi:refresh" />}
                       <span>Recalculate</span>
-                    </div>
-                  </Button>
-
-                  {/* Add PDF Export Button */}
-                  <Button
-                    color="success"
-                    variant="shadow"
-                    className="flex-1 basis-0"
-                    onPress={handleGeneratePdf}
-                    isLoading={isPdfGenerating}
-                  >
-                    <div className="flex items-center gap-2">
-                      {!isPdfGenerating && <Icon icon="mdi:file-pdf-box" />}
-                      <span>Export PDF</span>
                     </div>
                   </Button>
                 </div>
