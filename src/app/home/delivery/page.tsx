@@ -301,7 +301,7 @@ export default function DeliveryPage() {
     setIsLoadingBulks(true);
     try {
       console.log("Status:", formData.status);
-      const result = await getInventoryItemBulks(inventoryItemUuid, formData.status === "DELIVERED")
+      const result = await getInventoryItemBulks(inventoryItemUuid, formData.status === "DELIVERED" || formData.status === "CANCELLED");
       if (result.success) {
         setInventoryBulks(result.data);
 

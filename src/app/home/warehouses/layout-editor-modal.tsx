@@ -67,6 +67,7 @@ export default function WarehouseLayoutEditorModal({
 
   // Tab state for switching between editor and 3D preview
   const [activeTab, setActiveTab] = useState<"editor" | "preview">(openedTab || "editor");
+  const [showControls, setShowControls] = useState(false);
 
   // Handle tab change
   useEffect(() => {
@@ -906,76 +907,172 @@ export default function WarehouseLayoutEditorModal({
                   />
                 </Suspense>
 
+
+
+                {/* Shelf controls */}
                 <AnimatePresence>
-                  {tempSelectedCode &&
-                    <motion.div
-                      {...motionTransition}
-                      className="!scale-75 absolute overflow-hidden -bottom-[0.5rem] -left-[4.75rem] flex flex-col gap-2 bg-background/50 rounded-2xl backdrop-blur-lg md:w-auto w-[calc(100%-2rem)]">
+                  {tempSelectedCode && showControls &&
+                    <motion.div {...motionTransition}
+                      className="absolute overflow-hidden bottom-4 left-4 flex flex-col gap-2 bg-background/50 rounded-2xl backdrop-blur-lg w-auto">
                       <div className="grid md:grid-cols-2 grid-cols-1 gap-3 p-4">
                         <div className="flex flex-col gap-2">
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-semibold w-16">Floor</span>
-                            <Pagination
-                              classNames={{ item: "bg-default/25"}}
-                              initialPage={0}
-                              size="sm"
-                              page={(tempSelectedFloor || 0) + 1}
-                              total={warehouseLayout.length}
-                              onChange={handleFloorChange}
-                            />
+                            <div className="flex items-center gap-1">
+                              <Button
+                                size="sm"
+                                isIconOnly
+                                onPress={() => handleFloorChange(Math.max(1, ((externalSelection?.floor || 0) + 1) - 1))}
+                                isDisabled={(externalSelection?.floor || 0) <= 0}
+                                className="min-w-8 h-8"
+                              >
+                                <Icon icon="mdi:chevron-left" className="text-sm" />
+                              </Button>
+                              <div className="bg-default-100 px-3 h-8 rounded-md flex items-center justify-center w-14">
+                                {(externalSelection?.floor || 0) + 1}
+                              </div>
+                              <Button
+                                size="sm"
+                                isIconOnly
+                                onPress={() => handleFloorChange(Math.min(warehouseLayout.length, ((externalSelection?.floor || 0) + 1) + 1))}
+                                isDisabled={(externalSelection?.floor || 0) + 1 >= warehouseLayout.length}
+                                className="min-w-8 h-8"
+                              >
+                                <Icon icon="mdi:chevron-right" className="text-sm" />
+                              </Button>
+                            </div>
                           </div>
 
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-semibold w-16">Group</span>
-                            <Pagination
-                              classNames={{ item: "bg-default/25" }}
-                              initialPage={1}
-                              size="sm"
-                              page={(tempSelectedGroup || 0) + 1}
-                              total={maxGroupId + 1}
-                              onChange={handleGroupChange}
-                            />
+                            <div className="flex items-center gap-1">
+                              <Button
+                                size="sm"
+                                isIconOnly
+                                onPress={() => handleGroupChange(Math.max(1, ((externalSelection?.group || 0) + 1) - 1))}
+                                isDisabled={(externalSelection?.group || 0) <= 0}
+                                className="min-w-8 h-8"
+                              >
+                                <Icon icon="mdi:chevron-left" className="text-sm" />
+                              </Button>
+                              <div className="bg-default-100 px-3 h-8 rounded-md flex items-center justify-center w-14">
+                                {(externalSelection?.group || 0) + 1}
+                              </div>
+                              <Button
+                                size="sm"
+                                isIconOnly
+                                onPress={() => handleGroupChange(Math.min(maxGroupId + 1, ((externalSelection?.group || 0) + 1) + 1))}
+                                isDisabled={(externalSelection?.group || 0) + 1 > maxGroupId}
+                                className="min-w-8 h-8"
+                              >
+                                <Icon icon="mdi:chevron-right" className="text-sm" />
+                              </Button>
+                            </div>
                           </div>
                         </div>
 
-                        <div className="flex flex-col gap-2 md:border-default md:border-l md:pl-3">
+                        <div className="flex flex-col gap-2 md:pl-2">
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-semibold w-16">Row</span>
-                            <Pagination
-                              classNames={{ item: "bg-default/25"}}
-                              initialPage={1}
-                              size="sm"
-                              page={(tempSelectedRow || 0) + 1}
-                              total={maxRow + 1}
-                              onChange={handleRowChange}
-                            />
+                            <div className="flex items-center gap-1">
+                              <Button
+                                size="sm"
+                                isIconOnly
+                                onPress={() => handleRowChange(Math.max(1, ((externalSelection?.row || 0) + 1) - 1))}
+                                isDisabled={(externalSelection?.row || 0) <= 0}
+                                className="min-w-8 h-8"
+                              >
+                                <Icon icon="mdi:chevron-left" className="text-sm" />
+                              </Button>
+                              <div className="bg-default-100 px-3 h-8 rounded-md flex items-center justify-center w-14">
+                                {(externalSelection?.row || 0) + 1}
+                              </div>
+                              <Button
+                                size="sm"
+                                isIconOnly
+                                onPress={() => handleRowChange(Math.min(maxRow + 1, ((externalSelection?.row || 0) + 1) + 1))}
+                                isDisabled={(externalSelection?.row || 0) + 1 > maxRow}
+                                className="min-w-8 h-8"
+                              >
+                                <Icon icon="mdi:chevron-right" className="text-sm" />
+                              </Button>
+                            </div>
                           </div>
 
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-semibold w-16">Column</span>
-                            <Pagination
-                              classNames={{ item: "bg-default/25" }}
-                              initialPage={1}
-                              size="sm"
-                              page={(tempSelectedColumn || 0) + 1}
-                              total={maxColumn + 1}
-                              onChange={handleColumnChange}
-                            />
+                            <div className="flex items-center gap-1">
+                              <Button
+                                size="sm"
+                                isIconOnly
+                                onPress={() => handleColumnChange(Math.max(1, ((externalSelection?.column || 0) + 1) - 1))}
+                                isDisabled={(externalSelection?.column || 0) <= 0}
+                                className="min-w-8 h-8"
+                              >
+                                <Icon icon="mdi:chevron-left" className="text-sm" />
+                              </Button>
+                              <div className="bg-default-100 px-3 h-8 rounded-md flex items-center justify-center w-14">
+                                {parseColumn((externalSelection?.column || 0) + 1) || ""}
+                              </div>
+                              <Button
+                                size="sm"
+                                isIconOnly
+                                onPress={() => handleColumnChange(Math.min(maxColumn + 1, ((externalSelection?.column || 0) + 1) + 1))}
+                                isDisabled={(externalSelection?.column || 0) + 1 > maxColumn}
+                                className="min-w-8 h-8"
+                              >
+                                <Icon icon="mdi:chevron-right" className="text-sm" />
+                              </Button>
+                            </div>
                           </div>
 
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 md:mb-0 mb-10">
                             <span className="text-sm font-semibold w-16">Depth</span>
-                            <Pagination
-                              classNames={{ item: "bg-default/25" }}
-                              initialPage={1}
-                              size="sm"
-                              page={(tempSelectedDepth || 0) + 1}
-                              total={maxDepth + 1}
-                              onChange={handleDepthChange}
-                            />
+                            <div className="flex items-center gap-1">
+                              <Button
+                                size="sm"
+                                isIconOnly
+                                onPress={() => handleDepthChange(Math.max(1, ((externalSelection?.depth || 0) + 1) - 1))}
+                                isDisabled={(externalSelection?.depth || 0) <= 0}
+                                className="min-w-8 h-8"
+                              >
+                                <Icon icon="mdi:chevron-left" className="text-sm" />
+                              </Button>
+                              <div className="bg-default-100 px-3 h-8 rounded-md flex items-center justify-center w-14">
+                                {(externalSelection?.depth || 0) + 1}
+                              </div>
+                              <Button
+                                size="sm"
+                                isIconOnly
+                                onPress={() => handleDepthChange(Math.min(maxDepth + 1, ((externalSelection?.depth || 0) + 1) + 1))}
+                                isDisabled={(externalSelection?.depth || 0) + 1 > maxDepth}
+                                className="min-w-8 h-8"
+                              >
+                                <Icon icon="mdi:chevron-right" className="text-sm" />
+                              </Button>
+                            </div>
                           </div>
                         </div>
                       </div>
+                    </motion.div>
+                  }
+                </AnimatePresence>
+
+                <AnimatePresence>
+                  {(tempSelectedCode || showControls) &&
+                    <motion.div {...motionTransition}
+                      className={`absolute overflow-hidden ${showControls ? "bottom-8 left-8 h-8" : "bottom-4 left-4 h-10"} w-[12.6rem] bg-background/50 rounded-xl backdrop-blur-lg z-10 transition-all duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]`}>
+                      <Button
+                        onPress={() => setShowControls(!showControls)}
+                        color="primary"
+                        variant="light"
+                        className={`flex items-center p-4  bg-transparent w-full !scale-100 ${showControls ? "h-8" : "h-10"} !transition-all !duration-500 duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]`}
+                      >
+                        <Icon icon="ic:round-control-camera" className="w-4 h-4" />
+                        <span className="text-sm font-semibold">
+                          {showControls ? "Hide Controls" : "Show Controls"}
+                        </span>
+                      </Button>
                     </motion.div>
                   }
                 </AnimatePresence>
