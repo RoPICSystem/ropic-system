@@ -1,16 +1,10 @@
 "use client";
 
-import { motionTransition } from '@/utils/anim';
 import { format } from "date-fns";
-import { AnimatePresence, motion } from "framer-motion";
-import Link from "next/link";
-import { useEffect, useState } from "react";
-import { getDashboardData } from "./actions";
-import { 
-  getUserProfile,
-} from '@/utils/supabase/server/user';
 import { useTheme } from "next-themes";
-
+import Link from "next/link";
+import { JSXElementConstructor, Key, ReactElement, ReactNode, ReactPortal, useEffect, useState } from "react";
+import { getDashboardData } from "./actions";
 
 import {
   Badge,
@@ -22,33 +16,66 @@ import {
   Divider,
   Progress,
   Skeleton,
-  Spinner
+  Spinner,
+  Table,
+  TableBody,
+  TableCell,
+  TableColumn,
+  TableHeader,
+  TableRow
 } from "@heroui/react";
 
 import { Icon } from "@iconify-icon/react";
 
 // Charts
+import { formatNumber } from '@/utils/tools';
 import {
   Bar,
   BarChart,
-  CartesianGrid,
   Cell,
   LabelList,
   Legend,
   Pie,
   PieChart,
+  Tooltip as RechartsTooltip,
   ResponsiveContainer,
-  Tooltip,
   XAxis,
   YAxis
 } from "recharts";
+
+// StatsCard component for displaying simple metrics
+interface StatsCardProps {
+  title: string;
+  value: number;
+  subtitle?: string; // Added subtitle prop
+  icon: string;
+  color?: "default" | "primary" | "secondary" | "success" | "warning" | "danger";
+}
+
+
+const StatsCard = ({ title, value, subtitle, icon, color = "primary" }: StatsCardProps) => (
+  <Card className={`bg-${color}-50 border border-${color}-100`}>
+    <CardBody className="p-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm text-default-600">{title}</p>
+          <p className={`text-xl font-bold text-${color}-600`}>{(value)}</p>
+          {subtitle && <p className="text-small text-default-400">{subtitle}</p>}
+        </div>
+        <div className={`p-2 rounded-full bg-${color}-100`}>
+          <Icon icon={icon} className={`text-${color}-500`} width={24} height={24} />
+        </div>
+      </div>
+    </CardBody>
+  </Card>
+)
 
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [user, setUser] = useState<any>(null);
-  const { theme } = useTheme()
+  const { theme } = useTheme();
 
   const isDark = () => {
     if (theme === "system") {
@@ -56,6 +83,146 @@ export default function DashboardPage() {
     }
     return theme === "dark";
   }
+
+
+  const renderInventoryStats = () => {
+    if (!dashboardData?.inventoryStats) return null;
+
+    const {
+      total_items,
+      total_bulks,
+      active_bulks,
+      total_units,
+      active_units,
+      available_units,
+      reserved_units,
+      in_warehouse_units,
+      top_items
+    } = dashboardData.inventoryStats;
+
+    return (
+      <Card className="col-span-12 bg-background mt-4">
+        <CardHeader className="flex justify-between px-4">
+          <div className="flex gap-2 items-center">
+            <div>
+              <h2 className="text-lg font-semibold">Inventory Overview</h2>
+              <p className="text-xs text-default-500">Items, bulks and units statistics</p>
+            </div>
+          </div>
+        </CardHeader>
+        <Divider />
+        <CardBody className="p-4">
+          {/* Basic inventory stats */}
+          <div className="grid grid-cols-3 gap-4 mb-4">
+            <StatsCard
+              title="Total Items"
+              value={total_items}
+              icon="mdi:clipboard-list"
+              color="primary"
+            />
+            <StatsCard
+              title="Total Bulks"
+              value={active_bulks}
+              subtitle={`${total_bulks-active_bulks} in warehouse`}
+              icon="mdi:package-variant-closed"
+              color="secondary"
+            />
+            <StatsCard
+              title="Total Units"
+              value={active_units}
+              subtitle={`${total_units-active_units} in warehouse`}
+              icon="mdi:widgets"
+              color="success"
+            />
+          </div>
+
+          {/* Unit status breakdown */}
+          <div className="grid grid-cols-3 gap-4 mb-6">
+            <StatsCard
+              title="Available Units"
+              value={available_units}
+              icon="mdi:check-circle"
+              color="success"
+            />
+            <StatsCard
+              title="Reserved Units"
+              value={reserved_units}
+              icon="mdi:clock-outline"
+              color="warning"
+            />
+            <StatsCard
+              title="In Warehouse Units"
+              value={in_warehouse_units}
+              icon="mdi:warehouse"
+              color="primary"
+            />
+          </div>
+
+          {/* Top items table */}
+          <div>
+            <h3 className="text-lg font-medium mb-2">Top Inventory Items</h3>
+            <Table
+              classNames={{
+                wrapper: "bg-default-100",
+                th: "bg-primary-100 text-primary-600",
+              }}
+              aria-label="Top inventory items">
+              <TableHeader>
+                <TableColumn>ITEM NAME</TableColumn>
+                <TableColumn>BULKS</TableColumn>
+                <TableColumn>UNITS</TableColumn>
+                <TableColumn>UNIT VALUE</TableColumn>
+                <TableColumn>STATUS</TableColumn>
+              </TableHeader>
+              <TableBody>
+                {top_items && top_items.map((item: {
+                  uuid: string;
+                  name: string;
+                  unit: string;
+                  bulk_count: number;
+                  total_bulk_value: number;
+                  units_count: number;
+                  bulk_statuses: string;
+                }) => (
+                  <TableRow key={item.uuid}>
+                    <TableCell>{item.name}</TableCell>
+                    <TableCell>{item.bulk_count}</TableCell>
+                    <TableCell>{item.units_count}</TableCell>
+                    <TableCell>{formatNumber(item.total_bulk_value)} {item.unit}</TableCell>
+                    <TableCell>
+                      {item.bulk_statuses && item.bulk_statuses.split(', ').filter(Boolean).map((status) => (
+                        <Chip
+                          key={status}
+                          size="sm"
+                          variant="flat"
+                          color={getStatusColor(status)}
+                          className="mr-1"
+                        >
+                          {status}
+                        </Chip>
+                      ))}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </CardBody>
+      </Card>
+    );
+  };
+
+  // Helper function to determine chip color based on status
+  const getStatusColor = (status: any) => {
+    switch (status) {
+      case 'AVAILABLE': return 'success';
+      case 'IN_WAREHOUSE': return 'primary';
+      case 'RESERVED': return 'warning';
+      case 'OUT_OF_STOCK': return 'danger';
+      default: return 'default';
+    }
+  };
+
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -88,7 +255,6 @@ export default function DashboardPage() {
     { name: "Processing", value: dashboardData.deliveryCounts.PROCESSING, color: "#3b82f6" },
     { name: "In Transit", value: dashboardData.deliveryCounts.IN_TRANSIT, color: "#8b5cf6" },
     { name: "Delivered", value: dashboardData.deliveryCounts.DELIVERED, color: "#10b981" },
-    { name: "Confirmed", value: dashboardData.deliveryCounts.CONFIRMED, color: "#059669" },
     { name: "Cancelled", value: dashboardData.deliveryCounts.CANCELLED, color: "#ef4444" },
   ] : [];
 
@@ -104,6 +270,12 @@ export default function DashboardPage() {
     { name: "Current", value: dashboardData?.monthlyRevenue?.current_month || 0 }
   ] : [];
 
+  // Prepare reorder point data - items that need reordering
+  const lowStockItems = !loading && dashboardData?.reorderPointItems ?
+    dashboardData.reorderPointItems.filter((item: any) =>
+      item.current_stock <= item.reorder_point
+    ) : [];
+
   return (
     <div className="container mx-auto p-2 max-w-4xl">
       {/* Header section */}
@@ -113,12 +285,12 @@ export default function DashboardPage() {
           {loading ? (
             <div className="text-default-500 flex items-center">
               <p className='my-auto mr-1'>Loading dashboard data</p>
-              <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default"/>
+              <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
             </div>
           ) : (
             <p className="text-default-500">Welcome to RoPIC System inventory and delivery operations.</p>
           )}
-            </div>
+        </div>
         <div className="flex gap-4 items-center">
           <div className="flex items-center gap-2 text-default-500">
             <Icon icon="fluent:calendar-20-filled" width={20} height={20} />
@@ -405,6 +577,70 @@ export default function DashboardPage() {
           </Card>
         </div>
 
+        {/* Reorder Point Alert Section - New Addition */}
+        {!loading && lowStockItems.length > 0 && (
+          <Card className="mb-6 bg-warning-50 border border-warning-200">
+            <CardHeader className="px-4 py-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Icon icon="fluent:warning-24-filled" className="text-warning-500" width={24} height={24} />
+                  <h2 className="text-lg font-semibold">Reorder Alert</h2>
+                </div>
+                <Badge color="warning" variant="flat">
+                  {lowStockItems.length} Items
+                </Badge>
+              </div>
+            </CardHeader>
+            <Divider />
+            <CardBody className="p-4">
+              <Table aria-label="Items that need reordering">
+                <TableHeader>
+                  <TableColumn>ITEM</TableColumn>
+                  <TableColumn>CURRENT STOCK</TableColumn>
+                  <TableColumn>REORDER POINT</TableColumn>
+                  <TableColumn>STATUS</TableColumn>
+                </TableHeader>
+                <TableBody>
+                  {lowStockItems.slice(0, 3).map((item: any) => (
+                    <TableRow key={item.uuid}>
+                      <TableCell>{item.name}</TableCell>
+                      <TableCell>{item.current_stock}</TableCell>
+                      <TableCell>{item.reorder_point}</TableCell>
+                      <TableCell>
+                        <Chip
+                          color={item.current_stock === 0 ? "danger" : "warning"}
+                          size="sm"
+                        >
+                          {item.current_stock === 0 ? "Out of Stock" : "Low Stock"}
+                        </Chip>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
+              {lowStockItems.length > 3 && (
+                <div className="text-center text-xs text-warning-600 mt-2">
+                  +{lowStockItems.length - 3} more items need reordering
+                </div>
+              )}
+
+              <Button
+                as={Link}
+                href="/home/reorder-point"
+                color="warning"
+                variant="flat"
+                className="w-full mt-4"
+                startContent={<Icon icon="fluent:arrow-sync-16-filled" />}
+              >
+                View All Reorder Points
+              </Button>
+            </CardBody>
+          </Card>
+        )}
+
+        {/* Top Inventory Items Card */}
+        {renderInventoryStats()}
 
         {/* Quick Actions Section */}
         <Card className="mt-4 bg-background">
@@ -480,9 +716,9 @@ export default function DashboardPage() {
                       variant="flat"
                       className="h-16 text-left justify-start"
                       startContent={
-                      <Icon icon="heroicons:bell-alert-20-solid" width={20} height={20} className="mr-2" />}
+                        <Icon icon="heroicons:bell-alert-20-solid" width={20} height={20} className="mr-2" />}
                       as={Link}
-                      href="/home/warehouse-items"
+                      href="/home/notifications"
                     >
                       <div>
                         <p>View Notifications</p>
@@ -495,13 +731,13 @@ export default function DashboardPage() {
                     color="warning"
                     variant="flat"
                     className="h-16 text-left justify-start"
-                    startContent={<Icon icon="fluent:settings-24-filled" width={20} height={20} className="mr-2" />}
+                    startContent={<Icon icon="fluent:gauge-24-filled" width={20} height={20} className="mr-2" />}
                     as={Link}
-                    href="/home/settings"
+                    href="/home/reorder-point"
                   >
                     <div>
-                      <p>Settings</p>
-                      <p className="text-xs opacity-70">Configure your account</p>
+                      <p>Reorder Point</p>
+                      <p className="text-xs opacity-70">Monitor stock levels</p>
                     </div>
                   </Button>
                 </>
@@ -571,30 +807,23 @@ export default function DashboardPage() {
                           tickMargin={10}
                           padding={{ left: 30, right: 30 }}
                         />
-                        <Tooltip
-                          formatter={(value) => [`${value} items`, 'Count']}
+                        <YAxis hide={true} />
+                        <RechartsTooltip
                           contentStyle={{
-                            borderRadius: 8,
-                            padding: '10px',
-                            boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-                            border: '1px solid #f0f0f0'
+                            backgroundColor: isDark() ? 'hsl(var(--heroui-default-600))' : 'white',
+                            borderRadius: '8px',
+                            border: 'none',
+                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
                           }}
-                          cursor={{ fill: 'rgba(0,0,0,0.05)' }}
+                          itemStyle={{
+                            color: isDark() ? 'white' : 'black',
+                          }}
+                          formatter={(val: number) => val.toString()}
                         />
-                        <CartesianGrid
-                          strokeDasharray="3 3"
-                          vertical={false}
-                          stroke='hsl(var(--heroui-primary-100))'
-                        />
-                        <Bar
-                          dataKey="value"
-                          name="Count"
-                          radius={[4, 4, 0, 0]}
-                          fill="url(#barGradient)"
-                          stroke="#c7b098"
-                          strokeWidth={1}
-                        >
-                          {/* show value on top of each bar */}
+                        <Bar dataKey="value" fill="url(#barGradient)" stroke="hsl(var(--heroui-default-500))" strokeWidth={1}>
+                          {deliveryStatusData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
                           <LabelList
                             dataKey="value"
                             position="top"
@@ -689,6 +918,71 @@ export default function DashboardPage() {
             </Card>
           </div>
 
+
+
+          {/* Warehouse Items Distribution Card */}
+          <Card className="mt-4 bg-background">
+            <CardHeader className="px-4 py-3 flex justify-between items-center">
+              <div>
+                <h2 className="text-lg font-semibold">Warehouse Items Distribution</h2>
+                <p className="text-xs text-default-500">Items stored across warehouses</p>
+              </div>
+              {loading ? (
+                <Skeleton className="h-6 w-20 rounded-md" />
+              ) : (
+                <Badge color="primary" variant="flat">
+                  {dashboardData?.warehouseStats?.total_count || 0} Total
+                </Badge>
+              )}
+            </CardHeader>
+            <Divider />
+            <CardBody className="p-4">
+              {loading ? (
+                <div className="space-y-3">
+                  {[...Array(5)].map((_, i) => (
+                    <Skeleton key={i} className="h-10 rounded-md" />
+                  ))}
+                </div>
+              ) : dashboardData?.warehouseStats?.by_warehouse?.length > 0 ? (
+                <div className="space-y-4">
+                  {dashboardData.warehouseStats.by_warehouse.map((warehouse: any) => (
+                    <div key={warehouse.warehouse_uuid} className="space-y-1">
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium">{warehouse.warehouse_name}</span>
+                        <span className="text-sm text-default-500">
+                          {warehouse.item_count} items ({((warehouse.item_count / dashboardData.warehouseStats.total_count) * 100).toFixed(1)}%)
+                        </span>
+                      </div>
+                      <Progress
+                        value={(warehouse.item_count / dashboardData.warehouseStats.total_count) * 100}
+                        color="success"
+                        showValueLabel={false}
+                        size="sm"
+                        className="h-2"
+                        maxValue={100}
+                      />
+                    </div>
+                  ))}
+                  <Button
+                    as={Link}
+                    href="/home/warehouse-items"
+                    variant="flat"
+                    color="success"
+                    className="w-full mt-2"
+                  >
+                    View All Warehouse Items
+                  </Button>
+                </div>
+              ) : (
+                <div className="py-6 text-center text-default-500">
+                  <Icon icon="fluent:building-shop-24-regular" className="mx-auto text-4xl text-default-300" />
+                  <p className="mt-2">No warehouse items found</p>
+                </div>
+              )}
+            </CardBody>
+          </Card>
+
+
           {/* Delivery Performance Chart */}
           <Card className="mt-4 bg-background">
             <CardHeader className="px-4 py-3 flex justify-between items-center">
@@ -710,11 +1004,11 @@ export default function DashboardPage() {
                         <Skeleton className="h-[180px] w-[180px] rounded-full absolute" />
                         <Skeleton className="h-[120px] w-[120px] rounded-full absolute" />
                         {[...Array(3)].map((_, i) => (
-                          <Skeleton key={i} className="h-5 w-24 absolute bottom-4" style={{ left: `${25 + i * 30}%` }} />
+                          <Skeleton key={i} className="absolute h-5 w-16 rounded-md" style={{ transform: `rotate(${i * 120}deg) translateX(100px)` }} />
                         ))}
                       </div>
                     </div>
-                  ) : (
+                  ) : performanceData.length > 0 && performanceData.some(p => p.value > 0) ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
@@ -722,24 +1016,42 @@ export default function DashboardPage() {
                           cx="50%"
                           cy="50%"
                           innerRadius={60}
-                          outerRadius={90}
+                          outerRadius={100}
                           paddingAngle={5}
                           dataKey="value"
                           label={({ name, value }) => `${name}: ${value}%`}
+                          labelLine={false}
                         >
                           {performanceData.map((entry, index) => (
                             <Cell key={`cell-${index}`} fill={entry.color} />
                           ))}
                         </Pie>
-                        <Tooltip formatter={(value) => `${value}%`} />
-                        <Legend />
+                        <RechartsTooltip
+                          formatter={(value: number) => [`${value}%`, 'Completion Rate']}
+                          contentStyle={{
+                            backgroundColor: isDark() ? 'hsl(var(--heroui-default-600))' : 'white',
+                            borderRadius: '8px',
+                            border: 'none',
+                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+                          }}
+                          itemStyle={{
+                            color: isDark() ? 'white' : 'black',
+                          }}
+                        />
                       </PieChart>
                     </ResponsiveContainer>
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-default-500">
+                      <div className="text-center">
+                        <Icon icon="fluent:data-pie-24-regular" className="mx-auto text-5xl text-default-300" />
+                        <p className="mt-2">No performance data available</p>
+                      </div>
+                    </div>
                   )}
                 </div>
 
-                <div>
-                  <div className="mb-6">
+                <div className="space-y-6">
+                  <div>
                     <div className="flex justify-between items-center mb-2">
                       <p className="text-sm font-medium">Daily Performance</p>
                       {loading ? (
@@ -844,7 +1156,7 @@ export default function DashboardPage() {
                       <BarChart data={monthlyRevenueData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                         <XAxis dataKey="name" />
                         <YAxis />
-                        <Tooltip formatter={(value) => [`₱${value}`, 'Revenue']} />
+                        <RechartsTooltip formatter={(value) => [`₱${value}`, 'Revenue']} />
                         <Legend />
                         <Bar dataKey="value" name="Revenue" fill="#f59e0b" />
                       </BarChart>
@@ -894,80 +1206,59 @@ export default function DashboardPage() {
 // Helper functions for notifications
 const getNotificationIcon = (type: string, action: string) => {
   switch (type) {
-    case 'inventory':
-      return action === 'create' ? 'fluent:box-checkmark-24-filled' :
-        action === 'update' ? 'fluent:box-24-filled' :
-          'fluent:box-dismiss-24-filled';
-    case 'warehouse':
-      return action === 'create' ? 'material-symbols:warehouse-rounded' :
-        action === 'update' ? 'material-symbols:warehouse-rounded' :
-          'material-symbols:warehouse-rounded';
-    case 'profile':
-      return action === 'create' ? 'fluent:person-add-24-filled' :
-        action === 'update' ? 'fluent:person-24-filled' :
-          'fluent:person-delete-24-filled';
-    case 'company':
-      return action === 'create' ? 'fa6-solid:building-circle-check' :
-        action === 'update' ? 'fa6-solid:building' :
-          'fa6-solid:building-circle-xmark';
     case 'delivery':
-      return action === 'create' ? 'mdi:truck-plus' :
-        action === 'update' ? 'mdi:truck' :
-          'mdi:truck-remove';
+      return action === 'created' ? 'fluent:box-multiple-20-filled' : 'fluent:vehicle-truck-20-filled';
+    case 'inventory':
+      return 'fluent:box-20-filled';
+    case 'warehouse':
+      return 'fluent:building-shop-20-filled';
+    case 'reorder':
+      return 'fluent:warning-20-filled';
     default:
-      return 'mdi:bell';
+      return 'fluent:alert-20-filled';
   }
 };
 
-function getNotificationIconBg(type: string) {
+const getNotificationIconBg = (type: string) => {
   switch (type) {
-    case "inventory":
-      return "bg-blue-100 text-blue-600";
-    case "delivery":
-      return "bg-green-100 text-green-600";
-    case "warehouse":
-      return "bg-amber-100 text-amber-600";
-    case "profile":
-      return "bg-purple-100 text-purple-600";
-    case "company":
-      return "bg-indigo-100 text-indigo-600";
+    case 'delivery':
+      return 'bg-secondary-100 text-secondary-500';
+    case 'inventory':
+      return 'bg-success-100 text-success-500';
+    case 'warehouse':
+      return 'bg-danger-100 text-danger-500';
+    case 'reorder':
+      return 'bg-warning-100 text-warning-500';
     default:
-      return "bg-slate-100 text-slate-600";
+      return 'bg-default-100 text-default-500';
   }
-}
+};
 
-function formatNotificationAction(action: string) {
+const formatNotificationAction = (action: string) => {
   switch (action) {
-    case "create":
-      return "Created";
-    case "update":
-      return "Updated";
-    case "delete":
-      return "Deleted";
-    default:
-      return action.charAt(0).toUpperCase() + action.slice(1);
+    case 'created': return 'Created';
+    case 'updated': return 'Updated';
+    case 'deleted': return 'Deleted';
+    case 'warning': return 'Warning:';
+    default: return action;
   }
-}
+};
 
-function formatNotificationTime(timestamp: string) {
-  const date = new Date(timestamp);
+const formatNotificationTime = (dateString: string) => {
+  const date = new Date(dateString);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.round(diffMs / 60000);
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
 
   if (diffMins < 60) {
-    return `${diffMins} min${diffMins !== 1 ? 's' : ''} ago`;
+    return `${diffMins} min${diffMins === 1 ? '' : 's'} ago`;
+  } else if (diffHours < 24) {
+    return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+  } else if (diffDays < 7) {
+    return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+  } else {
+    return format(date, 'MMM d, yyyy');
   }
-
-  const diffHours = Math.round(diffMins / 60);
-  if (diffHours < 24) {
-    return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
-  }
-
-  const diffDays = Math.round(diffHours / 24);
-  if (diffDays < 7) {
-    return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
-  }
-
-  return format(date, 'MMM d, yyyy');
-}
+};

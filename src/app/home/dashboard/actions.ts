@@ -3,7 +3,6 @@
 import { createClient } from "@/utils/supabase/server";
 import { getUserCompany } from "@/utils/supabase/server/user";
 
-
 /**
  * Fetches all dashboard data from Supabase
  */
@@ -50,14 +49,24 @@ export async function getDashboardData() {
       { company_id: company.uuid }
     );
 
+    // Get reorder point items
+    const { data: reorderPointItems, error: reorderPointError } = await supabase.rpc(
+      "get_dashboard_reorder_points",
+      { company_id: company.uuid }
+    );
+    
+    // Get warehouse items statistics (new)
+    const { data: warehouseStats, error: warehouseError } = await supabase.rpc(
+      "get_dashboard_warehouse_items_stats",
+      { company_id: company.uuid }
+    );
+
     // Check for errors
-    if (deliveryError || inventoryError || performanceError || revenueError || notificationsError) {
+    if (deliveryError || inventoryError || performanceError || revenueError || 
+        notificationsError || reorderPointError || warehouseError) {
       console.error("Dashboard data errors:", {
-        deliveryError,
-        inventoryError,
-        performanceError,
-        revenueError,
-        notificationsError,
+        deliveryError, inventoryError, performanceError, 
+        revenueError, notificationsError, reorderPointError, warehouseError
       });
       
       return {
@@ -74,6 +83,8 @@ export async function getDashboardData() {
         deliveryPerformance,
         monthlyRevenue,
         notifications,
+        reorderPointItems,
+        warehouseStats,
         company
       },
       error: null

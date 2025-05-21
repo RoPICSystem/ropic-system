@@ -24,7 +24,7 @@ export const formatDate = (date: string) => {
 
 export const formatNumber = (value: number): string => {
   return value.toLocaleString('en-US', {
-    minimumFractionDigits: 3,
+    minimumFractionDigits: 0,
     maximumFractionDigits: 3
   });
 };
