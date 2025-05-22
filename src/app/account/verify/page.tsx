@@ -142,7 +142,7 @@ export default function VerifyPage({
                 REORDER POINT
               </span>
               <span className="sm:text-sm text-[0.6rem] text-center tracking-widest">
-                INVENTORY MANAGEMENT SYSTEM
+                INVENTORY CONTROL MANAGEMENT SYSTEM
               </span>
             </div>
           </div>
@@ -157,7 +157,7 @@ export default function VerifyPage({
                   REORDER POINT
                 </span>
                 <span className="text-sm text-center tracking-widest">
-                  INVENTORY MANAGEMENT SYSTEM
+                  INVENTORY CONTROL MANAGEMENT SYSTEM
                 </span>
               </div>
             </div>
