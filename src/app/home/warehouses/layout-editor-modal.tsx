@@ -1,7 +1,7 @@
 'use client';
 
 import { FloorConfig, ShelfSelector3D } from '@/components/shelf-selector-3d';
-import { motionTransition } from '@/utils/anim';
+import { motionTransition, popoverTransition } from '@/utils/anim';
 import { PlusIcon, TrashIcon } from '@heroicons/react/24/solid';
 import {
   Accordion,
@@ -825,7 +825,10 @@ export default function WarehouseLayoutEditorModal({
                   </div>
 
                   <div className="flex justify-between items-center mt-4">
-                    <Popover placement="top">
+                    <Popover
+                      classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
+                      motionProps={popoverTransition(false)}
+                      placement="top">
                       <PopoverTrigger>
                         <Button className="capitalize" color="warning" variant="flat">
                           <Icon
@@ -1061,11 +1064,10 @@ export default function WarehouseLayoutEditorModal({
                 <AnimatePresence>
                   {(tempSelectedCode || showControls) &&
                     <motion.div {...motionTransition}
-                      className={`absolute overflow-hidden ${showControls ? "bottom-8 left-8 h-8" : "bottom-4 left-4 h-10"} w-[12.6rem] bg-background/50 rounded-xl backdrop-blur-lg z-10 transition-all duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]`}>
+                      className={`absolute overflow-hidden ${showControls ? "bottom-8 left-8 h-8 shadow-sm" : "bottom-4 left-4 h-10 shadow-lg"} w-[12.6rem] bg-default-200/50 rounded-xl backdrop-blur-lg z-10 transition-all duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]`}>
                       <Button
                         onPress={() => setShowControls(!showControls)}
-                        color="primary"
-                        variant="light"
+                        color="default"
                         className={`flex items-center p-4  bg-transparent w-full !scale-100 ${showControls ? "h-8" : "h-10"} !transition-all !duration-500 duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]`}
                       >
                         <Icon icon="ic:round-control-camera" className="w-4 h-4" />
@@ -1082,7 +1084,10 @@ export default function WarehouseLayoutEditorModal({
               <div className="mt-4">
                 <div className="flex justify-between mt-4">
                   <div className="flex gap-4">
-                    <Popover offset={10} placement="bottom">
+                    <Popover
+                      classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
+                      motionProps={popoverTransition(false)}
+                      offset={10} placement="bottom">
                       <PopoverTrigger>
                         <Button className="capitalize" color="warning" variant="flat">
                           <Icon

@@ -20,7 +20,7 @@ import {
   Textarea,
   useDisclosure
 } from "@heroui/react";
-import { Icon } from "@iconify-icon/react";
+import { Icon } from "@iconify/react";
 import { AnimatePresence, motion } from 'framer-motion';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -660,17 +660,24 @@ export default function WarehousePage() {
                             {(warehouse.warehouse_layout && warehouse.warehouse_layout.length > 0) ? (
                               <>
                                 <Chip color="secondary" variant={selectedWarehouseId === warehouse.uuid ? "shadow" : "flat"} size="sm">
-                                  <Icon icon="material-symbols:warehouse-rounded" className="mr-1" size={14} />
-                                  {warehouse.warehouse_layout?.length ?? 0} floor{(warehouse.warehouse_layout?.length ?? 0) > 1 ? 's' : ''}
+                                  <div className="flex items-center">
+                                    <Icon icon="material-symbols:warehouse-rounded" className="mr-1" />
+                                    {warehouse.warehouse_layout?.length ?? 0} floor{(warehouse.warehouse_layout?.length ?? 0) > 1 ? 's' : ''}
+                                  </div>
                                 </Chip>
                                 <Chip color="warning" variant={selectedWarehouseId === warehouse.uuid ? "shadow" : "flat"} size="sm">
-                                  {warehouse.warehouse_layout?.[0]?.matrix.length ?? 0} × {warehouse.warehouse_layout?.[0]?.matrix[0].length ?? 0}
+                                  <div className="flex items-center">
+                                    <Icon icon="tabler:layout-2-filled" className="mr-1" />
+                                    {warehouse.warehouse_layout?.[0]?.matrix.length ?? 0} × {warehouse.warehouse_layout?.[0]?.matrix[0].length ?? 0}
+                                  </div>
                                 </Chip>
                               </>
                             ) : (
                               <Chip color="danger" variant={selectedWarehouseId === warehouse.uuid ? "shadow" : "flat"} size="sm">
-                                <Icon icon="material-symbols:warehouse-rounded" className="mr-1" size={14} />
-                                No layout
+                                <div className="flex items-center">
+                                  <Icon icon="material-symbols:warehouse-rounded" className="mr-1" />
+                                  No layout
+                                </div>
                               </Chip>
                             )}
                           </div>

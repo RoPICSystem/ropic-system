@@ -2888,12 +2888,11 @@ export default function DeliveryPage() {
               <AnimatePresence>
                 {(tempSelectedCode || showControls) &&
                   <motion.div {...motionTransition}
-                    className={`absolute overflow-hidden ${showControls ? "bottom-8 left-8 h-8" : "bottom-4 left-4 h-10"} w-[12.6rem] bg-background/50 rounded-xl backdrop-blur-lg z-10 transition-all duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]`}>
+                    className={`absolute overflow-hidden ${showControls ? "bottom-8 left-8 h-8 shadow-sm" : "bottom-4 left-4 h-10 shadow-lg"} w-[12.6rem] bg-default-200/50 rounded-xl backdrop-blur-lg z-10 transition-all duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]`}>
                     <Button
                       onPress={() => setShowControls(!showControls)}
-                      color="primary"
-                      variant="light"
-                      className={`flex items-center p-4  bg-transparent w-full !scale-100 ${showControls ? "h-8" : "h-10"} !transition-all !duration-500 duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]`}
+                      color="default"
+                      className={`flex items-center p-4 text-default-800 bg-transparent w-full !scale-100 ${showControls ? "h-8" : "h-10"} !transition-all !duration-500 duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]`}
                     >
                       <Icon icon="ic:round-control-camera" className="w-4 h-4" />
                       <span className="text-sm font-semibold">

@@ -2,9 +2,7 @@
 
 import CardList from "@/components/card-list";
 import { ThemeSwitcher } from "@/components/theme-switcher";
-import {
-  ChevronRightIcon,
-} from '@heroicons/react/24/solid';
+import { Icon } from "@iconify/react";
 import {
   Button,
   Switch
@@ -25,7 +23,7 @@ export default function SettingsPage() {
             <p className="text-default-500">Manage your account settings and preferences.</p>
           </div>
           <div className="flex gap-4">
-           
+
           </div>
         </div>
 
@@ -58,7 +56,7 @@ export default function SettingsPage() {
               color="primary"
               onPress={() => router.push('/home/profile')}
               className="my-1">
-              <ChevronRightIcon className="w-4 h-4" />
+              <Icon icon="mdi:chevron-right" className="text-xl" />
             </Button>
           </div>
           <div className="flex items-center justify-between h-full w-full">
@@ -68,13 +66,13 @@ export default function SettingsPage() {
               color="primary"
               onPress={() => router.push('/home/profile/edit')}
               className="my-1">
-              <ChevronRightIcon className="w-4 h-4" />
+              <Icon icon="mdi:chevron-right" className="text-xl" />
             </Button>
           </div>
           <div className="flex items-center justify-between h-full w-full">
             <span>Change password</span>
             <Button variant="shadow" color="primary" className="my-1">
-              <ChevronRightIcon className="w-4 h-4" />
+              <Icon icon="mdi:chevron-right" className="text-xl" />
             </Button>
           </div>
         </CardList>
@@ -105,13 +103,13 @@ export default function SettingsPage() {
               </p>
             </div>
             <Button variant="shadow" color="primary" className="my-1">
-              <ChevronRightIcon className="w-4 h-4" />
+              <Icon icon="mdi:chevron-right" className="text-xl" />
             </Button>
           </div>
           <div className="flex items-center justify-between h-full w-full">
             <span>Developers</span>
             <Button variant="shadow" color="primary" className="my-1">
-              <ChevronRightIcon className="w-4 h-4" />
+              <Icon icon="mdi:chevron-right" className="text-xl" />
             </Button>
           </div>
         </CardList>

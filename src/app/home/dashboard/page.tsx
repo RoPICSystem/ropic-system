@@ -32,7 +32,9 @@ import { formatNumber } from '@/utils/tools';
 import {
   Bar,
   BarChart,
+  CartesianGrid,
   Cell,
+  Label,
   LabelList,
   Legend,
   Pie,
@@ -644,52 +646,95 @@ export default function DashboardPage() {
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart
                         data={deliveryStatusData}
-                        margin={{ left: 0, right: 0, top: 30 }}
-                        barSize={36}
+                        margin={{ left: 10, right: 10, top: 30, bottom: 5 }}
+                        barSize={48}
+                        barGap={8}
+                        className="delivery-status-chart"
                       >
-                        {/* use theme primary.DEFAULT for gradient fill, default.DEFAULT for stroke */}
                         <defs>
-                          <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#d7ac82" stopOpacity={0.9} />
-                            <stop offset="95%" stopColor="#d7ac82" stopOpacity={0.6} />
-                          </linearGradient>
+                          {deliveryStatusData.map((entry, index) => (
+                            <linearGradient 
+                              id={`colorGradient-${index}`} 
+                              key={`gradient-${index}`}
+                              x1="0" y1="0" x2="0" y2="1"
+                            >
+                              <stop offset="0%" stopColor={entry.color} stopOpacity={0.9} />
+                              <stop offset="95%" stopColor={entry.color} stopOpacity={0.6} />
+                            </linearGradient>
+                          ))}
+                          <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+                            <feDropShadow dx="0" dy="3" stdDeviation="3" floodOpacity="0.1"/>
+                          </filter>
                         </defs>
-                        <XAxis
-                          dataKey="name"
-                          angle={-35}
-                          textAnchor="end"
+                        <XAxis 
+                          dataKey="name" 
+                          angle={0}
+                          textAnchor="middle"
                           height={60}
                           tick={{
-                            fill: 'hsl(var(--heroui-primary-500))',
-                            fontSize: 12, fontWeight: 500
+                            fill: 'hsl(var(--heroui-default-500))',
+                            fontSize: 12,
+                            fontWeight: 500
                           }}
                           tickMargin={10}
-                          padding={{ left: 30, right: 30 }}
+                          axisLine={{stroke: 'hsl(var(--heroui-default-200))', strokeWidth: 1}}
+                          tickLine={false}
                         />
-                        <YAxis hide={true} />
+                        <YAxis 
+                          hide={false}
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{
+                            fill: 'hsl(var(--heroui-default-400))',
+                            fontSize: 12
+                          }}
+                          tickFormatter={(val) => val > 0 ? val : ''}
+                        />
+                        <CartesianGrid 
+                          strokeDasharray="3 3" 
+                          vertical={false} 
+                          stroke="hsl(var(--heroui-default-200))"
+                          opacity={0.5}
+                        />
                         <RechartsTooltip
+                          cursor={{fill: 'hsl(var(--heroui-default-100))', opacity: 0.3}}
                           contentStyle={{
-                            backgroundColor: isDark() ? 'hsl(var(--heroui-default-600))' : 'white',
-                            borderRadius: '8px',
+                            backgroundColor: isDark() ? 'hsl(var(--heroui-default-700))' : 'white',
+                            borderRadius: '12px',
                             border: 'none',
-                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+                            padding: '10px 14px',
+                            boxShadow: '0 4px 14px rgba(0, 0, 0, 0.15)',
                           }}
                           itemStyle={{
                             color: isDark() ? 'white' : 'black',
+                            padding: '4px 0',
                           }}
-                          formatter={(val: number) => val.toString()}
+                          formatter={(val: number) => [`${val} deliveries`, '']}
+                          labelFormatter={(label) => `Status: ${label}`}
                         />
-                        <Bar dataKey="value" fill="url(#barGradient)" stroke="hsl(var(--heroui-default-500))" strokeWidth={1}>
+                        <Bar 
+                          dataKey="value" 
+                          radius={[4, 4, 0, 0]}
+                          filter="url(#shadow)"
+                          animationDuration={1500}
+                          animationEasing="ease-in-out"
+                        >
                           {deliveryStatusData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
+                            <Cell 
+                              key={`cell-${index}`} 
+                              fill={`url(#colorGradient-${index})`} 
+                              stroke={entry.color}
+                              strokeWidth={1}
+                            />
                           ))}
                           <LabelList
                             dataKey="value"
                             position="top"
-                            formatter={(val: number) => val.toString()}
+                            formatter={(val: number) => val > 0 ? val.toString() : ''}
                             style={{
-                              fill: 'hsl(var(--heroui-primary-500))',
-                              fontSize: 12, fontWeight: 500
+                              fill: 'hsl(var(--heroui-default-600))',
+                              fontSize: 13,
+                              fontWeight: 600
                             }}
                           />
                         </Bar>
@@ -874,31 +919,121 @@ export default function DashboardPage() {
                   ) : performanceData.length > 0 && performanceData.some(p => p.value > 0) ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
+                        <defs>
+                          {performanceData.map((entry, index) => (
+                            <radialGradient 
+                              id={`pieGradient-${index}`} 
+                              key={`pie-gradient-${index}`} 
+                              cx="50%" cy="50%" r="50%" fx="50%" fy="50%"
+                            >
+                              <stop offset="0%" stopColor={entry.color} stopOpacity={0.9} />
+                              <stop offset="75%" stopColor={entry.color} stopOpacity={0.7} />
+                              <stop offset="100%" stopColor={entry.color} stopOpacity={0.8} />
+                            </radialGradient>
+                          ))}
+                          <filter id="pieDropShadow" x="-20%" y="-20%" width="140%" height="140%">
+                            <feDropShadow dx="0" dy="3" stdDeviation="5" floodOpacity="0.12"/>
+                          </filter>
+                          <linearGradient id="centerGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" stopColor="hsl(var(--heroui-primary-50))" stopOpacity="0.7" />
+                            <stop offset="100%" stopColor="hsl(var(--heroui-primary-50))" stopOpacity="0.2" />
+                          </linearGradient>
+                        </defs>
                         <Pie
                           data={performanceData}
                           cx="50%"
                           cy="50%"
-                          innerRadius={60}
-                          outerRadius={100}
-                          paddingAngle={5}
+                          innerRadius={68}
+                          outerRadius={105}
+                          paddingAngle={3}
                           dataKey="value"
-                          label={({ name, value }) => `${name}: ${value}%`}
-                          labelLine={false}
+                          stroke="rgba(255,255,255,0.6)"
+                          strokeWidth={1.5}
+                          animationDuration={2000}
+                          filter="url(#pieDropShadow)"
                         >
                           {performanceData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
+                            <Cell 
+                              key={`cell-${index}`} 
+                              fill={`url(#pieGradient-${index})`}
+                            />
                           ))}
+                          <Label
+                            content={({ viewBox }) => {
+                              const { cx, cy } = viewBox as { cx: number, cy: number };
+                              const averageValue = performanceData.reduce((sum, entry) => sum + entry.value, 0) / performanceData.length;
+                              
+                              return (
+                                <g>
+                                  <circle 
+                                    cx={cx} 
+                                    cy={cy} 
+                                    r={60} 
+                                    fill="url(#centerGradient)" 
+                                    filter="url(#pieDropShadow)" 
+                                  />
+                                  <text 
+                                    x={cx} 
+                                    y={cy - 8} 
+                                    textAnchor="middle" 
+                                    dominantBaseline="central"
+                                    className="text-2xl font-bold"
+                                    fill="hsl(var(--heroui-default-700))"
+                                  >
+                                    {Math.round(averageValue)}%
+                                  </text>
+                                  <text 
+                                    x={cx} 
+                                    y={cy + 18} 
+                                    textAnchor="middle" 
+                                    dominantBaseline="central"
+                                    className="text-xs tracking-wide uppercase"
+                                    fill="hsl(var(--heroui-default-500))"
+                                  >
+                                    Average Rate
+                                  </text>
+                                </g>
+                              );
+                            }}
+                          />
                         </Pie>
+                        <Legend 
+                          layout="horizontal" 
+                          verticalAlign="bottom" 
+                          align="center"
+                          iconType="circle"
+                          iconSize={8}
+                          wrapperStyle={{
+                            paddingTop: 15,
+                          }}
+                          formatter={(value) => (
+                            <span style={{ 
+                              color: 'hsl(var(--heroui-default-700))', 
+                              fontSize: '12px', 
+                              padding: '0 6px',
+                              fontWeight: 500
+                            }}>
+                              {value}
+                            </span>
+                          )}
+                        />
                         <RechartsTooltip
                           formatter={(value: number) => [`${value}%`, 'Completion Rate']}
                           contentStyle={{
-                            backgroundColor: isDark() ? 'hsl(var(--heroui-default-600))' : 'white',
-                            borderRadius: '8px',
+                            backgroundColor: isDark() ? 'hsl(var(--heroui-default-800))' : 'white',
+                            borderRadius: '14px',
                             border: 'none',
-                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+                            padding: '12px 16px',
+                            boxShadow: '0 6px 18px rgba(0, 0, 0, 0.12)',
                           }}
                           itemStyle={{
                             color: isDark() ? 'white' : 'black',
+                            padding: '6px 0',
+                            fontSize: '13px'
+                          }}
+                          labelStyle={{
+                            fontWeight: 600,
+                            marginBottom: '8px'
                           }}
                         />
                       </PieChart>
