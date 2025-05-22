@@ -844,7 +844,7 @@ export default function DeliveryPage() {
     try {
       let result;
       const timestamp = new Date().toISOString();
-      const newData = {
+      let newData: any = {
         admin_uuid: user.uuid,
         company_uuid: user.company_uuid,
         inventory_uuid: formData.inventory_uuid ? formData.inventory_uuid : null,
@@ -855,10 +855,6 @@ export default function DeliveryPage() {
         locations: formData.locations || [],
         location_codes: formData.location_codes || [],
         notes: formData.notes || "",
-        status: formData.status || "PENDING",
-        status_history: {
-          [timestamp]: formData.status || "PENDING"
-        },
         ...(assignOperator ?
           {
             operator_uuid: formData.operator_uuid,
@@ -884,6 +880,14 @@ export default function DeliveryPage() {
         }
       } else {
         // Create new delivery
+        newData = {
+          ...newData,
+          status: formData.status || "PENDING",
+          status_history: {
+            ...formData.status_history
+          }
+        };
+        
         result = await createDeliveryItem(newData as any);
 
         console.log("Updating inventory item status:", result.data);
