@@ -138,7 +138,8 @@ const findNearestGroupColumnToRight = (floorMatrix: number[][], rowIndex: number
   return -1;
 };
 
-// Process matrix to find all groups with proper depth handling
+
+// Optimized camera animator using singleton pattern
 const processGroupsMatrix = (floorMatrix: number[][], floorIndex: number) => {
   const cacheKey = `floor-${floorIndex}-${JSON.stringify(floorMatrix)}`;
 
@@ -151,64 +152,369 @@ const processGroupsMatrix = (floorMatrix: number[][], floorIndex: number) => {
   const visited = Array(floorMatrix.length).fill(0).map(() => Array(floorMatrix[0].length).fill(false));
   let groupId = 0;
 
+  // First pass: Detect hollow rectangles (U-shaped or O-shaped layouts)
+  const hollowPatterns = [];
+  for (let i = 0; i < floorMatrix.length; i++) {
+    for (let j = 0; j < floorMatrix[i].length; j++) {
+      // Look for potential hollow rectangles: areas with shelves surrounding empty space
+      if (floorMatrix[i][j] > 0 && !visited[i][j]) {
+        const value = floorMatrix[i][j];
+
+        // Check if this could be part of a hollow rectangle by looking for a large enough shape
+        // with empty space inside
+        const connectedCells = [];
+        const tempVisited = Array(floorMatrix.length).fill(0).map(() => Array(floorMatrix[0].length).fill(false));
+        const queue = [[i, j]];
+        tempVisited[i][j] = true;
+
+        let minI = i, maxI = i;
+        let minJ = j, maxJ = j;
+
+        // Find connected component
+        while (queue.length > 0) {
+          const [x, y] = queue.shift()!;
+          connectedCells.push([x, y]);
+
+          // Update bounding box
+          minI = Math.min(minI, x);
+          maxI = Math.max(maxI, x);
+          minJ = Math.min(minJ, y);
+          maxJ = Math.max(maxJ, y);
+
+          // 4-way connectivity check
+          const directions = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+          for (const [dx, dy] of directions) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx >= 0 && nx < floorMatrix.length &&
+              ny >= 0 && ny < floorMatrix[0].length &&
+              floorMatrix[nx][ny] === value &&
+              !tempVisited[nx][ny]) {
+              tempVisited[nx][ny] = true;
+              queue.push([nx, ny]);
+            }
+          }
+        }
+
+        // Check if this is a hollow rectangle by analyzing the shape
+        const width = maxJ - minJ + 1;
+        const height = maxI - minI + 1;
+
+        // For this to be a hollow rectangle:
+        // 1. It needs to have a large enough area
+        // 2. The number of connected cells should be much less than the total area
+        // 3. There should be cells in the middle that are not part of the connected component
+        if (width > 2 && height > 2) {
+          let hasInnerEmpty = false;
+          let perimeterCount = 0;
+
+          // Count cells that are on the perimeter vs. all cells in the bounding box
+          for (let x = minI; x <= maxI; x++) {
+            for (let y = minJ; y <= maxJ; y++) {
+              // Check if this is a perimeter cell
+              if (x === minI || x === maxI || y === minJ || y === maxJ) {
+                if (floorMatrix[x][y] === value) perimeterCount++;
+              } else if (floorMatrix[x][y] === 0) {
+                // Found empty cell inside the bounding box
+                hasInnerEmpty = true;
+              }
+            }
+          }
+
+          // If we have a significant perimeter and empty space inside, this is a hollow rectangle
+          if (hasInnerEmpty && perimeterCount > 0) {
+            hollowPatterns.push({
+              minI, maxI, minJ, maxJ, value
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // Second pass: Process groups, handling hollow rectangles specially
   for (let i = 0; i < floorMatrix.length; i++) {
     for (let j = 0; j < floorMatrix[i].length; j++) {
       if (floorMatrix[i][j] > 0 && !visited[i][j]) {
         const value = floorMatrix[i][j]; // The shelf type (e.g., 5 or 4)
-        let minI = i, maxI = i;
-        let minJ = j, maxJ = j;
 
-        // BFS to find group extent in both directions
-        const queue = [[i, j]];
-        visited[i][j] = true;
+        // Check if this cell is part of a hollow pattern
+        const hollowPattern = hollowPatterns.find(p =>
+          p.value === value &&
+          i >= p.minI && i <= p.maxI &&
+          j >= p.minJ && j <= p.maxJ);
 
-        while (queue.length > 0) {
-          const [x, y] = queue.shift()!;
+        if (hollowPattern) {
+          // For hollow rectangles, we process each side separately
+          // Top edge
+          if (i === hollowPattern.minI) {
+            let edgeMinJ = j;
+            let edgeMaxJ = j;
 
-          // Check horizontal connections (width)
-          if (y + 1 < floorMatrix[x].length && floorMatrix[x][y + 1] === value && !visited[x][y + 1]) {
-            visited[x][y + 1] = true;
-            queue.push([x, y + 1]);
-            maxJ = Math.max(maxJ, y + 1);
+            // Find the extent of this top edge
+            while (edgeMaxJ + 1 <= hollowPattern.maxJ &&
+              floorMatrix[i][edgeMaxJ + 1] === value &&
+              !visited[i][edgeMaxJ + 1]) {
+              edgeMaxJ++;
+            }
+
+            // Mark as visited
+            for (let col = edgeMinJ; col <= edgeMaxJ; col++) {
+              visited[i][col] = true;
+            }
+
+            // Calculate depth - how far this edge extends vertically
+            let depth = 1;
+            let row = i + 1;
+            while (row <= hollowPattern.maxI) {
+              // Check if this row is part of the edge (not a corner or another edge)
+              let isPartOfEdge = true;
+              for (let col = edgeMinJ; col <= edgeMaxJ; col++) {
+                if (floorMatrix[row][col] !== value) {
+                  isPartOfEdge = false;
+                  break;
+                }
+              }
+
+              if (!isPartOfEdge) break;
+
+              // Mark as visited
+              for (let col = edgeMinJ; col <= edgeMaxJ; col++) {
+                visited[row][col] = true;
+              }
+
+              depth++;
+              row++;
+            }
+
+            groups.push({
+              id: groupId,
+              rows: value, // Number of shelves based on the value
+              width: edgeMaxJ - edgeMinJ + 1,
+              depth,
+              position: [i, edgeMinJ], // Store starting position
+              minI: i,
+              maxI: i + depth - 1,
+              minJ: edgeMinJ,
+              maxJ: edgeMaxJ
+            });
+
+            groupPositions.push([i, edgeMinJ, groupId]);
+            groupId++;
+          }
+          // Bottom edge
+          else if (i === hollowPattern.maxI) {
+            // Similar processing for bottom edge
+            let edgeMinJ = j;
+            let edgeMaxJ = j;
+
+            while (edgeMaxJ + 1 <= hollowPattern.maxJ &&
+              floorMatrix[i][edgeMaxJ + 1] === value &&
+              !visited[i][edgeMaxJ + 1]) {
+              edgeMaxJ++;
+            }
+
+            for (let col = edgeMinJ; col <= edgeMaxJ; col++) {
+              visited[i][col] = true;
+            }
+
+            let depth = 1;
+            let row = i - 1;
+            while (row >= hollowPattern.minI) {
+              let isPartOfEdge = true;
+              for (let col = edgeMinJ; col <= edgeMaxJ; col++) {
+                if (floorMatrix[row][col] !== value || visited[row][col]) {
+                  isPartOfEdge = false;
+                  break;
+                }
+              }
+
+              if (!isPartOfEdge) break;
+
+              for (let col = edgeMinJ; col <= edgeMaxJ; col++) {
+                visited[row][col] = true;
+              }
+
+              depth++;
+              row--;
+            }
+
+            groups.push({
+              id: groupId,
+              rows: value,
+              width: edgeMaxJ - edgeMinJ + 1,
+              depth,
+              position: [i - depth + 1, edgeMinJ],
+              minI: i - depth + 1,
+              maxI: i,
+              minJ: edgeMinJ,
+              maxJ: edgeMaxJ
+            });
+
+            groupPositions.push([i - depth + 1, edgeMinJ, groupId]);
+            groupId++;
+          }
+          // Left edge
+          else if (j === hollowPattern.minJ) {
+            // Process left edge
+            let edgeMinI = i;
+            let edgeMaxI = i;
+
+            while (edgeMaxI + 1 <= hollowPattern.maxI &&
+              floorMatrix[edgeMaxI + 1][j] === value &&
+              !visited[edgeMaxI + 1][j]) {
+              edgeMaxI++;
+            }
+
+            for (let row = edgeMinI; row <= edgeMaxI; row++) {
+              visited[row][j] = true;
+            }
+
+            let width = 1;
+            let col = j + 1;
+            while (col <= hollowPattern.maxJ) {
+              let isPartOfEdge = true;
+              for (let row = edgeMinI; row <= edgeMaxI; row++) {
+                if (floorMatrix[row][col] !== value || visited[row][col]) {
+                  isPartOfEdge = false;
+                  break;
+                }
+              }
+
+              if (!isPartOfEdge) break;
+
+              for (let row = edgeMinI; row <= edgeMaxI; row++) {
+                visited[row][col] = true;
+              }
+
+              width++;
+              col++;
+            }
+
+            groups.push({
+              id: groupId,
+              rows: value,
+              width,
+              depth: edgeMaxI - edgeMinI + 1,
+              position: [edgeMinI, j],
+              minI: edgeMinI,
+              maxI: edgeMaxI,
+              minJ: j,
+              maxJ: j + width - 1
+            });
+
+            groupPositions.push([edgeMinI, j, groupId]);
+            groupId++;
+          }
+          // Right edge
+          else if (j === hollowPattern.maxJ) {
+            // Process right edge
+            let edgeMinI = i;
+            let edgeMaxI = i;
+
+            while (edgeMaxI + 1 <= hollowPattern.maxI &&
+              floorMatrix[edgeMaxI + 1][j] === value &&
+              !visited[edgeMaxI + 1][j]) {
+              edgeMaxI++;
+            }
+
+            for (let row = edgeMinI; row <= edgeMaxI; row++) {
+              visited[row][j] = true;
+            }
+
+            let width = 1;
+            let col = j - 1;
+            while (col >= hollowPattern.minJ) {
+              let isPartOfEdge = true;
+              for (let row = edgeMinI; row <= edgeMaxI; row++) {
+                if (floorMatrix[row][col] !== value || visited[row][col]) {
+                  isPartOfEdge = false;
+                  break;
+                }
+              }
+
+              if (!isPartOfEdge) break;
+
+              for (let row = edgeMinI; row <= edgeMaxI; row++) {
+                visited[row][col] = true;
+              }
+
+              width++;
+              col--;
+            }
+
+            groups.push({
+              id: groupId,
+              rows: value,
+              width,
+              depth: edgeMaxI - edgeMinI + 1,
+              position: [edgeMinI, j - width + 1],
+              minI: edgeMinI,
+              maxI: edgeMaxI,
+              minJ: j - width + 1,
+              maxJ: j
+            });
+
+            groupPositions.push([edgeMinI, j - width + 1, groupId]);
+            groupId++;
+          }
+        } else {
+          // Standard BFS for non-hollow patterns (existing logic)
+          let minI = i, maxI = i;
+          let minJ = j, maxJ = j;
+
+          // BFS to find group extent in both directions
+          const queue = [[i, j]];
+          visited[i][j] = true;
+
+          while (queue.length > 0) {
+            const [x, y] = queue.shift()!;
+
+            // Check horizontal connections (width)
+            if (y + 1 < floorMatrix[x].length && floorMatrix[x][y + 1] === value && !visited[x][y + 1]) {
+              visited[x][y + 1] = true;
+              queue.push([x, y + 1]);
+              maxJ = Math.max(maxJ, y + 1);
+            }
+
+            if (y - 1 >= 0 && floorMatrix[x][y - 1] === value && !visited[x][y - 1]) {
+              visited[x][y - 1] = true;
+              queue.push([x, y - 1]);
+              minJ = Math.min(minJ, y - 1);
+            }
+
+            // Check vertical connections (depth)
+            if (x + 1 < floorMatrix.length && floorMatrix[x + 1][y] === value && !visited[x + 1][y]) {
+              visited[x + 1][y] = true;
+              queue.push([x + 1, y]);
+              maxI = Math.max(maxI, x + 1);
+            }
+
+            if (x - 1 >= 0 && floorMatrix[x - 1][y] === value && !visited[x - 1][y]) {
+              visited[x - 1][y] = true;
+              queue.push([x - 1, y]);
+              minI = Math.min(minI, x - 1);
+            }
           }
 
-          if (y - 1 >= 0 && floorMatrix[x][y - 1] === value && !visited[x][y - 1]) {
-            visited[x][y - 1] = true;
-            queue.push([x, y - 1]);
-            minJ = Math.min(minJ, y - 1);
-          }
+          const width = maxJ - minJ + 1; // Width (columns)
+          const depth = maxI - minI + 1; // Depth (rows in z-direction)
 
-          // Check vertical connections (depth)
-          if (x + 1 < floorMatrix.length && floorMatrix[x + 1][y] === value && !visited[x + 1][y]) {
-            visited[x + 1][y] = true;
-            queue.push([x + 1, y]);
-            maxI = Math.max(maxI, x + 1);
-          }
+          groups.push({
+            id: groupId,
+            rows: value, // Number of shelves based on the value
+            width,      // Width in columns
+            depth,      // Depth in rows
+            position: [minI, minJ], // Store starting position
+            minI,
+            maxI,
+            minJ,
+            maxJ
+          });
 
-          if (x - 1 >= 0 && floorMatrix[x - 1][y] === value && !visited[x - 1][y]) {
-            visited[x - 1][y] = true;
-            queue.push([x - 1, y]);
-            minI = Math.min(minI, x - 1);
-          }
+          groupPositions.push([minI, minJ, groupId]);
+          groupId++;
         }
-
-        const width = maxJ - minJ + 1; // Width (columns)
-        const depth = maxI - minI + 1; // Depth (rows in z-direction)
-
-        groups.push({
-          id: groupId,
-          rows: value, // Number of shelves based on the value
-          width,      // Width in columns
-          depth,      // Depth in rows
-          position: [minI, minJ], // Store starting position
-          minI,
-          maxI,
-          minJ,
-          maxJ
-        });
-
-        groupPositions.push([minI, minJ, groupId]);
-        groupId++;
       }
     }
   }
@@ -216,28 +522,6 @@ const processGroupsMatrix = (floorMatrix: number[][], floorIndex: number) => {
   const result = { groups, groupPositions };
   matrixCache.set(cacheKey, result);
   return result;
-};
-
-// Optimized camera animator using singleton pattern
-const createCameraAnimator = () => {
-  if (window.cameraAnimator) return window.cameraAnimator;
-
-  const animator = {
-    _isAnimating: false,
-    targetPosition: null as THREE.Vector3 | null,
-    targetLookAt: null as THREE.Vector3 | null,
-
-    animateCamera: (position: THREE.Vector3, target: THREE.Vector3) => {
-      animator.targetPosition = position.clone();
-      animator.targetLookAt = target.clone();
-      animator._isAnimating = true;
-    },
-
-    isAnimating: () => animator._isAnimating
-  };
-
-  window.cameraAnimator = animator;
-  return animator;
 };
 
 // Add this function at the top level of your file, before the components
@@ -616,13 +900,13 @@ const Group = memo(({
   // Function to determine shelf type based on location
   const getShelfType = useCallback((floorIndex: number, groupId: number, rowIndex: number, colIndex: number, depthIndex: number): 'primary' | 'secondary' | 'tertiary' => {
     if (!shelfColorAssignments || shelfColorAssignments.length === 0) return 'primary';
-    
-    const assignment = shelfColorAssignments.find(a => 
-      a.floor === floorIndex && a.group === groupId && 
-      a.row === rowIndex && a.column === colIndex && 
+
+    const assignment = shelfColorAssignments.find(a =>
+      a.floor === floorIndex && a.group === groupId &&
+      a.row === rowIndex && a.column === colIndex &&
       (a.depth === undefined || a.depth === depthIndex)
     );
-    
+
     return assignment?.colorType || 'primary';
   }, [shelfColorAssignments]);
 
@@ -1772,39 +2056,39 @@ export const ShelfSelector3D = memo(({
   useEffect(() => {
     // First, ensure the scene is ready
     setIsInitialized(true);
-  
+
     const tryAnimation = (attemptsLeft = 5) => {
       if (initialAnimationTriggered.current) return;
-  
+
       const animator = ensureCameraAnimator();
-  
+
       if (animator && controlsRef.current) {
         // Check if there's already a selected location
         if (selectedLocation) {
           // Focus on the selected shelf
           focusOnShelf(selectedLocation);
           initialAnimationTriggered.current = true;
-        } 
+        }
         // If no selection exists, but an external selection is provided
         else if (externalSelection && externalSelection.floor !== undefined) {
           // Create a validated version of the external selection
           const validatedSelection = { ...externalSelection };
-          
+
           // Validate floor index
           validatedSelection.floor = Math.max(0, Math.min(validatedSelection.floor || 0, floors.length - 1));
-          
+
           // Get the floor matrix for further validation
           const floorMatrix = floors[validatedSelection.floor].matrix;
           const { groups } = processGroupsMatrix(floorMatrix, validatedSelection.floor);
-          
+
           // Validate group
           const maxGroupId = groups.length > 0 ? Math.max(...groups.map((g: { id: any; }) => g.id)) : 0;
           validatedSelection.group = Math.max(0, Math.min(validatedSelection.group || 0, maxGroupId));
-          
+
           // Focus on the validated external selection
           focusOnShelf(validatedSelection);
           initialAnimationTriggered.current = true;
-        } 
+        }
         // Default: focus on center of floorplan if no selection exists
         else {
           // Calculate better camera position based on scene size
@@ -1815,11 +2099,11 @@ export const ShelfSelector3D = memo(({
             maxWidth * 1.5
           );
           const targetLookAt = new THREE.Vector3(...buildingCenterPosition);
-  
+
           console.log("Starting initial camera animation to center view");
           animator.animateCamera(targetPosition, targetLookAt);
           initialAnimationTriggered.current = true;
-  
+
           // Set the controls target to match
           controlsRef.current.target.copy(targetLookAt);
         }
@@ -1827,10 +2111,10 @@ export const ShelfSelector3D = memo(({
         setTimeout(() => tryAnimation(attemptsLeft - 1), 200);
       }
     };
-  
+
     // First attempt after a short delay to ensure component is fully rendered
     const timer = setTimeout(() => tryAnimation(), 800);
-  
+
     return () => clearTimeout(timer);
   }, [buildingCenterPosition, floors, focusOnShelf, cameraOffsetX, controlsRef, selectedLocation, externalSelection]);
 
