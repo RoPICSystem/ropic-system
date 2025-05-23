@@ -1241,16 +1241,19 @@ export default function ReorderPointPage() {
               </CardList>
 
               <CardList>
-                <div className="flex items-center justify-between h-full w-full">
-                  <span>View inventory details</span>
-                  <Button
-                    variant="shadow"
-                    color="primary"
-                    onPress={handleViewInventory}
-                    className="my-1">
-                    <Icon icon="mdi:chevron-right" width={16} height={16} />
-                  </Button>
-                </div>
+
+                {window.userData.is_admin &&
+                  <div className="flex items-center justify-between h-full w-full">
+                    <span>View inventory details</span>
+                    <Button
+                      variant="shadow"
+                      color="primary"
+                      onPress={handleViewInventory}
+                      className="my-1">
+                      <Icon icon="mdi:chevron-right" width={16} height={16} />
+                    </Button>
+                  </div>
+                }
 
                 <div className="flex items-center justify-between h-full w-full">
                   <span>View warehouse info</span>
