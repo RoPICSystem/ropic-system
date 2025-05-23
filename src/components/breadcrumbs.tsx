@@ -42,11 +42,11 @@ export default function NavigationBread() {
         if (data?.is_admin) {
           setNavigation([
             { name: 'Dashboard', href: '/home/dashboard', icon: "heroicons:home-solid" },
+            { name: 'Warehouses', href: '/home/warehouses', icon: 'material-symbols:warehouse-rounded' },
             { name: 'Inventory', href: '/home/inventory', icon: "fluent:box-20-filled" },
             { name: 'Delivery', href: '/home/delivery', icon: "heroicons:truck-20-solid" },
             { name: 'Warehouse Items', href: '/home/warehouse-items', icon: "fluent:box-20-filled" },
             { name: 'Reorder Point', href: '/home/reorder-point', icon: "heroicons:chart-bar-20-solid" },
-            { name: 'Warehouses', href: '/home/warehouses', icon: 'material-symbols:warehouse-rounded' },
             { name: 'Notifications', href: '/home/notifications', icon: "heroicons:bell-alert-20-solid" },
             { name: 'Settings', href: '/home/settings', icon: "heroicons:cog-8-tooth-20-solid" },
             { name: 'Profile', href: '/home/profile', icon: "heroicons:user-20-solid" },
