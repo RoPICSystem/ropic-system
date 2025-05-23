@@ -40,7 +40,12 @@ export async function signin(formData: FormData):
 
   if (typeof window !== "undefined") {
     window.userData = data;
-  };
+  } else {
+    return { error: "Window is not defined" }
+  }
+
+
+  console.log("User data:", data);
 
 
   // Revalidate cache to reflect the new authentication state

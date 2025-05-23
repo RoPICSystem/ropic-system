@@ -46,6 +46,7 @@ import jsQR from "jsqr";
 import { InventoryItem } from '../inventory/actions';
 import { Warehouse } from '../warehouses/actions';
 import { formatDate } from '@/utils/tools';
+import { BitMatrix } from 'jsqr/dist/BitMatrix';
 
 // Import the ShelfSelector3D component
 const ShelfSelector3D = lazy(() =>
@@ -887,7 +888,7 @@ export default function DeliveryPage() {
             ...formData.status_history
           }
         };
-        
+
         result = await createDeliveryItem(newData as any);
 
         console.log("Updating inventory item status:", result.data);
@@ -1720,7 +1721,7 @@ export default function DeliveryPage() {
                   onChange={(e) => handleSearch(e.target.value)}
                   isClearable
                   onClear={() => handleSearch("")}
-                  startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
+                  startContent={<Icon icon="mdi:magnify" className="text-default-500"/>}
                 />
               )}
               {!user ? null : (
