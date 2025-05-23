@@ -1776,8 +1776,8 @@ export default function InventoryPage() {
                                                                     label="Number of copies"
                                                                     value={duplicateCount}
                                                                     onValueChange={setDuplicateCount}
-                                                                    min={1}
-                                                                    max={10}
+                                                                    minValue={1}
+                                                                    maxValue={10}
                                                                     classNames={{
                                                                       inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200"
                                                                     }}
@@ -1861,8 +1861,8 @@ export default function InventoryPage() {
                                           label="Number of copies"
                                           value={duplicateCount}
                                           onValueChange={setDuplicateCount}
-                                          min={1}
-                                          max={10}
+                                          minValue={1}
+                                          maxValue={10}
                                           classNames={{
                                             inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200"
                                           }}

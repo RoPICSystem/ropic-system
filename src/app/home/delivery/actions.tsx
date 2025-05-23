@@ -152,7 +152,7 @@ export async function updateInventoryItemUnitsStatus(bulkUuids: string[], status
       .update({ status })
       .in("inventory_item_bulk_uuid", bulkUuids)
       .select()
-  
+
 
     if (error) {
       throw error;
@@ -203,7 +203,7 @@ export async function updateInventoryItemBulksStatus(bulkUuids: string[], status
  * Fetches delivery items with optional search
  */
 export async function getDeliveryItems(
-  companyUuid?: string, 
+  companyUuid?: string,
   search: string = "",
   status?: string | null,
   warehouseUuid?: string | null
@@ -234,7 +234,7 @@ export async function getDeliveryItems(
         `name.ilike.%${search}%,description.ilike.%${search}%`, { referencedTable: "inventory_item" }
       );
     }
-    
+
     // Apply status filter if provided
     if (status) {
       query = query.eq("status", status);
@@ -325,12 +325,12 @@ export async function getInventoryItemBulks(inventoryItemUuid: string, getItemsI
       .eq("inventory_uuid", inventoryItemUuid)
       .order("created_at", { ascending: false });
 
-    if (!getItemsInWarehouse) 
+    if (!getItemsInWarehouse)
       query = query.neq("status", "IN_WAREHOUSE");
 
-    
+
     const { data, error } = await query;
-    
+
     if (error) {
       throw error;
     }
@@ -464,14 +464,14 @@ export async function createWarehouseInventoryItems(
       .eq("warehouse_uuid", warehouseUuid)
       .eq("inventory_uuid", inventoryUuid)
       .single();
-    
+
     let warehouseInv;
-    
+
     if (existingError && existingError.code !== 'PGRST116') {
       // If there's an error that's not "no rows returned", throw it
       throw existingError;
     }
-    
+
     if (existingWarehouseInv) {
       // Update existing warehouse inventory item
       // Note: Not updating delivery_uuid as per requirements
@@ -499,8 +499,8 @@ export async function createWarehouseInventoryItems(
           company_uuid: inventoryItem.company_uuid,
           inventory_uuid: inventoryUuid,
           name: inventoryItem.name,
-          description: inventoryItem.description
-          // Note: Not including delivery_uuid as per requirements
+          description: inventoryItem.description,
+          unit: inventoryItem.unit,
         })
         .select()
         .single();
@@ -596,8 +596,8 @@ export async function createWarehouseInventoryItems(
     let existingBulkUuids: string[] = [];
     if (existingWarehouseInv && existingWarehouseInv.warehouse_inventory_item_bulks) {
       // If it's a string array, use it directly; if it's a JSON string, parse it
-      existingBulkUuids = Array.isArray(existingWarehouseInv.warehouse_inventory_item_bulks) 
-        ? existingWarehouseInv.warehouse_inventory_item_bulks 
+      existingBulkUuids = Array.isArray(existingWarehouseInv.warehouse_inventory_item_bulks)
+        ? existingWarehouseInv.warehouse_inventory_item_bulks
         : JSON.parse(existingWarehouseInv.warehouse_inventory_item_bulks);
     }
 

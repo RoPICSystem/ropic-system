@@ -49,6 +49,7 @@ import {
   WarehouseInventoryItem,
   WarehouseInventoryItemBulk,
   WarehouseInventoryItemUnit,
+  markWarehouseBulkAsUsed,
 } from "./actions";
 import { getOccupiedShelfLocations } from "../delivery/actions";
 import { formatCode, parseColumn } from '@/utils/floorplan';
@@ -112,6 +113,7 @@ export default function WarehouseItemsPage() {
   const [maxColumn, setMaxColumn] = useState(0);
   const [maxDepth, setMaxDepth] = useState(0);
   const [isSelectedLocationOccupied, setIsSelectedLocationOccupied] = useState(false);
+  const [isLoadingMarkAsUsed, setIsLoadingMarkAsUsed] = useState(false);
 
   const [showControls, setShowControls] = useState(false);
 
@@ -377,6 +379,34 @@ export default function WarehouseItemsPage() {
       setItemUnits([]);
     } finally {
       setIsLoadingUnits(false);
+    }
+  };
+
+
+  const handleMarkComponentsAsUsed = async (warehouseInventoryItemUuid: string) => {
+    setIsLoadingMarkAsUsed(true);
+
+    try {
+      const result = await markWarehouseBulkAsUsed(warehouseInventoryItemUuid);
+      if (result.success) {
+        // toast.success(result.message);
+        console.log(result.message);
+        // Optionally, refresh data or update local state if needed without full revalidation
+        // For example, by calling a function that refetches the items or updates a specific item in a list.
+      } else {
+        // toast.error(result.message);
+        console.error(result.message);
+      }
+    } catch (error) {
+      console.error("Failed to mark components as used:", error);
+      // toast.error("An unexpected client-side error occurred.");
+    } finally {
+      setIsLoadingMarkAsUsed(false);
+
+      // refresh the item bulks
+      if (selectedItemId) {
+        await loadItemBulks(selectedItemId);
+      }
     }
   };
 
@@ -966,8 +996,13 @@ export default function WarehouseItemsPage() {
                                         {formatNumber(bulk.unit_value)} {bulk.unit}
                                       </Chip>
                                       {bulk.location_code && (
-                                        <Chip color="success" variant="flat" size="sm">
+                                        <Chip color="secondary" variant="flat" size="sm">
                                           {bulk.location_code}
+                                        </Chip>
+                                      )}
+                                      {bulk.status && (
+                                        <Chip color={bulk.status === "AVAILABLE" ? "success" : "danger"} variant="flat" size="sm">
+                                          {bulk.status}
                                         </Chip>
                                       )}
                                     </div>
@@ -1249,6 +1284,21 @@ export default function WarehouseItemsPage() {
                                           startContent={<Icon icon="mdi:truck-delivery" />}
                                         >
                                           View Delivery
+                                        </Button>
+
+                                        <Button
+                                          color="warning"
+                                          variant="flat"
+                                          size="sm"
+                                          isDisabled={isLoadingMarkAsUsed || bulk.status === "USED"}
+                                          onPress={() => handleMarkComponentsAsUsed(bulk.uuid)}
+                                          startContent={
+                                            isLoadingMarkAsUsed ? 
+                                              <Spinner size="sm" color="warning" />
+                                              : <Icon icon="mdi:check-circle" />
+                                          }
+                                        >
+                                          Mark as Used
                                         </Button>
                                       </div>
 
