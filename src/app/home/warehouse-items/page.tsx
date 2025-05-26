@@ -24,7 +24,8 @@ import {
   Spinner,
   Textarea,
   Tooltip,
-  useDisclosure
+  useDisclosure,
+  Alert
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -32,6 +33,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { QRCodeCanvas } from "qrcode.react";
 import React, { lazy, memo, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
+import ListLoadingAnimation from "@/components/list-loading-animation";
 
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { materialLight, materialDark } from 'react-syntax-highlighter/dist/cjs/styles/prism';
@@ -50,10 +52,14 @@ import {
   WarehouseInventoryItemBulk,
   WarehouseInventoryItemUnit,
   markWarehouseBulkAsUsed,
+  WarehouseInventoryItemComplete,
 } from "./actions";
 import { getOccupiedShelfLocations } from "../delivery/actions";
 import { formatCode, parseColumn } from '@/utils/floorplan';
 import { copyToClipboard, formatDate, formatNumber } from "@/utils/tools";
+import { getUserFromCookies } from "@/utils/supabase/server/user";
+import LoadingAnimation from "@/components/loading-animation";
+import { ShelfLocation } from "@/components/shelf-selector-3d";
 // Lazy load 3D shelf selector
 const ShelfSelector3D = memo(lazy(() =>
   import("@/components/shelf-selector-3d").then(mod => ({
@@ -67,8 +73,7 @@ export default function WarehouseItemsPage() {
   const [user, setUser] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingItems, setIsLoadingItems] = useState(true);
-  const [isLoadingBulks, setIsLoadingBulks] = useState(false);
-  const [isLoadingUnits, setIsLoadingUnits] = useState(false);
+  const [isLoadingWarehouses, setIsLoadingWarehouses] = useState(false);
 
   // Warehouse items state
   const [warehouseItems, setWarehouseItems] = useState<WarehouseInventoryItem[]>([]);
@@ -76,10 +81,6 @@ export default function WarehouseItemsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedWarehouse, setSelectedWarehouse] = useState<string | null>(null);
   const [warehouses, setWarehouses] = useState<any[]>([]);
-
-  // Bulks and units state
-  const [itemBulks, setItemBulks] = useState<WarehouseInventoryItemBulk[]>([]);
-  const [itemUnits, setItemUnits] = useState<WarehouseInventoryItemUnit[]>([]);
 
   // Expanded accordion state
   const [expandedBulks, setExpandedBulks] = useState<Set<string>>(new Set());
@@ -89,11 +90,9 @@ export default function WarehouseItemsPage() {
   const qrCodeModal = useDisclosure();
   const locationModal = useDisclosure();
 
-  // Add this state for location modal
-  const [selectedBulkForLocation, setSelectedBulkForLocation] = useState<WarehouseInventoryItemBulk | null>(null);
 
   // Form state
-  const [formData, setFormData] = useState<Partial<WarehouseInventoryItem>>({});
+  const [formData, setFormData] = useState<Partial<WarehouseInventoryItemComplete>>();
 
   // 3D shelf selector states
   const [floorConfigs, setFloorConfigs] = useState<any[]>([]);
@@ -103,6 +102,7 @@ export default function WarehouseItemsPage() {
   const [shelfColorAssignments, setShelfColorAssignments] = useState<Array<any>>([]);
 
   const [isSearchFilterOpen, setIsSearchFilterOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Add this derived state
   const [locationCode, setLocationCode] = useState("");
@@ -112,7 +112,6 @@ export default function WarehouseItemsPage() {
   const [maxRow, setMaxRow] = useState(0);
   const [maxColumn, setMaxColumn] = useState(0);
   const [maxDepth, setMaxDepth] = useState(0);
-  const [isSelectedLocationOccupied, setIsSelectedLocationOccupied] = useState(false);
   const [isLoadingMarkAsUsed, setIsLoadingMarkAsUsed] = useState(false);
 
   const [showControls, setShowControls] = useState(false);
@@ -125,6 +124,12 @@ export default function WarehouseItemsPage() {
     inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
   };
   const autoCompleteStyle = { classNames: inputStyle };
+
+  // Add pagination state
+  const [page, setPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
 
   // Generate item JSON for QR code
   const generateItemJson = (space: number = 0) => {
@@ -142,28 +147,54 @@ export default function WarehouseItemsPage() {
     return JSON.stringify(data, null, space);
   };
 
-  const handleViewBulkLocation = (bulk: WarehouseInventoryItemBulk) => {
-    setSelectedBulkForLocation(bulk);
+  const handleViewBulkLocation = (location: ShelfLocation | null) => {
+
+    let updatedAssignments = shelfColorAssignments;
+    if (!location) {
+      // reset all assignments to secondary
+      updatedAssignments = shelfColorAssignments.map(assignment => ({
+        ...assignment,
+        colorType: 'secondary'
+      }));
+    } else {
+      // match the location  shelfColorAssignments then change the colorType to tertiary
+      // then set the rest to secondary
+      updatedAssignments = shelfColorAssignments.map(assignment => {
+        if (
+          assignment.floor === location.floor &&
+          assignment.group === location.group &&
+          assignment.row === location.row &&
+          assignment.column === location.column &&
+          assignment.depth === (location.depth || 0)
+        ) {
+          return { ...assignment, colorType: 'tertiary' }; // Highlight this one
+        } else {
+          return { ...assignment, colorType: 'secondary' }; // Set others to secondary
+        }
+      });
+    }
+
+    setShelfColorAssignments(updatedAssignments);
 
     // Prepare the 3D visualization data
-    if (bulk.location) {
+    if (location) {
       // Set the highlighted floor
-      setHighlightedFloor(bulk.location.floor || 0);
+      setHighlightedFloor(location.floor || 0);
 
       // Set up external selection to highlight this location
-      setExternalSelection(bulk.location);
+      setExternalSelection(location);
 
       // Generate location code
-      setLocationCode(formatCode(bulk.location));
-
-      // Find the index of the selected bulk in the itemBulks array
-      const bulkIndex = itemBulks.findIndex(b => b.uuid === bulk.uuid);
-      setCurrentBulkIndex(bulkIndex);
+      setLocationCode(formatCode(location));
 
       // Load warehouse configuration if not already loaded
       if (floorConfigs.length === 0) {
-        loadWarehouseConfiguration(formData.warehouse_uuid as string);
+        loadWarehouseConfiguration(formData?.warehouse_uuid || '' as string);
       }
+    } else {
+      // Reset external selection if no location is provided
+      setExternalSelection(undefined);
+      setLocationCode("");
     }
 
     locationModal.onOpen();
@@ -176,9 +207,6 @@ export default function WarehouseItemsPage() {
 
     // Set external selection directly
     setExternalSelection(location);
-
-    // Generate location code
-    setLocationCode(formatCode(location));
 
     // Update maximum values if available
     if (location.max_group !== undefined) setMaxGroupId(location.max_group);
@@ -198,7 +226,6 @@ export default function WarehouseItemsPage() {
         floor: floorIndex
       };
       setExternalSelection(newSelection);
-      setLocationCode(formatCode(newSelection));
     }
   };
 
@@ -211,7 +238,6 @@ export default function WarehouseItemsPage() {
         group: adjustedId
       };
       setExternalSelection(newSelection);
-      setLocationCode(formatCode(newSelection));
     }
   };
 
@@ -224,7 +250,6 @@ export default function WarehouseItemsPage() {
         row: adjustedRow
       };
       setExternalSelection(newSelection);
-      setLocationCode(formatCode(newSelection));
     }
   };
 
@@ -237,7 +262,6 @@ export default function WarehouseItemsPage() {
         column: adjustedCol
       };
       setExternalSelection(newSelection);
-      setLocationCode(formatCode(newSelection));
     }
   };
 
@@ -250,7 +274,6 @@ export default function WarehouseItemsPage() {
         depth: adjustedDepth
       };
       setExternalSelection(newSelection);
-      setLocationCode(formatCode(newSelection));
     }
   };
 
@@ -273,17 +296,35 @@ export default function WarehouseItemsPage() {
     }
   };
 
-  // Handle item search
-  const handleSearch = async (query: string) => {
+  // Handle search with pagination
+  const handleSearch = async (query: string, currentPage: number = page) => {
     setSearchQuery(query);
+    setIsLoadingItems(true);
+
     try {
-      setIsLoadingItems(true);
-      const result = await getWarehouseInventoryItems(
-        user.company_uuid,
-        selectedWarehouse || undefined,
-        query
-      );
-      setWarehouseItems(result.data || []);
+      if (user?.company_uuid) {
+        // Calculate offset based on current page and rows per page
+        const offset = (currentPage - 1) * rowsPerPage;
+
+        const result = await getWarehouseInventoryItems(
+          user.company_uuid,
+          selectedWarehouse || undefined,
+          query,
+          null, // status
+          null, // year
+          null, // month
+          null, // week
+          null, // day
+          rowsPerPage, // limit
+          offset // offset
+        );
+
+        console.log("Searching warehouse items with query:", result);
+
+        setWarehouseItems(result.data || []);
+        setTotalPages(result.totalPages || 1);
+        setTotalItems(result.totalCount || 0);
+      }
     } catch (error) {
       console.error("Error searching warehouse items:", error);
     } finally {
@@ -291,17 +332,42 @@ export default function WarehouseItemsPage() {
     }
   };
 
-  // Handle warehouse filter change
+  // Function to handle page changes
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage);
+    handleSearch(searchQuery, newPage);
+  };
+
+  // Update warehouse filter change handler to use pagination
   const handleWarehouseChange = async (warehouseId: string | null) => {
     setSelectedWarehouse(warehouseId);
+    setIsLoadingItems(true);
+    setPage(1); // Reset to first page on filter change
+
+
+    if (!warehouseId|| warehouseId ===  "null") {
+      setSelectedWarehouse(null); 
+      setIsLoadingItems(false);
+      return;
+    };
+
     try {
-      setIsLoadingItems(true);
       const result = await getWarehouseInventoryItems(
         user.company_uuid,
         warehouseId || undefined,
-        searchQuery
+        searchQuery,
+        null, // status
+        null, // year
+        null, // month
+        null, // week
+        null, // day
+        rowsPerPage, // limit
+        0 // offset for first page
       );
+
       setWarehouseItems(result.data || []);
+      setTotalPages(result.totalPages || 1);
+      setTotalItems(result.totalCount || 0);
     } catch (error) {
       console.error("Error filtering by warehouse:", error);
     } finally {
@@ -311,23 +377,26 @@ export default function WarehouseItemsPage() {
 
   // In handleSelectItem function, just update the URL
   const handleSelectItem = (key: string) => {
-    setSelectedItemId(key);
+    setIsLoading(true);
+
     // Update the URL with the selected item ID without reloading the page
     const params = new URLSearchParams(searchParams.toString());
     params.set("warehouseItemId", key);
     router.push(`?${params.toString()}`, { scroll: false });
+
+    setSelectedItemId(key);
   };
 
   // Handle view inventory details
   const handleViewInventory = () => {
-    if (formData.inventory_uuid) {
+    if (formData?.inventory_uuid) {
       router.push(`/home/inventory?itemId=${formData.inventory_uuid}`);
     }
   };
 
   // Handle view warehouse details
   const handleViewWarehouse = () => {
-    if (formData.warehouse_uuid) {
+    if (formData?.warehouse_uuid) {
       router.push(`/home/warehouses?warehouseId=${formData.warehouse_uuid}`);
     }
   };
@@ -337,51 +406,6 @@ export default function WarehouseItemsPage() {
     router.push(`/home/delivery?deliveryId=${deliveryId}`);
   };
 
-  // Function to load bulks for an item
-  const loadItemBulks = async (itemId: string) => {
-    setIsLoadingBulks(true);
-    try {
-      const result = await getWarehouseInventoryItemBulks(itemId);
-      if (result.success) {
-        setItemBulks(result.data || []);
-        // Pre-select the first bulk to show units
-        if (result.data?.length > 0) {
-          setExpandedBulks(new Set([result.data[0].uuid]));
-          await loadItemUnits(result.data[0].uuid);
-        }
-      } else {
-        setItemBulks([]);
-      }
-    } catch (error) {
-      console.error("Error loading warehouse item bulks:", error);
-      setItemBulks([]);
-    } finally {
-      setIsLoadingBulks(false);
-    }
-  };
-
-  // Function to load units for a bulk
-  const loadItemUnits = async (bulkId: string) => {
-    setIsLoadingUnits(true);
-    try {
-      const result = await getWarehouseInventoryItemUnits(bulkId);
-      if (result.success) {
-        setItemUnits(result.data || []);
-        // If there are units, expand the first one
-        if (result.data?.length > 0) {
-          setExpandedUnits(new Set([result.data[0].uuid]));
-        }
-      } else {
-        setItemUnits([]);
-      }
-    } catch (error) {
-      console.error("Error loading warehouse item units:", error);
-      setItemUnits([]);
-    } finally {
-      setIsLoadingUnits(false);
-    }
-  };
-
 
   const handleMarkComponentsAsUsed = async (warehouseInventoryItemUuid: string) => {
     setIsLoadingMarkAsUsed(true);
@@ -389,23 +413,18 @@ export default function WarehouseItemsPage() {
     try {
       const result = await markWarehouseBulkAsUsed(warehouseInventoryItemUuid);
       if (result.success) {
-        // toast.success(result.message);
         console.log(result.message);
-        // Optionally, refresh data or update local state if needed without full revalidation
-        // For example, by calling a function that refetches the items or updates a specific item in a list.
       } else {
-        // toast.error(result.message);
         console.error(result.message);
       }
     } catch (error) {
       console.error("Failed to mark components as used:", error);
-      // toast.error("An unexpected client-side error occurred.");
     } finally {
       setIsLoadingMarkAsUsed(false);
 
-      // refresh the item bulks
+      // Refresh the item bulks and all units
       if (selectedItemId) {
-        await loadItemBulks(selectedItemId);
+        // await loadItemBulks(selectedItemId);
       }
     }
   };
@@ -426,80 +445,117 @@ export default function WarehouseItemsPage() {
 
   // Add or update useEffect to watch for changes in search parameters
   useEffect(() => {
-    if (!user?.company_uuid || isLoadingItems) return;
+    setIsLoading(true);
 
     const warehouseItemId = searchParams.get("warehouseItemId");
     const inventoryItemId = searchParams.get("itemId");
 
     // Handle both warehouseItemId and itemId params
     const fetchItemDetails = async () => {
-      if (warehouseItemId) {
-        // Get warehouse item by its UUID
-        const result = await getWarehouseInventoryItem(warehouseItemId);
-        if (result.success && result.data) {
-          setSelectedItemId(warehouseItemId);
-          setFormData(result.data);
+      const result = warehouseItemId ? (await getWarehouseInventoryItem(warehouseItemId)) : inventoryItemId ? (await getWarehouseItemByInventory(inventoryItemId)) : null;
 
-          // Load bulks for this item
-          await loadItemBulks(warehouseItemId);
+      if (result && result.success && result.data) {
+        const bulk: WarehouseInventoryItemComplete = result.data;
 
-          // If the item has a warehouse_uuid, load its configuration
-          if (result.data.warehouse_uuid) {
-            await loadWarehouseConfiguration(result.data.warehouse_uuid);
+        setSelectedItemId(warehouseItemId);
+        setFormData(bulk);
+
+        // Set the first bulk and first unit as expanded
+        if (bulk.bulks && bulk.bulks.length > 0) {
+          setExpandedBulks(new Set([bulk.bulks[0].uuid]));
+
+          // If the first bulk has units, expand the first unit too
+          if (bulk.bulks[0].units && bulk.bulks[0].units.length > 0) {
+            setExpandedUnits(new Set([bulk.bulks[0].units[0].uuid]));
+          } else {
+            setExpandedUnits(new Set());
           }
+        } else {
+          setExpandedBulks(new Set());
+          setExpandedUnits(new Set());
         }
-      } else if (inventoryItemId) {
-        // Get warehouse item by inventory UUID
-        const result = await getWarehouseItemByInventory(inventoryItemId);
-        if (result.success && result.data) {
-          setSelectedItemId(result.data.uuid);
-          setFormData(result.data);
 
-          // Load bulks for this item
-          await loadItemBulks(result.data.uuid);
+        // If the item has a warehouse_uuid, load its configuration
+        if (bulk.warehouse_uuid) {
+          await loadWarehouseConfiguration(bulk.warehouse_uuid);
+        }
 
-          // If the item has a warehouse_uuid, load its configuration
-          if (result.data.warehouse_uuid) {
-            await loadWarehouseConfiguration(result.data.warehouse_uuid);
-          }
-
-          // Update URL to use warehouseItemId for consistency
+        if (inventoryItemId) {
           const params = new URLSearchParams(searchParams.toString());
           params.delete("itemId");
           params.set("warehouseItemId", result.data.uuid);
           router.push(`?${params.toString()}`, { scroll: false });
-        } else {
-          // If no warehouse item found for this inventory, clear selection
-          setSelectedItemId(null);
-          setFormData({});
-          setItemBulks([]);
-          setItemUnits([]);
         }
+
+        const assignments: Array<any> = bulk.bulks.map((bulk: WarehouseInventoryItemBulk, index: number) => {
+          if (bulk.location) {
+            return {
+              floor: bulk.location.floor,
+              group: bulk.location.group,
+              row: bulk.location.row,
+              column: bulk.location.column,
+              depth: bulk.location.depth || 0,
+              colorType: 'secondary'
+            };
+          }
+          return null;
+        }).filter(Boolean);
+
+        setShelfColorAssignments(assignments);
+        setIsLoading(false);
       } else {
-        // No item selected
         setSelectedItemId(null);
         setFormData({});
-        setItemBulks([]);
-        setItemUnits([]);
+        setExpandedBulks(new Set());
+        setExpandedUnits(new Set());
+        setIsLoading(false);
       }
+
     };
 
     fetchItemDetails();
-  }, [searchParams, user?.company_uuid, isLoadingItems]);
+  }, [searchParams]);
+
 
   // Initialize page data
   useEffect(() => {
     const initPage = async () => {
       try {
-        setUser(window.userData);
+        setIsLoadingItems(true);
+        setIsLoadingWarehouses(true);
 
-        // Fetch warehouse items
-        const itemsResult = await getWarehouseInventoryItems(window.userData.company_uuid);
-        setWarehouseItems(itemsResult.data || []);
+        const userData = await getUserFromCookies();
+        if (userData === null) {
+          setError('User not found');
+          return;
+        }
+
+        setUser(userData);
+
+        if (userData.company_uuid) {
+          // Use pagination parameters
+          const result = await getWarehouseInventoryItems(
+            userData.company_uuid,
+            selectedWarehouse || undefined,
+            searchQuery,
+            null, // status
+            null, // year
+            null, // month
+            null, // week
+            null, // day
+            rowsPerPage, // limit
+            0 // offset for first page
+          );
+
+          setWarehouseItems(result.data || []);
+          setTotalPages(result.totalPages || 1);
+          setTotalItems(result.totalCount || 0);
+        }
 
         // Fetch warehouses for filtering
-        const warehousesResult = await getWarehouses(window.userData.company_uuid);
+        const warehousesResult = await getWarehouses(userData.company_uuid);
         setWarehouses(warehousesResult.data || []);
+        setIsLoadingWarehouses(false);
 
         setIsLoadingItems(false);
       } catch (error) {
@@ -543,7 +599,7 @@ export default function WarehouseItemsPage() {
             const refreshedItem = await getWarehouseInventoryItem(selectedItemId);
             if (refreshedItem.success && refreshedItem.data) {
               setFormData(refreshedItem.data);
-              await loadItemBulks(selectedItemId);
+              // await loadItemBulks(selectedItemId);
             }
           }
         }
@@ -556,49 +612,6 @@ export default function WarehouseItemsPage() {
     };
   }, [user?.company_uuid, searchQuery, selectedWarehouse, selectedItemId]);
 
-  // Add this useEffect after your other useEffects
-  useEffect(() => {
-    const assignments: Array<any> = [];
-
-    // Only process if we have bulks with locations
-    const bulksWithLocations = itemBulks.filter(bulk => bulk.location);
-
-    if (bulksWithLocations.length > 0) {
-      // Add all bulk locations as secondary color (green), except the current one
-      bulksWithLocations.forEach((bulk, index) => {
-        if (currentBulkIndex !== null && index === currentBulkIndex) {
-          // Skip current - will add as tertiary below
-          return;
-        }
-
-        if (bulk.location) {
-          assignments.push({
-            floor: bulk.location.floor,
-            group: bulk.location.group,
-            row: bulk.location.row,
-            column: bulk.location.column,
-            depth: bulk.location.depth || 0,
-            colorType: 'secondary'
-          });
-        }
-      });
-
-      // Add the currently focused bulk location as tertiary (blue)
-      if (currentBulkIndex !== null && bulksWithLocations[currentBulkIndex]?.location) {
-        const currentLocation = bulksWithLocations[currentBulkIndex].location;
-        assignments.push({
-          floor: currentLocation.floor,
-          group: currentLocation.group,
-          row: currentLocation.row,
-          column: currentLocation.column,
-          depth: currentLocation.depth || 0,
-          colorType: 'tertiary'
-        });
-      }
-    }
-
-    setShelfColorAssignments(assignments);
-  }, [itemBulks, currentBulkIndex]);
 
   return (
     <div className="container mx-auto p-2 max-w-4xl">
@@ -627,21 +640,40 @@ export default function WarehouseItemsPage() {
         >
           <div className="flex flex-col h-full">
             <div className="p-4 sticky top-0 z-20 bg-background/80 border-b border-default-200 backdrop-blur-lg shadow-sm">
-              <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouse Items</h2>
+              <LoadingAnimation
+                condition={!user || isLoadingWarehouses}
+                skeleton={
+                  <>
+                    {/* Heading skeleton */}
+                    <Skeleton className="h-[1.75rem] w-48 mx-auto mb-4 rounded-full" />
 
-              {!user ? (
-                <>
-                  <Skeleton className="h-10 w-full rounded-xl mb-4" />
-                  <Skeleton className="h-[4rem] w-full rounded-xl" />
-                </>
-              ) : (
+                    <div className="space-y-4">
+                      {/* Search input skeleton */}
+                      <Skeleton className="h-10 w-full rounded-xl" />
+
+                      {/* Filter controls skeleton */}
+                      <ScrollShadow orientation="horizontal" className="flex-1" hideScrollBar>
+                        <div className="flex flex-row gap-2 items-center">
+                          {/* Filter button skeleton */}
+                          <Skeleton className="h-10 w-24 rounded-xl flex-none" />
+
+                          {/* Filter chips area skeleton */}
+                          <Skeleton className="h-8 w-32 rounded-full flex-none" />
+                          <Skeleton className="h-8 w-36 rounded-full flex-none" />
+                          <Skeleton className="h-8 w-24 rounded-full flex-none" />
+                        </div>
+                      </ScrollShadow>
+                    </div>
+                  </>
+                }>
+                <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouse Items</h2>
                 <div className="space-y-4">
                   <Input
-                    placeholder="Search items..."
+                    placeholder="Search warehouse items..."
                     value={searchQuery}
-                    onChange={(e) => handleSearch(e.target.value)}
+                    onChange={(e) => handleSearch(e.target.value, 1)}
                     isClearable
-                    onClear={() => handleSearch("")}
+                    onClear={() => handleSearch("", 1)}
                     startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
                   />
 
@@ -737,22 +769,18 @@ export default function WarehouseItemsPage() {
                     </ScrollShadow>
                   </div>
                 </div>
-              )}
+              </LoadingAnimation>
             </div>
+            
             <div className="h-full absolute w-full">
-              {!user || isLoadingItems ? (
-                <div className="space-y-4 mt-1 p-4 pt-[11.5rem] h-full relative">
-                  {[...Array(10)].map((_, i) => (
+              <div className={`space-y-4 p-4 mt-1 pt-[11.5rem] h-full relative ${(user && !isLoadingItems) && "overflow-y-auto"}`}>
+                <ListLoadingAnimation
+                  condition={!user || isLoadingItems}
+                  containerClassName="space-y-4"
+                  skeleton={[...Array(10)].map((_, i) => (
                     <Skeleton key={i} className="w-full min-h-[7.5rem] rounded-xl" />
                   ))}
-                  <div className="absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-background to-transparent pointer-events-none" />
-                  <div className="py-4 flex absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
-                    <Spinner />
-                  </div>
-                </div>
-              ) : !isLoadingItems && warehouseItems.length !== 0 ? (
-                <div
-                  className='space-y-4 p-4 overflow-y-auto pt-[12rem] xl:h-full h-[42rem]'>
+                >
                   {warehouseItems.map((item) => (
                     <Button
                       key={item.uuid}
@@ -794,17 +822,62 @@ export default function WarehouseItemsPage() {
                       </div>
                     </Button>
                   ))}
-                </div>
-              ) : null}
+                </ListLoadingAnimation>
 
-              {user && !isLoadingItems && warehouseItems.length === 0 && (
-                <div className="xl:h-full h-[42rem] absolute w-full">
-                  <div className="py-4 flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
-                    <Icon icon="fluent:box-dismiss-20-filled" className="text-5xl text-default-300" />
-                    <p className="text-default-500 mt-2">No warehouse items found.</p>
+                {/* Add pagination */}
+                {warehouseItems.length > 0 && (
+                  <div className="flex flex-col items-center pt-2 pb-4 px-2">
+                    <div className="text-sm text-default-500 mb-2">
+                      Showing {(page - 1) * rowsPerPage + 1} to {Math.min(page * rowsPerPage, totalItems)} of {totalItems} {totalItems === 1 ? 'item' : 'items'}
+                    </div>
+                    <Pagination
+                      total={totalPages}
+                      initialPage={1}
+                      page={page}
+                      onChange={handlePageChange}
+                      color="primary"
+                      size="sm"
+                      showControls
+                    />
                   </div>
-                </div>
-              )}
+                )}
+
+                {/* Empty state and loading animations */}
+                <AnimatePresence>
+                  {(!user || isLoadingItems) && (
+                    <motion.div
+                      className="absolute inset-0 flex items-center justify-center"
+                      initial={{ opacity: 0, filter: "blur(8px)" }}
+                      animate={{ opacity: 1, filter: "blur(0px)" }}
+                      exit={{ opacity: 0, filter: "blur(8px)" }}
+                      transition={{ duration: 0.3, delay: 0.3 }}
+                    >
+                      <div className="absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-background to-transparent pointer-events-none" />
+                      <div className="py-4 flex absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
+                        <Spinner />
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {/* No items found state */}
+              <AnimatePresence>
+                {user && !isLoadingItems && warehouseItems.length === 0 && (
+                  <motion.div
+                    className="xl:h-full h-[42rem] absolute w-full"
+                    initial={{ opacity: 0, filter: "blur(8px)" }}
+                    animate={{ opacity: 1, filter: "blur(0px)" }}
+                    exit={{ opacity: 0, filter: "blur(8px)" }}
+                    transition={{ duration: 0.3 }}
+                  >
+                    <div className="py-4 flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
+                      <Icon icon="mdi:package-variant" className="text-5xl text-default-300" />
+                      <p className="text-default-500 mt-2">No warehouse inventory items found</p>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
         </div>
@@ -814,20 +887,30 @@ export default function WarehouseItemsPage() {
           {selectedItemId ? (
             <div className="flex flex-col gap-2">
               <CardList>
-                <div>
-                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Item Details</h2>
-                  <div className="space-y-4">
-                    {isLoading ? (
-                      <>
-                        <div className="space-y-2">
-                          <Skeleton className="h-16 w-full rounded-xl" />
+
+                <LoadingAnimation
+                  condition={isLoading || isLoadingWarehouses || !formData}
+                  skeleton={
+                    <div>
+                      <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" />
+                      <div className="space-y-4">
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <Skeleton className="h-16 rounded-xl" />
+                          <Skeleton className="h-16 rounded-xl" />
+                          <Skeleton className="h-16 rounded-xl" />
+                          <Skeleton className="h-16 rounded-xl" />
+                          <Skeleton className="h-16 rounded-xl" />
+                          <Skeleton className="h-16 rounded-xl" />
                         </div>
-                        <div className="space-y-2">
-                          <Skeleton className="h-24 w-full rounded-xl" />
-                        </div>
-                      </>
-                    ) : (
-                      <>
+                        <Skeleton className="h-28 w-full rounded-xl" />
+                      </div>
+                    </div>
+                  }>
+                  {formData && formData.bulks && (
+                    <div>
+                      <h2 className="text-xl font-semibold mb-4 w-full text-center">Item Details</h2>
+                      <div className="space-y-4">
                         <Input
                           label="Warehouse Item Identifier"
                           value={formData.uuid}
@@ -861,16 +944,6 @@ export default function WarehouseItemsPage() {
                             startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.1rem]" />}
                           />
                         </div>
-
-                        {formData.description && (
-                          <Textarea
-                            label="Description"
-                            value={formData.description || ""}
-                            isReadOnly
-                            classNames={inputStyle}
-                            startContent={<Icon icon="mdi:text-box" className="text-default-500 mb-[0.2rem]" />}
-                          />
-                        )}
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <Input
@@ -907,412 +980,476 @@ export default function WarehouseItemsPage() {
                             startContent={<Icon icon="mdi:calendar-clock" className="text-default-500 mb-[0.2rem]" />}
                           />
                         </div>
-                      </>
-                    )}
-                  </div>
-                </div>
 
-                <div>
-                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Bulk Items</h2>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center mb-4">
-                      <div className="flex items-center gap-2">
-                        {isLoadingBulks ? (
-                          <>
-                            <Skeleton className="h-6 w-20 rounded-xl" />
-                          </>
-                        ) : (
-                          <Chip color="default" variant="flat" size="sm">
-                            {itemBulks.length} bulk{itemBulks.length !== 1 ? "s" : ""}
-                          </Chip>
-                        )}
+                        <Textarea
+                          label="Description"
+                          value={formData.description || undefined}
+                          isReadOnly
+                          placeholder="Empty description"
+                          classNames={inputStyle}
+                          startContent={<Icon icon="mdi:text-box" className="text-default-500 mb-[0.2rem]" />}
+                        />
                       </div>
                     </div>
+                  )}
+                </LoadingAnimation>
 
-                    <AnimatePresence>
-                      {isLoadingBulks ? (
-                        <motion.div {...motionTransition}>
-                          <div className="space-y-4">
-                            <div className="p-4 border-2 border-default-200 rounded-xl space-y-4">
-                              <div className="flex justify-between">
-                                <Skeleton className="h-6 w-40 rounded-lg" />
-                                <Skeleton className="h-6 w-24 rounded-lg" />
+
+                <div className="space-y-4">
+                  <LoadingAnimation
+                    condition={isLoading || isLoadingWarehouses}
+                    skeleton={
+                      <div>
+                        <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" />
+                        <div className="space-y-4">
+                          <div className="flex justify-between items-center mb-4">
+                            <Skeleton className="h-6 w-20 rounded-xl" />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <div className="p-4 border-2 border-default-200 rounded-xl space-y-4">
+                            <div className="flex justify-between items-center mb-8">
+                              <Skeleton className="h-6 w-40 rounded-full" />
+                              <div className="flex items-center gap-4">
+                                <Skeleton className="h-5 w-16 rounded-full" />
+                                <Skeleton className="h-5 w-5 rounded-full" />
                               </div>
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            </div>
+                            <Skeleton className="h-16 w-full rounded-xl" />
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <Skeleton className="h-16 w-full rounded-xl" />
+                              <Skeleton className="h-16 w-full rounded-xl" />
+                              <Skeleton className="h-16 w-full rounded-xl" />
+                              <Skeleton className="h-16 w-full rounded-xl" />
+                            </div>
+
+
+                            <div className="p-4 border-2 border-default-200 rounded-xl space-y-2">
+                              <div className="flex justify-between items-center mb-4">
+                                <Skeleton className="h-6 w-40 rounded-full" />
+                                <Skeleton className="h-5 w-5 rounded-full" />
+                              </div>
+                              <div className="p-4 border-2 border-default-200 rounded-xl space-y-4">
+                                <div className="flex justify-between items-center mb-8">
+                                  <Skeleton className="h-6 w-32 rounded-full" />
+                                  <div className="flex items-center gap-4">
+                                    <Skeleton className="h-5 w-16 rounded-full" />
+                                    <Skeleton className="h-5 w-5 rounded-full" />
+                                  </div>
+                                </div>
                                 <Skeleton className="h-16 w-full rounded-xl" />
-                                <Skeleton className="h-16 w-full rounded-xl" />
-                                <Skeleton className="h-16 w-full rounded-xl" />
-                                <Skeleton className="h-16 w-full rounded-xl" />
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <Skeleton className="h-16 w-full rounded-xl" />
+                                  <Skeleton className="h-16 w-full rounded-xl" />
+                                  <Skeleton className="h-16 w-full rounded-xl" />
+                                  <Skeleton className="h-16 w-full rounded-xl" />
+                                </div>
+                              </div>
+
+                              <div className="p-4 border-2 border-default-200 rounded-xl flex justify-between">
+                                <Skeleton className="h-6 w-40 rounded-full" />
+                                <div className="flex items-center gap-4">
+                                  <Skeleton className="h-5 w-16 rounded-full" />
+                                  <Skeleton className="h-5 w-5 rounded-full" />
+                                </div>
+                              </div>
+
+                              <div className="p-4 border-2 border-default-200 rounded-xl flex justify-between">
+                                <Skeleton className="h-6 w-40 rounded-full" />
+                                <div className="flex items-center gap-4">
+                                  <Skeleton className="h-5 w-16 rounded-full" />
+                                  <Skeleton className="h-5 w-5 rounded-full" />
+                                </div>
                               </div>
                             </div>
                           </div>
-                        </motion.div>
-                      ) : itemBulks.length === 0 ? (
-                        <motion.div {...motionTransition}>
-                          <div className="py-8 h-48 text-center text-default-500 border border-dashed border-default-300 rounded-lg justify-center flex flex-col items-center">
-                            <Icon icon="mdi:package-variant-closed" className="mx-auto mb-2 opacity-50" width={40} height={40} />
-                            <p>No bulk items available for this warehouse item</p>
+
+                          <div className="p-4 border-2 border-default-200 rounded-xl flex justify-between">
+                            <Skeleton className="h-6 w-40 rounded-full" />
+                            <div className="flex items-center gap-4">
+                              <Skeleton className="h-5 w-16 rounded-full" />
+                              <Skeleton className="h-5 w-5 rounded-full" />
+                            </div>
                           </div>
-                        </motion.div>
-                      ) : null}
-                    </AnimatePresence>
 
-                    <AnimatePresence>
-                      {!isLoadingBulks && itemBulks.length > 0 && (
-                        <motion.div {...motionTransition}>
-                          <Accordion
-                            selectionMode="multiple"
-                            variant="splitted"
-                            selectedKeys={expandedBulks}
-                            onSelectionChange={(keys) => {
-                              setExpandedBulks(keys as Set<string>);
-                              // Load units when a bulk is expanded
-                              const newKeys = Array.from(keys as Set<string>);
-                              if (newKeys.length > 0 && !Array.from(expandedBulks).includes(newKeys[0])) {
-                                loadItemUnits(newKeys[0]);
-                              }
-                            }}
-                            itemClasses={{
-                              base: "p-0 w-full bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
-                              title: "font-normal text-lg font-semibold",
-                              trigger: "p-4 data-[hover=true]:bg-default-100 h-14 flex items-center transition-colors",
-                              indicator: "text-medium",
-                              content: "text-small p-0",
-                            }}
-                            className="w-full p-0 overflow-hidden"
-                          >
-                            {itemBulks.map(bulk => (
-                              <AccordionItem
-                                key={bulk.uuid}
-                                title={
-                                  <div className="flex justify-between items-center w-full">
-                                    <div className="flex items-center gap-2">
-                                      <span className="font-medium">
-                                        {bulk.is_single_item ? "Single Item" : `Bulk ${bulk.bulk_unit || ''}`}
-                                      </span>
-                                    </div>
-                                    <div className="flex gap-2">
-                                      <Chip color="primary" variant="flat" size="sm">
-                                        {formatNumber(bulk.unit_value)} {bulk.unit}
-                                      </Chip>
-                                      {bulk.location_code && (
-                                        <Chip color="secondary" variant="flat" size="sm">
-                                          {bulk.location_code}
-                                        </Chip>
-                                      )}
-                                      {bulk.status && (
-                                        <Chip color={bulk.status === "AVAILABLE" ? "success" : "danger"} variant="flat" size="sm">
-                                          {bulk.status}
-                                        </Chip>
-                                      )}
-                                    </div>
-                                  </div>
-                                }
+                          <div className="p-4 border-2 border-default-200 rounded-xl flex justify-between">
+                            <Skeleton className="h-6 w-40 rounded-full" />
+                            <div className="flex items-center gap-4">
+                              <Skeleton className="h-5 w-16 rounded-full" />
+                              <Skeleton className="h-5 w-5 rounded-full" />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    }>
+                    {formData && formData.bulks && (
+                      <div>
+                        <h2 className="text-xl font-semibold mb-4 w-full text-center">Bulk Items</h2>
+                        <div>
+                          <div className="flex justify-between items-center">
+                            <div className="flex items-center gap-2">
+
+                              <Chip color="default" variant="flat" size="sm">
+                                {formData.bulks.length} bulk{formData.bulks.length !== 1 ? "s" : ""}
+                              </Chip>
+
+                            </div>
+                          </div>
+
+                          {formData.bulks.length === 0 ? (
+                            <motion.div {...motionTransition}>
+                              <div className="py-8 h-48 text-center text-default-500 border border-dashed border-default-300 rounded-lg justify-center flex flex-col items-center">
+                                <Icon icon="mdi:package-variant-closed" className="mx-auto mb-2 opacity-50" width={40} height={40} />
+                                <p>No bulk items available for this warehouse item</p>
+                              </div>
+                            </motion.div>
+                          ) : (
+                            <motion.div {...motionTransition} className="-mx-4">
+                              <Accordion
+                                selectionMode="multiple"
+                                variant="splitted"
+                                selectedKeys={expandedBulks}
+                                onSelectionChange={(keys) => setExpandedBulks(keys as Set<string>)}
+                                itemClasses={{
+                                  base: "p-0 bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
+                                  title: "font-normal text-lg font-semibold",
+                                  trigger: "p-4 data-[hover=true]:bg-default-100 h-14 flex items-center transition-colors",
+                                  indicator: "text-medium",
+                                  content: "text-small p-0",
+                                }}
                               >
-                                <div>
-                                  {bulk.uuid && (
-                                    <Input
-                                      label="Warehouse Bulk Identifier"
-                                      value={bulk.uuid}
-                                      isReadOnly
-                                      classNames={{ inputWrapper: inputStyle.inputWrapper, base: "p-4 pb-0" }}
-                                      startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
-                                      endContent={
-                                        <Button
-                                          variant="flat"
-                                          color="default"
-                                          isIconOnly
-                                          onPress={() => copyToClipboard(bulk.uuid)}
-                                        >
-                                          <Icon icon="mdi:content-copy" className="text-default-500" />
-                                        </Button>
-                                      }
-                                    />
-                                  )}
-
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pb-0">
-                                    <Input
-                                      label="Unit"
-                                      value={`${bulk.unit_value} ${bulk.unit}`}
-                                      isReadOnly
-                                      classNames={inputStyle}
-                                      startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.2rem]" />}
-                                    />
-
-                                    <Input
-                                      label="Bulk Unit"
-                                      value={bulk.bulk_unit || "N/A"}
-                                      isReadOnly
-                                      classNames={inputStyle}
-                                      startContent={<Icon icon="mdi:cube-outline" className="text-default-500 mb-[0.2rem]" />}
-                                    />
-
-                                    <Input
-                                      label="Cost"
-                                      value={`${bulk.cost}`}
-                                      isReadOnly
-                                      classNames={inputStyle}
-                                      startContent={<Icon icon="mdi:currency-php" className="text-default-500 mb-[0.2rem]" />}
-                                    />
-
-                                    <Input
-                                      label="Location"
-                                      value={bulk.location_code || "Not assigned"}
-                                      isReadOnly
-                                      classNames={inputStyle}
-                                      startContent={<Icon icon="mdi:map-marker" className="text-default-500 mb-[0.2rem]" />}
-                                    />
-                                  </div>
-
-                                  <div className="overflow-hidden px-4 py-4">
-                                    {bulk.is_single_item ? (
-                                      <motion.div {...motionTransition}>
-                                        <div className="space-y-4 border-2 border-default-200 rounded-xl p-4">
-                                          <div className="flex justify-between items-center">
-                                            <h3 className="text-lg font-semibold">Single Item Details</h3>
-                                            <Tooltip
-                                              content="This is a single large item (e.g., mother roll) rather than a collection of units">
-                                              <span>
-                                                <Icon icon="mdi:information-outline" className="text-default-500" width={16} height={16} />
-                                              </span>
-                                            </Tooltip>
-                                          </div>
-
-
-
-                                          {itemUnits.length > 0 && itemUnits[0] && (
-                                            <>
-                                              <Input
-                                                label="Warehouse Unit Identifier"
-                                                value={itemUnits[0].uuid}
-                                                isReadOnly
-                                                classNames={{ inputWrapper: inputStyle.inputWrapper }}
-                                                startContent={<Icon icon="mdi:cube-outline" className="text-default-500 mb-[0.2rem]" />}
-                                                endContent={
-                                                  <Button
-                                                    variant="flat"
-                                                    color="default"
-                                                    isIconOnly
-                                                    onPress={() => copyToClipboard(itemUnits[0].uuid)}
-                                                  >
-                                                    <Icon icon="mdi:content-copy" className="text-default-500" />
-                                                  </Button>
-                                                }
-                                              />
-
-                                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                <Input
-                                                  label="Item Code"
-                                                  value={itemUnits[0].code || ""}
-                                                  isReadOnly
-                                                  classNames={inputStyle}
-                                                  startContent={<Icon icon="mdi:barcode" className="text-default-500 mb-[0.2rem]" />}
-                                                />
-
-                                                <Input
-                                                  label="Item Name"
-                                                  value={itemUnits[0].name || ""}
-                                                  isReadOnly
-                                                  classNames={inputStyle}
-                                                  startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
-                                                />
-
-                                                <Input
-                                                  label="Unit"
-                                                  value={`${itemUnits[0].unit_value} ${itemUnits[0].unit}`}
-                                                  isReadOnly
-                                                  classNames={inputStyle}
-                                                  startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.2rem]" />}
-                                                />
-
-                                                <Input
-                                                  label="Cost"
-                                                  value={`${itemUnits[0].cost}`}
-                                                  isReadOnly
-                                                  classNames={inputStyle}
-                                                  startContent={<Icon icon="mdi:currency-php" className="text-default-500 mb-[0.2rem]" />}
-                                                />
-                                              </div>
-                                            </>
+                                {formData.bulks.map((bulk, index) => (
+                                  <AccordionItem
+                                    key={bulk.uuid}
+                                    aria-label={`Bulk ${bulk.uuid}`}
+                                    className={`${index === 0 ? 'mt-4' : ''} mx-2`}
+                                    title={
+                                      <div className="flex justify-between items-center w-full">
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-medium">
+                                            {bulk.is_single_item ? "Single Item" : `Bulk ${bulk.bulk_unit || ''}`}
+                                          </span>
+                                        </div>
+                                        <div className="flex gap-2">
+                                          <Chip color="primary" variant="flat" size="sm">
+                                            {formatNumber(bulk.unit_value)} {bulk.unit}
+                                          </Chip>
+                                          {bulk.location_code && (
+                                            <Chip color="secondary" variant="flat" size="sm">
+                                              {bulk.location_code}
+                                            </Chip>
                                           )}
-
-                                          {itemUnits.length === 0 && (
-                                            <div className="py-4 text-center text-default-500">
-                                              <p>No details available for this single item</p>
-                                            </div>
+                                          {bulk.status && (
+                                            <Chip color={bulk.status === "AVAILABLE" ? "success" : "danger"} variant="flat" size="sm">
+                                              {bulk.status}
+                                            </Chip>
                                           )}
                                         </div>
-                                      </motion.div>
-                                    ) : (
-                                      <div className="space-y-4 border-2 border-default-200 rounded-xl p-4">
-                                        <div className="flex justify-between items-center">
-                                          <h3 className="text-lg font-semibold">Units in this Bulk</h3>
-                                        </div>
+                                      </div>
+                                    }
+                                  >
+                                    <div>
+                                      {bulk.uuid && (
+                                        <Input
+                                          label="Warehouse Bulk Identifier"
+                                          value={bulk.uuid}
+                                          isReadOnly
+                                          classNames={{ inputWrapper: inputStyle.inputWrapper, base: "p-4 pb-0" }}
+                                          startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
+                                          endContent={
+                                            <Button
+                                              variant="flat"
+                                              color="default"
+                                              isIconOnly
+                                              onPress={() => copyToClipboard(bulk.uuid)}
+                                            >
+                                              <Icon icon="mdi:content-copy" className="text-default-500" />
+                                            </Button>
+                                          }
+                                        />
+                                      )}
 
-                                        <AnimatePresence>
-                                          {isLoadingUnits ? (
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pb-0">
+                                        <Input
+                                          label="Unit"
+                                          value={`${bulk.unit_value} ${bulk.unit}`}
+                                          isReadOnly
+                                          classNames={inputStyle}
+                                          startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.2rem]" />}
+                                        />
+
+                                        <Input
+                                          label="Bulk Unit"
+                                          value={bulk.bulk_unit || "N/A"}
+                                          isReadOnly
+                                          classNames={inputStyle}
+                                          startContent={<Icon icon="mdi:cube-outline" className="text-default-500 mb-[0.2rem]" />}
+                                        />
+
+                                        <Input
+                                          label="Cost"
+                                          value={`${bulk.cost}`}
+                                          isReadOnly
+                                          classNames={inputStyle}
+                                          startContent={<Icon icon="mdi:currency-php" className="text-default-500 mb-[0.2rem]" />}
+                                        />
+
+                                        <Input
+                                          label="Location"
+                                          value={bulk.location_code || "Not assigned"}
+                                          isReadOnly
+                                          classNames={inputStyle}
+                                          startContent={<Icon icon="mdi:map-marker" className="text-default-500 mb-[0.2rem]" />}
+                                        />
+                                      </div>
+
+                                      <div className="overflow-hidden px-4 py-4">
+                                        <AnimatePresence mode="popLayout">
+                                          {bulk.is_single_item ? (
                                             <motion.div {...motionTransition}>
-                                              <div className="flex items-center justify-center p-4">
-                                                <Spinner size="sm" />
-                                                <span className="ml-2">Loading units...</span>
-                                              </div>
-                                            </motion.div>
-                                          ) : itemUnits.length === 0 ? (
-                                            <motion.div {...motionTransition}>
-                                              <div className="py-4 h-48 text-center text-default-500 border border-dashed border-default-200 rounded-lg justify-center flex flex-col items-center">
-                                                <Icon icon="mdi:cube-outline" className="mx-auto mb-2 opacity-50" width={40} height={40} />
-                                                <p className="text-sm">No units available for this bulk</p>
+                                              <div className="space-y-4 border-2 border-default-200 rounded-xl p-4">
+                                                <div className="flex justify-between items-center">
+                                                  <h3 className="text-lg font-semibold">Single Item Details</h3>
+                                                  <Tooltip
+                                                    content="This is a single large item (e.g., mother roll) rather than a collection of units">
+                                                    <span>
+                                                      <Icon icon="mdi:information-outline" className="text-default-500" width={16} height={16} />
+                                                    </span>
+                                                  </Tooltip>
+                                                </div>
+
+                                                {/* Use the bulk's units from the itemUnits map */}
+                                                {(bulk.units.length > 0) ? (
+                                                  <>
+                                                    <Input
+                                                      label="Warehouse Unit Identifier"
+                                                      value={bulk.units[0].uuid}
+                                                      isReadOnly
+                                                      classNames={{ inputWrapper: inputStyle.inputWrapper }}
+                                                      startContent={<Icon icon="mdi:cube-outline" className="text-default-500 mb-[0.2rem]" />}
+                                                      endContent={
+                                                        <Button
+                                                          variant="flat"
+                                                          color="default"
+                                                          isIconOnly
+                                                          onPress={() => copyToClipboard(bulk.units[0].uuid)}
+                                                        >
+                                                          <Icon icon="mdi:content-copy" className="text-default-500" />
+                                                        </Button>
+                                                      }
+                                                    />
+
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                      <Input
+                                                        label="Item Code"
+                                                        value={bulk.units[0].code || ""}
+                                                        isReadOnly
+                                                        classNames={inputStyle}
+                                                        startContent={<Icon icon="mdi:barcode" className="text-default-500 mb-[0.2rem]" />}
+                                                      />
+
+                                                      <Input
+                                                        label="Item Name"
+                                                        value={bulk.units[0].name || ""}
+                                                        isReadOnly
+                                                        classNames={inputStyle}
+                                                        startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
+                                                      />
+
+                                                      <Input
+                                                        label="Unit"
+                                                        value={`${bulk.units[0].unit_value} ${bulk.units[0].unit}`}
+                                                        isReadOnly
+                                                        classNames={inputStyle}
+                                                        startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.2rem]" />}
+                                                      />
+
+                                                      <Input
+                                                        label="Cost"
+                                                        value={`${bulk.units[0].cost}`}
+                                                        isReadOnly
+                                                        classNames={inputStyle}
+                                                        startContent={<Icon icon="mdi:currency-php" className="text-default-500 mb-[0.2rem]" />}
+                                                      />
+                                                    </div>
+                                                  </>
+                                                ) : (
+                                                  <div className="py-4 text-center text-default-500">
+                                                    <p>No details available for this single item</p>
+                                                  </div>
+                                                )}
                                               </div>
                                             </motion.div>
                                           ) : (
-                                            <motion.div {...motionTransition}>
-                                              <Accordion
-                                                selectionMode="multiple"
-                                                variant="splitted"
-                                                selectedKeys={expandedUnits}
-                                                onSelectionChange={(keys) => setExpandedUnits(keys as Set<string>)}
-                                                itemClasses={{
-                                                  base: "p-0 w-full bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
-                                                  title: "font-normal text-lg font-semibold",
-                                                  trigger: "p-4 data-[hover=true]:bg-default-100 h-14 flex items-center transition-colors",
-                                                  indicator: "text-medium",
-                                                  content: "text-small p-0",
-                                                }}
-                                                className="w-full p-0 overflow-hidden"
-                                              >
-                                                {itemUnits.map(unit => (
-                                                  <AccordionItem
-                                                    key={unit.uuid}
-                                                    title={
-                                                      <div className="flex justify-between items-center w-full">
-                                                        <div className="flex items-center gap-2">
-                                                          <span>
-                                                            {unit.name || `Unit ${unit.code}`}
-                                                          </span>
-                                                        </div>
-                                                        <Chip size="sm" color="primary" variant="flat">
-                                                          {formatNumber(unit.unit_value)} {unit.unit}
-                                                        </Chip>
-                                                      </div>
-                                                    }
-                                                  >
-                                                    <div className="space-y-4">
-                                                      {unit.uuid && (
-                                                        <Input
-                                                          label="Warehouse Unit Identifier"
-                                                          value={unit.uuid}
-                                                          isReadOnly
-                                                          classNames={{ inputWrapper: inputStyle.inputWrapper, base: "p-4 pb-0" }}
-                                                          startContent={<Icon icon="mdi:cube-outline" className="text-default-500 mb-[0.2rem]" />}
-                                                          endContent={
-                                                            <Button
-                                                              variant="flat"
-                                                              color="default"
-                                                              isIconOnly
-                                                              onPress={() => copyToClipboard(unit.uuid)}
-                                                            >
-                                                              <Icon icon="mdi:content-copy" className="text-default-500" />
-                                                            </Button>
-                                                          }
-                                                        />
-                                                      )}
-
-                                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pt-0">
-                                                        <Input
-                                                          label="Item Code"
-                                                          value={unit.code || ""}
-                                                          isReadOnly
-                                                          classNames={inputStyle}
-                                                          startContent={<Icon icon="mdi:barcode" className="text-default-500 mb-[0.2rem]" />}
-                                                        />
-
-                                                        <Input
-                                                          label="Item Name"
-                                                          value={unit.name || ""}
-                                                          isReadOnly
-                                                          classNames={inputStyle}
-                                                          startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
-                                                        />
-
-                                                        <Input
-                                                          label="Unit"
-                                                          value={`${unit.unit_value} ${unit.unit}`}
-                                                          isReadOnly
-                                                          classNames={inputStyle}
-                                                          startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.2rem]" />}
-                                                        />
-
-                                                        <Input
-                                                          label="Cost"
-                                                          value={`${unit.cost}`}
-                                                          isReadOnly
-                                                          classNames={inputStyle}
-                                                          startContent={<Icon icon="mdi:currency-php" className="text-default-500 mb-[0.2rem]" />}
-                                                        />
-                                                      </div>
+                                            <AnimatePresence mode="popLayout">
+                                              {(bulk.units && bulk.units.length === 0) ? (
+                                                <motion.div {...motionTransition}>
+                                                  <div className="py-4 m-4 h-48 text-center text-default-500 border border-dashed border-default-200 rounded-lg justify-center flex flex-col items-center">
+                                                    <Icon icon="mdi:cube-outline" className="mx-auto mb-2 opacity-50" width={40} height={40} />
+                                                    <p className="text-sm">No units available for this bulk</p>
+                                                  </div>
+                                                </motion.div>
+                                              ) : (
+                                                <motion.div
+                                                  {...motionTransition}>
+                                                  <div className="border-2 border-default-200 rounded-xl">
+                                                    <div className="flex justify-between items-center p-4 pb-0">
+                                                      <h3 className="text-lg font-semibold">Units in this Bulk</h3>
                                                     </div>
-                                                  </AccordionItem>
-                                                ))}
-                                              </Accordion>
-                                            </motion.div>
+
+                                                    <Accordion
+                                                      selectionMode="multiple"
+                                                      variant="splitted"
+                                                      selectedKeys={expandedUnits}
+                                                      onSelectionChange={(keys) => setExpandedUnits(keys as Set<string>)}
+                                                      itemClasses={{
+                                                        base: "p-0 w-full bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
+                                                        title: "font-normal text-lg font-semibold",
+                                                        trigger: "p-4 data-[hover=true]:bg-default-100 h-14 flex items-center transition-colors",
+                                                        indicator: "text-medium",
+                                                        content: "text-small p-0",
+                                                      }}
+                                                      className="p-4 overflow-hidden"
+                                                    >
+                                                      {/* Use the bulk's units from the itemUnits map */}
+                                                      {bulk.units.map((unit: any) => (
+                                                        <AccordionItem
+                                                          key={unit.uuid}
+                                                          title={
+                                                            <div className="flex justify-between items-center w-full">
+                                                              <div className="flex items-center gap-2">
+                                                                <span>
+                                                                  {unit.name || `Unit ${unit.code}`}
+                                                                </span>
+                                                              </div>
+                                                              <Chip size="sm" color="primary" variant="flat">
+                                                                {formatNumber(unit.unit_value)} {unit.unit}
+                                                              </Chip>
+                                                            </div>
+                                                          }
+                                                        >
+                                                          <div className="space-y-4">
+                                                            {unit.uuid && (
+                                                              <Input
+                                                                label="Warehouse Unit Identifier"
+                                                                value={unit.uuid}
+                                                                isReadOnly
+                                                                classNames={{ inputWrapper: inputStyle.inputWrapper, base: "p-4 pb-0" }}
+                                                                startContent={<Icon icon="mdi:cube-outline" className="text-default-500 mb-[0.2rem]" />}
+                                                                endContent={
+                                                                  <Button
+                                                                    variant="flat"
+                                                                    color="default"
+                                                                    isIconOnly
+                                                                    onPress={() => copyToClipboard(unit.uuid)}
+                                                                  >
+                                                                    <Icon icon="mdi:content-copy" className="text-default-500" />
+                                                                  </Button>
+                                                                }
+                                                              />
+                                                            )}
+
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pt-0">
+                                                              <Input
+                                                                label="Item Code"
+                                                                value={unit.code || ""}
+                                                                isReadOnly
+                                                                classNames={inputStyle}
+                                                                startContent={<Icon icon="mdi:barcode" className="text-default-500 mb-[0.2rem]" />}
+                                                              />
+
+                                                              <Input
+                                                                label="Item Name"
+                                                                value={unit.name || ""}
+                                                                isReadOnly
+                                                                classNames={inputStyle}
+                                                                startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
+                                                              />
+
+                                                              <Input
+                                                                label="Unit"
+                                                                value={`${unit.unit_value} ${unit.unit}`}
+                                                                isReadOnly
+                                                                classNames={inputStyle}
+                                                                startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.2rem]" />}
+                                                              />
+
+                                                              <Input
+                                                                label="Cost"
+                                                                value={`${unit.cost}`}
+                                                                isReadOnly
+                                                                classNames={inputStyle}
+                                                                startContent={<Icon icon="mdi:currency-php" className="text-default-500 mb-[0.2rem]" />}
+                                                              />
+                                                            </div>
+                                                          </div>
+                                                        </AccordionItem>
+                                                      ))}
+                                                    </Accordion>
+                                                  </div>
+                                                </motion.div>
+                                              )}
+                                            </AnimatePresence>
                                           )}
                                         </AnimatePresence>
                                       </div>
-                                    )}
-                                  </div>
 
 
-                                  {/* <div className="p-4 pb-0"> */}
-                                  <div className="flex justify-end gap-2 bg-default-100/50 p-4">
-                                    {bulk.location && (
-                                      <div className="flex justify-end gap-2">
-                                        <Button
-                                          color="secondary"
-                                          variant="flat"
-                                          size="sm"
-                                          onPress={() => handleViewBulkLocation(bulk)}
-                                          startContent={<Icon icon="mdi:view-in-ar" />}
-                                        >
-                                          View 3D Location
-                                        </Button>
+                                      {/* <div className="p-4 pb-0"> */}
+                                      <div className="flex justify-end gap-2 bg-default-100/50 p-4">
+                                        {bulk.location && (
+                                          <div className="flex justify-end gap-2">
+                                            <Button
+                                              color="secondary"
+                                              variant="flat"
+                                              size="sm"
+                                              onPress={() => handleViewBulkLocation(bulk.location)}
+                                              startContent={<Icon icon="mdi:view-in-ar" />}
+                                            >
+                                              View Location
+                                            </Button>
 
-                                        <Button
-                                          color="success"
-                                          variant="flat"
-                                          size="sm"
-                                          onPress={() => handleViewDelivery(bulk.delivery_uuid)}
-                                          startContent={<Icon icon="mdi:truck-delivery" />}
-                                        >
-                                          View Delivery
-                                        </Button>
+                                            <Button
+                                              color="success"
+                                              variant="flat"
+                                              size="sm"
+                                              onPress={() => handleViewDelivery(bulk.delivery_uuid)}
+                                              startContent={<Icon icon="mdi:truck-delivery" />}
+                                            >
+                                              View Delivery
+                                            </Button>
 
-                                        <Button
-                                          color="warning"
-                                          variant="flat"
-                                          size="sm"
-                                          isDisabled={isLoadingMarkAsUsed || bulk.status === "USED"}
-                                          onPress={() => handleMarkComponentsAsUsed(bulk.uuid)}
-                                          startContent={
-                                            isLoadingMarkAsUsed ? 
-                                              <Spinner size="sm" color="warning" />
-                                              : <Icon icon="mdi:check-circle" />
-                                          }
-                                        >
-                                          Mark as Used
-                                        </Button>
+                                            <Button
+                                              color="warning"
+                                              variant="flat"
+                                              size="sm"
+                                              isDisabled={isLoadingMarkAsUsed || bulk.status === "USED"}
+                                              onPress={() => handleMarkComponentsAsUsed(bulk.uuid)}
+                                              startContent={
+                                                isLoadingMarkAsUsed ?
+                                                  <Spinner size="sm" color="warning" />
+                                                  : <Icon icon="mdi:check-circle" />
+                                              }
+                                            >
+                                              Mark as Used
+                                            </Button>
+                                          </div>
+
+                                        )}
+
                                       </div>
-
-                                    )}
-
-                                  </div>
-                                </div>
-                              </AccordionItem>
-                            ))}
-                          </Accordion>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
+                                    </div>
+                                  </AccordionItem>
+                                ))}
+                              </Accordion>
+                            </motion.div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </LoadingAnimation>
                 </div>
               </CardList>
 
@@ -1324,6 +1461,7 @@ export default function WarehouseItemsPage() {
                       variant="shadow"
                       color="primary"
                       onPress={handleViewWarehouse}
+                      isDisabled={!formData?.warehouse_uuid || isLoading}
                       className="my-1">
                       <Icon icon="mdi:chevron-right" width={16} height={16} />
                     </Button>
@@ -1336,63 +1474,89 @@ export default function WarehouseItemsPage() {
                       variant="shadow"
                       color="primary"
                       onPress={handleViewInventory}
+                      isDisabled={!formData?.inventory_uuid || isLoading}
                       className="my-1">
                       <Icon icon="mdi:chevron-right" width={16} height={16} />
                     </Button>
                   </div>
                 )}
 
-                <div className="w-full flex gap-2 flex-row">
-                  <Button
-                    color="primary"
-                    variant="shadow"
-                    className="flex-1 basis-0"
-                    onPress={locationModal.onOpen}
-                    isDisabled={!selectedItemId || itemBulks.length === 0
-                      || !itemBulks.some(bulk => bulk.location)}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Icon icon="mdi:map-marker" />
-                      <span>View Location</span>
-                    </div>
-                  </Button>
+                <div className="flex flex-col gap-4">
+                  <AnimatePresence>
+                    {error && (
+                      <motion.div {...motionTransition}>
+                        <Alert color="danger" variant="flat" onClose={() => setError(null)}>
+                          {error}
+                        </Alert>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
 
-                  <Button
-                    color="secondary"
-                    variant="shadow"
-                    className="flex-1 basis-0"
-                    onPress={qrCodeModal.onOpen}
-                    isDisabled={!selectedItemId}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Icon icon="mdi:qrcode" />
-                      <span>Show QR Code</span>
-                    </div>
-                  </Button>
+                  <div className="flex flex-col md:flex-row justify-center items-center gap-4">
+                    <Button
+                      color="primary"
+                      variant="shadow"
+                      className="flex-1 basis-0"
+                      onPress={() => handleViewBulkLocation(null)}
+                      isDisabled={!selectedItemId || isLoading}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Icon icon="mdi:map-marker" />
+                        <span>View Location</span>
+                      </div>
+                    </Button>
+
+                    <Button
+                      color="secondary"
+                      variant="shadow"
+                      className="flex-1 basis-0"
+                      onPress={qrCodeModal.onOpen}
+                      isDisabled={!selectedItemId || isLoading}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Icon icon="mdi:qrcode" />
+                        <span>Show QR Code</span>
+                      </div>
+                    </Button>
+                  </div>
                 </div>
               </CardList>
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center p-12 border border-dashed border-default-300 rounded-2xl bg-background">
-              <Icon icon="mdi:package-variant" className="text-default-300" width={64} height={64} />
-              <h3 className="text-xl font-semibold text-default-800">No Item Selected</h3>
-              <p className="text-default-500 text-center mt-2 mb-6">
-                Select an item from the list on the left to view its details.
-              </p>
-              <Button
-                color="primary"
-                variant="shadow"
-                className="mb-4"
-                onPress={() => {
-                  if (warehouseItems.length > 0) {
-                    handleSelectItem(warehouseItems[0].uuid);
-                  }
-                }}
-                isDisabled={warehouseItems.length === 0}
-              >
-                <Icon icon="mdi:package-variant" className="mr-2" />
-                View First Item
-              </Button>
+            <div className="items-center justify-center p-12 border border-dashed border-default-300 rounded-2xl bg-background">
+              <LoadingAnimation
+                condition={!user || isLoadingItems}
+                skeleton={
+                  <div className="flex flex-col items-center justify-center">
+                    <Skeleton className="w-16 h-16 rounded-full mb-4" />
+                    <Skeleton className="h-6 w-48 rounded-xl mb-2" />
+                    <Skeleton className="h-4 w-64 rounded-xl mb-6" />
+                    <Skeleton className="h-10 w-32 rounded-xl" />
+                  </div>
+                }>
+                <div className="flex flex-col items-center justify-center">
+                  <Icon icon="mdi:package-variant" className="text-default-300" width={64} height={64} />
+                  <h3 className="text-xl font-semibold text-default-800">No Item Selected</h3>
+                  <p className="text-default-500 text-center mt-2 mb-6">
+                    Select an item from the list on the left to view its details.
+                  </p>
+                  <Button
+                    color="primary"
+                    variant="shadow"
+                    className="mb-4"
+                    onPress={() => {
+                      if (warehouseItems.length > 0) {
+                        handleSelectItem(warehouseItems[0].uuid);
+                      }
+                    }}
+                    isDisabled={warehouseItems.length === 0}
+                  >
+                    <Icon icon="mdi:package-variant" className="mr-2" />
+                    View First Item
+                  </Button>
+                </div>
+              </LoadingAnimation>
+
             </div>
           )}
         </div>
@@ -1453,7 +1617,7 @@ export default function WarehouseItemsPage() {
                   const pngUrl = canvas.toDataURL('image/png');
                   const downloadLink = document.createElement('a');
                   downloadLink.href = pngUrl;
-                  downloadLink.download = `warehouse-item-${formData.uuid}.png`;
+                  downloadLink.download = `warehouse-item-${formData?.uuid || ''}.png`;
                   document.body.appendChild(downloadLink);
                   downloadLink.click();
                   document.body.removeChild(downloadLink);
@@ -1478,11 +1642,7 @@ export default function WarehouseItemsPage() {
       >
         <ModalContent>
           <ModalHeader>
-            {selectedBulkForLocation && (
-              <>
-                Location for {formData.name}
-              </>
-            )}
+            Location for {formData?.name || "Warehouse Item"}
           </ModalHeader>
           <ModalBody className='p-0'>
             <div className="h-[80vh] bg-primary-50 rounded-md overflow-hidden relative">
@@ -1674,12 +1834,12 @@ export default function WarehouseItemsPage() {
               </AnimatePresence>
 
               <AnimatePresence>
-                {locationCode &&
+                {externalSelection &&
                   <motion.div {...motionTransition} className="absolute overflow-hidden top-4 right-4 flex items-start gap-2 bg-background/50 rounded-2xl backdrop-blur-lg flex flex-col p-4">
-                    {selectedBulkForLocation && selectedBulkForLocation.location && (
-                      <span className="text-sm font-semibold"> Selected Code: <b>{selectedBulkForLocation.location_code || formatCode(selectedBulkForLocation.location)}</b></span>
-                    )}
-                    <span className="text-sm font-semibold">Current Code: <b>{locationCode}</b></span>
+                    {locationCode &&
+                      <span className="text-sm font-semibold"> Selected Code: <b>{locationCode}</b></span>
+                    }
+                    <span className="text-sm font-semibold">Current Code: <b>{formatCode(externalSelection)}</b></span>
                   </motion.div>
                 }
               </AnimatePresence>

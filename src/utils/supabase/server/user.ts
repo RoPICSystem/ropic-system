@@ -4,6 +4,7 @@ import { createClient } from '@/utils/supabase/server'
 import { Address } from '@/utils/supabase/server/address'
 import { PostgrestFilterBuilder } from '@supabase/postgrest-js'
 import { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js'
+import { cookies } from 'next/headers'
 
 
 export type Name = {
@@ -19,7 +20,7 @@ export type UserProfile = {
   email: string
   full_name: string
   is_admin: boolean
-  name: Map<string, string> 
+  name: Map<string, string>
   profile_image: string
   gender: string
   birthday: string
@@ -66,7 +67,7 @@ export async function getUserProfile() {
     console.error('Error fetching profile:', error)
     return { error: error.message, data: null }
   }
-  
+
   if (!profile) {
     return { error: 'Profile not found', data: null }
   }
@@ -76,35 +77,35 @@ export async function getUserProfile() {
   if (profile.profile_image) {
     try {
       // Construct the full path according to storage policy structure
-      const fullPath = profile.profile_image 
-      
+      const fullPath = profile.profile_image
+
       const { data } = supabase
         .storage
         .from('profile-images')
         .getPublicUrl(fullPath)
-        
+
       profileImageData = data?.publicUrl || null
     } catch (err) {
       console.error('Error getting image URL:', err)
     }
   }
 
-  return { 
-    data: { 
-      ...profile, 
-      email: user.email, 
+  return {
+    data: {
+      ...profile,
+      email: user.email,
       profile_image_url: profileImageData,
-      profile_image_path: profile.profile_image || null 
-    }, 
-    error: null 
+      profile_image_path: profile.profile_image || null
+    },
+    error: null
   }
 }
 // Provides parameters needed to set up real-time profile subscription in client component
 export async function getProfileSubscription(
   uuid: string,
-  payload: (payload: RealtimePostgresChangesPayload<{[key: string]: any;}>) => void): Promise<RealtimeChannel>  {
+  payload: (payload: RealtimePostgresChangesPayload<{ [key: string]: any; }>) => void): Promise<RealtimeChannel> {
   const supabase = await createClient()
-  
+
   // Set up real-time subscription for delivery items
   return supabase
     .channel('delivery-changes')
@@ -123,7 +124,7 @@ export async function getProfileSubscription(
 // Generate download image URL
 export async function getImageUrl(path: string, isThumbnail: boolean = false) {
   if (!path) return { data: null, error: 'No image path provided' }
-  
+
   const supabase = await createClient()
 
   try {
@@ -156,7 +157,7 @@ export async function signOut() {
     return { error: error.message }
   }
 
-  window.userData = null;
+  setUserInCookies(null);
 
   return { data: 'Signed out successfully', error: null }
 }
@@ -164,7 +165,7 @@ export async function signOut() {
 // New function to get user's company data separately, avoiding the recursion
 export async function getUserCompany() {
   const supabase = await createClient()
-  
+
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
     return { error: 'Not authenticated', data: null }
@@ -176,22 +177,59 @@ export async function getUserCompany() {
     .select('company_uuid')
     .eq('uuid', user.id)
     .single()
-    
+
   if (!profile?.company_uuid) {
     return { error: 'No company found', data: null }
   }
-    
+
   // Then get the company details directly using UUID
   const { data: company, error } = await supabase
     .from('companies')
     .select('*')
     .eq('uuid', profile.company_uuid)
     .single()
-    
+
   if (error) {
     console.error('Error fetching company:', error)
     return { error: error.message, data: null }
   }
-    
+
   return { data: company, error: null }
+}
+
+// Get user
+export async function getUserFromCookies() {
+  const userData = (await cookies())
+    .get('userData')?.value
+
+  if (!userData) {
+    return null
+  }
+
+  try {
+    return JSON.parse(userData)
+  } catch (error) {
+    console.error('Error parsing user data from cookies:', error)
+    return null
+  }
+}
+
+// Set user
+export async function setUserInCookies(userData: UserProfile | null) {
+  if (userData) {
+    (await cookies())
+      .set(
+        'userData',
+        JSON.stringify(userData),
+        {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          maxAge: 60 * 60 * 24 * 7, // 1 week
+          path: '/',
+        });
+  } else {
+    // remove cookie
+    (await cookies())
+      .delete('userData')
+  }
 }

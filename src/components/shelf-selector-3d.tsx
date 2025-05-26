@@ -105,9 +105,43 @@ function RenderTrigger({ duration = 3000 }) {
 
   return null;
 }
-
 // Cache for expensive matrix operations
 const matrixCache = new Map<string, any>();
+
+// Add geometry and material caches
+const geometryCache = new Map<string, THREE.BufferGeometry>();
+const materialCache = new Map<string, THREE.Material>();
+
+// Helper function to get cached geometry
+const getCachedGeometry = (type: string, args: number[]) => {
+  const key = `${type}-${args.join('-')}`;
+  if (!geometryCache.has(key)) {
+    let geometry: THREE.BufferGeometry;
+    switch (type) {
+      case 'box':
+        geometry = new THREE.BoxGeometry(...args);
+        break;
+      default:
+        geometry = new THREE.BoxGeometry(...args);
+    }
+    geometryCache.set(key, geometry);
+  }
+  return geometryCache.get(key)!;
+};
+
+// Helper function to get cached material
+const getCachedMaterial = (color: string, options: any = {}) => {
+  const key = `${color}-${JSON.stringify(options)}`;
+  if (!materialCache.has(key)) {
+    const material = new THREE.MeshStandardMaterial({
+      color,
+      ...options
+    });
+    materialCache.set(key, material);
+  }
+  return materialCache.get(key)!.clone(); // Clone to allow per-instance modifications
+};
+
 
 // Helper functions moved outside component for better performance
 const findNearestGroupRowAbove = (floorMatrix: number[][], rowIndex: number, columnStart: number) => {
@@ -123,6 +157,8 @@ const findNearestGroupRowBelow = (floorMatrix: number[][], rowIndex: number, col
   }
   return -1;
 };
+
+
 
 const findNearestGroupColumnToLeft = (floorMatrix: number[][], rowIndex: number, columnStart: number) => {
   for (let j = columnStart - 1; j >= 0; j--) {
@@ -631,7 +667,7 @@ const ShelfInstance = memo(({
   shelfSelectedColor,
   occupiedShelfColor,
   occupiedHoverShelfColor,
-  shelfType = 'primary', // New prop to determine which color set to use
+  shelfType = 'primary',
   secondaryShelfColor,
   secondaryShelfHoverColor,
   tertiaryShelfColor,
@@ -662,13 +698,20 @@ const ShelfInstance = memo(({
   const [shelfOpacity, setShelfOpacity] = useState(1);
   const [isVisible, setIsVisible] = useState(true);
 
-  // Shelf-specific distance thresholds - closer than group thresholds
-  const SHELF_FADE_START = 5.75;  // Start fading shelves at this distance
-  const SHELF_FADE_END = 5.5;    // Completely transparent at this distance
-  const VISIBILITY_THRESHOLD = 0.4; // Threshold for considering a shelf "visible" for interaction
+  // Shelf-specific distance thresholds
+  const SHELF_FADE_START = 5.75;
+  const SHELF_FADE_END = 5.5;
+  const VISIBILITY_THRESHOLD = 0.4;
 
-  // Update shelf opacity based on distance
+  // Cache the geometry based on size
+  const geometry = useMemo(() => getCachedGeometry('box', size), [size]);
+
+  // Update shelf opacity based on distance (optimized with frame skipping)
+  const frameCounter = useRef(0);
   useFrame(() => {
+    // Skip every other frame for better performance
+    if (frameCounter.current++ % 2 !== 0) return;
+
     if (meshRef.current) {
       const shelfWorldPos = new THREE.Vector3();
       meshRef.current.getWorldPosition(shelfWorldPos);
@@ -683,16 +726,14 @@ const ShelfInstance = memo(({
         newOpacity = t;
       }
 
-      // Only update if significant change
       if (Math.abs(newOpacity - shelfOpacity) > 0.01) {
         setShelfOpacity(newOpacity);
-        // Update visibility state for interaction control
         setIsVisible(newOpacity * groupOpacity > VISIBILITY_THRESHOLD);
       }
     }
   });
 
-
+  // Determine colors based on shelf type
   let baseColor = shelfColor;
   let hoverColor = shelfHoverColor;
 
@@ -704,22 +745,29 @@ const ShelfInstance = memo(({
     hoverColor = tertiaryShelfHoverColor || tertiaryShelfColor;
   }
 
-  // Update this code to use baseColor and hoverColor
   const color = isOccupied
     ? (isHovered ? occupiedHoverShelfColor : occupiedShelfColor)
     : isSelected
       ? shelfSelectedColor
       : isHovered
-        ? hoverColor  // Changed from shelfHoverColor
-        : baseColor;  // Changed from shelfColor
+        ? hoverColor
+        : baseColor;
 
   const emissiveColor = isSelected ? shelfSelectedColor : "#000000";
   const emissiveIntensity = isSelected ? 0.3 : 0;
-
-  // Final opacity is the product of group opacity and shelf opacity
   const finalOpacity = groupOpacity * shelfOpacity;
 
-  // Use conditional handlers based on visibility
+  // Cache material with current state
+  const material = useMemo(() => {
+    return getCachedMaterial(color, {
+      emissive: emissiveColor,
+      emissiveIntensity,
+      transparent: true,
+      depthWrite: finalOpacity > 0.5,
+      opacity: finalOpacity
+    });
+  }, [color, emissiveColor, emissiveIntensity, finalOpacity]);
+
   const handlePointerOver = isVisible ? onPointerOver : undefined;
   const handlePointerOut = isVisible ? onPointerOut : undefined;
   const handleClick = isVisible ? onClick : undefined;
@@ -728,22 +776,14 @@ const ShelfInstance = memo(({
     <mesh
       ref={meshRef}
       position={position}
+      geometry={geometry}
+      material={material}
       onPointerOver={handlePointerOver}
       onPointerOut={handlePointerOut}
       onClick={handleClick}
       castShadow
       receiveShadow
-    >
-      <boxGeometry args={size} />
-      <meshStandardMaterial
-        color={color}
-        emissive={emissiveColor}
-        emissiveIntensity={emissiveIntensity}
-        transparent
-        depthWrite={finalOpacity > 0.5}
-        opacity={finalOpacity}
-      />
-    </mesh>
+    />
   );
 });
 
@@ -944,6 +984,7 @@ const Group = memo(({
   // Pre-calculate shelf positions and properties for better rendering
   const shelves = useMemo(() => {
     const items = [];
+    const shelfGeometry = getCachedGeometry('box', [cellWidth * 0.9, cellHeight * 0.9, cellDepth * 0.9]);
 
     for (let rowIndex = 0; rowIndex < rows; rowIndex++) {
       for (let colIndex = 0; colIndex < columns; colIndex++) {
@@ -961,7 +1002,6 @@ const Group = memo(({
             hoverCell[2] === depthIndex);
 
           const isOccupied = isLocationOccupied(floor, groupId, rowIndex, colIndex, depthIndex);
-
           const shelfType = getShelfType(floor, groupId, rowIndex, colIndex, depthIndex);
 
           items.push({
@@ -969,9 +1009,10 @@ const Group = memo(({
             position: [
               (colIndex - columns / 2 + 0.5) * cellWidth,
               (rowIndex - rows / 2 + 0.5) * cellHeight,
-              (depthIndex - depth / 2 + 0.5) * cellDepth // Position along Z axis
+              (depthIndex - depth / 2 + 0.5) * cellDepth
             ],
             size: [cellWidth * 0.9, cellHeight * 0.9, cellDepth * 0.9],
+            geometry: shelfGeometry, // Reuse cached geometry
             isHovered,
             isSelected: isShelfSelected,
             isOccupied,
@@ -987,20 +1028,25 @@ const Group = memo(({
     return items;
   }, [rows, columns, depth, cellWidth, cellHeight, cellDepth, selectedLocation, hoverCell, floor, groupId, isLocationOccupied, getShelfType]);
 
+  // Cache group geometry
+  const groupGeometry = useMemo(() => getCachedGeometry('box', size), [size]);
+
   return (
     <group position={position} ref={groupRef}>
-      {/* Group frame */}
-      <mesh renderOrder={1} castShadow receiveShadow>
-        <boxGeometry args={size} />
-        <meshStandardMaterial
-          color={isSelected ? groupSelectedColor : groupColor}
-          transparent
-          opacity={opacity * 0.3}
-          depthWrite={true}
-        />
-      </mesh>
+      {/* Group frame - use cached geometry */}
+      <mesh
+        renderOrder={1}
+        castShadow
+        receiveShadow
+        geometry={groupGeometry}
+        material={getCachedMaterial(isSelected ? groupSelectedColor : groupColor, {
+          transparent: true,
+          opacity: opacity * 0.3,
+          depthWrite: true
+        })}
+      />
 
-      {/* Shelves with depth */}
+      {/* Shelves with cached geometries */}
       {shelves.map(shelf => (
         <ShelfInstance
           key={shelf.key}
@@ -1091,6 +1137,12 @@ const Floor = memo(({
   const floorDepth = matrix.length;
   const gridSize = 1;
 
+  // Cache floor geometry
+  const floorGeometry = useMemo(() =>
+    getCachedGeometry('box', [floorWidth * gridSize, 0.1, floorDepth * gridSize]),
+    [floorWidth, floorDepth, gridSize]
+  );
+
   // Use cached group data with depth info
   const { groups } = useMemo(() =>
     processGroupsMatrix(matrix, floorIndex),
@@ -1099,11 +1151,14 @@ const Floor = memo(({
 
   return (
     <group position={[0, yPosition, 0]}>
-      {/* Floor base */}
-      <mesh position={[0, -0.1, 0]} castShadow receiveShadow>
-        <boxGeometry args={[floorWidth * gridSize, 0.1, floorDepth * gridSize]} />
-        <meshStandardMaterial color={isHighlighted ? floorHighlightedColor : floorColor} />
-      </mesh>
+      {/* Floor base with cached geometry */}
+      <mesh
+        position={[0, -0.1, 0]}
+        castShadow
+        receiveShadow
+        geometry={floorGeometry}
+        material={getCachedMaterial(isHighlighted ? floorHighlightedColor : floorColor)}
+      />
 
       {/* Groups with depth */}
       {groups.map((group: { id: Key | null | undefined; minI: any; minJ: any; width: number; depth: number; rows: number; }) => {
@@ -1155,6 +1210,16 @@ const Floor = memo(({
     </group>
   );
 });
+
+// Add cleanup function at the end of the file (around line 1200)
+// Cleanup function to clear caches when needed
+export const clearShelfSelectorCaches = () => {
+  geometryCache.forEach(geometry => geometry.dispose());
+  materialCache.forEach(material => material.dispose());
+  geometryCache.clear();
+  materialCache.clear();
+  matrixCache.clear();
+};
 
 function WASDControls({ controlsRef }: { controlsRef: React.RefObject<any> }) {
   const velocity = useRef(new THREE.Vector3(0, 0, 0));
@@ -2139,11 +2204,14 @@ export const ShelfSelector3D = memo(({
           powerPreference: 'high-performance',
           alpha: false,
           precision: 'lowp',
+          stencil: false, // Disable stencil buffer
+          depth: true,
+          logarithmicDepthBuffer: false, // Disable for better performance
         }}
         performance={{
-          min: 0.3,
-          max: 0.8,
-          debounce: 200
+          min: 0.5,
+          max: 1.0,
+          debounce: 200 
         }}
         frameloop="demand"
         onCreated={({ gl, scene: onLoadScene }) => {

@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/utils/supabase/server'
-import { getUserProfile } from '@/utils/supabase/server/user';
+import { getUserProfile, setUserInCookies } from '@/utils/supabase/server/user';
 
 declare global {
   interface Window {
@@ -33,29 +33,11 @@ export async function signin(formData: FormData):
 
   if (userError) {
     console.error("Error fetching user profile:", error);
-    return { error: `${userError}`}
-  }
-
-  // wait fot the window to be defined
-  if (typeof window !== "undefined") {
-    window.userData = data;
-  } else {
-    return { error: "Window is not defined" }
+    return { error: `${userError}` }
   }
 
   // Add the userdata in cookies
-  const { cookies } = await import('next/headers');
-  const essentialUserData = {
-    id: data?.id,
-    email: data?.email,
-    name: data?.full_name || data?.email
-  };
-  (await cookies()).set('userData', JSON.stringify(essentialUserData), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 60 * 60 * 24 * 7, // 1 week
-    path: '/',
-  });
+  setUserInCookies(data);
 
   console.log("User data:", data);
 

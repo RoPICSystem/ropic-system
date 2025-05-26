@@ -3,7 +3,13 @@
 import CardList from '@/components/card-list';
 import { FloorConfig } from '@/components/shelf-selector-3d';
 import { motionTransition } from '@/utils/anim';
-import { Barangay, CityMunicipality, getBarangays, getCityMunicipalities, getProvinces, getRegions, Province, Region } from '@/utils/supabase/server/address';
+import {
+  Barangay,
+  CityMunicipality,
+  getAddressDropdownData,
+  Province,
+  Region
+} from '@/utils/supabase/server/address';
 import {
   Autocomplete, AutocompleteItem,
   Button,
@@ -15,6 +21,7 @@ import {
   ModalContent,
   ModalFooter,
   ModalHeader,
+  Pagination,
   Skeleton,
   Spinner,
   Textarea,
@@ -24,8 +31,12 @@ import { Icon } from "@iconify/react";
 import { AnimatePresence, motion } from 'framer-motion';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { createWarehouse, deleteWarehouse, getWarehouseByUuid, getWarehouseLayout, getWarehousesPage, updateWarehouse, Warehouse } from './actions';
+import { createWarehouse, deleteWarehouse, getWarehouseByUuid, getWarehouseLayout, getWarehouses, updateWarehouse, Warehouse } from './actions';
+
 import WarehouseLayoutEditorModal from './layout-editor-modal';
+import LoadingAnimation from '@/components/loading-animation';
+import ListLoadingAnimation from '@/components/list-loading-animation';
+import { getUserFromCookies } from '@/utils/supabase/server/user';
 
 function generateFullAddress(
   street: string,
@@ -70,12 +81,13 @@ export default function WarehousePage() {
 
   // Separate state for the selected warehouse details
   const [detailLoading, setDetailLoading] = useState<boolean>(false);
+  const [isAddressLoading, setIsAddressLoading] = useState<boolean>(true); // Separate loading state for address
   const [currentWarehouse, setCurrentWarehouse] = useState<Partial<Warehouse> | null>(null);
 
   // Pagination state
   const [page, setPage] = useState<number>(1);
   const [totalPages, setTotalPages] = useState<number>(1);
-  const [rowsPerPage, setRowsPerPage] = useState<number>(10);
+  const [rowsPerPage, setRowsPerPage] = useState<number>(15);
   const [totalWarehouses, setTotalWarehouses] = useState<number>(0);
 
   // Address state
@@ -93,10 +105,6 @@ export default function WarehousePage() {
   const [inputPostalCode, setInputPostalCode] = useState<string>('');
   const [fullAddress, setFullAddress] = useState<string>('');
   const [manualFullAddress, setManualFullAddress] = useState<string>('');
-  const [companyUuid, setCompanyUuid] = useState<string>('');
-
-  // Track data loading state
-  const [isLoading, setIsLoading] = useState(true);
 
   // Warehouse layout state
   const [warehouseLayout, setWarehouseLayout] = useState<FloorConfig[]>([]);
@@ -105,106 +113,107 @@ export default function WarehousePage() {
 
   // Layout editor state
   const [isLayoutEditorOpen, setIsLayoutEditorOpen] = useState(false);
-  const [isLoadingLayout, setIsLoadingLayout] = useState(false);
 
   // Warehouse Layout Editor Modal Tab
   const [selectedTab, setSelectedTab] = useState<'editor' | 'preview'>('editor');
+  const [user, setUser] = useState<any>(null);
 
   const inputStyle = {
-    inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
+    inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200"
   };
 
   const autoCompleteStyle = { classNames: inputStyle };
 
-  // Fetch warehouses on mount and when pagination or search changes
-  useEffect(() => {
-    fetchWarehouses();
-  }, [page, rowsPerPage]);
+  // Optimized function to load address data efficiently
+  const loadAddressData = async (options?: {
+    regCode?: string
+    provCode?: string
+    citymunCode?: string
+  }) => {
+    try {
+      const addressData = await getAddressDropdownData(options)
 
-  // Separate handler for search with debounce
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (search !== undefined) {
-        fetchWarehouses();
+      setRegions(addressData.regions)
+
+      if (options?.regCode) {
+        setProvinces(addressData.provinces)
       }
-    }, 500);
 
-    return () => clearTimeout(timer);
-  }, [search]);
+      if (options?.provCode) {
+        setCityMunicipalities(addressData.cities)
+      }
 
-  const fetchWarehouses = async () => {
-    setListLoading(true);
-    const { data, totalCount, success } = await getWarehousesPage({
-      page,
-      pageSize: rowsPerPage,
-      search
-    });
+      if (options?.citymunCode) {
+        setBarangays(addressData.barangays)
+      }
 
-    if (success) {
-      setWarehouses(data);
-      setTotalWarehouses(totalCount);
-      setTotalPages(Math.ceil(totalCount / rowsPerPage));
+      return addressData
+    } catch (error) {
+      console.error('Error loading address data:', error)
+      return { regions: [], provinces: [], cities: [], barangays: [] }
     }
-
-    setListLoading(false);
-  };
-
-  // Fetch company UUID
-  useEffect(() => {
-    setCompanyUuid(window.userData.uuid);
-    setIsLoading(false);
-  }, []);
-
-  // Fetch address data
-  useEffect(() => {
-    const fetchRegions = async () => {
-      const regionsData = await getRegions();
-      setRegions(regionsData);
-    };
-
-    fetchRegions();
-  }, []);
+  }
 
   // Watch for URL search params to select warehouse
   useEffect(() => {
+    setIsAddressLoading(true);
+    setDetailLoading(true);
     const warehouseId = searchParams.get("warehouseId");
 
     if (!warehouseId) {
-      setSelectedWarehouseId(null);
-      setCurrentWarehouse({});
-      resetAddressFields();
+      const resetDetails = async () => {
+        await setSelectedWarehouseId(null);
+        await setWarehouseLayout([]);
+        await setCurrentWarehouse({});
+        await resetAddressFields();
+
+        setIsAddressLoading(false);
+        setDetailLoading(false);
+      }
+      resetDetails();
       return;
     }
 
+
     if (warehouseId !== selectedWarehouseId) {
       setSelectedWarehouseId(warehouseId);
-      fetchWarehouseDetails(warehouseId);
+      fetchWarehouseAddress(warehouseId);
       fetchWarehouseLayout(warehouseId);
     }
+
   }, [searchParams]);
 
-  // Fetch specific warehouse details
-  const fetchWarehouseDetails = async (warehouseId: string) => {
-    setDetailLoading(true);
+  useEffect(() => {
+    const fetchWarehousesAsync = async () => {
+      setListLoading(true);
+      const userData = await getUserFromCookies();
+      if (userData === null) {
+        setUser(null);
+        return
+      } else
+        setUser(userData);
 
+      await fetchWarehouses(userData.company_uuid);
+      setListLoading(false);
+    }
+    fetchWarehousesAsync();
+  }, []);
+
+  const fetchWarehouseAddress = async (warehouseId: string) => {
     const { data, success } = await getWarehouseByUuid(warehouseId);
 
     if (success && data) {
       setCurrentWarehouse(data);
       await initializeAddressFields(data);
-
-      // Set manual full address
-      setManualFullAddress(data.address?.fullAddress || '');
     }
 
-    setDetailLoading(false);
-  };
+    setIsAddressLoading(false);
+  }
 
   // Fetch warehouse layout
   const fetchWarehouseLayout = async (warehouseId: string) => {
     if (!warehouseId) return;
 
-    setIsLoadingLayout(true);
     const { success, data, error } = await getWarehouseLayout(warehouseId);
 
     if (success && data) {
@@ -222,65 +231,53 @@ export default function WarehousePage() {
         matrix: Array(layoutRows).fill(0).map(() => Array(layoutColumns).fill(0))
       }]);
     }
-    setIsLoadingLayout(false);
+    setDetailLoading(false);
   };
 
-  // Fetch provinces when region is selected
-  useEffect(() => {
-    const fetchProvinces = async () => {
-      if (selectedRegion) {
-        const provincesData = await getProvinces(selectedRegion);
-        setProvinces(provincesData);
+  // Fetch warehouses with pagination
+  const fetchWarehouses = async (companyUuid: string) => {
+    if (!companyUuid) return;
 
-        if (!currentWarehouse?.address?.province?.code) {
-          setSelectedProvince('');
-          setSelectedCityMunicipality('');
-          setSelectedBarangay('');
-          setCityMunicipalities([]);
-          setBarangays([]);
-        }
+    try {
+      // Calculate offset based on current page and rows per page
+      const offset = (page - 1) * rowsPerPage;
+
+      const result = await getWarehouses(
+        companyUuid,
+        search,
+        null, // year
+        null, // month
+        null, // week
+        null, // day
+        rowsPerPage,
+        offset
+      );
+
+      if (result.success) {
+        setWarehouses(result.data);
+        setTotalWarehouses(result.totalCount);
+        setTotalPages(result.totalPages || 1);
       }
-    };
+    } catch (error) {
+      console.error("Error fetching warehouses:", error);
+    }
+  };
 
-    fetchProvinces();
-  }, [selectedRegion]);
-
-  // Fetch cities when province is selected
+  // Effect to fetch warehouses when dependencies change
   useEffect(() => {
-    const fetchCityMunicipalities = async () => {
-      if (selectedProvince) {
-        const cityMunData = await getCityMunicipalities(selectedProvince);
-        setCityMunicipalities(cityMunData);
+    const fetchWarehousesAsync = async () => {
+      if (!user?.company_uuid) return;
+      setListLoading(true);
+      await fetchWarehouses(user?.company_uuid || '');
+      setListLoading(false);
+    }
+    fetchWarehousesAsync();
+  }, [page, rowsPerPage, search, user]);
 
-        if (!currentWarehouse?.address?.municipality?.code) {
-          setSelectedCityMunicipality('');
-          setSelectedBarangay('');
-          setBarangays([]);
-        }
-      }
-    };
-
-    fetchCityMunicipalities();
-  }, [selectedProvince]);
-
-  // Fetch barangays when city is selected
+  // Update the full address when components change
   useEffect(() => {
-    const fetchBarangays = async () => {
-      if (selectedCityMunicipality) {
-        const barangaysData = await getBarangays(selectedCityMunicipality);
-        setBarangays(barangaysData);
+    if (!regions.length) return
 
-        if (!currentWarehouse?.address?.barangay?.code) {
-          setSelectedBarangay('');
-        }
-      }
-    };
-
-    fetchBarangays();
-  }, [selectedCityMunicipality]);
-
-  // Update full address when address components change
-  useEffect(() => {
     const regionName = regions.find(r => compare(r.regCode, selectedRegion))?.regDesc || '';
     const provinceName = provinces.find(p => compare(p.provCode, selectedProvince))?.provDesc || '';
     const cityMunName = cityMunicipalities.find(c => compare(c.citymunCode, selectedCityMunicipality))?.citymunDesc || '';
@@ -302,7 +299,7 @@ export default function WarehousePage() {
     if (!manualFullAddress || generatedAddress.includes(barangayName) && generatedAddress.includes(cityMunName)) {
       setManualFullAddress(generatedAddress);
     }
-  }, [selectedRegion, selectedProvince, selectedCityMunicipality, selectedBarangay, inputStreetAddress, inputPostalCode]);
+  }, [selectedRegion, selectedProvince, selectedCityMunicipality, selectedBarangay, inputStreetAddress, inputPostalCode, regions, provinces, cityMunicipalities, barangays]);
 
   const resetAddressFields = () => {
     setSelectedRegion('');
@@ -327,36 +324,38 @@ export default function WarehousePage() {
     setInputStreetAddress(address.street || '');
     setInputPostalCode(address.postalCode || '');
 
-    // Set region
+    // Load address data based on warehouse data efficiently
+    const regCode = address.region?.code
+    const provCode = address.province?.code
+    const citymunCode = address.municipality?.code
+
+    let addressData;
+    if (regCode && provCode && citymunCode) {
+      // Load all levels at once
+      addressData = await loadAddressData({ regCode, provCode, citymunCode })
+    } else if (regCode && provCode) {
+      // Load up to cities
+      addressData = await loadAddressData({ regCode, provCode })
+    } else if (regCode) {
+      // Load up to provinces
+      addressData = await loadAddressData({ regCode })
+    } else {
+      // Load only regions
+      addressData = await loadAddressData()
+    }
+
+    // Set selected values after data is loaded
     if (address.region?.code) {
       setSelectedRegion(address.region.code);
-
-      // Fetch provinces for this region
-      const provincesData = await getProvinces(address.region.code);
-      setProvinces(provincesData);
-
-      // Set province
-      if (address.province?.code) {
-        setSelectedProvince(address.province.code);
-
-        // Fetch cities for this province
-        const cityMunData = await getCityMunicipalities(address.province.code);
-        setCityMunicipalities(cityMunData);
-
-        // Set city
-        if (address.municipality?.code) {
-          setSelectedCityMunicipality(address.municipality.code);
-
-          // Fetch barangays for this city
-          const barangaysData = await getBarangays(address.municipality.code);
-          setBarangays(barangaysData);
-
-          // Set barangay
-          if (address.barangay?.code) {
-            setSelectedBarangay(address.barangay.code);
-          }
-        }
-      }
+    }
+    if (address.province?.code) {
+      setSelectedProvince(address.province.code);
+    }
+    if (address.municipality?.code) {
+      setSelectedCityMunicipality(address.municipality.code);
+    }
+    if (address.barangay?.code) {
+      setSelectedBarangay(address.barangay.code);
     }
   };
 
@@ -364,10 +363,7 @@ export default function WarehousePage() {
     // Clear the URL parameter
     const params = new URLSearchParams(searchParams.toString());
     params.delete("warehouseId");
-    router.push(`?${params.toString()}`, { scroll: false });
-
-    setCurrentWarehouse({});
-    resetAddressFields();
+    router.push(`?`, { scroll: false });
   };
 
   const handleSelectWarehouse = async (warehouseId: string) => {
@@ -375,27 +371,36 @@ export default function WarehousePage() {
     const params = new URLSearchParams(searchParams.toString());
     params.set("warehouseId", warehouseId);
     router.push(`?${params.toString()}`, { scroll: false });
-
-    // After selecting a warehouse, also fetch its layout
-    await fetchWarehouseLayout(warehouseId);
   };
 
+  // Handle region selection change
   const handleRegionChange = (value: string) => {
     setSelectedRegion(value);
     setSelectedProvince('');
     setSelectedCityMunicipality('');
     setSelectedBarangay('');
+
+    // Load provinces for the selected region
+    loadAddressData({ regCode: value })
   };
 
+  // Handle province selection change
   const handleProvinceChange = (value: string) => {
     setSelectedProvince(value);
     setSelectedCityMunicipality('');
     setSelectedBarangay('');
+
+    // Load cities for the selected province
+    loadAddressData({ provCode: value })
   };
 
+  // Handle city/municipality selection change
   const handleCityMunicipalityChange = (value: string) => {
     setSelectedCityMunicipality(value);
     setSelectedBarangay('');
+
+    // Load barangays for the selected city/municipality
+    loadAddressData({ citymunCode: value })
   };
 
   const handleDeleteWarehouseClick = () => {
@@ -416,7 +421,7 @@ export default function WarehousePage() {
       setWarehouseToDelete(null);
 
       // Refresh warehouse list
-      fetchWarehouses();
+      fetchWarehouses(user?.company_uuid || '');
 
       setTimeout(() => {
         // Redirect to blank form after deletion
@@ -430,7 +435,7 @@ export default function WarehousePage() {
   const handleSubmitWarehouse = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!currentWarehouse?.name || !manualFullAddress || !companyUuid) return;
+    if (!currentWarehouse?.name || !manualFullAddress) return;
 
     setIsSubmitting(true);
 
@@ -441,7 +446,7 @@ export default function WarehousePage() {
 
     const warehouseData = {
       uuid: currentWarehouse.uuid!,
-      company_uuid: companyUuid,
+      company_uuid: currentWarehouse.company_uuid!,
       name: currentWarehouse.name,
       address: {
         country: { code: "PH", desc: "PHILIPPINES" },
@@ -466,7 +471,7 @@ export default function WarehousePage() {
 
     if (!result.error) {
       // Refresh warehouse list
-      fetchWarehouses();
+      fetchWarehouses(user?.company_uuid || '');
 
       // If creating a new warehouse, update the URL with the new ID
       if (!currentWarehouse.uuid && result.data[0]?.uuid) {
@@ -478,6 +483,13 @@ export default function WarehousePage() {
     }
   };
 
+  // Handle page change
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage);
+    // The useEffect will trigger fetchWarehouses with the new page
+  };
+
+  // Handle search with pagination reset
   const handleSearch = (value: string) => {
     setSearch(value);
     setPage(1); // Reset to first page when searching
@@ -568,8 +580,8 @@ export default function WarehousePage() {
       <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
         <div className="flex flex-col w-full xl:text-left text-center">
           <h1 className="text-2xl font-bold">Warehouse Management</h1>
-          {isLoading ? (
-            <div className="text-default-500 flex items-center">
+          {(isAddressLoading || detailLoading || listLoading) ? (
+            <div className="text-default-500 flex items-center justify-center xl:justify-start">
               <p className='my-auto mr-1'>Loading warehouses data</p>
               <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
             </div>
@@ -579,21 +591,18 @@ export default function WarehousePage() {
         </div>
         <div className="flex gap-4">
           <div className="mt-4 text-center">
-            {isLoading ? (
-              <Skeleton className="h-10 w-32 rounded-xl" />
-            ) : (
-              <Button
-                color="primary"
-                variant="shadow"
-                onPress={handleAddWarehouse}
-              >
-                <Icon icon="mdi:plus" className="mr-2" />
-                New Warehouse
-              </Button>
-            )}
+            <Button
+              color="primary"
+              variant="shadow"
+              onPress={handleAddWarehouse}
+              startContent={<Icon icon="mdi:plus" width={20} height={20} />}
+              isDisabled={isAddressLoading || detailLoading || listLoading}>
+              New Warehouse
+            </Button>
           </div>
         </div>
       </div>
+
 
       <div className="flex flex-col xl:flex-row gap-4">
         {/* Left side: Warehouse List */}
@@ -605,33 +614,25 @@ export default function WarehousePage() {
           <div className="flex flex-col h-full">
             <div className="p-4 sticky top-0 z-20 bg-background/80 border-b border-default-200 backdrop-blur-lg shadow-sm">
               <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouses</h2>
-              {isLoading ? (
-                <Skeleton className="h-10 w-full rounded-xl" />
-              ) : (
-                <Input
-                  placeholder="Search warehouses..."
-                  value={search}
-                  onChange={(e) => handleSearch(e.target.value)}
-                  isClearable
-                  onClear={() => handleSearch("")}
-                  startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
-                />
-              )}
+              <Input
+                placeholder="Search warehouses..."
+                value={search}
+                onChange={(e) => handleSearch(e.target.value)}
+                isClearable
+                onClear={() => handleSearch("")}
+                startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
+              />
+
             </div>
             <div className="h-full absolute w-full">
-              {isLoading || listLoading ? (
-                <div className="space-y-4 p-4 mt-1 pt-32 h-full relative">
-                  {[...Array(10)].map((_, i) => (
+              <div className={`space-y-4 p-4 mt-1 pt-32 h-full relative ${!listLoading && "overflow-y-auto"}`}>
+                <ListLoadingAnimation
+                  condition={listLoading}
+                  containerClassName="space-y-4"
+                  skeleton={[...Array(10)].map((_, i) => (
                     <Skeleton key={i} className="w-full min-h-28 rounded-xl" />
                   ))}
-                  <div className="absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-background to-transparent pointer-events-none" />
-                  <div className="py-4 flex absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
-                    <Spinner />
-                  </div>
-                </div>
-              ) : !listLoading && warehouses.length > 0 ? (
-                <div
-                  className='space-y-4 p-4 overflow-y-auto pt-[8.25rem] xl:h-full h-[42rem]'>
+                >
                   {warehouses.map((warehouse) => (
                     <Button
                       key={warehouse.uuid}
@@ -685,10 +686,72 @@ export default function WarehousePage() {
                       </div>
                     </Button>
                   ))}
-                </div>
-              ) : null}
+                </ListLoadingAnimation>
+                <AnimatePresence>
+                  {listLoading && (
+                    <motion.div
+                      className="absolute inset-0 flex items-center justify-center"
+                      initial={{ opacity: 0, filter: "blur(8px)" }}
+                      animate={{ opacity: 1, filter: "blur(0px)" }}
+                      exit={{ opacity: 0, filter: "blur(8px)" }}
+                      transition={{ duration: 0.3, delay: 0.3 }}
+                    >
+                      <div className="absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-background to-transparent pointer-events-none" />
+                      <div className="py-4 flex absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
+                        <Spinner />
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
 
-              {!isLoading && !listLoading && warehouses.length === 0 && (
+
+                {/* Add pagination */}
+                {warehouses.length > 0 && (
+                  <div className="flex flex-col items-center pt-2 pb-4 px-2">
+                    <div className="text-sm text-default-500 mb-2">
+                      Showing {(page - 1) * rowsPerPage + 1} to {Math.min(page * rowsPerPage, totalWarehouses)} of {totalWarehouses} {totalWarehouses === 1 ? 'warehouse' : 'warehousess'}
+                    </div>
+                    <Pagination
+                      total={totalPages}
+                      initialPage={1}
+                      page={page}
+                      onChange={handlePageChange}
+                      color="primary" 
+                      size="sm"
+                      showControls
+                    />
+                  </div>
+                )}
+
+              <AnimatePresence>
+                {!listLoading && warehouses.length === 0 && (
+                  <motion.div
+                    className="xl:h-full h-[42rem] absolute w-full"
+                    initial={{ opacity: 0, filter: "blur(8px)" }}
+                    animate={{ opacity: 1, filter: "blur(0px)" }}
+                    exit={{ opacity: 0, filter: "blur(8px)" }}
+                    transition={{ duration: 0.3 }}
+                  >
+                    <div className="py-4 flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
+                      <Icon icon="material-symbols:warehouse-rounded" className="text-5xl text-default-300" />
+                      <p className="text-default-500 mt-2">No warehouses found.</p>
+                      <Button
+                        color="primary"
+                        variant="light"
+                        size="sm"
+                        className="mt-4"
+                        onPress={handleAddWarehouse}
+                        startContent={<Icon icon="mdi:plus" width={20} height={20} />}
+                      >
+                        Add Warehouse
+                      </Button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {!listLoading && warehouses.length === 0 && (
                 <div className="xl:h-full h-[42rem] absolute w-full">
                   <div className="py-4 flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
                     <Icon icon="material-symbols:warehouse-rounded" className="text-5xl text-default-300" />
@@ -700,49 +763,20 @@ export default function WarehousePage() {
           </div>
         </div>
 
+
         {/* Right side: Warehouse Form */}
         <div className="xl:w-2/3">
           <Form id="warehouseForm" onSubmit={handleSubmitWarehouse} className="items-stretch space-y-4">
-            {isLoading || detailLoading ? (
-              <CardList>
-                <div>
-                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouse Information</h2>
-                  <div className="space-y-4">
-                    <Skeleton className="h-16 w-full rounded-xl" />
-                  </div>
-                </div>
-
-                <div>
-                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Location Details</h2>
-                  <div className="space-y-4">
-                    <Skeleton className="h-16 w-full rounded-xl" />
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <Skeleton className="h-16 w-full rounded-xl" />
+            <CardList>
+              <LoadingAnimation
+                condition={detailLoading}
+                skeleton={
+                  <div>
+                    <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" /> {/* Section Title */}
+                    <div className="space-y-4">
                       <Skeleton className="h-16 w-full rounded-xl" />
                     </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <Skeleton className="h-16 w-full rounded-xl" />
-                      <Skeleton className="h-16 w-full rounded-xl" />
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <Skeleton className="h-16 w-full rounded-xl" />
-                      <Skeleton className="h-16 w-full rounded-xl" />
-                    </div>
-
-                    <Skeleton className="h-16 w-full rounded-xl" />
-                  </div>
-                </div>
-                <div>
-                  <div className="flex justify-center items-center gap-4">
-                    <Skeleton className="h-10 w-full rounded-xl" />
-                  </div>
-                </div>
-              </CardList>
-            ) : (
-              <CardList>
+                  </div>}>
                 <div>
                   <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouse Information</h2>
                   <div className="space-y-4">
@@ -757,123 +791,166 @@ export default function WarehousePage() {
                     />
                   </div>
                 </div>
+              </LoadingAnimation>
 
-                <div>
+
+              {/* Location Details */}
+              <LoadingAnimation
+                condition={isAddressLoading}
+                skeleton={
+                  <div>
+                    <Skeleton className="h-6 w-36 rounded-xl mb-4 mx-auto" /> {/* "Location Details" title */}
+                    <div className="space-y-4">
+                      <Skeleton className="h-16 w-full rounded-xl" />
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                      </div>
+
+                      <Skeleton className="h-16 w-full rounded-xl" />
+                    </div>
+                  </div>}>
+                <div className="space-y-4">
                   <h2 className="text-xl font-semibold mb-4 w-full text-center">Location Details</h2>
-                  <div className="space-y-4">
+                  <Input
+                    label="Country"
+                    defaultValue="PHILIPPINES"
+                    isReadOnly
+                    isRequired
+                    classNames={inputStyle}
+                  />
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Autocomplete
+                      label="Region"
+                      isRequired
+                      inputProps={autoCompleteStyle}
+                      classNames={{ clearButton: "text-default-800" }}
+                      selectedKey={selectedRegion}
+                      onSelectionChange={(e) => handleRegionChange(`${e}`)}
+                    >
+                      {regions.map(region => (
+                        <AutocompleteItem key={region.regCode}>
+                          {region.regDesc}
+                        </AutocompleteItem>
+                      ))}
+                    </Autocomplete>
+
+                    <Autocomplete
+                      label="Province"
+                      isRequired
+                      inputProps={autoCompleteStyle}
+                      classNames={{ clearButton: "text-default-800" }}
+                      selectedKey={selectedProvince}
+                      onSelectionChange={(e) => handleProvinceChange(`${e}`)}
+                      isDisabled={!selectedRegion}
+                    >
+                      {provinces.map(province => (
+                        <AutocompleteItem key={province.provCode}>
+                          {province.provDesc}
+                        </AutocompleteItem>
+                      ))}
+                    </Autocomplete>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Autocomplete
+                      label="Municipality/City"
+                      isRequired
+                      inputProps={autoCompleteStyle}
+                      classNames={{ clearButton: "text-default-800" }}
+                      selectedKey={selectedCityMunicipality}
+                      onSelectionChange={(e) => handleCityMunicipalityChange(`${e}`)}
+                      isDisabled={!selectedProvince}
+                    >
+                      {cityMunicipalities.map(city => (
+                        <AutocompleteItem key={city.citymunCode}>
+                          {city.citymunDesc}
+                        </AutocompleteItem>
+                      ))}
+                    </Autocomplete>
+
+                    <Autocomplete
+                      label="Barangay"
+                      isRequired
+                      inputProps={autoCompleteStyle}
+                      classNames={{ clearButton: "text-default-800" }}
+                      selectedKey={selectedBarangay}
+                      onSelectionChange={(e) => setSelectedBarangay(`${e}`)}
+                      isDisabled={!selectedCityMunicipality}
+                    >
+                      {barangays.map(barangay => (
+                        <AutocompleteItem key={barangay.brgyCode}>
+                          {barangay.brgyDesc}
+                        </AutocompleteItem>
+                      ))}
+                    </Autocomplete>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <Input
-                      label="Country"
-                      defaultValue="PHILIPPINES"
-                      isReadOnly
+                      label="Street Address"
+                      placeholder="Enter street name, building number, etc."
+                      value={inputStreetAddress}
+                      onChange={(e) => setInputStreetAddress(e.target.value)}
                       isRequired
                       classNames={inputStyle}
                     />
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <Autocomplete
-                        label="Region"
-                        isRequired
-                        inputProps={autoCompleteStyle}
-                        classNames={{ clearButton: "text-default-800" }}
-                        selectedKey={selectedRegion}
-                        onSelectionChange={(e) => handleRegionChange(`${e}`)}
-                      >
-                        {regions.map(region => (
-                          <AutocompleteItem key={region.regCode}>
-                            {region.regDesc}
-                          </AutocompleteItem>
-                        ))}
-                      </Autocomplete>
-
-                      <Autocomplete
-                        label="Province"
-                        isRequired
-                        inputProps={autoCompleteStyle}
-                        classNames={{ clearButton: "text-default-800" }}
-                        selectedKey={selectedProvince}
-                        onSelectionChange={(e) => handleProvinceChange(`${e}`)}
-                        isDisabled={!selectedRegion}
-                      >
-                        {provinces.map(province => (
-                          <AutocompleteItem key={province.provCode}>
-                            {province.provDesc}
-                          </AutocompleteItem>
-                        ))}
-                      </Autocomplete>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <Autocomplete
-                        label="Municipality/City"
-                        isRequired
-                        inputProps={autoCompleteStyle}
-                        classNames={{ clearButton: "text-default-800" }}
-                        selectedKey={selectedCityMunicipality}
-                        onSelectionChange={(e) => handleCityMunicipalityChange(`${e}`)}
-                        isDisabled={!selectedProvince}
-                      >
-                        {cityMunicipalities.map(city => (
-                          <AutocompleteItem key={city.citymunCode}>
-                            {city.citymunDesc}
-                          </AutocompleteItem>
-                        ))}
-                      </Autocomplete>
-
-                      <Autocomplete
-                        label="Barangay"
-                        isRequired
-                        inputProps={autoCompleteStyle}
-                        classNames={{ clearButton: "text-default-800" }}
-                        selectedKey={selectedBarangay}
-                        onSelectionChange={(e) => setSelectedBarangay(`${e}`)}
-                        isDisabled={!selectedCityMunicipality}
-                      >
-                        {barangays.map(barangay => (
-                          <AutocompleteItem key={barangay.brgyCode}>
-                            {barangay.brgyDesc}
-                          </AutocompleteItem>
-                        ))}
-                      </Autocomplete>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <Input
-                        label="Street Address"
-                        placeholder="Enter street name, building number, etc."
-                        value={inputStreetAddress}
-                        onChange={(e) => setInputStreetAddress(e.target.value)}
-                        isRequired
-                        classNames={inputStyle}
-                      />
-
-                      <Input
-                        label="Postal Code"
-                        placeholder="Enter postal code"
-                        value={inputPostalCode}
-                        onChange={(e) => setInputPostalCode(e.target.value)}
-                        isRequired
-                        classNames={inputStyle}
-                      />
-                    </div>
-
-                    <Textarea
-                      label="Full Address"
-                      placeholder="Complete address"
-                      value={manualFullAddress}
-                      onChange={(e) => setManualFullAddress(e.target.value)}
+                    <Input
+                      label="Postal Code"
+                      placeholder="Enter postal code"
+                      value={inputPostalCode}
+                      onChange={(e) => setInputPostalCode(e.target.value)}
                       isRequired
-                      maxRows={5}
-                      minRows={1}
                       classNames={inputStyle}
-                      isReadOnly
-                      startContent={<Icon icon="mdi:map-marker" className="text-default-500 pb-[0.1rem]" />}
                     />
                   </div>
-                </div>
 
-                <div>
-                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouse Layout</h2>
+                  <Textarea
+                    label="Full Address"
+                    placeholder="Complete address"
+                    value={manualFullAddress}
+                    onChange={(e) => setManualFullAddress(e.target.value)}
+                    isRequired
+                    maxRows={5}
+                    minRows={1}
+                    classNames={inputStyle}
+                    isReadOnly
+                    startContent={<Icon icon="mdi:map-marker" className="text-default-500 pb-[0.1rem]" />}
+                  />
+                </div>
+              </LoadingAnimation>
+
+              {/* Warehouse Layout */}
+              <div>
+                <LoadingAnimation
+                  condition={detailLoading}
+                  skeleton={
+                    <div>
+                      <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" /> {/* Section Title */}
+                      <div className="space-y-4">
+                        <Skeleton className="h-32 w-full rounded-xl" /> {/* Layout Preview */}
+                        <div className="flex justify-end items-center gap-2">
+                          <Skeleton className="h-10 w-24 rounded-xl" />
+                          <Skeleton className="h-10 w-32 rounded-xl" />
+                        </div>
+                      </div>
+                    </div>
+                  }>
                   <div className="space-y-4">
+                    <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouse Layout</h2>
                     <div className="mb-4">
                       {renderLayoutPreview()}
                     </div>
@@ -896,12 +973,25 @@ export default function WarehousePage() {
                       >
                         View 3D Layout
                       </Button>
-
                     </div>
                   </div>
-                </div>
+                </LoadingAnimation>
+              </div>
 
-                <div {...(selectedWarehouseId && currentWarehouse?.created_at ? {} : { className: '!min-h-0 !p-0 !h-0 collapse border-none z-0' })}>
+              {/* Additional Information (only when warehouse is selected) */}
+              <div {...(selectedWarehouseId && currentWarehouse?.created_at ? {} : { className: '!min-h-0 !p-0 !h-0 collapse border-none z-0' })}>
+
+                <LoadingAnimation
+                  condition={detailLoading}
+                  skeleton={
+                    <div>
+                      <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" /> {/* Section Title */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                      </div>
+                    </div>
+                  }>
                   <AnimatePresence>
                     {selectedWarehouseId && currentWarehouse?.created_at && (
                       <motion.div
@@ -929,10 +1019,19 @@ export default function WarehousePage() {
                       </motion.div>
                     )}
                   </AnimatePresence>
-                </div>
+                </LoadingAnimation>
+              </div>
 
-
-                <div>
+              {/* Action Buttons */}
+              <div>
+                <LoadingAnimation
+                  condition={detailLoading}
+                  skeleton={
+                    <div className="flex justify-center items-center gap-4">
+                      <Skeleton className="h-10 w-full rounded-xl" />
+                      <Skeleton className="h-10 w-full rounded-xl" />
+                    </div>
+                  }>
                   <div className="flex justify-center items-center gap-4">
                     {selectedWarehouseId && (
                       <Button
@@ -958,9 +1057,13 @@ export default function WarehousePage() {
                       {selectedWarehouseId ? "Update Warehouse" : "Save Warehouse"}
                     </Button>
                   </div>
-                </div>
-              </CardList>
-            )}
+                </LoadingAnimation>
+              </div>
+
+
+
+
+            </CardList>
           </Form>
         </div>
       </div>

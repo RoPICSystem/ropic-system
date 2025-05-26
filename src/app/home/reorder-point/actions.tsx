@@ -10,7 +10,7 @@ export interface ReorderPointLog {
   warehouse_uuid: string;
   inventory_uuid: string;
   warehouse_inventory_uuid: string;
-  
+
   current_stock: number;
   unit: string;
   average_daily_unit_sales: number;
@@ -18,43 +18,65 @@ export interface ReorderPointLog {
   safety_stock: number;
   reorder_point: number;
   status: InventoryStatus;
-  
+
   custom_safety_stock?: number | null;
   notes?: string | null;
-  
+
   created_at: string;
   updated_at: string;
 }
+
 /**
- * Fetches reorder point logs for the current company
+ * Fetches reorder point logs with pagination and filtering
  */
 export async function getReorderPointLogs(
+  companyUuid: string,
   warehouseUuid?: string,
-  statusFilter?: InventoryStatus
+  statusFilter?: InventoryStatus,
+  searchQuery: string = "",
+  limit: number = 10,
+  offset: number = 0
 ) {
   const supabase = await createClient();
 
   try {
     const { data, error } = await supabase.rpc(
-      'get_reorder_point_logs',
+      'get_reorder_point_logs_paginated',
       {
-        warehouse_id: warehouseUuid || null,
-        status_filter: statusFilter || null
+        p_company_uuid: companyUuid || null,
+        p_warehouse_uuid: warehouseUuid || null,
+        p_status: statusFilter || null,
+        p_search: searchQuery || "",
+        p_limit: limit,
+        p_offset: offset
       }
     );
 
     if (error) throw error;
 
+    // Extract total count from first record
+    const totalCount = data && data.length > 0 ? data[0].total_count : 0;
+    
+    // Calculate total pages
+    const totalPages = Math.ceil(totalCount / limit);
+
+    // Remove total_count from each item
+    const items = data ? data.map(({ total_count, ...item }: any) => item) : [];
+
     return {
       success: true,
-      data: data as ReorderPointLog[]
+      data: items as ReorderPointLog[],
+      totalCount,
+      totalPages
     };
   } catch (error: any) {
     console.error("Error fetching reorder point logs:", error);
     return {
       success: false,
       error: error.message || "Failed to fetch reorder point logs",
-      data: [] as ReorderPointLog[]
+      data: [] as ReorderPointLog[],
+      totalCount: 0,
+      totalPages: 1
     };
   }
 }

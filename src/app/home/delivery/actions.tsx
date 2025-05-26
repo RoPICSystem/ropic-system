@@ -200,67 +200,78 @@ export async function updateInventoryItemBulksStatus(bulkUuids: string[], status
 }
 
 /**
- * Fetches delivery items with optional search
+ * Fetches delivery items with flexible filtering options
  */
 export async function getDeliveryItems(
   companyUuid?: string,
   search: string = "",
   status?: string | null,
-  warehouseUuid?: string | null
+  warehouseUuid?: string | null,
+  operatorUuid?: string | null,
+  inventoryUuid?: string | null,
+  dateFrom?: string | null,
+  dateTo?: string | null,
+  year?: number | null,
+  month?: number | null,
+  week?: number | null, 
+  day?: number | null,
+  limit: number = 10,
+  offset: number = 0
 ) {
   const supabase = await createClient();
 
   try {
-    // Start building the query
-    let query = supabase
-      .from("delivery_items")
-      .select(`
-        *,
-        inventory_item:inventory_uuid!inner(
-          *
-        )
-      `)
-      .order("created_at", { ascending: false });
-
-
-    // Apply company filter if provided
-    if (companyUuid) {
-      query = query.eq("company_uuid", companyUuid);
-    }
-
-    // Apply search filter if provided
-    if (search) {
-      query = query.or(
-        `name.ilike.%${search}%,description.ilike.%${search}%`, { referencedTable: "inventory_item" }
-      );
-    }
-
-    // Apply status filter if provided
-    if (status) {
-      query = query.eq("status", status);
-    }
-
-    // Apply warehouse filter if provided
-    if (warehouseUuid) {
-      query = query.eq("warehouse_uuid", warehouseUuid);
-    }
-
-    // Execute the query
-    const { data, error } = await query;
+    const currentPage = Math.floor(offset / limit) + 1;
+    
+    const { data, error } = await supabase
+      .rpc('get_delivery_items', {
+        p_company_uuid: companyUuid || null,
+        p_search: search || '',
+        p_status: status || null,
+        p_warehouse_uuid: warehouseUuid || null,
+        p_operator_uuid: operatorUuid || null,
+        p_inventory_uuid: inventoryUuid || null,
+        p_date_from: dateFrom || null,
+        p_date_to: dateTo || null,
+        p_year: year || null,
+        p_month: month || null,
+        p_week: week || null,
+        p_day: day || null,
+        p_limit: limit,
+        p_offset: offset
+      });
 
     if (error) {
       throw error;
     }
+    
+    // Extract total count and remove from each item
+    const totalCount = data && data.length > 0 ? data[0].total_count : 0;
+    
+    // Calculate total pages and has more
+    const totalPages = Math.ceil(totalCount / limit);
+    const hasMore = currentPage < totalPages;
+    
+    // Remove total_count from each item
+    const items = data ? data.map(({ total_count, ...item }: any) => item) : [];
 
     return {
       success: true,
-      data: data || []
+      data: items,
+      totalCount,
+      hasMore,
+      currentPage,
+      totalPages
     };
   } catch (error: Error | any) {
     console.error("Error fetching delivery items:", error);
     return {
       success: false,
       data: [],
+      totalCount: 0,
+      hasMore: false,
+      currentPage: 1,
+      totalPages: 0,
       error: `Failed to fetch delivery items: ${error.message || "Unknown error"}`,
     };
   }
@@ -315,7 +326,7 @@ export async function getInventoryItems(companyUuid?: string, search: string = "
 /**
  * Fetches available inventory item bulks for an inventory item
  */
-export async function getInventoryItemBulks(inventoryItemUuid: string, getItemsInWarehouse: boolean = false) {
+export async function getInventoryItemBulks(inventoryItemUuid: string, getItemsInWarehouse: boolean = false, condition: string = "") {
   const supabase = await createClient();
 
   try {
@@ -327,6 +338,10 @@ export async function getInventoryItemBulks(inventoryItemUuid: string, getItemsI
 
     if (!getItemsInWarehouse)
       query = query.neq("status", "IN_WAREHOUSE");
+
+    if (condition) {
+      query = query.or(`${condition}`);
+    }
 
 
     const { data, error } = await query;

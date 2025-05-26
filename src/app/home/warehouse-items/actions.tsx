@@ -13,7 +13,6 @@ export interface WarehouseInventoryItem {
   admin_uuid: string;
   warehouse_uuid: string;
   company_uuid: string;
-  delivery_uuid: string;
   inventory_uuid: string;
   warehouse_inventory_item_bulks: {};
 
@@ -79,71 +78,127 @@ export interface WarehouseInventoryItemUnit {
 }
 
 
+// inherit the WarehouseInventoryItem interface
+export interface WarehouseInventoryItemWithBulkComplete extends WarehouseInventoryItemBulk {
+  units: WarehouseInventoryItemUnit[];
+}
+
+export interface WarehouseInventoryItemComplete extends WarehouseInventoryItem {
+  bulks: WarehouseInventoryItemWithBulkComplete[];
+}
+
 /**
- * Gets all warehouse inventory items with optional search
+ * Gets warehouse inventory items with advanced filtering capabilities
  */
 export async function getWarehouseInventoryItems(
-  companyUuid: string,
+  companyUuid?: string,
   warehouseUuid?: string,
-  search: string = ""
+  search: string = "",
+  status?: string | null,
+  year?: number | null,
+  month?: number | null,
+  week?: number | null,
+  day?: number | null,
+  limit: number = 10,
+  offset: number = 0
 ) {
   const supabase = await createClient();
 
   try {
-    let query = supabase
-      .from("warehouse_inventory_items")
-      .select("*")
-      .eq("company_uuid", companyUuid);
+    const currentPage = Math.floor(offset / limit) + 1;
 
-    if (warehouseUuid) {
-      query = query.eq("warehouse_uuid", warehouseUuid);
-    }
+    console.log("Fetching warehouse inventory items with params:", {
+      companyUuid,
+      warehouseUuid,
+      search,
+      status,
+      year,
+      month,
+      week,
+      day,
+      limit,
+      offset
+    });
 
-    if (search) {
-      query = query.or(`name.ilike.%${search}%`);
-    }
+    const { data, error } = await supabase.rpc('get_warehouse_inventory_items', {
+      p_company_uuid: companyUuid || null,
+      p_warehouse_uuid: warehouseUuid || null,
+      p_search: search || '',
+      p_status: status || null,
+      p_year: year || null,
+      p_month: month || null,
+      p_week: week || null,
+      p_day: day || null,
+      p_limit: limit,
+      p_offset: offset
+    });
 
-    const { data, error } = await query.order("created_at", { ascending: false });
-
+    console.log("Warehouse Inventory Items Data:", data, error);
     if (error) {
       throw error;
     }
 
+
+    // Extract total count from the first row (all rows have the same total_count)
+    const totalCount = data && data.length > 0 ? data[0].total_count : 0;
+
+    // Calculate total pages and has more
+    const totalPages = Math.ceil(totalCount / limit);
+    const hasMore = currentPage < totalPages;
+
+    // Remove total_count from each item and return clean data
+    const items = data ? data.map(({ total_count, ...item }: { total_count: number;[key: string]: any }) => item) : [];
+
     return {
       success: true,
-      data: data || []
+      data: items,
+      totalCount: Number(totalCount),
+      hasMore,
+      currentPage,
+      totalPages
     };
   } catch (error: Error | any) {
     console.error("Error fetching warehouse inventory items:", error);
     return {
       success: false,
       data: [],
+      totalCount: 0,
+      hasMore: false,
+      currentPage: 1,
+      totalPages: 0,
       error: `Failed to fetch warehouse inventory items: ${error.message || "Unknown error"}`,
     };
   }
 }
 
 /**
- * Gets a specific warehouse inventory item by UUID
+ * Gets a specific warehouse inventory item with its bulks and units by UUID
  */
 export async function getWarehouseInventoryItem(uuid: string) {
   const supabase = await createClient();
 
   try {
-    const { data, error } = await supabase
-      .from("warehouse_inventory_items")
-      .select("*")
-      .eq("uuid", uuid)
-      .single();
+    // First try using the RPC function for efficient data retrieval
+    const { data: rpcData, error: rpcError } = await supabase
+      .rpc('get_warehouse_inventory_item_complete', { p_uuid: uuid });
 
-    if (error) {
-      throw error;
+    // If RPC function is available and works, use its result
+    if (!rpcError && rpcData) {
+      // Process the structured data from RPC
+      return {
+        success: true,
+        data: {
+          ...rpcData.item,
+          bulks: rpcData.bulks.map((bulk: { bulk_data: any; units: any; }) => ({
+            ...bulk.bulk_data,
+            units: bulk.units || []
+          }))
+        }
+      };
     }
 
-    return {
-      success: true,
-      data: data
-    };
+    throw new Error(rpcError?.message || "RPC function not available or failed");
+
   } catch (error: Error | any) {
     console.error("Error fetching warehouse inventory item:", error);
     return {
@@ -152,38 +207,36 @@ export async function getWarehouseInventoryItem(uuid: string) {
       error: `Failed to fetch warehouse inventory item: ${error.message || "Unknown error"}`,
     };
   }
+  
 }
 
 /**
- * Gets a warehouse inventory item by inventory_uuid
+ * Gets a warehouse inventory item by inventory_uuid with its bulks and units
  */
 export async function getWarehouseItemByInventory(inventoryUuid: string) {
   const supabase = await createClient();
 
   try {
-    const { data, error } = await supabase
-      .from("warehouse_inventory_items")
-      .select("*")
-      .eq("inventory_uuid", inventoryUuid)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
+    // First try using the RPC function
+    const { data: rpcData, error: rpcError } = await supabase
+      .rpc('get_warehouse_item_by_inventory_complete', { p_inventory_uuid: inventoryUuid });
 
-    if (error) {
-      if (error.code === 'PGRST116') {
-        // No rows returned - not an error for our purposes
-        return {
-          success: true,
-          data: null
-        };
-      }
-      throw error;
+    // If RPC function is available and works, use its result
+    if (!rpcError && rpcData) {
+      // Process the structured data from RPC
+      return {
+        success: true,
+        data: rpcData ? {
+          ...rpcData.item,
+          bulks: rpcData.bulks.map((bulk: { bulk_data: any; units: any; }) => ({
+            ...bulk.bulk_data,
+            units: bulk.units || []
+          }))
+        } : null
+      };
     }
+    throw new Error(rpcError?.message || "RPC function not available or failed");
 
-    return {
-      success: true,
-      data: data
-    };
   } catch (error: Error | any) {
     console.error("Error fetching warehouse inventory item by inventory UUID:", error);
     return {

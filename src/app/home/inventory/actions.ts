@@ -68,57 +68,69 @@ export async function getBulkUnitOptions() {
   ];
 }
 
+
 /**
- * Fetches inventory items for a company
+ * Fetches inventory items for a company with pagination
  */
-export async function getInventoryItems(companyUuid: string, searchQuery?: string) {
+export async function getInventoryItems(
+  companyUuid?: string, 
+  search: string = "", 
+  status?: string | null,
+  year?: number | null,
+  month?: number | null,
+  week?: number | null,
+  day?: number | null,
+  limit: number = 10,
+  offset: number = 0
+) {
   const supabase = await createClient();
 
   try {
-    let query = supabase
-      .from("inventory_items")
-      .select('*')
-      .eq("company_uuid", companyUuid)
-      .order("name");
+    const { data, error } = await supabase
+      .rpc('get_inventory_items', {
+        p_company_uuid: companyUuid || null,
+        p_search: search || '',
+        p_status: status || null,
+        p_year: year || null,
+        p_month: month || null,
+        p_week: week || null,
+        p_day: day || null,
+        p_limit: limit,
+        p_offset: offset
+      });
 
-    if (searchQuery) {
-      query = query.ilike("name", `%${searchQuery}%`);
+    if (error) {
+      throw error;
     }
 
-    const { data, error } = await query;
+    // Extract total count from first row (all rows have the same total_count)
+    const totalCount = data && data.length > 0 ? data[0].total_count : 0;
+    
+    // Remove total_count from each item and return clean inventory items
+    const items = data ? data.map(({ total_count, ...item }: { total_count: number } & Record<string, any>) => item) : [];
 
-    if (error) throw error;
-
-    // For each inventory item, get the available bulk count
-    const itemsWithBulkCount = await Promise.all(data.map(async (item) => {
-      // Get available bulks using our function
-      const { data: bulks, error: bulksError } = await supabase
-        .rpc('get_available_inventory_bulks', { inventory_id: item.uuid });
-
-      if (bulksError) {
-        console.error("Error getting bulks:", bulksError);
-        return {
-          ...item,
-          inventory_item_bulks_length: 0
-        };
-      }
-      
-      return {
-        ...item,
-        inventory_item_bulks_length: bulks.length,
-        inventory_item_bulks: bulks
-      };
-    }));
-
-    return { success: true, data: itemsWithBulkCount };
-  } catch (error) {
+    return {
+      success: true,
+      data: items,
+      totalCount: Number(totalCount),
+      hasMore: offset + items.length < totalCount,
+      currentPage: Math.floor(offset / limit) + 1,
+      totalPages: Math.ceil(totalCount / limit)
+    };
+  } catch (error: Error | any) {
     console.error("Error fetching inventory items:", error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Unknown error occurred"
+      data: [],
+      totalCount: 0,
+      hasMore: false,
+      currentPage: 1,
+      totalPages: 0,
+      error: `Failed to fetch inventory items: ${error.message || "Unknown error"}`,
     };
   }
 }
+
 
 /**
  * Fetches a single inventory item with its bulks and units

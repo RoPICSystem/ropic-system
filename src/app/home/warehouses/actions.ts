@@ -180,46 +180,83 @@ export async function deleteWarehouse(uuid: string) {
   }
 }
 
-/**
- * Gets all warehouses for the user's company
- */
-export async function getWarehouses(search: string = "") {
-  const supabase = await createClient();
 
+/**
+ * Gets warehouses with advanced filtering capabilities through RPC
+ */
+export async function getWarehouses(
+  company_uuid?: string,
+  search?: string | null,
+  year?: number | null,
+  month?: number | null,
+  week?: number | null,
+  day?: number | null,
+  limit: number = 10,
+  offset: number = 0,
+) {
+  const supabase = await createClient();
+  
   try {
-    // Get the user's company
-    const { data: company, error: companyError } = await getUserCompany();
-    if (companyError || !company) {
+
+    const currentPage = Math.floor(offset / limit) + 1;
+
+    const { data, error } = await supabase.rpc('get_warehouses_filtered', {
+      p_company_uuid: company_uuid,
+      p_search: search || '',
+      p_year: year || null,
+      p_month: month || null,
+      p_week: week || null,
+      p_day: day || null,
+      p_limit: limit,
+      p_offset: offset
+    });
+
+    console.log('getWarehouses data:', data, error);
+
+    if (error) {
       return { 
-        error: companyError || 'Company not found', 
+        success: false,
         data: [], 
-        success: false 
+        totalCount: 0,
+        hasMore: false,
+        currentPage: currentPage,
+        totalPages: 0,
+        error: error.message
       };
     }
 
-    let query = supabase
-      .from('warehouses')
-      .select('*')
-      .eq('company_uuid', company.uuid)
-      .order('name');
+    // Define the type for the warehouse with total_count
+    type WarehouseWithTotalCount = Warehouse & { total_count: number };
+    
+    // Extract total count from the first row
+    const totalCount = data && data.length > 0 ? data[0].total_count : 0;
+    
+    // Calculate total pages and has more
+    const totalPages = Math.ceil(totalCount / limit);
+    const hasMore = currentPage < totalPages;
+    
+    // Remove total_count from the warehouse objects
+    const warehouses = data?.map(({ total_count, ...warehouse }: WarehouseWithTotalCount) => warehouse) || [];
 
-    if (search) {
-      query = query.or(`name.ilike.%${search}%,address->fullAddress.ilike.%${search}%`);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      return { error: error.message, data: [], success: false };
-    }
-
-    return { data: data || [], success: true };
+    return { 
+      success: true,
+      data: warehouses, 
+      totalCount,
+      hasMore,
+      currentPage,
+      totalPages,
+      error: undefined
+    };
   } catch (error) {
     console.error('Error fetching warehouses:', error);
     return { 
-      error: error instanceof Error ? error.message : 'Unknown error occurred', 
+      success: false,
       data: [], 
-      success: false 
+      totalCount: 0,
+      hasMore: false,
+      currentPage: 1,
+      totalPages: 0,
+      error: error instanceof Error ? error.message : 'Unknown error occurred'
     };
   }
 }

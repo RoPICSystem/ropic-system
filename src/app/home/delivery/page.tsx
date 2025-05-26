@@ -4,7 +4,7 @@ import { motionTransition, popoverTransition } from '@/utils/anim';
 import { createClient } from "@/utils/supabase/client";
 import {
   Accordion, AccordionItem, Alert, Autocomplete, AutocompleteItem, Button, Checkbox,
-  Chip, DatePicker, Form, Input, Kbd, Modal, ModalBody, ModalContent, ModalFooter,
+  Chip, DatePicker, form, Form, Input, Kbd, Modal, ModalBody, ModalContent, ModalFooter,
   ModalHeader, NumberInput, Pagination, Popover, PopoverContent, PopoverTrigger,
   ScrollShadow, Skeleton, Spinner, Switch, Table, TableBody, TableCell,
   TableColumn, TableHeader, TableRow, Textarea, Tooltip, useDisclosure
@@ -47,6 +47,9 @@ import { InventoryItem } from '../inventory/actions';
 import { Warehouse } from '../warehouses/actions';
 import { formatDate } from '@/utils/tools';
 import { BitMatrix } from 'jsqr/dist/BitMatrix';
+import { getUserFromCookies } from '@/utils/supabase/server/user';
+import LoadingAnimation from '@/components/loading-animation';
+import ListLoadingAnimation from '@/components/list-loading-animation';
 
 // Import the ShelfSelector3D component
 const ShelfSelector3D = lazy(() =>
@@ -60,6 +63,8 @@ export default function DeliveryPage() {
   const searchParams = useSearchParams();
   const [user, setUser] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingWarehouses, setIsLoadingWarehouses] = useState(false);
+
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [showQrCode, setShowQrCode] = useState(false);
   const [showAcceptForm, setShowAcceptForm] = useState(false);
@@ -132,6 +137,8 @@ export default function DeliveryPage() {
   const [maxColumn, setMaxColumn] = useState(0);
   const [maxDepth, setMaxDepth] = useState(0);
 
+  const [error, setError] = useState<string | null>(null);
+
   // Shelf selector states
   const [highlightedFloor, setHighlightedFloor] = useState<number | null>(null);
   const isFloorChangeAnimate = true;
@@ -150,6 +157,11 @@ export default function DeliveryPage() {
   const [warehouseFilter, setWarehouseFilter] = useState<string | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
 
+  // 1. Add state variables for pagination
+  const [page, setPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(15);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalDeliveries, setTotalDeliveries] = useState(0);
 
   // Form state
   const [formData, setFormData] = useState<Partial<DeliveryItem>>({
@@ -295,18 +307,21 @@ export default function DeliveryPage() {
   }
 
   const loadInventoryBulks = useCallback(async (inventoryItemUuid: string, preserveSelection: boolean = false) => {
-    if (!inventoryItemUuid) {
+    if (inventoryItemUuid === null || inventoryItemUuid === "null" || inventoryItemUuid === "") {
       setInventoryBulks([]);
-      if (!preserveSelection) {
-        setSelectedBulks([]);
-        setPrevSelectedBulks([]);
-      }
+      setSelectedBulks([]);
+      setPrevSelectedBulks([]);
+      setLocations([]);
+      setLocationCodes([]);
       return;
     }
+
 
     setIsLoadingBulks(true);
     try {
       console.log("Status:", formData.status);
+
+
       const result = await getInventoryItemBulks(inventoryItemUuid, formData.status === "DELIVERED" || formData.status === "CANCELLED");
       if (result.success) {
         setInventoryBulks(result.data);
@@ -501,7 +516,7 @@ export default function DeliveryPage() {
 
 
   // Update handleSearch to accept filter parameters
-  const handleSearch = async (query: string, status?: string | null, warehouse?: string | null) => {
+  const handleSearch = async (query: string, status?: string | null, warehouse?: string | null, currentPage: number = page) => {
     setSearchQuery(query);
 
     try {
@@ -511,13 +526,29 @@ export default function DeliveryPage() {
       const statusToUse = status !== undefined ? status : statusFilter;
       const warehouseToUse = warehouse !== undefined ? warehouse : warehouseFilter;
 
+      // Calculate offset based on current page and rows per page
+      const offset = (currentPage - 1) * rowsPerPage;
+
       const result = await getDeliveryItems(
         user.company_uuid,
         query,
         statusToUse,
-        warehouseToUse
+        warehouseToUse,
+        null, // operatorUuid
+        null, // inventoryUuid
+        null, // dateFrom
+        null, // dateTo
+        null, // year
+        null, // month
+        null, // week
+        null, // day
+        rowsPerPage, // limit
+        offset // offset
       );
+
       setDeliveryItems(result.data || []);
+      setTotalPages(result.totalPages || 1);
+      setTotalDeliveries(result.totalCount || 0);
     } catch (error) {
       console.error("Error searching delivery items:", error);
     } finally {
@@ -525,23 +556,29 @@ export default function DeliveryPage() {
     }
   };
 
-  // Update filter change handlers to pass new values directly
+  // 3. Add function to handle page changes
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage);
+    handleSearch(searchQuery, statusFilter, warehouseFilter, newPage);
+  };
+
+  // 4. Update filter handlers to reset pagination
   const handleStatusFilterChange = (status: string | null) => {
     setStatusFilter(status);
-    // Pass the new status value directly to avoid using stale state
-    handleSearch(searchQuery, status, warehouseFilter);
+    setPage(1); // Reset to first page when filter changes
+    handleSearch(searchQuery, status, warehouseFilter, 1);
   };
 
   const handleWarehouseFilterChange = (warehouseId: string | null) => {
     setWarehouseFilter(warehouseId);
-    // Pass the new warehouse value directly to avoid using stale state
-    handleSearch(searchQuery, statusFilter, warehouseId);
+    setPage(1); // Reset to first page when filter changes
+    handleSearch(searchQuery, statusFilter, warehouseId, 1);
   };
 
 
   // Handle inventory item selection
-  const handleInventoryItemChange = async (inventoryItemUuid: string) => {
-    setSelectedItem(inventoryItemUuid);
+  const handleInventoryItemChange = async (inventoryItemUuid: string | null) => {
+    setSelectedItem(inventoryItemUuid || '');
 
     // Reset selected bulks and locations
     setSelectedBulks([]);
@@ -594,10 +631,14 @@ export default function DeliveryPage() {
 
   // Handle creating a new delivery
   const handleNewDelivery = () => {
+    // check if the current url is already a new delivery page
+    setIsLoading(searchParams.get("deliveryId") !== null);
+
     // Clear the URL parameter
     const params = new URLSearchParams(searchParams.toString());
     params.delete("deliveryId");
     router.push(`?${params.toString()}`, { scroll: false });
+
   };
 
   // Handle status change
@@ -634,7 +675,7 @@ export default function DeliveryPage() {
       };
 
       // Update form data with the new status and status history
-      const { inventory_item, ...filteredFormData } = formData as any;
+      const { inventory_items, ...filteredFormData } = formData as any;
       const updatedFormData = {
         ...filteredFormData,
         status,
@@ -726,10 +767,14 @@ export default function DeliveryPage() {
 
   // Handle selecting a delivery
   const handleSelectDelivery = (deliveryId: string) => {
+    setIsLoading(searchParams.get("deliveryId") !== deliveryId);
+
+
     // Update the URL with the selected delivery ID without reloading the page
     const params = new URLSearchParams(searchParams.toString());
     params.set("deliveryId", deliveryId);
     router.push(`?${params.toString()}`, { scroll: false });
+
   };
 
   // Handle selecting a delivery
@@ -1278,7 +1323,7 @@ export default function DeliveryPage() {
         const result = await updateDeliveryItem(matchingDelivery.uuid, updatedFormData);
 
         if (result.success && matchingDelivery.inventory_uuid) {
-          // Change status to IN_WAREHOUSE when delivery is DELIVERED
+          // Change status to IN_WAREHOUSE when delivery status is DELIVERED
           console.log("Updating inventory item status to IN_WAREHOUSE");
 
           // const inventoryResult = await updateInventoryItemStatus(
@@ -1472,7 +1517,10 @@ export default function DeliveryPage() {
 
         // Find the inventory item
         const inventoryItem = inventoryItems.find(item => item.uuid === setInventoryId);
-        if (!inventoryItem) return;
+        if (!inventoryItem) {
+          setIsLoading(false);
+          return;
+        }
 
         // Set up the form with the selected inventory item
         setFormData({
@@ -1524,35 +1572,64 @@ export default function DeliveryPage() {
 
       resetWarehouseLocation();
     }
+
+    setIsLoading(false);
+
   }, [searchParams, user?.company_uuid, isLoadingItems, deliveryItems, inventoryItems, operators, loadInventoryBulks]);
 
   // Initialize page data
   useEffect(() => {
     const initPage = async () => {
+      setIsLoadingWarehouses(true);
+
       try {
-        setUser(window.userData);
+        const userData = await getUserFromCookies();
+        if (userData === null) {
+          setError('User not found');
+          return;
+        }
+
+        setUser(userData);
 
         setFormData(prev => ({
           ...prev,
-          admin_uuid: window.userData.uuid,
-          company_uuid: window.userData.company_uuid,
+          admin_uuid: userData.uuid,
+          company_uuid: userData.company_uuid,
         }));
 
         // Fetch initial delivery items
-        const deliveriesResult = await getDeliveryItems(window.userData.company_uuid);
+        const deliveriesResult = await getDeliveryItems(
+          userData.company_uuid,
+          "", // search
+          null, // status
+          null, // warehouse
+          null, // operator
+          null, // inventory
+          null, // dateFrom
+          null, // dateTo
+          null, // year
+          null, // month
+          null, // week
+          null, // day
+          rowsPerPage, // limit
+          0 // offset for first page
+        );
         setDeliveryItems(deliveriesResult.data || []);
+        setTotalPages(deliveriesResult.totalPages || 1);
+        setTotalDeliveries(deliveriesResult.totalCount || 0);
 
         // Fetch available inventory items
-        const inventoryResult = await getInventoryItems(window.userData.company_uuid);
+        const inventoryResult = await getInventoryItems(userData.company_uuid);
         setInventoryItems(inventoryResult.data || []);
 
         // Fetch operators (users with isAdmin = false)
-        const operatorsResult = await getOperators(window.userData.company_uuid);
+        const operatorsResult = await getOperators(userData.company_uuid);
         setOperators(operatorsResult.data || []);
 
         // Fetch warehouses
-        const warehousesResult = await getWarehouses(window.userData.company_uuid);
+        const warehousesResult = await getWarehouses(userData.company_uuid);
         setWarehouses(warehousesResult.data || []);
+        setIsLoadingWarehouses(false);
 
         setIsLoadingItems(false);
       } catch (error) {
@@ -1562,6 +1639,7 @@ export default function DeliveryPage() {
 
     initPage();
   }, []);
+
 
   // Update useEffect with real-time subscription to include filter parameters
   useEffect(() => {
@@ -1583,14 +1661,27 @@ export default function DeliveryPage() {
         async (payload) => {
           console.log('Real-time delivery update received:', payload);
 
-          // Refresh delivery items with filters
+          // Refresh delivery items with filters and pagination
           const refreshedItems = await getDeliveryItems(
             user.company_uuid,
             searchQuery,
             statusFilter,
-            warehouseFilter
+            warehouseFilter,
+            null, // operatorUuid
+            null, // inventoryUuid
+            null, // dateFrom
+            null, // dateTo
+            null, // year
+            null, // month
+            null, // week
+            null, // day
+            rowsPerPage, // limit
+            (page - 1) * rowsPerPage // offset
           );
+
           setDeliveryItems(refreshedItems.data || []);
+          setTotalPages(refreshedItems.totalPages || 1);
+          setTotalDeliveries(refreshedItems.totalCount || 0);
         }
       )
       .subscribe();
@@ -1690,16 +1781,16 @@ export default function DeliveryPage() {
         </div>
         <div className="flex gap-4">
           <div className="mt-4 text-center">
-            {!user ? (
-              <Skeleton className="h-10 w-32 rounded-xl" />
-            ) : user.is_admin ? (
-              <Button color="primary" variant="shadow" onPress={handleNewDelivery}>
-                <Icon icon="mdi:plus" className="mr-2" />
+            {user && user.is_admin ? (
+              <Button color="primary" variant="shadow" onPress={handleNewDelivery}
+                startContent={<Icon icon="mdi:plus" />}
+                isDisabled={isLoading || isLoadingItems || isLoadingBulks}>
                 New Delivery
               </Button>
             ) : selectedDeliveryId ? (
-              <Button color="primary" variant="shadow" onPress={() => setShowAcceptDeliveryModal(true)}>
-                <Icon icon="mdi:qrcode-scan" className="mr-1" />
+              <Button color="primary" variant="shadow" onPress={() => setShowAcceptDeliveryModal(true)}
+                startContent={<Icon icon="mdi:qrcode-scan" />}
+                isDisabled={isLoading || isLoadingItems}>
                 Accept Delivery
               </Button>
             ) : null}
@@ -1711,20 +1802,43 @@ export default function DeliveryPage() {
         <div className={`xl:w-1/3 shadow-xl shadow-primary/10 xl:min-h-[calc(100vh-6.5rem)] 2xl:min-h-[calc(100vh-9rem)] min-h-[42rem] xl:min-w-[350px] w-full rounded-2xl overflow-hidden bg-background border border-default-200 backdrop-blur-lg xl:sticky top-0 self-start max-h-[calc(100vh-2rem)]`}>
           <div className="flex flex-col h-full">
             <div className="p-4 sticky top-0 z-20 bg-background/80 border-b border-default-200 backdrop-blur-lg shadow-sm">
-              <h2 className="text-xl font-semibold mb-4 w-full text-center">Delivery Items</h2>
-              {!user ? (
-                <Skeleton className="h-10 w-full rounded-xl" />
-              ) : (
+
+              <LoadingAnimation
+                condition={!user || isLoadingWarehouses}
+                skeleton={
+                  <>
+                    {/* Heading skeleton */}
+                    <Skeleton className="h-[1.75rem] w-48 mx-auto mb-4 rounded-full" />
+
+                    <div className="space-y-4">
+                      {/* Search input skeleton */}
+                      <Skeleton className="h-10 w-full rounded-xl" />
+
+                      {/* Filter controls skeleton */}
+                      <ScrollShadow orientation="horizontal" className="flex-1" hideScrollBar>
+                        <div className="flex flex-row gap-2 items-center">
+                          {/* Filter button skeleton */}
+                          <Skeleton className="h-10 w-24 rounded-xl flex-none" />
+
+                          {/* Filter chips area skeleton */}
+                          <Skeleton className="h-8 w-32 rounded-full flex-none" />
+                          <Skeleton className="h-8 w-36 rounded-full flex-none" />
+                          <Skeleton className="h-8 w-24 rounded-full flex-none" />
+                        </div>
+                      </ScrollShadow>
+                    </div>
+                  </>
+                }>
+
+                <h2 className="text-xl font-semibold mb-4 w-full text-center">Delivery Items</h2>
                 <Input
                   placeholder="Search deliveries..."
                   value={searchQuery}
                   onChange={(e) => handleSearch(e.target.value)}
                   isClearable
                   onClear={() => handleSearch("")}
-                  startContent={<Icon icon="mdi:magnify" className="text-default-500"/>}
+                  startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
                 />
-              )}
-              {!user ? null : (
                 <div className="flex items-center gap-2 mt-4">
                   <ScrollShadow orientation="horizontal" className="flex-1 overflow-x-auto" hideScrollBar>
                     <div className="inline-flex items-center gap-2">
@@ -1849,22 +1963,19 @@ export default function DeliveryPage() {
                     </div>
                   </ScrollShadow>
                 </div>
-              )}
+              </LoadingAnimation>
+
             </div>
+
+
             <div className="h-full absolute w-full">
-              {!user || isLoadingItems ? (
-                <div className="space-y-4 mt-1 p-4 pt-[11.5rem] h-full relative">
-                  {[...Array(10)].map((_, i) => (
+              <div className={`space-y-4 p-4 mt-1 pt-[11.5rem] h-full relative ${(user && !isLoadingItems) && "overflow-y-auto"}`}>
+                <ListLoadingAnimation
+                  condition={!user || isLoadingItems}
+                  containerClassName="space-y-4"
+                  skeleton={[...Array(10)].map((_, i) => (
                     <Skeleton key={i} className="w-full min-h-[7.5rem] rounded-xl" />
-                  ))}
-                  <div className="absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-background to-transparent pointer-events-none" />
-                  <div className="py-4 flex absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
-                    <Spinner />
-                  </div>
-                </div>
-              ) : !isLoadingItems && deliveryItems.length !== 0 ? (
-                <div
-                  className='space-y-4 p-4 overflow-y-auto pt-[12rem] xl:h-full h-[42rem]'>
+                  ))}>
                   {deliveryItems.map((delivery) => (
                     <Button
                       key={delivery.uuid}
@@ -1909,19 +2020,61 @@ export default function DeliveryPage() {
                       </div>
                     </Button>
                   ))}
-                </div>
-              ) : null}
-              {user && !isLoadingItems && deliveryItems.length === 0 && (
-                <div className="xl:h-full h-[42rem] absolute w-full">
-                  <div className="py-4 flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
-                    <Icon icon="fluent:box-dismiss-20-filled" className="text-5xl text-default-300" />
-                    <p className="text-default-500 mt-2">No deliveries found</p>
-                    <Button color="primary" variant="light" size="sm" className="mt-4" onPress={handleNewDelivery}>
-                      Create New Delivery
-                    </Button>
+                </ListLoadingAnimation>
+                {deliveryItems.length > 0 && (
+                  <div className="flex flex-col items-center pt-2 pb-4 px-2">
+                    <div className="text-sm text-default-500 mb-2">
+                      Showing {(page - 1) * rowsPerPage + 1} to {Math.min(page * rowsPerPage, totalDeliveries)} of {totalDeliveries} {totalDeliveries === 1 ? 'delivery' : 'deliveries'}
+                    </div>
+                    <Pagination
+                      total={totalPages}
+                      initialPage={1}
+                      page={page}
+                      onChange={handlePageChange}
+                      color="primary"
+                      size="sm"
+                      showControls
+                    />
                   </div>
-                </div>
-              )}
+                )}
+                <AnimatePresence>
+                  {(!user || isLoadingItems) && (
+                    <motion.div
+                      className="absolute inset-0 flex items-center justify-center"
+                      initial={{ opacity: 0, filter: "blur(8px)" }}
+                      animate={{ opacity: 1, filter: "blur(0px)" }}
+                      exit={{ opacity: 0, filter: "blur(8px)" }}
+                      transition={{ duration: 0.3, delay: 0.3 }}
+                    >
+                      <div className="absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-background to-transparent pointer-events-none" />
+                      <div className="py-4 flex absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
+                        <Spinner />
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              <AnimatePresence>
+                {user && !isLoadingItems && deliveryItems.length === 0 && (
+                  <motion.div
+                    className="xl:h-full h-[42rem] absolute w-full"
+                    initial={{ opacity: 0, filter: "blur(8px)" }}
+                    animate={{ opacity: 1, filter: "blur(0px)" }}
+                    exit={{ opacity: 0, filter: "blur(8px)" }}
+                    transition={{ duration: 0.3 }}
+                  >
+                    <div className="py-4 flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
+                      <Icon icon="fluent:box-dismiss-20-filled" className="text-5xl text-default-300" />
+                      <p className="text-default-500 mt-2">No deliveries found</p>
+                      <Button color="primary" variant="light" size="sm" className="mt-4" onPress={handleNewDelivery}>
+                        Create New Delivery
+                      </Button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
             </div>
           </div>
         </div>
@@ -1931,144 +2084,154 @@ export default function DeliveryPage() {
           {((user && user.is_admin) || selectedDeliveryId) ? (
             <Form id="deliveryForm" onSubmit={handleSubmit} className="items-stretch space-y-4">
               <CardList>
-                <div>
-                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Delivery Information</h2>
-                  <div className="space-y-4">
+
+                <div className="space-y-4">
+                  <LoadingAnimation
+                    condition={!user || isLoading}
+                    skeleton={
+                      <Skeleton className="h-[1.75rem] w-48 rounded-xl mx-auto" />
+                    }>
+                    <h2 className="text-xl font-semibold w-full text-center">Delivery Information</h2>
+                  </LoadingAnimation>
 
 
-                    <div className="space-y-0">
-                      {/* Operator Assignment Toggle */}
-                      <AnimatePresence>
-                        {isDeliveryProcessing() && (user === null || user.is_admin) && (
-                          <motion.div {...motionTransition}>
-                            <div className="flex items-center justify-between mb-4">
-                              {!user ? (
-                                <Skeleton className="h-10 w-full rounded-xl" />
-                              ) : (
-                                <>
-                                  <span className="text-default-700 font-medium">Assign Operator</span>
-                                  <Switch
-                                    isSelected={assignOperator}
-                                    onValueChange={handleAssignOperatorToggle}
-                                    color="primary"
-                                  />
-                                </>
-                              )}
+
+
+                  {/* Operator Assignment Toggle */}
+                  <AnimatePresence>
+                    {isDeliveryProcessing() && (user === null || user.is_admin) && (
+                      <motion.div {...motionTransition}>
+                        <LoadingAnimation
+                          condition={!user || isLoading}
+                          skeleton={
+                            <div className="flex items-center justify-between">
+                              <Skeleton className="h-8 w-32 rounded-xl" />
+                              <Skeleton className="h-8 w-16 rounded-full" />
                             </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
+                          }>
+                          <div className="flex items-center justify-between">
 
-                      {/* Operator Selection (shown only when assignOperator is true) */}
-                      <AnimatePresence>
-                        {assignOperator && (
-                          <motion.div {...motionTransition}>
-                            {!user ? (
-                              <Skeleton className="h-16 w-full rounded-xl" />
-                            ) : (
-                              <Autocomplete
-                                name="operator_uuid"
-                                label="Select Operator"
-                                placeholder="Choose an operator"
-                                selectedKey={formData.operator_uuid || ""}
-                                onSelectionChange={(e) => handleAutoSelectChange(`operator_uuid`, `${e}`)}
-                                isRequired={isDeliveryProcessing() && assignOperator && (user === null || user.is_admin)}
-                                isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
-                                selectorIcon={(!isDeliveryProcessing() || !(user === null || user.is_admin)) ? null : <Icon icon="heroicons:chevron-down" height={15} />}
-                                popoverProps={{ className: (!isDeliveryProcessing() || !(user === null || user.is_admin)) ? "collapse" : "" }}
-                                inputProps={autoCompleteStyle}
-                                classNames={{ clearButton: "text-default-800" }}
-                                isInvalid={!!errors.operator_uuid}
-                                errorMessage={errors.operator_uuid}
-                                startContent={<Icon icon="mdi:account" className="text-default-500 mb-[0.2rem]" />}
-                              >
-                                {operators.map((operator) => (
-                                  <AutocompleteItem key={operator.uuid}>
-                                    {`${operator.full_name} (${operator.email})`}
-                                  </AutocompleteItem>
-                                ))}
-                              </Autocomplete>
-                            )}
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
+                            <span className="text-default-700 font-medium">Assign Operator</span>
+                            <Switch
+                              isSelected={assignOperator}
+                              onValueChange={handleAssignOperatorToggle}
+                              color="primary"
+                            />
+                          </div>
+                        </LoadingAnimation>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
 
+                  {/* Operator Selection (shown only when assignOperator is true) */}
+                  <AnimatePresence>
+                    {assignOperator && (
+                      <motion.div {...motionTransition}>
+                        <LoadingAnimation
+                          condition={!user || isLoading}
+                          skeleton={
+                            <Skeleton className="h-16 w-full rounded-xl" />
+                          }>
+                          <Autocomplete
+                            name="operator_uuid"
+                            label="Select Operator"
+                            placeholder="Choose an operator"
+                            selectedKey={formData.operator_uuid || ""}
+                            onSelectionChange={(e) => handleAutoSelectChange(`operator_uuid`, `${e}`)}
+                            isRequired={isDeliveryProcessing() && assignOperator && (user === null || user.is_admin)}
+                            isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
+                            selectorIcon={(!isDeliveryProcessing() || !(user === null || user.is_admin)) ? null : <Icon icon="heroicons:chevron-down" height={15} />}
+                            popoverProps={{ className: (!isDeliveryProcessing() || !(user === null || user.is_admin)) ? "collapse" : "" }}
+                            inputProps={autoCompleteStyle}
+                            classNames={{ clearButton: "text-default-800" }}
+                            isInvalid={!!errors.operator_uuid}
+                            errorMessage={errors.operator_uuid}
+                            startContent={<Icon icon="mdi:account" className="text-default-500 mb-[0.2rem]" />}
+                          >
+                            {operators.map((operator) => (
+                              <AutocompleteItem key={operator.uuid}>
+                                {`${operator.full_name} (${operator.email})`}
+                              </AutocompleteItem>
+                            ))}
+                          </Autocomplete>
+                        </LoadingAnimation>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  <LoadingAnimation
+                    condition={!user || isLoading}
+                    skeleton={
+                      <div className="space-y-4">
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                      </div>
+                    }>
                     {/* Warehouse Selection */}
-                    <div>
-                      {!user ? (
-                        <Skeleton className="h-16 w-full rounded-xl" />
-                      ) : (
-                        <Autocomplete
-                          id="warehouse_uuid"
-                          name="warehouse_uuid"
-                          label="Warehouse"
-                          isRequired={isDeliveryProcessing() && (user === null || user.is_admin)}
-                          isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
-                          selectorIcon={(!isDeliveryProcessing() || !(user === null || user.is_admin)) ? null : <Icon icon="heroicons:chevron-down" height={15} />}
-                          popoverProps={{ className: (!isDeliveryProcessing() || !(user === null || user.is_admin)) ? "collapse" : "" }}
-                          placeholder="Select warehouse"
-                          selectedKey={formData.warehouse_uuid || ""}
-                          onSelectionChange={(e) => {
-                            const selectedWarehouse = warehouses.find(w => w.uuid === e);
-                            if (selectedWarehouse) {
-                              setFormData(prev => ({
-                                ...prev,
-                                delivery_address: selectedWarehouse.address.fullAddress
-                              }));
-                              handleAutoSelectChange(`warehouse_uuid`, `${e}`)
-                            } else {
-                              setFormData(prev => ({
-                                ...prev,
-                                delivery_address: ""
-                              }));
-                              handleAutoSelectChange(`warehouse_uuid`, null)
-                            }
-                          }}
-                          inputProps={autoCompleteStyle}
-                          classNames={{ clearButton: "text-default-800" }}
-                          isInvalid={!!errors.warehouse_uuid}
-                          errorMessage={errors.warehouse_uuid}
-                          startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
-                        >
-                          {warehouses.map((warehouse) => (
-                            <AutocompleteItem key={warehouse.uuid}>
-                              {`${warehouse.name} (${warehouse.address.municipality.desc}, ${warehouse.address.barangay.desc})`}
-                            </AutocompleteItem>
-                          ))}
-                        </Autocomplete>
-                      )}
-                    </div>
-
-                    <div>
-                      {!user ? (
-                        <Skeleton className="h-16 w-full rounded-xl" />
-                      ) : (
-                        <DatePicker
-                          name="delivery_date"
-                          label="Delivery Date"
-                          defaultValue={formData.delivery_date ?
-                            parseDate(formData.delivery_date) :
-                            today(getLocalTimeZone())}
-                          onChange={(date: any) => {
+                    <div className="space-y-4">
+                      <Autocomplete
+                        id="warehouse_uuid"
+                        name="warehouse_uuid"
+                        label="Warehouse"
+                        isRequired={isDeliveryProcessing() && (user === null || user.is_admin)}
+                        isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
+                        selectorIcon={(!isDeliveryProcessing() || !(user === null || user.is_admin)) ? null : <Icon icon="heroicons:chevron-down" height={15} />}
+                        popoverProps={{ className: (!isDeliveryProcessing() || !(user === null || user.is_admin)) ? "collapse" : "" }}
+                        placeholder="Select warehouse"
+                        selectedKey={formData.warehouse_uuid || ""}
+                        onSelectionChange={(e) => {
+                          const selectedWarehouse = warehouses.find(w => w.uuid === e);
+                          if (selectedWarehouse) {
                             setFormData(prev => ({
                               ...prev,
-                              delivery_date: date.toString()
+                              delivery_address: selectedWarehouse.address.fullAddress
                             }));
-                          }}
-                          isRequired={isDeliveryProcessing() && (user === null || user.is_admin)}
-                          isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
-                          classNames={{
-                            base: "w-full",
-                            inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
-                            selectorButton: "w-12 h-10 mb-4 mr-[-0.4rem]",
-                          }}
-                          isInvalid={!!errors.delivery_date}
-                          errorMessage={errors.delivery_date}
-                        />
-                      )}
+                            handleAutoSelectChange(`warehouse_uuid`, `${e}`)
+                          } else {
+                            setFormData(prev => ({
+                              ...prev,
+                              delivery_address: ""
+                            }));
+                            handleAutoSelectChange(`warehouse_uuid`, null)
+                          }
+                        }}
+                        inputProps={autoCompleteStyle}
+                        classNames={{ clearButton: "text-default-800" }}
+                        isInvalid={!!errors.warehouse_uuid}
+                        errorMessage={errors.warehouse_uuid}
+                        startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
+                      >
+                        {warehouses.map((warehouse) => (
+                          <AutocompleteItem key={warehouse.uuid}>
+                            {`${warehouse.name} (${warehouse.address.municipality.desc}, ${warehouse.address.barangay.desc})`}
+                          </AutocompleteItem>
+                        ))}
+                      </Autocomplete>
+
+                      <DatePicker
+                        name="delivery_date"
+                        label="Delivery Date"
+                        defaultValue={formData.delivery_date ?
+                          parseDate(formData.delivery_date) :
+                          today(getLocalTimeZone())}
+                        onChange={(date: any) => {
+                          setFormData(prev => ({
+                            ...prev,
+                            delivery_date: date.toString()
+                          }));
+                        }}
+                        isRequired={isDeliveryProcessing() && (user === null || user.is_admin)}
+                        isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
+                        classNames={{
+                          base: "w-full",
+                          inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
+                          selectorButton: "w-12 h-10 mb-4 mr-[-0.4rem]",
+                        }}
+                        isInvalid={!!errors.delivery_date}
+                        errorMessage={errors.delivery_date}
+                      />
                     </div>
-                  </div>
+                  </LoadingAnimation>
                 </div>
 
                 <div {...(!assignOperator ? { className: '!min-h-0 !p-0 !h-0  border-none' } : {})}>
@@ -2076,50 +2239,62 @@ export default function DeliveryPage() {
                   <AnimatePresence>
                     {assignOperator && (
                       <motion.div {...motionTransition}>
-                        <div>
-                          <h2 className="text-xl font-semibold mb-4 w-full text-center">
-                            Recipient Details
-                          </h2>
-
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
-                            {!user ? (
-                              <>
+                        <LoadingAnimation
+                          condition={!user || isLoading}
+                          skeleton={
+                            <div className="space-y-4">
+                              <Skeleton className="h-[1.75rem] w-48 rounded-xl mx-auto" />
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
                                 <Skeleton className="h-16 w-full rounded-xl" />
                                 <Skeleton className="h-16 w-full rounded-xl" />
-                              </>
-                            ) : (
-                              <>
-                                <Input
-                                  name="recipient_name"
-                                  label="Recipient Name"
-                                  classNames={inputStyle}
-                                  placeholder="Enter recipient name"
-                                  value={formData.recipient_name || ""}
-                                  onChange={handleInputChange}
-                                  isRequired={assignOperator && (user === null || user.is_admin)}
-                                  isReadOnly={!(user === null || user.is_admin)}
-                                  isInvalid={!!errors.recipient_name}
-                                  errorMessage={errors.recipient_name}
-                                  startContent={<Icon icon="mdi:account" className="text-default-500 mb-[0.2rem]" />}
-                                />
+                              </div>
+                            </div>
+                          }>
+                          <div>
+                            <h2 className="text-xl font-semibold mb-4 w-full text-center">
+                              Recipient Details
+                            </h2>
 
-                                <Input
-                                  name="recipient_contact"
-                                  label="Contact Number"
-                                  classNames={inputStyle}
-                                  placeholder="Enter contact number"
-                                  value={formData.recipient_contact || ""}
-                                  onChange={handleInputChange}
-                                  isRequired={assignOperator && (user === null || user.is_admin)}
-                                  isReadOnly={!(user === null || user.is_admin)}
-                                  isInvalid={!!errors.recipient_contact}
-                                  errorMessage={errors.recipient_contact}
-                                  startContent={<Icon icon="mdi:phone" className="text-default-500 mb-[0.2rem]" />}
-                                />
-                              </>
-                            )}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
+                              {!user ? (
+                                <>
+                                  <Skeleton className="h-16 w-full rounded-xl" />
+                                  <Skeleton className="h-16 w-full rounded-xl" />
+                                </>
+                              ) : (
+                                <>
+                                  <Input
+                                    name="recipient_name"
+                                    label="Recipient Name"
+                                    classNames={inputStyle}
+                                    placeholder="Enter recipient name"
+                                    value={formData.recipient_name || ""}
+                                    onChange={handleInputChange}
+                                    isRequired={assignOperator && (user === null || user.is_admin)}
+                                    isReadOnly={!(user === null || user.is_admin)}
+                                    isInvalid={!!errors.recipient_name}
+                                    errorMessage={errors.recipient_name}
+                                    startContent={<Icon icon="mdi:account" className="text-default-500 mb-[0.2rem]" />}
+                                  />
+
+                                  <Input
+                                    name="recipient_contact"
+                                    label="Contact Number"
+                                    classNames={inputStyle}
+                                    placeholder="Enter contact number"
+                                    value={formData.recipient_contact || ""}
+                                    onChange={handleInputChange}
+                                    isRequired={assignOperator && (user === null || user.is_admin)}
+                                    isReadOnly={!(user === null || user.is_admin)}
+                                    isInvalid={!!errors.recipient_contact}
+                                    errorMessage={errors.recipient_contact}
+                                    startContent={<Icon icon="mdi:phone" className="text-default-500 mb-[0.2rem]" />}
+                                  />
+                                </>
+                              )}
+                            </div>
                           </div>
-                        </div>
+                        </LoadingAnimation>
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -2127,94 +2302,123 @@ export default function DeliveryPage() {
 
 
                 <div>
-                  <h2 className="text-xl font-semibold mb-4 w-full text-center">
-                    {formData.status === "DELIVERED" ? "Inventory Details" : "Inventory to Deliver"}
-                  </h2>
-                  <div className="space-y-4">
-                    {/* Inventory Item Selection */}
-                    <div>
-                      {!user ? (
+                  <LoadingAnimation
+                    condition={!user || isLoading}
+                    skeleton={
+                      <div className="space-y-4">
+                        <Skeleton className="h-[1.75rem] w-48 rounded-xl mx-auto" />
                         <Skeleton className="h-16 w-full rounded-xl" />
-                      ) : (
-                        <Autocomplete
-                          selectedKey={formData.inventory_uuid || ""}
-                          name="inventory_uuid"
-                          label="Inventory Item"
-                          placeholder="Select an inventory item"
-                          onSelectionChange={(e) => {
-                            handleInventoryItemChange(`${e}`);
-                            if (searchParams.get("setInventory")) {
-                              const params = new URLSearchParams(searchParams.toString());
-                              params.delete("setInventory");
-                              router.push(`?${params.toString()}`, { scroll: false });
-                            }
-                          }}
-                          // disabledKeys={deliveryItems
-                          //   .filter(item => item.status !== "AVAILABLE")
-                          //   .map(item => item.inventory_uuid || "")}
-                          popoverProps={{ className: !!selectedDeliveryId ? "collapse" : "" }}
-                          isRequired={!selectedDeliveryId}
-                          inputProps={autoCompleteStyle}
-                          classNames={{ clearButton: "text-default-800" }}
-                          isInvalid={!!errors.inventory_uuid}
-                          errorMessage={errors.inventory_uuid}
-                          isReadOnly={!!selectedDeliveryId}
-                          selectorIcon={!!selectedDeliveryId ? null : <Icon icon="heroicons:chevron-down" height={15} />}
-                          startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
-                        >
-                          {inventoryItems
-                            .map((item) => (
-                              <AutocompleteItem key={item.uuid}>
-                                {item.name}
-                              </AutocompleteItem>
-                            ))}
-                        </Autocomplete>
-                      )}
-                    </div>
 
-
-                    {/* Inventory Bulks Selection */}
-                    {formData.inventory_uuid && (
-                      <div className="border-2 border-default-200 rounded-xl bg-gradient-to-b from-background to-default-50/30">
-                        <div className="flex justify-between items-center border-b border-default-200 p-4">
-                          <h3 className="text-md font-medium">
-                            {formData.status === "PENDING" ? "Select Bulk Items to Deliver" :
-                              formData.status === "DELIVERED" ? "Bulk Items Delivered" : "Selected Bulk Items"}
-                          </h3>
-                          {formData.status === "DELIVERED" && (
-                            <span className="text-sm text-default-600">
-                              {selectedBulks.length} bulks
-                            </span>
-                          )}
-
-                          {(isDeliveryProcessing() && user.is_admin) && (
-                            <Button
-                              size="sm"
-                              color="primary"
-                              variant="flat"
-                              onPress={autoAssignShelfLocations}
-                              isDisabled={selectedBulks.length === 0 || isWarehouseNotSet() || isFloorConfigNotSet() || !user.is_admin}
-                              isLoading={isAutoAssigning}
-                              startContent={!isAutoAssigning && <Icon icon="mdi:robot" className="text-sm" />}
-                            >
-                              Auto Assign Locations
-                            </Button>
-                          )}
-                        </div>
-                        <div className="space-y-4 p-4">
-                          {isLoadingBulks ? (
-                            <div className="flex items-center justify-center p-4">
-                              <Spinner size="sm" />
-                              <span className="ml-2">Loading bulk items...</span>
+                        <div className="border-2 border-default-200 rounded-xl bg-gradient-to-b from-background to-default-50/30">
+                          <div className="flex justify-between items-center border-b border-default-200 p-4">
+                            <Skeleton className="h-6 w-48 rounded-xl" />
+                            <Skeleton className="h-8 w-32 rounded-xl" />
+                          </div>
+                          <div className="space-y-4 p-4">
+                            <div className="flex flex-row-reverse justify-between items-center mb-4">
+                              <Skeleton className="h-4 w-24 rounded-xl" />
+                              <div className="flex items-center gap-2">
+                                <Skeleton className="h-5 w-5 rounded" />
+                                <Skeleton className="h-4 w-16 rounded-xl" />
+                              </div>
                             </div>
-                          ) : inventoryBulks.length === 0 ? (
-                            <div className="flex items-center justify-center p-4 border-2 border-dashed border-default-300 rounded-xl">
-                              <p className="text-default-500">No bulk items available for this inventory item</p>
-                            </div>
-                          ) : (
                             <div className="space-y-2">
+                              {[...Array(3)].map((_, i) => (
+                                <div key={i} className="flex items-center justify-between p-3 border border-default-200 rounded-xl">
+                                  <div className="flex items-center">
+                                    <Skeleton className="h-5 w-5 rounded mr-2" />
+                                    <div className="flex flex-col ml-2 space-y-1">
+                                      <Skeleton className="h-5 w-24 rounded-xl" />
+                                      <Skeleton className="h-3 w-32 rounded-xl" />
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Skeleton className="h-6 w-20 rounded-xl" />
+                                    <Skeleton className="h-8 w-24 rounded-xl" />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    }>
+                    <h2 className="text-xl font-semibold mb-4 w-full text-center">
+                      {formData.status === "DELIVERED" ? "Inventory Details" : "Inventory to Deliver"}
+
+                    </h2>
+                    <div className="space-y-4">
+                      {/* Inventory Item Selection */}
+                      <Autocomplete
+                        selectedKey={formData.inventory_uuid || ""}
+                        name="inventory_uuid"
+                        label="Inventory Item"
+                        placeholder="Select an inventory item"
+                        onSelectionChange={(e) => {
+                          handleInventoryItemChange(e as any);
+                          // if (searchParams.get("setInventory")) {
+                          //   const params = new URLSearchParams(searchParams.toString());
+                          //   params.delete("setInventory");
+                          //   router.push(`?${params.toString()}`, { scroll: false });
+                          // }
+                        }}
+                        // disabledKeys={deliveryItems
+                        //   .filter(item => item.status !== "AVAILABLE")
+                        //   .map(item => item.inventory_uuid || "")}
+                        popoverProps={{ className: !!selectedDeliveryId ? "collapse" : "" }}
+                        isRequired={!selectedDeliveryId}
+                        inputProps={autoCompleteStyle}
+                        classNames={{ clearButton: "text-default-800" }}
+                        isInvalid={!!errors.inventory_uuid}
+                        errorMessage={errors.inventory_uuid}
+                        isReadOnly={!!selectedDeliveryId}
+                        selectorIcon={!!selectedDeliveryId ? null : <Icon icon="heroicons:chevron-down" height={15} />}
+                        startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
+                      >
+                        {inventoryItems
+                          .map((item) => (
+                            <AutocompleteItem key={item.uuid}>
+                              {item.name}
+                            </AutocompleteItem>
+                          ))}
+                      </Autocomplete>
+
+                      {/* Inventory Bulks Selection */}
+                      {formData.inventory_uuid && (
+                        <div className="border-2 border-default-200 rounded-xl bg-gradient-to-b from-background to-default-50/30">
+                          <div className="flex justify-between items-center border-b border-default-200 p-4">
+                            <h3 className="text-md font-medium">
+                              {formData.status === "PENDING" ? "Select Bulk Items to Deliver" :
+                                formData.status === "DELIVERED" ? "Bulk Items Delivered" : "Selected Bulk Items"}
+                            </h3>
+                            {formData.status === "DELIVERED" && (
+                              <span className="text-sm text-default-600">
+                                {selectedBulks.length} bulks
+                              </span>
+                            )}
+
+                            {(isDeliveryProcessing() && user.is_admin) && (
+                              <Button
+                                size="sm"
+                                color="primary"
+                                variant="flat"
+                                onPress={autoAssignShelfLocations}
+                                isDisabled={selectedBulks.length === 0 || isWarehouseNotSet() || isFloorConfigNotSet() || !user.is_admin}
+                                isLoading={isAutoAssigning}
+                                startContent={!isAutoAssigning && <Icon icon="mdi:robot" className="text-sm" />}
+                              >
+                                Auto Assign Locations
+                              </Button>
+                            )}
+                          </div>
+                          <div className="space-y-4 p-2">
+
+
+                            <div className="space-y-2">
+
                               {(isDeliveryProcessing() && user.is_admin) && (
-                                <div className="flex flex-row-reverse justify-between items-center mb-4">
+                                <div className="flex flex-row-reverse justify-between items-center mb-2 p-2 pb-0">
+
                                   <span className="text-sm text-default-600">
                                     {selectedBulks.length} of {inventoryBulks.length} selected
                                   </span>
@@ -2259,79 +2463,102 @@ export default function DeliveryPage() {
                                 </div>
                               )}
 
-                              <ScrollShadow className="max-h-96">
-                                <div className="space-y-2">
+                              <ScrollShadow
+                                className="max-h-96 overflow-y-auto overflow-x-hidden"
+                                isEnabled={inventoryBulks.length > 5}>
+                                <div>
                                   {/* When not in PENDING status, only show selected bulks */}
-                                  {((formData.status === "PENDING" && user.is_admin) ? inventoryBulks : inventoryBulks.filter(bulk =>
-                                    selectedBulks.includes(bulk.uuid)
-                                  )).map((bulk, index) => (
-                                    <div key={bulk.uuid} className="flex items-center justify-between p-3 border border-default-200 rounded-xl">
-                                      <div className="flex items-center">
-                                        {(isDeliveryProcessing() && user.is_admin) && (
-                                          <div className="flex items-center">
-                                            <Checkbox
-                                              isSelected={selectedBulks.includes(bulk.uuid)}
-                                              onValueChange={(isSelected) => {
-                                                handleBulkSelectionToggle(bulk.uuid, isSelected);
-                                                // Update the form data
-                                                setFormData(prev => {
-                                                  const newBulkUuids = isSelected
-                                                    ? [...(prev.inventory_item_bulk_uuids || []), bulk.uuid]
-                                                    : (prev.inventory_item_bulk_uuids || []).filter(uuid => uuid !== bulk.uuid);
-
-                                                  return {
-                                                    ...prev,
-                                                    inventory_item_bulk_uuids: newBulkUuids
-                                                  };
-                                                });
-                                              }}
-                                              isDisabled={formData.status !== "PENDING" || !(user === null || user.is_admin) || (bulk.status !== "AVAILABLE" && !prevSelectedBulks.includes(bulk.uuid))}
-                                            >
-
-                                            </Checkbox>
+                                  <ListLoadingAnimation
+                                    delayContentReveal={400}
+                                    containerClassName="space-y-2 p-2"
+                                    condition={!user || isLoadingBulks}
+                                    skeleton={[...Array(3)].map((_, i) => (
+                                      <div key={i} className="flex items-center justify-between p-3 border border-default-200 rounded-xl">
+                                        <div className="flex items-center">
+                                          <Skeleton className="h-5 w-5 rounded mr-2" />
+                                          <div className="flex flex-col ml-2 space-y-1">
+                                            <Skeleton className="h-5 w-24 rounded-xl" />
+                                            <Skeleton className="h-3 w-32 rounded-xl" />
                                           </div>
-                                        )}
-                                        <div className="flex flex-col ml-2">
-                                          <span className="font-medium">{bulk.name || `Bulk ${index + 1}`}</span>
-                                          <div className="flex items-center gap-2">
-                                            <span className="text-xs text-default-500">
-                                              {bulk.bulk_unit ? `${bulk.unit_value} ${bulk.unit} (${bulk.bulk_unit})` : `${bulk.unit_value} ${bulk.unit}`}
-                                            </span>
-                                          </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <Skeleton className="h-6 w-20 rounded-xl" />
+                                          <Skeleton className="h-8 w-24 rounded-xl" />
                                         </div>
                                       </div>
-                                      {bulk.status && bulk.status !== "AVAILABLE" && !prevSelectedBulks.includes(bulk.uuid) && (
-                                        <Chip size="sm" color="primary" variant="flat">
-                                          {bulk.status}
-                                        </Chip>
-                                      )}
-                                      {selectedBulks.includes(bulk.uuid) && (
-                                        <div className="flex items-center">
+                                    ))}>
 
-                                          <Chip
-                                            size="sm"
-                                            color={locationCodes[selectedBulks.indexOf(bulk.uuid)] ? "success" : "warning"}
-                                            variant="flat"
-                                            className="mr-2"
-                                          >
-                                            {locationCodes[selectedBulks.indexOf(bulk.uuid)] || "No location"}
-                                          </Chip>
-                                          {/* {(isDeliveryProcessing() && user.is_admin) && ( */}
-                                          <Button
-                                            size="sm"
-                                            color="primary"
-                                            variant="flat"
-                                            onPress={() => handleAssignLocation(selectedBulks.indexOf(bulk.uuid))}
-                                            isDisabled={isWarehouseNotSet() || isFloorConfigNotSet()}
-                                          >
-                                            {(formData.status === "DELIVERED" || formData.status === "CANCELLED" || !user.is_admin) ? "View Location" :
-                                              locationCodes[selectedBulks.indexOf(bulk.uuid)] ? "Change Location" : "Assign Location"}
-                                          </Button>
-                                          {/* )} */}
+                                    {((formData.status === "PENDING" && user.is_admin) ? inventoryBulks : inventoryBulks.filter(bulk =>
+                                      selectedBulks.includes(bulk.uuid)
+                                    )).map((bulk, index) => (
+                                      <div key={bulk.uuid} className="flex items-center justify-between p-3 border border-default-200 rounded-xl">
+                                        <div className="flex items-center">
+                                          {(isDeliveryProcessing() && user.is_admin) && (
+                                            <div className="flex items-center">
+                                              <Checkbox
+                                                isSelected={selectedBulks.includes(bulk.uuid)}
+                                                onValueChange={(isSelected) => {
+                                                  handleBulkSelectionToggle(bulk.uuid, isSelected);
+                                                  // Update the form data
+                                                  setFormData(prev => {
+                                                    const newBulkUuids = isSelected
+                                                      ? [...(prev.inventory_item_bulk_uuids || []), bulk.uuid]
+                                                      : (prev.inventory_item_bulk_uuids || []).filter(uuid => uuid !== bulk.uuid);
+
+                                                    return {
+                                                      ...prev,
+                                                      inventory_item_bulk_uuids: newBulkUuids
+                                                    };
+                                                  });
+                                                }}
+                                                isDisabled={formData.status !== "PENDING" || !(user === null || user.is_admin) || (bulk.status !== "AVAILABLE" && !prevSelectedBulks.includes(bulk.uuid))}
+                                              >
+
+                                              </Checkbox>
+                                            </div>
+                                          )}
+                                          <div className="flex flex-col ml-2">
+                                            <span className="font-medium">{bulk.name || `Bulk ${index + 1}`}</span>
+                                            <div className="flex items-center gap-2">
+                                              <span className="text-xs text-default-500">
+                                                {bulk.bulk_unit ? `${bulk.unit_value} ${bulk.unit} (${bulk.bulk_unit})` : `${bulk.unit_value} ${bulk.unit}`}
+                                              </span>
+                                            </div>
+                                          </div>
                                         </div>
-                                      )}
-                                    </div>
-                                  ))}
+                                        {bulk.status && bulk.status !== "AVAILABLE" && !prevSelectedBulks.includes(bulk.uuid) && (
+                                          <Chip size="sm" color="primary" variant="flat">
+                                            {bulk.status}
+                                          </Chip>
+                                        )}
+                                        {selectedBulks.includes(bulk.uuid) && (
+                                          <div className="flex items-center">
+
+                                            <Chip
+                                              size="sm"
+                                              color={locationCodes[selectedBulks.indexOf(bulk.uuid)] ? "success" : "warning"}
+                                              variant="flat"
+                                              className="mr-2"
+                                            >
+                                              {locationCodes[selectedBulks.indexOf(bulk.uuid)] || "No location"}
+                                            </Chip>
+                                            {/* {(isDeliveryProcessing() && user.is_admin) && ( */}
+                                            <Button
+                                              size="sm"
+                                              color="primary"
+                                              variant="flat"
+                                              onPress={() => handleAssignLocation(selectedBulks.indexOf(bulk.uuid))}
+                                              isDisabled={isWarehouseNotSet() || isFloorConfigNotSet()}
+                                            >
+                                              {(formData.status === "DELIVERED" || formData.status === "CANCELLED" || !user.is_admin) ? "View Location" :
+                                                locationCodes[selectedBulks.indexOf(bulk.uuid)] ? "Change Location" : "Assign Location"}
+                                            </Button>
+                                            {/* )} */}
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </ListLoadingAnimation>
                                 </div>
                               </ScrollShadow>
 
@@ -2342,23 +2569,49 @@ export default function DeliveryPage() {
                                 <div className="text-danger text-sm mt-1">{errors.locations}</div>
                               )}
                             </div>
-                          )}
+
+
+                            <AnimatePresence>
+                              {user && !isLoadingItems && deliveryItems.length === 0 && (
+                                <motion.div
+                                  className="xl:h-full h-[42rem] absolute w-full"
+                                  initial={{ opacity: 0, filter: "blur(8px)" }}
+                                  animate={{ opacity: 1, filter: "blur(0px)" }}
+                                  exit={{ opacity: 0, filter: "blur(8px)" }}
+                                  transition={{ duration: 0.3 }}
+                                >
+                                  <div className="flex items-center justify-center p-4 border-2 border-dashed border-default-300 rounded-xl">
+                                    <p className="text-default-500">No bulk items available for this inventory item</p>
+                                  </div>
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+
+
+                          </div>
                         </div>
-                      </div>
-                    )}
-                  </div>
+                      )}
+                    </div>
+                  </LoadingAnimation>
                 </div>
 
 
                 <div>
-                  <h2 className="text-xl font-semibold mb-4 w-full text-center">
-                    Delivery Details
-                  </h2>
-                  <div className="space-y-4">
-                    {/* Only show recipient details when an operator is assigned */}
-                    {!user ? (
-                      <Skeleton className="h-16 w-full rounded-xl" />
-                    ) : (
+                  <LoadingAnimation
+                    condition={!user || isLoading}
+                    skeleton={
+                      <div className="space-y-4">
+                        <Skeleton className="h-[1.75rem] w-48 rounded-xl mx-auto" /> {/* Title skeleton */}
+                        <Skeleton className="h-16 w-full rounded-xl" /> {/* Delivery address textarea skeleton */}
+                        <Skeleton className="h-16 w-full rounded-xl" /> {/* Notes textarea skeleton */}
+                      </div>
+                    }
+                  >
+                    <h2 className="text-xl font-semibold mb-4 w-full text-center">
+                      Delivery Details
+                    </h2>
+                    <div className="space-y-4">
+                      {/* Only show recipient details when an operator is assigned */}
                       <Textarea
                         name="delivery_address"
                         label="Delivery Address"
@@ -2373,11 +2626,8 @@ export default function DeliveryPage() {
                         errorMessage={errors.delivery_address}
                         startContent={<Icon icon="mdi:map-marker" className="text-default-500 mb-[0.2rem]" />}
                       />
-                    )}
 
-                    {!user ? (
-                      <Skeleton className="h-16 w-full rounded-xl" />
-                    ) : (
+
                       <Textarea
                         name="notes"
                         label="Additional Notes"
@@ -2390,154 +2640,212 @@ export default function DeliveryPage() {
                         startContent={<Icon icon="mdi:note-text" className="text-default-500 mt-[0.1rem]" />}
                         isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
                       />
-                    )}
-                  </div>
+                    </div>
+
+                  </LoadingAnimation>
                 </div>
 
                 <div>
-                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Delivery Status</h2>
-                  <div>
-                    {!user ? (
-                      <Skeleton className="h-16 w-full rounded-xl" />
-                    ) : (
-                      <div className="border-2 border-default-200 rounded-xl bg-gradient-to-b from-background to-default-50/30">
-                        <div className="flex justify-between items-center border-b border-default-200 p-4">
-                          <h3 className="text-md font-medium">Current Status</h3>
-                          <Chip
-                            color={getStatusColor(formData.status || "PENDING")}
-                            size="sm"
-                            variant="shadow"
-                            className="px-3 font-medium"
-                          >
-                            {formData.status?.replaceAll('_', ' ') || "PENDING"}
-                          </Chip>
-                        </div>
+                  <LoadingAnimation
+                    condition={!user || isLoading}
+                    skeleton={
+                      <div className="space-y-4">
+                        <Skeleton className="h-[1.75rem] w-48 rounded-xl mx-auto" /> {/* Section title */}
+                        <div className="border-2 border-default-200 rounded-xl bg-gradient-to-b from-background to-default-50/30">
+                          {/* Status box header */}
+                          <div className="flex justify-between items-center border-b border-default-200 p-4">
+                            <Skeleton className="h-5 w-32 rounded-xl" /> {/* Current Status text */}
+                            <Skeleton className="h-6 w-24 rounded-xl" /> {/* Status chip */}
+                          </div>
 
-                        {formData.status_history && Object.keys(formData.status_history).length > 0 ? (
+                          {/* Status history section */}
                           <div className="p-4">
-                            <h3 className="text-md font-medium mb-4">Status History</h3>
+                            <Skeleton className="h-5 w-36 rounded-xl mb-4" /> {/* Status History text */}
                             <div className="relative">
-                              {/* Fixed timeline line with better alignment */}
+                              {/* Timeline line */}
                               <div className="absolute left-[calc((3rem/2)-0.1rem)] top-0 bottom-1 w-0.5 bg-default-100 rounded-full"></div>
-                              <div className="space-y-5">
-                                {Object.entries(formData.status_history)
-                                  .sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime()) // Sort by timestamp descending
-                                  .map(([timestamp, status]) => {
-                                    // Determine icon based on status
-                                    const statusIcon =
-                                      status === "PENDING" ? "mdi:clock-outline" :
-                                        status === "PROCESSING" ? "mdi:clock-start" :
-                                          status === "IN_TRANSIT" ? "mdi:truck-fast" :
-                                            status === "DELIVERED" ? "mdi:check" :
-                                              status === "CANCELLED" ? "mdi:close" :
-                                                "mdi:help-circle";
 
-                                    return (
-                                      <div key={timestamp} className="flex items-start group">
-                                        <div className={`w-12 h-12 rounded-full flex-shrink-0 bg-${getStatusColor(status)}-100 flex items-center justify-center shadow-sm group-hover:shadow-md transition-all duration-200 z-10`}>
-                                          <Icon
-                                            icon={statusIcon}
-                                            className={`text-${getStatusColor(status)}-900 text-[1.25rem]`}
-                                          />
-                                        </div>
-                                        <div className="ml-4 bg-background/50 p-3 rounded-xl border border-default-200 shadow-sm flex-grow group-hover:shadow-md group-hover:border-default-300 transition-all duration-200">
-                                          <div className="flex justify-between items-center flex-wrap gap-2">
-                                            <Chip
-                                              color={getStatusColor(status)}
-                                              size="sm"
-                                              variant="flat"
-                                              className="font-medium"
-                                            >
-                                              <Icon icon={statusIcon} className="mr-1" />
-                                              {status.replaceAll('_', ' ')}
-                                            </Chip>
-                                            <div className="text-xs text-default-500 flex items-center">
-                                              <Icon icon="mdi:calendar-clock" className="mr-1" />
-                                              {format(parseISO(timestamp), "MMM d, yyyy 'at' h:mm a")}
-                                            </div>
-                                          </div>
-                                        </div>
+                              {/* Timeline entries */}
+                              <div className="space-y-5">
+                                {[...Array(3)].map((_, i) => (
+                                  <div key={i} className="flex items-start">
+                                    <Skeleton className="w-12 h-12 rounded-full flex-shrink-0" /> {/* Timeline icon */}
+                                    <div className="ml-4 p-3 rounded-xl border border-default-200 flex-grow">
+                                      <div className="flex justify-between items-center flex-wrap gap-2">
+                                        <Skeleton className="h-6 w-28 rounded-xl" /> {/* Status text */}
+                                        <Skeleton className="h-4 w-36 rounded-xl" /> {/* Date text */}
                                       </div>
-                                    );
-                                  })}
+                                    </div>
+                                  </div>
+                                ))}
                               </div>
                             </div>
                           </div>
-                        ) : (
-                          <Alert
-                            variant="faded"
-                            color="danger"
-                            className="text-center m-4 w-[calc(100%-2rem)]"
-                            icon={<Icon icon="mdi:history" className="text-default-500" />}
-                          >
-                            No status history available.
-                          </Alert>
-                        )}
+                        </div>
                       </div>
-                    )}
+                    }>
 
-                    <AnimatePresence>
-                      {(user === null || user.is_admin) && selectedDeliveryId && formData.status !== "DELIVERED" && formData.status !== "CANCELLED" && (
-                        <motion.div {...motionTransition}>
-                          <div className="flex flex-col gap-4 pt-4 -mx-4">
-                            <hr className="border-default-200" />
-                            <h3 className="text-lg font-semibold w-full text-center">Quick Status Update</h3>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 px-4">
-                              <Button
-                                color="warning"
-                                variant="flat"
-                                className="w-full"
-                                isDisabled={formData.status === "PROCESSING" || formData.status === "IN_TRANSIT" || formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading}
-                                onPress={() => handleStatusChange("PROCESSING")}
-                              >
-                                <Icon icon="mdi:clock-start" className="mr-1" />
-                                Processing
-                              </Button>
-                              <Button
-                                color="primary"
-                                variant="flat"
-                                className="w-full"
-                                isDisabled={formData.status === "IN_TRANSIT" || formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading}
-                                onPress={() => handleStatusChange("IN_TRANSIT")}
-                              >
-                                <Icon icon="mdi:truck-fast" className="mr-1" />
-                                In Transit
-                              </Button>
-                              <Button
-                                color="success"
-                                variant="flat"
-                                className="w-full"
-                                isDisabled={formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading || isFloorConfigNotSet() || selectedBulks.length === 0 || locations.length < selectedBulks.length}
-                                onPress={() => handleStatusChange("DELIVERED")}
-                              >
-                                <Icon icon="mdi:check-circle" className="mr-1" />
-                                Delivered
-                              </Button>
-                              <Button
-                                color="danger"
-                                variant="flat"
-                                className="w-full"
-                                isDisabled={formData.status === "CANCELLED" || formData.status === "DELIVERED" || isLoading}
-                                onPress={() => handleStatusChange("CANCELLED")}
-                              >
-                                <Icon icon="mdi:close-circle" className="mr-1" />
-                                Cancel
-                              </Button>
-                            </div>
+                    <h2 className="text-xl font-semibold mb-4 w-full text-center">Delivery Status</h2>
+                    <div>
+                      {!user ? (
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                      ) : (
+                        <div className="border-2 border-default-200 rounded-xl bg-gradient-to-b from-background to-default-50/30">
+                          <div className="flex justify-between items-center border-b border-default-200 p-4">
+                            <h3 className="text-md font-medium">Current Status</h3>
+                            <Chip
+                              color={getStatusColor(formData.status || "PENDING")}
+                              size="sm"
+                              variant="shadow"
+                              className="px-3 font-medium"
+                            >
+                              {formData.status?.replaceAll('_', ' ') || "PENDING"}
+                            </Chip>
                           </div>
-                        </motion.div>
+
+                          {formData.status_history && Object.keys(formData.status_history).length > 0 ? (
+                            <div className="p-4">
+                              <h3 className="text-md font-medium mb-4">Status History</h3>
+                              <div className="relative">
+                                {/* Fixed timeline line with better alignment */}
+                                <div className="absolute left-[calc((3rem/2)-0.1rem)] top-0 bottom-1 w-0.5 bg-default-100 rounded-full"></div>
+                                <div className="space-y-5">
+                                  {Object.entries(formData.status_history)
+                                    .sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime()) // Sort by timestamp descending
+                                    .map(([timestamp, status]) => {
+                                      // Determine icon based on status
+                                      const statusIcon =
+                                        status === "PENDING" ? "mdi:clock-outline" :
+                                          status === "PROCESSING" ? "mdi:clock-start" :
+                                            status === "IN_TRANSIT" ? "mdi:truck-fast" :
+                                              status === "DELIVERED" ? "mdi:check" :
+                                                status === "CANCELLED" ? "mdi:close" :
+                                                  "mdi:help-circle";
+
+                                      return (
+                                        <div key={timestamp} className="flex items-start group">
+                                          <div className={`w-12 h-12 rounded-full flex-shrink-0 bg-${getStatusColor(status)}-100 flex items-center justify-center shadow-sm group-hover:shadow-md transition-all duration-200 z-10`}>
+                                            <Icon
+                                              icon={statusIcon}
+                                              className={`text-${getStatusColor(status)}-900 text-[1.25rem]`}
+                                            />
+                                          </div>
+                                          <div className="ml-4 bg-background/50 p-3 rounded-xl border border-default-200 shadow-sm flex-grow group-hover:shadow-md group-hover:border-default-300 transition-all duration-200">
+                                            <div className="flex justify-between items-center flex-wrap gap-2">
+                                              <Chip
+                                                color={getStatusColor(status)}
+                                                size="sm"
+                                                variant="flat"
+                                                className="font-medium"
+                                              >
+                                                <Icon icon={statusIcon} className="mr-1" />
+                                                {status.replaceAll('_', ' ')}
+                                              </Chip>
+                                              <div className="text-xs text-default-500 flex items-center">
+                                                <Icon icon="mdi:calendar-clock" className="mr-1" />
+                                                {format(parseISO(timestamp), "MMM d, yyyy 'at' h:mm a")}
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <Alert
+                              variant="faded"
+                              color="danger"
+                              className="text-center m-4 w-[calc(100%-2rem)]"
+                              icon={<Icon icon="mdi:history" className="text-default-500" />}
+                            >
+                              No status history available.
+                            </Alert>
+                          )}
+                        </div>
                       )}
-                    </AnimatePresence>
-                  </div>
+
+                      <AnimatePresence>
+                        {(user === null || user.is_admin) && selectedDeliveryId && formData.status !== "DELIVERED" && formData.status !== "CANCELLED" && (
+                          <motion.div {...motionTransition}>
+                            <div className="flex flex-col gap-4 pt-4 -mx-4">
+                              <hr className="border-default-200" />
+                              <h3 className="text-lg font-semibold w-full text-center">Quick Status Update</h3>
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 px-4">
+                                <Button
+                                  color="warning"
+                                  variant="flat"
+                                  className="w-full"
+                                  isDisabled={formData.status === "PROCESSING" || formData.status === "IN_TRANSIT" || formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading}
+                                  onPress={() => handleStatusChange("PROCESSING")}
+                                >
+                                  <Icon icon="mdi:clock-start" className="mr-1" />
+                                  Processing
+                                </Button>
+                                <Button
+                                  color="primary"
+                                  variant="flat"
+                                  className="w-full"
+                                  isDisabled={formData.status === "IN_TRANSIT" || formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading}
+                                  onPress={() => handleStatusChange("IN_TRANSIT")}
+                                >
+                                  <Icon icon="mdi:truck-fast" className="mr-1" />
+                                  In Transit
+                                </Button>
+                                <Button
+                                  color="success"
+                                  variant="flat"
+                                  className="w-full"
+                                  isDisabled={formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading || isFloorConfigNotSet() || selectedBulks.length === 0 || locations.length < selectedBulks.length}
+                                  onPress={() => handleStatusChange("DELIVERED")}
+                                >
+                                  <Icon icon="mdi:check-circle" className="mr-1" />
+                                  Delivered
+                                </Button>
+                                <Button
+                                  color="danger"
+                                  variant="flat"
+                                  className="w-full"
+                                  isDisabled={formData.status === "CANCELLED" || formData.status === "DELIVERED" || isLoading}
+                                  onPress={() => handleStatusChange("CANCELLED")}
+                                >
+                                  <Icon icon="mdi:close-circle" className="mr-1" />
+                                  Cancel
+                                </Button>
+                              </div>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  </LoadingAnimation>
+
                 </div>
 
                 {(user === null || user.is_admin || formData.status === "DELIVERED") && (
                   <motion.div {...motionTransition}>
-                    <div className="flex flex-col md:flex-row justify-center items-center gap-4">
-                      {!user ? (
-                        <Skeleton className="h-10 w-full rounded-xl" />
-                      ) : (
-                        <>
+                    <div className="flex flex-col flex-1 gap-4">
+                      <AnimatePresence>
+                        {error && (
+                          <motion.div {...motionTransition}>
+                            <Alert color="danger" variant="flat" onClose={() => setError(null)}>
+                              {error}
+                            </Alert>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                      <LoadingAnimation
+                        condition={!user || isLoading || isLoadingItems || isLoadingBulks}
+                        skeleton={
+                          <div className="flex justify-center items-center gap-4">
+                            <Skeleton className="h-10 w-full rounded-xl" />
+                            <Skeleton className="h-10 w-full rounded-xl" />
+                          </div>
+                        }
+                      >
+                        <div className="flex flex-col md:flex-row justify-center items-center gap-4">
                           {selectedDeliveryId && (
                             <>
                               <Button
@@ -2580,36 +2888,50 @@ export default function DeliveryPage() {
                               {selectedDeliveryId ? "Update Delivery" : "Create Delivery"}
                             </Button>
                           )}
-                        </>
-                      )}
+                        </div>
+                      </LoadingAnimation>
                     </div>
                   </motion.div>
                 )}
               </CardList>
             </Form>
           ) : (
-            <div className="flex flex-col items-center justify-center p-12 border border-dashed border-default-300 rounded-2xl bg-background">
-              <Icon icon="mdi:truck-delivery" className="text-default-300" width={64} height={64} />
-              <h3 className="text-xl font-semibold text-default-800">No Delivery Selected</h3>
-              <p className="text-default-500 text-center mt-2 mb-6">
-                Select a delivery from the list to view details, or click the "Accept Delivery" button to scan a QR code.
-              </p>
-              <Button
-                color="primary"
-                variant="shadow"
-                className="mb-4"
-                onPress={() => setShowAcceptDeliveryModal(true)}
-              >
-                <Icon icon="mdi:qrcode-scan" className="mr-2" />
-                Accept Delivery
-              </Button>
+            <div className="items-center justify-center p-12 border border-dashed border-default-300 rounded-2xl bg-background">
+              <LoadingAnimation
+                condition={!user || isLoadingItems}
+                skeleton={
+                  <div className="flex flex-col items-center justify-center">
+                    <Skeleton className="w-16 h-16 rounded-full mb-4" />
+                    <Skeleton className="h-6 w-48 rounded-xl mb-2" />
+                    <Skeleton className="h-4 w-64 rounded-xl mb-6" />
+                    <Skeleton className="h-10 w-32 rounded-xl" />
+                  </div>
+                }>
+                <div className="flex flex-col items-center justify-center">
+                  <Icon icon="mdi:truck-delivery" className="text-default-300" width={64} height={64} />
+                  <h3 className="text-xl font-semibold text-default-800">No Delivery Selected</h3>
+                  <p className="text-default-500 text-center mt-2 mb-6">
+                    Select a delivery from the list to view details, or click the "Accept Delivery" button to scan a QR code.
+                  </p>
+                  <Button
+                    color="primary"
+                    variant="shadow"
+                    className="mb-4"
+                    onPress={() => setShowAcceptDeliveryModal(true)}
+                  >
+                    <Icon icon="mdi:qrcode-scan" className="mr-2" />
+                    Accept Delivery
+                  </Button>
+                </div>
+              </LoadingAnimation>
             </div>
           )}
         </div>
-      </div>
+      </div >
 
       {/* QR Code Modal */}
-      <Modal isOpen={showQrCode} onClose={() => setShowQrCode(false)} placement="auto" backdrop="blur" size="lg" classNames={{ backdrop: "bg-background/50" }}>
+      < Modal isOpen={showQrCode} onClose={() => setShowQrCode(false)
+      } placement="auto" backdrop="blur" size="lg" classNames={{ backdrop: "bg-background/50" }}>
         <ModalContent>
           <ModalHeader>Delivery QR Code</ModalHeader>
           <ModalBody className="flex flex-col items-center">
@@ -2643,10 +2965,10 @@ export default function DeliveryPage() {
             </Button>
           </ModalFooter>
         </ModalContent>
-      </Modal>
+      </Modal >
 
       {/* Accept Delivery Modal */}
-      <Modal isOpen={showAcceptDeliveryModal} onClose={() => { setShowAcceptDeliveryModal(false); setDeliveryJson(""); setJsonValidationError(""); setJsonValidationSuccess(false); }} isDismissable={!isLoading && !isProcessingImage} placement="auto" backdrop="blur" size="lg" classNames={{ backdrop: "bg-background/50" }}>
+      < Modal isOpen={showAcceptDeliveryModal} onClose={() => { setShowAcceptDeliveryModal(false); setDeliveryJson(""); setJsonValidationError(""); setJsonValidationSuccess(false); }} isDismissable={!isLoading && !isProcessingImage} placement="auto" backdrop="blur" size="lg" classNames={{ backdrop: "bg-background/50" }}>
         <ModalContent>
           <ModalHeader>Accept Delivery</ModalHeader>
           <ModalBody className="flex flex-col items-center">
@@ -2712,10 +3034,10 @@ export default function DeliveryPage() {
             </Button>
           </ModalFooter>
         </ModalContent>
-      </Modal>
+      </Modal >
 
       {/* Modal for the 3D shelf selector */}
-      <Modal isOpen={isOpen} onClose={handleCancelLocation} placement='auto' classNames={{ backdrop: "bg-background/50", wrapper: 'overflow-hidden' }} backdrop="blur" size="5xl">
+      < Modal isOpen={isOpen} onClose={handleCancelLocation} placement='auto' classNames={{ backdrop: "bg-background/50", wrapper: 'overflow-hidden' }} backdrop="blur" size="5xl" >
         <ModalContent>
           <ModalHeader>Interactive Warehouse Floorplan</ModalHeader>
           <ModalBody className='p-0'>
@@ -3079,7 +3401,7 @@ export default function DeliveryPage() {
             </div>
           </ModalFooter>
         </ModalContent>
-      </Modal>
+      </Modal >
     </div >
   );
 }

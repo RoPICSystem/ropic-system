@@ -1,5 +1,6 @@
 "use client";
 
+import { getUserFromCookies } from '@/utils/supabase/server/user';
 import { redirect } from 'next/navigation';
 import { ReactNode, useEffect } from 'react';
 
@@ -9,9 +10,13 @@ export default function CompanyEditLayout({
   children: ReactNode
 }) {
   useEffect(() => {
-    if (!window.userData?.is_admin) {
-      redirect("/home/company");
+    const fetchSubscriptionData = async () => {
+      const userData = await getUserFromCookies();
+      if (userData === null || userData.is_admin === null) {
+        redirect("/home/company");
+      }
     }
+    fetchSubscriptionData();
   }, []);
   return (
     <div className="w-full space-y-4">

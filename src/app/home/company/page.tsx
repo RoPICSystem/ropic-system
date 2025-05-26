@@ -2,7 +2,7 @@
 
 import CardList from '@/components/card-list'
 import { getUserCompanyDetails } from '@/utils/supabase/server/companies'
-import { getUserProfile } from '@/utils/supabase/server/user'
+import { getUserFromCookies, getUserProfile } from '@/utils/supabase/server/user'
 import {
   BuildingOfficeIcon,
   ChevronRightIcon,
@@ -30,17 +30,26 @@ export default function CompanyPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
-  const [isAdmin, setIsAdmin] = useState(false)
+  const [user, setUser] = useState<any>(null);
+
 
 
   // Load company data on initial render
   useEffect(() => {
-    async function fetchCompanyData() {
+    const fetchCompanyData = async () => {
       try {
         setIsLoading(true)
-        // Get current user's company details
-        const { data, error } = await getUserProfile()
-        const { data: companyData, error: companyError } = await getUserCompanyDetails(data?.uuid)
+
+        const userData = await getUserFromCookies();
+        if (userData === null) {
+          setUser(null);
+          setError('User not found')
+          return
+        }
+        else
+          setUser(userData);
+
+        const { data: companyData, error: companyError } = await getUserCompanyDetails(userData?.uuid)
 
         if (error) {
           setError(`${error}`)
@@ -51,7 +60,6 @@ export default function CompanyPage() {
           return
         }
 
-        setIsAdmin(data?.is_admin)
         setCompanyData(companyData)
 
         if (companyData?.logo_url && !companyData?.logo_url.error) {
@@ -63,87 +71,16 @@ export default function CompanyPage() {
       } finally {
         setIsLoading(false)
       }
-    }
+    };
 
-    fetchCompanyData()
+    fetchCompanyData();
   }, [])
 
-  // Convert the floor plan data to the format ShelfSelector3D expects
-  const getFloorConfigs = () => {
-    if (!companyData?.company_layout || !Array.isArray(companyData.company_layout)) {
-      return [];
-    }
 
-    // Check if we have the new format with height property
-    if (companyData.company_layout.length > 0 &&
-      'height' in companyData.company_layout[0] &&
-      'matrix' in companyData.company_layout[0]) {
-      return companyData.company_layout;
-    }
+  useEffect(() => {
+    setIsLoading(companyData === null || imagePreview === null || user === null)
+  }, [companyData, imagePreview])
 
-    // Legacy format - convert to new format
-    return companyData.company_layout.map((floor: number[][]) => ({
-      height: 5, // Default max height
-      matrix: floor
-    }));
-  };
-
-  // Helper function to render a preview of the warehouse layout
-  const renderLayoutPreview = () => {
-    if (!companyData?.company_layout || !Array.isArray(companyData.company_layout) || companyData.company_layout.length === 0) {
-      return (
-        <div className="flex flex-col items-center justify-center p-4 text-default-500">
-          <BuildingOfficeIcon className="h-8 w-8 mb-2" />
-          <p className="text-center">No warehouse layout configured</p>
-        </div>
-      )
-    }
-
-    // Create a simplified visual representation of the layout
-    return (
-      <div>
-        <div className="grid grid-cols-1 gap-4">
-          {getFloorConfigs().map((floor: any, floorIndex: number) => {
-            if (!floor?.matrix || !Array.isArray(floor.matrix)) {
-              return (
-                <Card key={floorIndex} className="p-2">
-                  <CardBody>
-                    <h4 className="text-sm font-medium mb-2 text-center">
-                      Floor {floorIndex + 1}
-                    </h4>
-                    <p className="text-center text-default-500">Invalid floor data</p>
-                  </CardBody>
-                </Card>
-              );
-            }
-
-            return (
-              <Card key={floorIndex} className="p-2">
-                <CardBody>
-                  <h4 className="text-sm font-medium mb-4 text-center">
-                    Floor {floorIndex + 1}
-                  </h4>
-                  <div className={`flex flex-col items-center justify-center overflow-auto`}>
-                    {floor.matrix.map((row: any[], rowIndex: number) => (
-                      <div key={`${floorIndex}-${rowIndex}`} className="flex">
-                        {row.map((cell: number, cellIndex: number) => (
-                          <div
-                            key={`${floorIndex}-${rowIndex}-${cellIndex}`}
-                            className={`w-3 h-3 m-[1px] ${cell > 0 ? 'bg-primary-500' : 'bg-default-200'}`}
-                            title={`Floor ${floorIndex + 1}, Row ${rowIndex + 1}, Column ${cellIndex + 1}: ${cell > 0 ? `${cell} shelves` : 'No container'}`}
-                          />
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                </CardBody>
-              </Card>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
 
   // Show loading state
   if (isLoading) {
@@ -197,7 +134,7 @@ export default function CompanyPage() {
           </CardList>
 
           {/* Action Items Skeleton */}
-          {isAdmin && (
+          {user?.is_admin && (
             <CardList>
               <div className="flex items-center justify-between h-full w-full">
                 <Skeleton className="h-5 w-[60%] rounded-xl" /> {/* Manage company users */}
@@ -346,7 +283,7 @@ export default function CompanyPage() {
           </CardList>
 
           {/* Actions */}
-          {isAdmin && (
+          {user?.is_admin && (
             <CardList>
               <div className="flex items-center justify-between h-full w-full">
                 <span>Edit company information</span>
@@ -362,7 +299,11 @@ export default function CompanyPage() {
           )}
         </div>
       </div>
- 
+
     </div>
   )
+}
+
+function setUser(arg0: null) {
+  throw new Error('Function not implemented.')
 }

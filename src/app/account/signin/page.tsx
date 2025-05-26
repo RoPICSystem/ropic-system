@@ -109,7 +109,7 @@ export default function SigninPage() {
             </div>
           </div>
           <Card
-            isBlurred
+            isBlurred 
             className="dark:bg-primary-100/70 h-full sm:w-[30rem] w-full sm:rounded-2xl rounded-none">
             <div className="pt-[5.5rem] border-b-2 border-default-400 pb-6 select-none hidden sm:block">
               <div className="grid grid-cols-1">

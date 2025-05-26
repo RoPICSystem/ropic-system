@@ -18,42 +18,6 @@ export async function updateCompany(formData: FormData):
   const description = formData.get('description') as string;
   const logoImage = formData.get('logoImage') as File;
   
-  // Parse company layout from form data
-  let companyLayout;
-  try {
-    const layoutString = formData.get('company_layout') as string;
-    companyLayout = JSON.parse(layoutString);
-    
-    // Validate the layout (must be a 3D array)
-    if (!Array.isArray(companyLayout)) {
-      return { error: 'Invalid layout format: must be an array' };
-    }
-    
-    for (const floor of companyLayout) {
-      if (typeof floor !== 'object' || !floor || !Array.isArray(floor.matrix)) {
-        return { error: 'Invalid layout format: each floor must be an array' };
-      }
-
-      if (typeof floor.height !== 'number' || floor.height <= 0) {
-        return { error: 'Invalid layout format: each floor must have a positive height' };
-      }
-      
-      for (const row of floor.matrix) {
-        if (!Array.isArray(row)) {
-          return { error: 'Invalid layout format: each row must be an array' };
-        }
-        
-        for (const cell of row) {
-          if (typeof cell !== 'number' || cell < 0 || cell > 100) {
-            return { error: 'Invalid layout format: each cell must be a number between 0 and 100' };
-          }
-        }
-      }
-    }
-  } catch (error) {
-    console.error('Error parsing layout:', error);
-    companyLayout = []; // Default to empty layout if parsing fails
-  }
 
   // Extract address data
   const address = {
@@ -137,8 +101,7 @@ export async function updateCompany(formData: FormData):
       description,
       address,
       logo_image: `logo/${companyUuid}/logo.webp`,
-      updated_at: new Date().toISOString(),
-      company_layout: companyLayout // Add the layout data
+      updated_at: new Date().toISOString()
     };
 
     const { error: updateError } = await supabase

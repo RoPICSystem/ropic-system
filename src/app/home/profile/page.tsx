@@ -3,7 +3,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { getUserProfile } from '@/utils/supabase/server/user'
+import { getUserFromCookies, getUserProfile } from '@/utils/supabase/server/user'
 import { getUserCompanyDetails } from '@/utils/supabase/server/companies'
 import {
   Card,
@@ -70,19 +70,26 @@ export default function ProfilePage() {
   const inputStyle = { inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200" }
   const autoCompleteStyle = { classNames: inputStyle }
 
-  const [userData, setUserData] = useState<any>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [user, setUser] = useState<any>(null);
+  
 
   // Load user data on initial render
   useEffect(() => {
     async function fetchUserData() {
       try {
         setIsLoading(true)
-        const { data, error } = await getUserProfile()
-        const { data: companyData, error: companyError } = await getUserCompanyDetails(data?.uuid)
+
+        const userData = await getUserFromCookies();
+        if (userData === null) {
+          setError('User not found')
+          return
+        }
+        
+        const { data: companyData, error: companyError } = await getUserCompanyDetails(userData?.uuid)
 
         if (error) {
           setError(error)
@@ -93,15 +100,15 @@ export default function ProfilePage() {
           setError(`${companyError}`)
           return
         } else {
-          setUserData({
-            ...data,
+          setUser({
+            ...userData,
             company: companyData
           })
-          setIsAdmin(data?.is_admin)
+          setIsAdmin(userData?.is_admin)
         }
 
-        if (!data?.profile_image.error) {
-          await setImagePreview(data.profile_image_url)
+        if (!userData?.profile_image.error) {
+          await setImagePreview(userData.profile_image_url)
         }
       } catch (err: any) {
         console.error('Error fetching user profile:', err)
@@ -115,7 +122,7 @@ export default function ProfilePage() {
   }, [])
 
   // Show loading state
-  if (isLoading && !userData) {
+  if (isLoading && !user) {
     return (
       <div className="container mx-auto max-w-4xl p-2">
         <div className='space-y-4'>
@@ -253,14 +260,14 @@ export default function ProfilePage() {
                     label="First Name"
                     type="text"
                     classNames={inputStyle}
-                    value={userData?.name?.first_name || ''}
+                    value={user?.name?.first_name || ''}
                     isReadOnly
                   />
                   <Input
                     label="Middle Name"
                     type="text"
                     classNames={inputStyle}
-                    value={userData?.name?.middle_name || ''}
+                    value={user?.name?.middle_name || ''}
                     isReadOnly
                   />
                 </div>
@@ -270,14 +277,14 @@ export default function ProfilePage() {
                     label="Last Name"
                     type="text"
                     classNames={inputStyle}
-                    value={userData?.name?.last_name || ''}
+                    value={user?.name?.last_name || ''}
                     isReadOnly
                   />
                   <Input
                     label="Suffix"
                     type="text"
                     classNames={inputStyle}
-                    value={userData?.name?.suffix || ''}
+                    value={user?.name?.suffix || ''}
                     isReadOnly
                   />
                 </div>
@@ -287,14 +294,14 @@ export default function ProfilePage() {
                     label="Gender"
                     type="text"
                     classNames={inputStyle}
-                    value={(userData?.gender || '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}
+                    value={(user?.gender || '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}
                     isReadOnly
                   />
                   <DatePicker
                     name="birthday"
                     label="Birthday"
-                    value={userData?.birthday ?
-                      parseDate(new Date(userData.birthday).toISOString().split('T')[0]) :
+                    value={user?.birthday ?
+                      parseDate(new Date(user.birthday).toISOString().split('T')[0]) :
                       today(getLocalTimeZone()).subtract({ years: 18 })}
                     isReadOnly
                     classNames={{
@@ -310,7 +317,7 @@ export default function ProfilePage() {
                     label="Phone Number"
                     type="text"
                     classNames={inputStyle}
-                    value={userData?.phone_number || ''}
+                    value={user?.phone_number || ''}
                     startContent={
                       <div className="pointer-events-none flex items-center">
                         <span className="text-default-600 text-small">+63</span>
@@ -340,7 +347,7 @@ export default function ProfilePage() {
                     label="Region"
                     type="text"
                     classNames={inputStyle}
-                    value={userData?.address?.region?.desc || ''}
+                    value={user?.address?.region?.desc || ''}
                     isReadOnly
                   />
                 </div>
@@ -350,14 +357,14 @@ export default function ProfilePage() {
                     label="Province"
                     type="text"
                     classNames={inputStyle}
-                    value={userData?.address?.province?.desc || ''}
+                    value={user?.address?.province?.desc || ''}
                     isReadOnly
                   />
                   <Input
                     label="Municipality/City"
                     type="text"
                     classNames={inputStyle}
-                    value={userData?.address?.municipality?.desc || ''}
+                    value={user?.address?.municipality?.desc || ''}
                     isReadOnly
                   />
                 </div>
@@ -367,14 +374,14 @@ export default function ProfilePage() {
                     label="Barangay"
                     type="text"
                     classNames={inputStyle}
-                    value={userData?.address?.barangay?.desc || ''}
+                    value={user?.address?.barangay?.desc || ''}
                     isReadOnly
                   />
                   <Input
                     label="Street Address"
                     type="text"
                     classNames={inputStyle}
-                    value={userData?.address?.street || ''}
+                    value={user?.address?.street || ''}
                     isReadOnly
                   />
                 </div>
@@ -385,14 +392,14 @@ export default function ProfilePage() {
                     type="text"
                     classNames={inputStyle}
                     className="md:w-[10rem]"
-                    value={userData?.address?.postalCode || ''}
+                    value={user?.address?.postalCode || ''}
                     isReadOnly
                   />
                   <Input
                     label="Full Address"
                     type="text"
                     classNames={inputStyle}
-                    value={userData?.address?.fullAddress || ''}
+                    value={user?.address?.fullAddress || ''}
                     isReadOnly
                   />
                 </div>
@@ -409,7 +416,7 @@ export default function ProfilePage() {
                   label="Company Name"
                   type="text"
                   classNames={inputStyle}
-                  value={userData?.company?.name || ''}
+                  value={user?.company?.name || ''}
                   isReadOnly
                 />
               </div>
@@ -448,7 +455,7 @@ export default function ProfilePage() {
                 label="Email"
                 autoComplete="email"
                 classNames={inputStyle}
-                value={userData?.email || ''}
+                value={user?.email || ''}
                 isReadOnly
 
               />

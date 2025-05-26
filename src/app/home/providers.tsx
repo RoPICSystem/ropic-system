@@ -2,7 +2,7 @@
 "use client";
 
 import { createClient } from "@/utils/supabase/client";
-import { getUserProfile } from '@/utils/supabase/server/user';
+import { getUserFromCookies, getUserProfile, setUserInCookies } from '@/utils/supabase/server/user';
 import { Spinner } from "@heroui/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -22,7 +22,7 @@ declare global {
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const [ adminTempData, setAdminTempData ] = useState<any>(null);
+  const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
     const fetchUserProfile = async () => {
@@ -33,10 +33,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      if (typeof window !== "undefined") {
-        setAdminTempData(data);
-        window.userData = data;
-      };
+      setUserInCookies(data);
+      setUser(data);
     }
     fetchUserProfile();
   }, []);
@@ -44,54 +42,56 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   // Fetch subscription data
   useEffect(() => {
-    if (typeof window === "undefined" || adminTempData === null) {
-      return;
-    }
-
-    const supabase = createClient()
-
-    // Set up real-time subscription for delivery items
-    const profileChannel = supabase
-      .channel('delivery-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'profiles',
-          filter: `uuid=eq.${adminTempData.uuid}`
-        },
-        async (payload: any) => {
-          const { data, error } = await getUserProfile();
-
-          console.log("Profile subscription payload:", payload);
-
-          if (error) {
-            console.error("Error fetching profile subscription:", error);
-            return;
-          }
-          if (typeof window !== "undefined") {
-            window.userData = data;
-          };
-
-        }
-      )
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") {
-          console.log("Subscribed to profile changes");
-        }
-      });
-
-    return () => {
-      if (profileChannel) {
-        profileChannel.unsubscribe();
-        console.log("Unsubscribed from profile changes");
+    const fetchSubscriptionData = async () => {
+      const userData = await getUserFromCookies();
+      if (userData === null) {
+        return;
       }
-    }
-  }
-  , [adminTempData]);
 
-  if (typeof window === "undefined" || window?.userData === null || window?.userData === undefined) {
+      const supabase = createClient()
+
+      // Set up real-time subscription for delivery items
+      const profileChannel = supabase
+        .channel('delivery-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'profiles',
+            filter: `uuid=eq.${userData.uuid}`
+          },
+          async (payload: any) => {
+            const { data, error } = await getUserProfile();
+
+            console.log("Profile subscription payload:", payload);
+
+            if (error) {
+              console.error("Error fetching profile subscription:", error);
+              return;
+            }
+            setUserInCookies(data);
+          }
+        )
+        .subscribe((status) => {
+          if (status === "SUBSCRIBED") {
+            console.log("Subscribed to profile changes");
+          }
+        });
+      return () => {
+        if (profileChannel) {
+          profileChannel.unsubscribe();
+          console.log("Unsubscribed from profile changes");
+        }
+      }
+    };
+
+    fetchSubscriptionData();
+  }, []);
+
+  
+
+  if (user === null) {
     return (
       <div className="flex items-center justify-center w-full h-screen">
         <div className="flex flex-col items-center justify-center">

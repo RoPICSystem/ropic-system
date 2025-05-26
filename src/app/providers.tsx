@@ -27,7 +27,7 @@ declare global {
 export function Providers({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { theme, resolvedTheme } = useTheme()
-  const [ adminTempData, setAdminTempData ] = useState<any>(null);
+  // const [ adminTempData, setAdminTempData ] = useState<any>(null);
 
   const getDefaultTheme = () => {
     return {

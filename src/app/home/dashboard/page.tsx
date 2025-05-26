@@ -44,6 +44,7 @@ import {
   XAxis,
   YAxis
 } from "recharts";
+import { getUserFromCookies } from "@/utils/supabase/server/user";
 
 // StatsCard component for displaying simple metrics
 interface StatsCardProps {
@@ -88,11 +89,23 @@ const StatsCard = ({ title, value, subtitle, icon, icon2, color = "primary" }: S
 )
 
 export default function DashboardPage() {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [dashboardData, setDashboardData] = useState<any>(null);
-  const [user, setUser] = useState<any>(null);
+  const [ loading, setLoading] = useState(true);
+  const [ error, setError] = useState<string | null>(null);
+  const [ dashboardData, setDashboardData] = useState<any>(null);
+  const [ user, setUser ] = useState<any>(null);
   const { theme } = useTheme();
+
+
+  useEffect(() => {
+    const fetchSubscriptionData = async () => {
+      const userData = await getUserFromCookies();
+      if (userData === null) 
+        setUser(null);
+      else
+        setUser(userData);
+    }
+    fetchSubscriptionData();
+  }, []);
 
   const isDark = () => {
     if (theme === "system") {
@@ -120,7 +133,7 @@ export default function DashboardPage() {
       top_items
     } = dashboardData.inventoryStats;
 
-    if (loading) {
+    if (loading && user === null) {
       return (
         <Card className="col-span-12 bg-background mt-4">
           <CardHeader className="flex justify-between px-4">
@@ -135,7 +148,7 @@ export default function DashboardPage() {
           <CardBody className="p-4">
             {/* Skeleton for basic inventory stats */}
             <div className="grid gap-4 mb-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3">
-              {[...Array(window.userData?.is_admin ? 9 : 3)].map((_, index) => (
+              {[...Array(user?.is_admin ? 9 : 3)].map((_, index) => (
                 <Card key={index} className="bg-default-50 border border-default-100 shadow-xl">
                   <CardBody className="p-3 overflow-hidden relative">
                     <div className="flex items-center justify-between">
@@ -210,7 +223,7 @@ export default function DashboardPage() {
               color="default"
             />
 
-            {window.userData?.is_admin && (
+            {user?.is_admin && (
               <>
                 <StatsCard
                   title="Inventory Units"
@@ -244,11 +257,11 @@ export default function DashboardPage() {
               title="In Warehouse Units"
               value={in_warehouse_units}
               icon="fluent-emoji:label"
-              {...(window.userData?.is_admin ? { icon2: "fluent-emoji:office-building" } : {})}
-              color={window.userData?.is_admin ? "danger" : "secondary"}
+              {...(user?.is_admin ? { icon2: "fluent-emoji:office-building" } : {})}
+              color={user?.is_admin ? "danger" : "secondary"}
             />
 
-            {window.userData?.is_admin && (
+            {user?.is_admin && (
               <>
                 <StatsCard
                   title="Available Inventory Bulks"
@@ -271,8 +284,8 @@ export default function DashboardPage() {
               title="In Warehouse Bulks"
               value={in_warehouse_bulks}
               icon="fluent-emoji:package"
-              {...(window.userData?.is_admin ? { icon2: "fluent-emoji:office-building" } : {})}
-              color={window.userData?.is_admin ? "danger" : "warning"}
+              {...(user?.is_admin ? { icon2: "fluent-emoji:office-building" } : {})}
+              color={user?.is_admin ? "danger" : "warning"}
             />
           </div>
 
@@ -447,9 +460,9 @@ export default function DashboardPage() {
                   <Icon icon="fluent:warning-24-filled" className="text-warning-500" width={24} height={24} />
                   <h2 className="text-lg font-semibold">Reorder Alert</h2>
                 </div>
-                <Badge color="warning" variant="flat">
+                <span>
                   {lowStockItems.length} Items
-                </Badge>
+                </span>
               </div>
             </CardHeader>
             <Divider />
@@ -653,8 +666,8 @@ export default function DashboardPage() {
                       >
                         <defs>
                           {deliveryStatusData.map((entry, index) => (
-                            <linearGradient 
-                              id={`colorGradient-${index}`} 
+                            <linearGradient
+                              id={`colorGradient-${index}`}
                               key={`gradient-${index}`}
                               x1="0" y1="0" x2="0" y2="1"
                             >
@@ -663,11 +676,11 @@ export default function DashboardPage() {
                             </linearGradient>
                           ))}
                           <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-                            <feDropShadow dx="0" dy="3" stdDeviation="3" floodOpacity="0.1"/>
+                            <feDropShadow dx="0" dy="3" stdDeviation="3" floodOpacity="0.1" />
                           </filter>
                         </defs>
-                        <XAxis 
-                          dataKey="name" 
+                        <XAxis
+                          dataKey="name"
                           angle={0}
                           textAnchor="middle"
                           height={60}
@@ -677,10 +690,10 @@ export default function DashboardPage() {
                             fontWeight: 500
                           }}
                           tickMargin={10}
-                          axisLine={{stroke: 'hsl(var(--heroui-default-200))', strokeWidth: 1}}
+                          axisLine={{ stroke: 'hsl(var(--heroui-default-200))', strokeWidth: 1 }}
                           tickLine={false}
                         />
-                        <YAxis 
+                        <YAxis
                           hide={false}
                           axisLine={false}
                           tickLine={false}
@@ -690,14 +703,14 @@ export default function DashboardPage() {
                           }}
                           tickFormatter={(val) => val > 0 ? val : ''}
                         />
-                        <CartesianGrid 
-                          strokeDasharray="3 3" 
-                          vertical={false} 
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          vertical={false}
                           stroke="hsl(var(--heroui-default-200))"
                           opacity={0.5}
                         />
                         <RechartsTooltip
-                          cursor={{fill: 'hsl(var(--heroui-default-100))', opacity: 0.3}}
+                          cursor={{ fill: 'hsl(var(--heroui-default-100))', opacity: 0.3 }}
                           contentStyle={{
                             backgroundColor: isDark() ? 'hsl(var(--heroui-default-700))' : 'white',
                             borderRadius: '12px',
@@ -712,17 +725,17 @@ export default function DashboardPage() {
                           formatter={(val: number) => [`${val} deliveries`, '']}
                           labelFormatter={(label) => `Status: ${label}`}
                         />
-                        <Bar 
-                          dataKey="value" 
+                        <Bar
+                          dataKey="value"
                           radius={[4, 4, 0, 0]}
                           filter="url(#shadow)"
                           animationDuration={1500}
                           animationEasing="ease-in-out"
                         >
                           {deliveryStatusData.map((entry, index) => (
-                            <Cell 
-                              key={`cell-${index}`} 
-                              fill={`url(#colorGradient-${index})`} 
+                            <Cell
+                              key={`cell-${index}`}
+                              fill={`url(#colorGradient-${index})`}
                               stroke={entry.color}
                               strokeWidth={1}
                             />
@@ -869,7 +882,7 @@ export default function DashboardPage() {
                     </div>
                   ))}
 
-                  {window.userData?.is_admin && (
+                  {user?.is_admin && (
                     <Button
                       as={Link}
                       href="/home/warehouse-items"
@@ -921,9 +934,9 @@ export default function DashboardPage() {
                       <PieChart>
                         <defs>
                           {performanceData.map((entry, index) => (
-                            <radialGradient 
-                              id={`pieGradient-${index}`} 
-                              key={`pie-gradient-${index}`} 
+                            <radialGradient
+                              id={`pieGradient-${index}`}
+                              key={`pie-gradient-${index}`}
                               cx="50%" cy="50%" r="50%" fx="50%" fy="50%"
                             >
                               <stop offset="0%" stopColor={entry.color} stopOpacity={0.9} />
@@ -932,7 +945,7 @@ export default function DashboardPage() {
                             </radialGradient>
                           ))}
                           <filter id="pieDropShadow" x="-20%" y="-20%" width="140%" height="140%">
-                            <feDropShadow dx="0" dy="3" stdDeviation="5" floodOpacity="0.12"/>
+                            <feDropShadow dx="0" dy="3" stdDeviation="5" floodOpacity="0.12" />
                           </filter>
                           <linearGradient id="centerGradient" x1="0%" y1="0%" x2="0%" y2="100%">
                             <stop offset="0%" stopColor="hsl(var(--heroui-primary-50))" stopOpacity="0.7" />
@@ -953,8 +966,8 @@ export default function DashboardPage() {
                           filter="url(#pieDropShadow)"
                         >
                           {performanceData.map((entry, index) => (
-                            <Cell 
-                              key={`cell-${index}`} 
+                            <Cell
+                              key={`cell-${index}`}
                               fill={`url(#pieGradient-${index})`}
                             />
                           ))}
@@ -962,30 +975,30 @@ export default function DashboardPage() {
                             content={({ viewBox }) => {
                               const { cx, cy } = viewBox as { cx: number, cy: number };
                               const averageValue = performanceData.reduce((sum, entry) => sum + entry.value, 0) / performanceData.length;
-                              
+
                               return (
                                 <g>
-                                  <circle 
-                                    cx={cx} 
-                                    cy={cy} 
-                                    r={60} 
-                                    fill="url(#centerGradient)" 
-                                    filter="url(#pieDropShadow)" 
+                                  <circle
+                                    cx={cx}
+                                    cy={cy}
+                                    r={60}
+                                    fill="url(#centerGradient)"
+                                    filter="url(#pieDropShadow)"
                                   />
-                                  <text 
-                                    x={cx} 
-                                    y={cy - 8} 
-                                    textAnchor="middle" 
+                                  <text
+                                    x={cx}
+                                    y={cy - 8}
+                                    textAnchor="middle"
                                     dominantBaseline="central"
                                     className="text-2xl font-bold"
                                     fill="hsl(var(--heroui-default-700))"
                                   >
                                     {Math.round(averageValue)}%
                                   </text>
-                                  <text 
-                                    x={cx} 
-                                    y={cy + 18} 
-                                    textAnchor="middle" 
+                                  <text
+                                    x={cx}
+                                    y={cy + 18}
+                                    textAnchor="middle"
                                     dominantBaseline="central"
                                     className="text-xs tracking-wide uppercase"
                                     fill="hsl(var(--heroui-default-500))"
@@ -997,9 +1010,9 @@ export default function DashboardPage() {
                             }}
                           />
                         </Pie>
-                        <Legend 
-                          layout="horizontal" 
-                          verticalAlign="bottom" 
+                        <Legend
+                          layout="horizontal"
+                          verticalAlign="bottom"
                           align="center"
                           iconType="circle"
                           iconSize={8}
@@ -1007,9 +1020,9 @@ export default function DashboardPage() {
                             paddingTop: 15,
                           }}
                           formatter={(value) => (
-                            <span style={{ 
-                              color: 'hsl(var(--heroui-default-700))', 
-                              fontSize: '12px', 
+                            <span style={{
+                              color: 'hsl(var(--heroui-default-700))',
+                              fontSize: '12px',
                               padding: '0 6px',
                               fontWeight: 500
                             }}>
