@@ -20,6 +20,7 @@ import { formatDistanceToNow } from "date-fns";
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { getNotifications, markAllNotificationsAsRead, markNotificationAsRead } from "./actions";
+import { getUserFromCookies } from "@/utils/supabase/server/user";
 
 // Define notification types based on our database schema
 interface Notification {
@@ -51,6 +52,7 @@ export default function NotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [filteredNotifications, setFilteredNotifications] = useState<Notification[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   // Filter and pagination state
   const [selectedTab, setSelectedTab] = useState<string>("all");
@@ -66,13 +68,19 @@ export default function NotificationsPage() {
 
     const initPage = async () => {
       try {
-        setUser(window.userData);
+        const userData = await getUserFromCookies();
+        if (userData === null) {
+          setError('User not found');
+          return;
+        }
+
+        setUser(userData);
 
         // Fetch initial notifications
         const result = await getNotifications({
-          companyUuid: window.userData.company_uuid,
-          userUuid: window.userData.uuid,
-          isAdmin: window.userData.is_admin,
+          companyUuid: userData.company_uuid,
+          userUuid: userData.uuid,
+          isAdmin: userData.is_admin,
           page: page,
           pageSize: itemsPerPage,
           type: selectedTab === "all" ? undefined : selectedTab,

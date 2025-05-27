@@ -52,3 +52,24 @@ export const herouiColor = (color: string, colorType: 'hsl' | 'rgb' | 'hex' = 'h
       return hsl;
   }
 } 
+
+
+export const herouiColorOpacity = (color: string, opacity: number, colorType: 'hsl' | 'rgb' | 'hex' = 'hsl') => {
+  const rootStyle = getComputedStyle(document.documentElement); 
+  const hsl = rootStyle.getPropertyValue(`--heroui-${color}`).trim().split(' ').map(val => {
+    return parseFloat(val.replace('%', ''));
+  })
+  
+  switch (colorType) {
+    case 'hsl':
+      return [hsl[0], hsl[1], hsl[2], opacity];
+    case 'rgb':
+      const [r, g, b] = hslToRgb(hsl[0], hsl[1], hsl[2]);
+      return [r, g, b, opacity];
+    case 'hex':
+      const hexColor = hslToHex(hsl[0], hsl[1], hsl[2]);
+      return hexColor + Math.round(opacity * 255).toString(16).padStart(2, '0');
+    default:
+      return [hsl[0], hsl[1], hsl[2], opacity];
+  }
+}

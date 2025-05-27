@@ -28,6 +28,7 @@ import { getLocalTimeZone, parseDate, today } from '@internationalized/date'
 
 // Import address utilities
 import CardList from '@/components/card-list'
+import LoadingAnimation from '@/components/loading-animation'
 import { motionTransition } from '@/utils/anim'
 import {
   Barangay,
@@ -38,7 +39,7 @@ import {
 } from '@/utils/supabase/server/address'
 import { AnimatePresence, motion } from 'framer-motion'
 
-export default function ProfilePage() {
+export default function ProfileEditPage() {
   const [userData, setUserData] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isAddressLoading, setIsAddressLoading] = useState(true) // Separate loading state for address
@@ -320,16 +321,18 @@ export default function ProfilePage() {
 
           {/* Profile Image Section */}
           <CardList>
-            {isLoading ? (
-              <div className="flex flex-col items-center justify-center w-full">
-                <Skeleton className="h-6 w-36 rounded-lg mb-4" /> {/* "Profile Image" title */}
-                <div className="flex flex-col items-center justify-center p-4 bg-default-100 border border-default-200 rounded-xl w-full">
-                  <Skeleton className="rounded-full w-48 h-48 mb-4" /> {/* Profile Image */}
-                  <Skeleton className="h-4 w-52 rounded-lg mb-1 mt-2" /> {/* "Click to upload" text */}
-                  <Skeleton className="h-3 w-32 rounded-lg" /> {/* "Max size: 2MB" text */}
+            <LoadingAnimation
+              condition={isLoading}
+              skeleton={
+                <div className="flex flex-col items-center justify-center w-full">
+                  <Skeleton className="h-6 w-36 rounded-lg mb-4" /> {/* "Profile Image" title */}
+                  <div className="flex flex-col items-center justify-center p-4 bg-default-100 border border-default-200 rounded-xl w-full">
+                    <Skeleton className="rounded-full w-48 h-48 mb-4" /> {/* Profile Image */}
+                    <Skeleton className="h-4 w-52 rounded-lg mb-1 mt-2" /> {/* "Click to upload" text */}
+                    <Skeleton className="h-3 w-32 rounded-lg" /> {/* "Max size: 2MB" text */}
+                  </div>
                 </div>
-              </div>
-            ) : (
+              }>
               <div className="flex flex-col items-center justify-center w-full">
                 <h2 className="text-xl font-semibold mb-4">Profile Image</h2>
                 <Button
@@ -363,31 +366,35 @@ export default function ProfilePage() {
                   </Input>
                 </Button>
               </div>
-            )}
+            </LoadingAnimation>
           </CardList>
 
           {/* Basic Information */}
           <CardList>
-            {isLoading ? (
-              <div>
-                <Skeleton className="h-6 w-36 rounded-lg mb-4 mx-auto" /> {/* "Basic Information" title */}
-                <div className="space-y-4">
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <Skeleton className="h-14 rounded-lg" /> {/* First Name */}
-                    <Skeleton className="h-14 rounded-lg" /> {/* Middle Name */}
+            <LoadingAnimation
+              condition={isLoading}
+              skeleton={
+                <div>
+                  <Skeleton className="h-6 w-48 rounded-xl m-1 mx-auto" /> {/* "Basic Information" title */}
+                  <div className="space-y-4 mt-4">
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <Skeleton className="h-14 rounded-xl" /> {/* First Name */}
+                      <Skeleton className="h-14 rounded-xl" /> {/* Middle Name */}
+                    </div>
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <Skeleton className="h-14 rounded-xl" /> {/* Last Name */}
+                      <Skeleton className="h-14 rounded-xl" /> {/* Suffix */}
+                    </div>
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <Skeleton className="h-14 rounded-xl" /> {/* Gender */}
+                      <Skeleton className="h-14 rounded-xl" /> {/* Birthday */}
+                    </div>
+                    <div className="grid grid-cols-1 gap-4">
+                      <Skeleton className="h-14 rounded-xl" /> {/* Phone Number */}
+                    </div>
                   </div>
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <Skeleton className="h-14 rounded-lg" /> {/* Last Name */}
-                    <Skeleton className="h-14 rounded-lg" /> {/* Suffix */}
-                  </div>
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <Skeleton className="h-14 rounded-lg" /> {/* Gender */}
-                    <Skeleton className="h-14 rounded-lg" /> {/* Birthday */}
-                  </div>
-                  <Skeleton className="h-14 rounded-lg" /> {/* Phone Number */}
                 </div>
-              </div>
-            ) : (
+              }>
               <div>
                 <h2 className="text-xl font-semibold mb-4 w-full text-center">Basic Information</h2>
                 <div className="space-y-4">
@@ -486,34 +493,36 @@ export default function ProfilePage() {
                   </div>
                 </div>
               </div>
-            )}
+            </LoadingAnimation>
           </CardList>
 
           {/* Address Information */}
           <CardList>
-            {isAddressLoading ? (
-              <div>
-                <Skeleton className="h-6 w-36 rounded-lg mb-4 mx-auto" /> {/* "Personal Address" title */}
-                <div className="space-y-4">
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <Skeleton className="h-14 rounded-lg" /> {/* Country */}
-                    <Skeleton className="h-14 rounded-lg" /> {/* Region */}
-                  </div>
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <Skeleton className="h-14 rounded-lg" /> {/* Province */}
-                    <Skeleton className="h-14 rounded-lg" /> {/* Municipality/City */}
-                  </div>
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <Skeleton className="h-14 rounded-lg" /> {/* Barangay */}
-                    <Skeleton className="h-14 rounded-lg" /> {/* Street Address */}
-                  </div>
-                  <div className="flex sm:flex-row flex-col gap-4">
-                    <Skeleton className="h-14 w-full sm:w-[10rem] rounded-lg" /> {/* Postal Code */}
-                    <Skeleton className="h-14 w-full flex-1 rounded-lg" /> {/* Full Address */}
+            <LoadingAnimation
+              condition={isAddressLoading}
+              skeleton={
+                <div>
+                  <Skeleton className="h-6 w-48 rounded-xl m-1 mx-auto" /> {/* "Personal Address" title */}
+                  <div className="space-y-4 mt-4">
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <Skeleton className="h-14 rounded-xl" /> {/* Country */}
+                      <Skeleton className="h-14 rounded-xl" /> {/* Region */}
+                    </div>
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <Skeleton className="h-14 rounded-xl" /> {/* Province */}
+                      <Skeleton className="h-14 rounded-xl" /> {/* Municipality/City */}
+                    </div>
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <Skeleton className="h-14 rounded-xl" /> {/* Barangay */}
+                      <Skeleton className="h-14 rounded-xl" /> {/* Street Address */}
+                    </div>
+                    <div className="flex sm:flex-row flex-col gap-4">
+                      <Skeleton className="h-14 sm:w-[10rem] w-full rounded-xl" /> {/* Postal Code */}
+                      <Skeleton className="h-14 w-full rounded-xl" /> {/* Full Address */}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ) : (
+              }>
               <div>
                 <div className="flex items-center justify-center mb-4">
                   <h2 className="text-xl font-semibold">Personal Address</h2>
@@ -649,17 +658,19 @@ export default function ProfilePage() {
                   </div>
                 </div>
               </div>
-            )}
+            </LoadingAnimation>
           </CardList>
 
           {/* Account Information */}
           <CardList>
-            {isLoading ? (
-              <div>
-                <Skeleton className="h-6 w-40 rounded-lg mb-4 mx-auto" /> {/* "Account Information" title */}
-                <Skeleton className="h-14 rounded-lg" /> {/* Email field */}
-              </div>
-            ) : (
+            <LoadingAnimation
+              condition={isLoading}
+              skeleton={
+                <div>
+                  <Skeleton className="h-6 w-48 rounded-xl m-1 mx-auto" /> {/* "Account Information" title */}
+                  <Skeleton className="h-14 rounded-xl mt-4" /> {/* Email field */}
+                </div>
+              }>
               <div>
                 <h2 className="text-xl font-semibold mb-4 w-full text-center">Account Information</h2>
                 <Input
@@ -674,20 +685,22 @@ export default function ProfilePage() {
                   isRequired
                 />
               </div>
-            )}
+            </LoadingAnimation>
           </CardList>
 
           {/* Profile Update Options */}
           <CardList>
-            {isLoading ? (
-              <div>
-                <Skeleton className="h-6 w-48 rounded-lg mb-4 mx-auto" /> {/* "Profile Update Options" title */}
-                <div className="flex justify-center gap-4">
-                  <Skeleton className="h-12 w-full rounded-lg" /> {/* Discard Changes button */}
-                  <Skeleton className="h-12 w-full rounded-lg" /> {/* Save Changes button */}
+            <LoadingAnimation
+              condition={isLoading}
+              skeleton={
+                <div>
+                  <Skeleton className="h-6 w-48 rounded-xl m-1 mx-auto" /> {/* "Profile Update Options" title */}
+                  <div className="flex justify-center gap-4 mt-4">
+                    <Skeleton className="h-12 w-full rounded-xl" /> {/* Discard Changes button */}
+                    <Skeleton className="h-12 w-full rounded-xl" /> {/* Save Changes button */}
+                  </div>
                 </div>
-              </div>
-            ) : (
+              }>
               <div>
                 <h2 className="text-xl font-semibold mb-4 w-full text-center">Profile Update Options</h2>
 
@@ -760,7 +773,7 @@ export default function ProfilePage() {
                   </Button>
                 </div>
               </div>
-            )}
+            </LoadingAnimation>
           </CardList>
         </div>
       </Form>
