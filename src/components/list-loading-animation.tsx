@@ -21,7 +21,18 @@ const ListLoadingAnimation: React.FC<ListLoadingAnimationProps> = ({
   delayContentReveal = 0
 }) => {
   const [height, setHeight] = useState<number | "auto">("auto");
+  const [isAnimating, setIsAnimating] = useState(false);
   const [effectiveCondition, setEffectiveCondition] = useState(condition);
+
+  // Calculate true animation duration based on stagger and item count
+  const calculateAnimationDuration = useCallback(() => {
+    const itemCount = effectiveCondition ? skeleton.length : children.length;
+    const itemAnimationDuration = 0.3; // Individual item animation duration
+    const delayChildren = 0.1;
+    const totalStaggerDuration = (itemCount - 1) * staggerDelay;
+    
+    return delayChildren + totalStaggerDuration + itemAnimationDuration;
+  }, [effectiveCondition, skeleton.length, children.length, staggerDelay]);
 
   useEffect(() => {
     if (condition === false && effectiveCondition === true && delayContentReveal > 0) {
@@ -32,7 +43,20 @@ const ListLoadingAnimation: React.FC<ListLoadingAnimationProps> = ({
     } else {
       setEffectiveCondition(condition);
     }
-  }, [condition, delayContentReveal]);
+  }, [condition, delayContentReveal, effectiveCondition]);
+
+  useEffect(() => {
+    if (isAnimating) {
+      const trueDuration = calculateAnimationDuration();
+      const durationMs = trueDuration * 1000; // Convert to milliseconds
+      
+      const timer = setTimeout(() => {
+        setIsAnimating(false);
+      }, durationMs);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [isAnimating, calculateAnimationDuration]);
 
   const measuredRef = useCallback((node: HTMLDivElement | null) => {
     if (node !== null) {
@@ -114,13 +138,14 @@ const ListLoadingAnimation: React.FC<ListLoadingAnimationProps> = ({
       }}
       animate={{ height }}
       transition={{
-        duration: 0.4,
+        duration: isAnimating ? 0.4 : 0,
         ease: "easeOut",
         type: "spring",
         stiffness: 120,
         damping: 20,
         mass: 1.5
       }}
+      layout={isAnimating}
     >
       <div 
         ref={measuredRef} 
@@ -137,6 +162,7 @@ const ListLoadingAnimation: React.FC<ListLoadingAnimationProps> = ({
               initial="hidden"
               animate="visible"
               exit="exit"
+              onAnimationStart={() => setIsAnimating(true)}
               className={`w-full ${containerClassName}`}
               style={{ 
                 willChange: 'opacity, transform',
@@ -164,6 +190,7 @@ const ListLoadingAnimation: React.FC<ListLoadingAnimationProps> = ({
               initial="hidden"
               animate="visible"
               exit="exit"
+              onAnimationStart={() => setIsAnimating(true)}
               className={`w-full ${containerClassName}`}
               style={{ 
                 willChange: 'opacity, transform',

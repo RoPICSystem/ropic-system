@@ -88,6 +88,7 @@ const LoadingAnimation: React.FC<LoadingAnimationProps> = ({
         damping: 15,
         mass: 1.2,
       }}
+      layout={isAnimating}
     >
       <div ref={measuredRef} className={`w-full ${className}`}>
         <AnimatePresence mode="popLayout">

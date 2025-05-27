@@ -950,3 +950,49 @@ export async function getDeliveryHistory(inventoryUuid: string) {
     };
   }
 }
+
+
+/**
+ * Fetches detailed information about a specific bulk including its units
+ */
+export async function getBulkDetails(bulkUuid: string) {
+  const supabase = await createClient();
+
+  try {
+    // First get the bulk details
+    const { data: bulkData, error: bulkError } = await supabase
+      .from("inventory_item_bulk")
+      .select("*")
+      .eq("uuid", bulkUuid)
+      .single();
+
+    if (bulkError) {
+      throw bulkError;
+    }
+
+    // Then get all units associated with this bulk
+    const { data: unitsData, error: unitsError } = await supabase
+      .from("inventory_item_unit")
+      .select("*")
+      .eq("inventory_item_bulk_uuid", bulkUuid)
+      .order("created_at", { ascending: true });
+
+    if (unitsError) {
+      throw unitsError;
+    }
+
+    // Combine bulk data with its units
+    const bulkWithUnits = {
+      ...bulkData,
+      inventory_item_units: unitsData || []
+    };
+
+    return { success: true, data: bulkWithUnits };
+  } catch (error: Error | any) {
+    console.error("Error fetching bulk details:", error);
+    return {
+      success: false,
+      error: `Failed to fetch bulk details: ${error.message || "Unknown error"}`,
+    };
+  }
+}

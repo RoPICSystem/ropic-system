@@ -475,7 +475,7 @@ export default function InventoryPage() {
         return { 
           ...prev, 
           [field]: value,
-          properties: {} // Reset properties when fundamental item details change
+          properties: {} // This is clearing properties unexpectedly
         };
       }
       return { ...prev, [field]: value };
@@ -486,12 +486,12 @@ export default function InventoryPage() {
       setBulkItems(prev => prev.map(bulk => ({ 
         ...bulk, 
         unit: value, 
-        properties: {} // Reset bulk properties when unit changes
+        properties: {} // This is clearing bulk properties
       })));
       setUnitItems(prev => prev.map(unit => ({ 
         ...unit, 
         unit: value, 
-        properties: {} // Reset unit properties when unit changes
+        properties: {} // This is clearing unit properties
       })));
     }
   
@@ -499,11 +499,11 @@ export default function InventoryPage() {
     if (field === 'name') {
       setBulkItems(prev => prev.map(bulk => ({ 
         ...bulk, 
-        properties: {} // Reset bulk properties when name changes
+        properties: {} // This is clearing bulk properties
       })));
       setUnitItems(prev => prev.map(unit => ({ 
         ...unit, 
-        properties: {} // Reset unit properties when name changes
+        properties: {} // This is clearing unit properties
       })));
     }
   };
@@ -1441,7 +1441,7 @@ export default function InventoryPage() {
                       <Skeleton className="h-28 w-full rounded-xl" />
                     </div>
 
-                    <div className="p-4 border-2 border-default-200 rounded-xl">
+                    <div className="p-4 border-2 border-default-200 rounded-xl bg-default-50">
                       <div className="flex justify-between items-center mb-4">
                         <Skeleton className="h-6 w-32 rounded-full" />
                         <Skeleton className="h-8 w-16 rounded-lg" />
@@ -1556,7 +1556,7 @@ export default function InventoryPage() {
                         <Skeleton className="h-16 w-full rounded-xl" />
 
 
-                        <div className="p-4 border-2 border-default-200 rounded-xl">
+                        <div className="p-4 border-2 border-default-200 rounded-xl bg-default-50">
                           <div className="flex justify-between items-center mb-4">
                             <Skeleton className="h-6 w-32 rounded-full" />
                             <Skeleton className="h-8 w-16 rounded-lg" />
@@ -1587,7 +1587,7 @@ export default function InventoryPage() {
                             </div>
 
 
-                            <div className="p-4 border-2 border-default-200 rounded-xl">
+                            <div className="p-4 border-2 border-default-200 rounded-xl bg-default-50">
                               <div className="flex justify-between items-center mb-4">
                                 <Skeleton className="h-6 w-32 rounded-full" />
                                 <Skeleton className="h-8 w-16 rounded-lg" />
