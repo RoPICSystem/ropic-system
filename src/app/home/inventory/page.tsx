@@ -54,6 +54,7 @@ import {
 } from './actions';
 import { copyToClipboard, formatDate, formatNumber } from "@/utils/tools";
 import ListLoadingAnimation from "@/components/list-loading-animation";
+import CustomProperties from "@/components/custom-properties";
 
 
 export default function InventoryPage() {
@@ -84,11 +85,13 @@ export default function InventoryPage() {
     description: string;
     unit: string;
     company_uuid: string;
+    properties?: Record<string, any>;
   }>({
     name: "",
     description: "",
     unit: "",
     company_uuid: "",
+    properties: {}
   });
 
   // Bulk items state
@@ -111,6 +114,10 @@ export default function InventoryPage() {
   const [duplicateCount, setDuplicateCount] = useState(1);
   const [duplicatePopoverOpen, setDuplicatePopoverOpen] = useState(false);
   const [itemToDuplicate, setItemToDuplicate] = useState<{ type: 'bulk' | 'unit', id: number }>();
+
+  // Add these state variables after other state declarations
+  const [expandedBulks, setExpandedBulks] = useState<Set<string>>(new Set());
+  const [expandedUnits, setExpandedUnits] = useState<Set<string>>(new Set());
 
   const inputStyle = {
     inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
@@ -250,6 +257,7 @@ export default function InventoryPage() {
             description: item.description || "",
             unit: item.unit || "",
             company_uuid: item.company_uuid,
+            properties: item.properties || {}
           });
 
           const bulks = item.inventory_item_bulks || [];
@@ -312,22 +320,6 @@ export default function InventoryPage() {
     const itemId = searchParams.get("itemId");
     if (itemId) setSelectedItemId(itemId);
   }, [searchParams]);
-  
-  // Update the resetForm function to also clear original items
-  const resetForm = () => {
-    setInventoryForm({
-      name: "",
-      description: "",
-      unit: "",
-      company_uuid: user?.company_uuid || "",
-    });
-    setBulkItems([]);
-    setUnitItems([]);
-    setOriginalBulkItems([]);
-    setOriginalUnitItems([]);
-    setNextBulkId(1);
-    setNextUnitId(1);
-  };
 
 
   const isBulkEditable = (bulk: any) => {
@@ -393,9 +385,69 @@ export default function InventoryPage() {
     handleSearch(searchQuery, newPage);
   };
 
-  // Add these state variables after other state declarations
-  const [expandedBulks, setExpandedBulks] = useState<Set<string>>(new Set());
-  const [expandedUnits, setExpandedUnits] = useState<Set<string>>(new Set());
+
+
+  // Add handler for inventory form properties
+  const handleInventoryPropertiesChange = (properties: Record<string, any>) => {
+    setInventoryForm(prev => ({ ...prev, properties }));
+  };
+
+  // Add handler for bulk properties
+  const handleBulkPropertiesChange = (bulkId: number, properties: Record<string, any>) => {
+    setBulkItems(prev => prev.map(bulk =>
+      bulk.id === bulkId ? { ...bulk, properties } : bulk
+    ));
+
+    // If this is a single item bulk, automatically inherit properties to the unit
+    const bulk = bulkItems.find(b => b.id === bulkId);
+    if (bulk?.is_single_item) {
+      const unit = unitItems.find(u => u.bulkId === bulkId);
+      if (unit) {
+        handleUnitPropertiesChange(unit.id, { ...properties });
+      }
+    }
+  };
+
+
+  // Add handler for unit properties
+  const handleUnitPropertiesChange = (unitId: number, properties: Record<string, any>) => {
+    setUnitItems(prev => prev.map(unit =>
+      unit.id === unitId ? { ...unit, properties } : unit
+    ));
+  };
+
+  // Add inherit functions
+  const handleInheritBulkProperties = (bulkId: number) => {
+    const properties = inventoryForm.properties || {};
+    handleBulkPropertiesChange(bulkId, properties);
+  };
+
+  const handleInheritUnitProperties = (unitId: number) => {
+    const unit = unitItems.find(u => u.id === unitId);
+    if (!unit) return;
+
+    const bulk = bulkItems.find(b => b.id === unit.bulkId);
+    const properties = bulk?.properties || {};
+    handleUnitPropertiesChange(unitId, properties);
+  };
+
+  // Update resetForm to include properties
+  const resetForm = () => {
+    setInventoryForm({
+      name: "",
+      description: "",
+      unit: "",
+      company_uuid: user?.company_uuid || "",
+      properties: {}
+    });
+    setBulkItems([]);
+    setUnitItems([]);
+    setOriginalBulkItems([]);
+    setOriginalUnitItems([]);
+    setNextBulkId(1);
+    setNextUnitId(1);
+  };
+
 
   // Modify the handleAddBulk function
   const handleAddBulk = () => {
@@ -411,21 +463,48 @@ export default function InventoryPage() {
       isNew: true
     };
 
-    // Add new bulk at the top of the list
     setBulkItems([newBulk, ...bulkItems]);
     setNextBulkId(nextBulkId + 1);
-
-    // Set only the new bulk to be expanded
     setExpandedBulks(new Set([`${nextBulkId}`]));
   };
 
   const handleInventoryFormChange = (field: string, value: any) => {
-    setInventoryForm(prev => ({ ...prev, [field]: value }));
-
-    // If unit changed, update all bulks and units
+    setInventoryForm(prev => {
+      // When fundamental item details change, reset properties
+      if (field === 'name' || field === 'unit') {
+        return { 
+          ...prev, 
+          [field]: value,
+          properties: {} // Reset properties when fundamental item details change
+        };
+      }
+      return { ...prev, [field]: value };
+    });
+  
+    // If unit changed, update all bulks and units and reset their properties
     if (field === 'unit') {
-      setBulkItems(prev => prev.map(bulk => ({ ...bulk, unit: value })));
-      setUnitItems(prev => prev.map(unit => ({ ...unit, unit: value })));
+      setBulkItems(prev => prev.map(bulk => ({ 
+        ...bulk, 
+        unit: value, 
+        properties: {} // Reset bulk properties when unit changes
+      })));
+      setUnitItems(prev => prev.map(unit => ({ 
+        ...unit, 
+        unit: value, 
+        properties: {} // Reset unit properties when unit changes
+      })));
+    }
+  
+    // If name changed, reset properties for all bulks and units
+    if (field === 'name') {
+      setBulkItems(prev => prev.map(bulk => ({ 
+        ...bulk, 
+        properties: {} // Reset bulk properties when name changes
+      })));
+      setUnitItems(prev => prev.map(unit => ({ 
+        ...unit, 
+        properties: {} // Reset unit properties when name changes
+      })));
     }
   };
 
@@ -433,13 +512,13 @@ export default function InventoryPage() {
   const handleAddUnit = (bulkId: number) => {
     // Check if all existing units in this bulk have the same item name
     const bulkUnits = unitItems.filter(unit => unit.bulkId === bulkId);
-    let inheritedItemName = "";
+    let inheritedItemName = inventoryForm.name; // Start with the form name as default
 
     if (bulkUnits.length > 0) {
       const uniqueNames = new Set(bulkUnits.map(u => u.name).filter(Boolean));
       if (uniqueNames.size === 1) {
         // All units have the same name, inherit it
-        inheritedItemName = bulkUnits[0].name || "";
+        inheritedItemName = bulkUnits[0].name || inventoryForm.name;
       }
     }
 
@@ -453,8 +532,8 @@ export default function InventoryPage() {
       company_uuid: user?.company_uuid || "",
       code: "",
       unit_value: 0,
-      unit: parentBulk.unit || "", // Always inherit unit from parent bulk
-      name: inheritedItemName, // Use the inherited name if available
+      unit: parentBulk.unit || "",
+      name: inheritedItemName,
       cost: 0,
       properties: {},
       isNew: true
@@ -649,7 +728,7 @@ export default function InventoryPage() {
         const bulk = bulkItems.find(b => b.id === bulkId);
 
         if (existingUnits.length === 0 && bulk) {
-          // No units exist, create a single unit
+          // No units exist, create a single unit with inherited properties
           const newUnit = {
             id: nextUnitId,
             bulkId: bulkId,
@@ -659,7 +738,7 @@ export default function InventoryPage() {
             unit: bulk.unit || "",
             name: "",
             cost: bulk.cost || 0,
-            properties: {},
+            properties: bulk.properties || {}, // Inherit bulk properties
             isNew: true
           };
           setUnitItems([...unitItems, newUnit]);
@@ -668,12 +747,13 @@ export default function InventoryPage() {
           // Multiple units exist, keep only the first one and remove the rest
           const unitToKeep = existingUnits[0];
 
-          // Update the kept unit with bulk properties
+          // Update the kept unit with bulk properties including custom properties
           const updatedUnit = {
             ...unitToKeep,
             unit_value: bulk?.unit_value || unitToKeep.unit_value,
             unit: bulk?.unit || unitToKeep.unit,
-            cost: bulk?.cost || unitToKeep.cost
+            cost: bulk?.cost || unitToKeep.cost,
+            properties: bulk?.properties || {} // Inherit bulk properties
           };
 
           // Remove all units for this bulk and add back only the kept one (updated)
@@ -681,23 +761,29 @@ export default function InventoryPage() {
             ...prevUnits.filter(u => u.bulkId !== bulkId),
             updatedUnit
           ]);
-
-          // // Show a toast notification about the removed units
-          // addToast({
-          //   title: "Units Removed",
-          //   description: `${existingUnits.length - 1} unit(s) were removed when converting to single item mode.`,
-          //   type: "warning"
-          // });
         } else if (existingUnits.length === 1) {
-          // Exactly one unit exists, update it with bulk properties
+          // Exactly one unit exists, update it with bulk properties including custom properties
           const existingUnit = existingUnits[0];
           handleUnitChange(existingUnit.id, 'unit_value', bulk?.unit_value || existingUnit.unit_value);
           handleUnitChange(existingUnit.id, 'unit', bulk?.unit || existingUnit.unit);
           handleUnitChange(existingUnit.id, 'cost', bulk?.cost || existingUnit.cost);
+          handleUnitPropertiesChange(existingUnit.id, bulk?.properties || {}); // Inherit bulk properties
         }
       } else {
         // When disabling single item mode, don't remove the unit
         // Just let the user manage units manually
+      }
+    }
+
+    // Handle custom properties changes for single items
+    if (field === 'properties') {
+      const bulk = bulkItems.find(b => b.id === bulkId);
+      if (bulk?.is_single_item) {
+        const unit = unitItems.find(u => u.bulkId === bulkId);
+        if (unit) {
+          // Automatically inherit bulk properties to the single unit
+          handleUnitPropertiesChange(unit.id, { ...value });
+        }
       }
     }
 
@@ -742,6 +828,14 @@ export default function InventoryPage() {
       }
     }
   };
+
+  const updateAllUnits = (field: keyof InventoryItemUnit, value: any) => {
+    // Update all units to match the new bulk field value
+    setUnitItems(prevUnits => prevUnits.map(unit => ({
+      ...unit,
+      [field]: value
+    })));
+  }
 
   // Add this helper function before handleUnitChange
   const updateSimilarUnitsInBulk = (bulkId: number, field: keyof InventoryItemUnit, value: any) => {
@@ -929,7 +1023,6 @@ export default function InventoryPage() {
       return false;
     }
 
-    console.log("Validating bulks:", bulkItems);
 
     // Add this in the validateForm function
     for (const bulk of bulkItems) {
@@ -950,7 +1043,6 @@ export default function InventoryPage() {
     }
 
     for (const unit of unitItems) {
-      console.log("Validating unit:", unit);
       // Remove unit check since it's inherited from the bulk
       if (!unit.code || !unit.name || typeof unit.unit_value !== 'number' || unit.unit_value <= 0 || typeof unit.cost !== 'number' || unit.cost <= 0) {
         setError("All units require item code, name, valid unit value, and cost");
@@ -976,6 +1068,7 @@ export default function InventoryPage() {
         const itemUpdates = {
           name: inventoryForm.name,
           description: inventoryForm.description,
+          properties: inventoryForm.properties,
         };
 
         const bulkUpdates = bulkItems
@@ -1072,17 +1165,6 @@ export default function InventoryPage() {
             }
           });
 
-        console.log("Submitting updates:", {
-          selectedItemId,
-          itemUpdates,
-          bulkUpdates,
-          unitUpdates,
-          newBulks,
-          newUnits,
-          deletedBulks,
-          deletedUnits
-        });
-
         const result = await updateInventoryItem(
           selectedItemId,
           itemUpdates,
@@ -1112,6 +1194,7 @@ export default function InventoryPage() {
           unit: inventoryForm.unit,
           description: inventoryForm.description,
           admin_uuid: user.uuid,
+          properties: inventoryForm.properties,
         };
 
         const newBulks = bulkItems.map(bulk => ({
@@ -1347,7 +1430,7 @@ export default function InventoryPage() {
               <LoadingAnimation
                 condition={isLoading}
                 skeleton={
-                  <div>
+                  <div className="space-y-4">
                     <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" />
                     <div className="space-y-4">
                       <Skeleton className="h-16 w-full rounded-xl" />
@@ -1356,6 +1439,14 @@ export default function InventoryPage() {
                         <Skeleton className="h-16 w-1/2 rounded-xl" />
                       </div>
                       <Skeleton className="h-28 w-full rounded-xl" />
+                    </div>
+
+                    <div className="p-4 border-2 border-default-200 rounded-xl">
+                      <div className="flex justify-between items-center mb-4">
+                        <Skeleton className="h-6 w-32 rounded-full" />
+                        <Skeleton className="h-8 w-16 rounded-lg" />
+                      </div>
+                      <Skeleton className="h-48 w-full rounded-xl bg-transparent" />
                     </div>
                   </div>
                 }>
@@ -1389,7 +1480,10 @@ export default function InventoryPage() {
                       <Input
                         label="Item Name"
                         value={inventoryForm.name}
-                        onChange={(e) => setInventoryForm({ ...inventoryForm, name: e.target.value })}
+                        onChange={(e) => {
+                          setInventoryForm({ ...inventoryForm, name: e.target.value })
+                          updateAllUnits('name', e.target.value);
+                        }}
                         isRequired
                         placeholder="Enter item name"
                         classNames={inputStyle}
@@ -1419,6 +1513,14 @@ export default function InventoryPage() {
                       classNames={inputStyle}
                       startContent={<Icon icon="mdi:text-box" className="text-default-500 mt-[0.1rem]" />}
                     />
+
+                    <div className="mt-6">
+                      <CustomProperties
+                        properties={inventoryForm.properties || {}}
+                        onPropertiesChange={handleInventoryPropertiesChange}
+                        isDisabled={!user || isLoadingItems}
+                      />
+                    </div>
                   </div>
                 </div>
               </LoadingAnimation>
@@ -1449,10 +1551,18 @@ export default function InventoryPage() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <Skeleton className="h-16 w-full rounded-xl" />
                           <Skeleton className="h-16 w-full rounded-xl" />
-                          <Skeleton className="h-16 w-full rounded-xl" />
-                          <Skeleton className="h-16 w-full rounded-xl" />
                         </div>
 
+                        <Skeleton className="h-16 w-full rounded-xl" />
+
+
+                        <div className="p-4 border-2 border-default-200 rounded-xl">
+                          <div className="flex justify-between items-center mb-4">
+                            <Skeleton className="h-6 w-32 rounded-full" />
+                            <Skeleton className="h-8 w-16 rounded-lg" />
+                          </div>
+                          <Skeleton className="h-48 w-full rounded-xl bg-transparent" />
+                        </div>
 
                         <div className="p-4 border-2 border-default-200 rounded-xl space-y-2">
                           <div className="flex justify-between items-center mb-4">
@@ -1474,6 +1584,15 @@ export default function InventoryPage() {
                               <Skeleton className="h-16 w-full rounded-xl" />
                               <Skeleton className="h-16 w-full rounded-xl" />
                               <Skeleton className="h-16 w-full rounded-xl" />
+                            </div>
+
+
+                            <div className="p-4 border-2 border-default-200 rounded-xl">
+                              <div className="flex justify-between items-center mb-4">
+                                <Skeleton className="h-6 w-32 rounded-full" />
+                                <Skeleton className="h-8 w-16 rounded-lg" />
+                              </div>
+                              <Skeleton className="h-48 w-full rounded-xl bg-transparent" />
                             </div>
                           </div>
 
@@ -1697,6 +1816,15 @@ export default function InventoryPage() {
                                       ))}
                                     </Autocomplete>
 
+                                    <div className="p-4 pb-0">
+                                      <CustomProperties
+                                        properties={bulk.properties || {}}
+                                        onPropertiesChange={(properties) => handleBulkPropertiesChange(bulk.id, properties)}
+                                        onInheritFrom={() => handleInheritBulkProperties(bulk.id)}
+                                        showInheritButton={true}
+                                        isDisabled={!isBulkEditable(bulk)}
+                                      />
+                                    </div>
 
                                     <div className="flex items-center">
                                       <Switch
@@ -1818,6 +1946,8 @@ export default function InventoryPage() {
                                                   startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
                                                 />
                                               </div>
+
+
                                             </div>
                                           </motion.div>
                                         )}
@@ -1989,6 +2119,16 @@ export default function InventoryPage() {
                                                                       <Icon icon="mdi:currency-php" className="text-default-500 mb-[0.2rem]" />
                                                                     </div>
                                                                   }
+                                                                />
+                                                              </div>
+
+                                                              <div className="p-4 pt-0">
+                                                                <CustomProperties
+                                                                  properties={unit.properties || {}}
+                                                                  onPropertiesChange={(properties) => handleUnitPropertiesChange(unit.id, properties)}
+                                                                  onInheritFrom={() => handleInheritUnitProperties(unit.id)}
+                                                                  showInheritButton={true}
+                                                                  isDisabled={!isBulkEditable(bulk)}
                                                                 />
                                                               </div>
 

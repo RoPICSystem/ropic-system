@@ -64,7 +64,8 @@ export async function getUnitOptions() {
  */
 export async function getBulkUnitOptions() {
   return [
-    "box", "carton", "pack", "set", "pallet", "container", "drum", "bag", "crate"
+    "roll", "box", "container", "drum", "pack", "sack",
+    "carton", "set", "pallet", "bag", "crate"
   ];
 }
 
@@ -73,8 +74,8 @@ export async function getBulkUnitOptions() {
  * Fetches inventory items for a company with pagination
  */
 export async function getInventoryItems(
-  companyUuid?: string, 
-  search: string = "", 
+  companyUuid?: string,
+  search: string = "",
   status?: string | null,
   year?: number | null,
   month?: number | null,
@@ -105,7 +106,7 @@ export async function getInventoryItems(
 
     // Extract total count from first row (all rows have the same total_count)
     const totalCount = data && data.length > 0 ? data[0].total_count : 0;
-    
+
     // Remove total_count from each item and return clean inventory items
     const items = data ? data.map(({ total_count, ...item }: { total_count: number } & Record<string, any>) => item) : [];
 
@@ -154,11 +155,11 @@ export async function getInventoryItem(uuid: string, getItemsInWarehouse: boolea
       .select("*")
       .eq("inventory_uuid", uuid)
 
-    if (!getItemsInWarehouse) 
+    if (!getItemsInWarehouse)
       queryBulk = queryBulk.neq("status", "IN_WAREHOUSE");
 
     const { data: bulks, error: bulksError } = await queryBulk;
-    
+
     if (bulksError) throw bulksError;
 
     // Then get all unit items
@@ -196,7 +197,7 @@ export async function getInventoryItem(uuid: string, getItemsInWarehouse: boolea
  */
 
 export async function createInventoryItem(
-  item: Pick<InventoryItem, "company_uuid" | "name" | "description" | "admin_uuid" | "unit">,
+  item: Pick<InventoryItem, "company_uuid" | "name" | "description" | "admin_uuid" | "unit"> & { properties?: Record<string, any> },
   bulks: Pick<InventoryItemBulk, "company_uuid" | "unit" | "unit_value" | "bulk_unit" | "cost" | "is_single_item" | "properties">[],
   units: (Pick<InventoryItemUnit, "company_uuid" | "code" | "unit_value" | "unit" | "name" | "cost" | "properties"> & { _bulkIndex?: number })[]
 ) {
@@ -211,7 +212,8 @@ export async function createInventoryItem(
         name: item.name,
         description: item.description,
         admin_uuid: item.admin_uuid,
-        unit: item.unit
+        unit: item.unit,
+        properties: item.properties || {}
       })
       .select()
       .single();
@@ -242,7 +244,7 @@ export async function createInventoryItem(
       if (bulkError) throw bulkError;
 
       createdBulkUuids.push(bulkItem.uuid);
-      
+
       // Mark if this is a single item bulk
       if (bulk.is_single_item) {
         singleItemBulkMap.set(i, true);
@@ -259,13 +261,13 @@ export async function createInventoryItem(
     for (const unit of units) {
       // Determine which bulk this unit belongs to
       const bulkIndex = unit._bulkIndex !== undefined ? unit._bulkIndex : null;
-      
+
       // Skip if we've already created a unit for this single-item bulk
       if (bulkIndex !== null && singleItemBulkMap.has(bulkIndex) && processedSingleItemBulks.has(bulkIndex)) {
         console.log(`Skipping duplicate unit for single-item bulk at index ${bulkIndex}`);
         continue;
       }
-      
+
       const bulkUuid = bulkIndex !== null && bulkIndex >= 0 && bulkIndex < createdBulkUuids.length
         ? createdBulkUuids[bulkIndex]
         : null;
@@ -288,7 +290,7 @@ export async function createInventoryItem(
         });
 
       if (unitError) throw unitError;
-      
+
       // Mark this single-item bulk as processed
       if (bulkIndex !== null && singleItemBulkMap.has(bulkIndex)) {
         processedSingleItemBulks.add(bulkIndex);
@@ -310,11 +312,11 @@ export async function createInventoryItem(
  */
 export async function updateInventoryItem(
   uuid: string,
-  itemUpdates: Partial<InventoryItem>,
+  itemUpdates: Partial<InventoryItem> & { properties?: Record<string, any> },
   bulkUpdates: (Partial<InventoryItemBulk> & { uuid: string })[],
   unitUpdates: (Partial<InventoryItemUnit> & { uuid: string })[],
   newBulks: Pick<InventoryItemBulk, "company_uuid" | "unit" | "unit_value" | "bulk_unit" | "cost" | "is_single_item" | "properties">[],
-  newUnits: (Pick<InventoryItemUnit,  "company_uuid" | "code" | "unit_value" | "unit" | "name" | "cost" | "properties"> & { _bulkIndex?: number, inventory_item_bulk_uuid?: string })[],
+  newUnits: (Pick<InventoryItemUnit, "company_uuid" | "code" | "unit_value" | "unit" | "name" | "cost" | "properties"> & { _bulkIndex?: number, inventory_item_bulk_uuid?: string })[],
   deletedBulks: string[] = [],
   deletedUnits: string[] = []
 ) {
@@ -324,7 +326,10 @@ export async function updateInventoryItem(
     // Update inventory item
     const { error: inventoryError } = await supabase
       .from("inventory_items")
-      .update(itemUpdates)
+      .update({
+        ...itemUpdates,
+        properties: itemUpdates.properties || {}
+      })
       .eq("uuid", uuid);
 
     if (inventoryError) throw inventoryError;
@@ -404,7 +409,7 @@ export async function updateInventoryItem(
     // Create new unit items
     for (const unit of newUnits) {
       let bulkUuid = null;
-      
+
       // Check if unit has an existing inventory_item_bulk_uuid
       if ((unit as any).inventory_item_bulk_uuid) {
         bulkUuid = (unit as any).inventory_item_bulk_uuid;
