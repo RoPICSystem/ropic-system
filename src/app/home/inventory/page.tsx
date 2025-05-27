@@ -103,6 +103,10 @@ export default function InventoryPage() {
   const deleteModal = useDisclosure();
   const [itemToDelete, setItemToDelete] = useState<{ type: 'item' | 'bulk' | 'unit', id: string | number }>();
 
+  const [originalBulkItems, setOriginalBulkItems] = useState<(Partial<InventoryItemBulk> & { id: number })[]>([]);
+  const [originalUnitItems, setOriginalUnitItems] = useState<(Partial<InventoryItemUnit> & { id: number, bulkId: number })[]>([]);
+
+
   // Duplication state
   const [duplicateCount, setDuplicateCount] = useState(1);
   const [duplicatePopoverOpen, setDuplicatePopoverOpen] = useState(false);
@@ -308,7 +312,8 @@ export default function InventoryPage() {
     const itemId = searchParams.get("itemId");
     if (itemId) setSelectedItemId(itemId);
   }, [searchParams]);
-
+  
+  // Update the resetForm function to also clear original items
   const resetForm = () => {
     setInventoryForm({
       name: "",
@@ -318,6 +323,8 @@ export default function InventoryPage() {
     });
     setBulkItems([]);
     setUnitItems([]);
+    setOriginalBulkItems([]);
+    setOriginalUnitItems([]);
     setNextBulkId(1);
     setNextUnitId(1);
   };
@@ -637,18 +644,19 @@ export default function InventoryPage() {
     // Special handling for single item mode
     if (field === 'is_single_item') {
       if (value === true) {
-        // When enabling single item mode, add a single unit if none exists
-        const existingUnit = unitItems.find(u => u.bulkId === bulkId);
+        // When enabling single item mode during editing
+        const existingUnits = unitItems.filter(u => u.bulkId === bulkId);
         const bulk = bulkItems.find(b => b.id === bulkId);
 
-        if (!existingUnit && bulk) {
+        if (existingUnits.length === 0 && bulk) {
+          // No units exist, create a single unit
           const newUnit = {
             id: nextUnitId,
             bulkId: bulkId,
             company_uuid: user?.company_uuid || "",
             code: "",
             unit_value: bulk.unit_value || 0,
-            unit: bulk.unit || "", // Always inherit unit from bulk
+            unit: bulk.unit || "",
             name: "",
             cost: bulk.cost || 0,
             properties: {},
@@ -656,6 +664,36 @@ export default function InventoryPage() {
           };
           setUnitItems([...unitItems, newUnit]);
           setNextUnitId(nextUnitId + 1);
+        } else if (existingUnits.length > 1) {
+          // Multiple units exist, keep only the first one and remove the rest
+          const unitToKeep = existingUnits[0];
+
+          // Update the kept unit with bulk properties
+          const updatedUnit = {
+            ...unitToKeep,
+            unit_value: bulk?.unit_value || unitToKeep.unit_value,
+            unit: bulk?.unit || unitToKeep.unit,
+            cost: bulk?.cost || unitToKeep.cost
+          };
+
+          // Remove all units for this bulk and add back only the kept one (updated)
+          setUnitItems(prevUnits => [
+            ...prevUnits.filter(u => u.bulkId !== bulkId),
+            updatedUnit
+          ]);
+
+          // // Show a toast notification about the removed units
+          // addToast({
+          //   title: "Units Removed",
+          //   description: `${existingUnits.length - 1} unit(s) were removed when converting to single item mode.`,
+          //   type: "warning"
+          // });
+        } else if (existingUnits.length === 1) {
+          // Exactly one unit exists, update it with bulk properties
+          const existingUnit = existingUnits[0];
+          handleUnitChange(existingUnit.id, 'unit_value', bulk?.unit_value || existingUnit.unit_value);
+          handleUnitChange(existingUnit.id, 'unit', bulk?.unit || existingUnit.unit);
+          handleUnitChange(existingUnit.id, 'cost', bulk?.cost || existingUnit.cost);
         }
       } else {
         // When disabling single item mode, don't remove the unit
@@ -801,20 +839,11 @@ export default function InventoryPage() {
   };
 
   const handleDeleteBulk = (bulkId: number) => {
-    const bulk = bulkItems.find(b => b.id === bulkId);
-    if (!bulk) return;
+    // Simply remove from state without confirmation
+    setBulkItems(bulkItems.filter(b => b.id !== bulkId));
+    setUnitItems(unitItems.filter(u => u.bulkId !== bulkId));
 
-    if (bulk.uuid) {
-      // Existing bulk needs DB deletion
-      setItemToDelete({ type: 'bulk', id: bulk.uuid });
-      deleteModal.onOpen();
-    } else {
-      // New bulk, just remove from state
-      setBulkItems(bulkItems.filter(b => b.id !== bulkId));
-      setUnitItems(unitItems.filter(u => u.bulkId !== bulkId));
-    }
-
-    // set the expandedBulks to the first bulk in the list
+    // Set the expandedBulks to the first bulk in the list
     const firstBulk = bulkItems.find(b => b.id !== bulkId);
     if (firstBulk) {
       setExpandedBulks(new Set([`${firstBulk.id}`]));
@@ -825,31 +854,25 @@ export default function InventoryPage() {
     const unit = unitItems.find(u => u.id === unitId);
     if (!unit) return;
 
-    if (unit.uuid) {
-      // Existing unit needs DB deletion
-      setItemToDelete({ type: 'unit', id: unit.uuid });
-      deleteModal.onOpen();
-    } else {
-      // New unit, remove from state and update bulk immediately
-      setUnitItems(prevUnits => {
-        const newUnits = prevUnits.filter(u => u.id !== unitId);
+    // Remove from state and update bulk immediately
+    setUnitItems(prevUnits => {
+      const newUnits = prevUnits.filter(u => u.id !== unitId);
 
-        // Recalculate bulk cost
-        const remainingUnits = newUnits.filter(u => u.bulkId === unit.bulkId);
-        const totalCost = remainingUnits.reduce((sum, u) => sum + (u.cost || 0), 0);
+      // Recalculate bulk cost
+      const remainingUnits = newUnits.filter(u => u.bulkId === unit.bulkId);
+      const totalCost = remainingUnits.reduce((sum, u) => sum + (u.cost || 0), 0);
 
-        setBulkItems(prev => prev.map(bulk =>
-          bulk.id === unit.bulkId ? { ...bulk, cost: totalCost } : bulk
-        ));
+      setBulkItems(prev => prev.map(bulk =>
+        bulk.id === unit.bulkId ? { ...bulk, cost: totalCost } : bulk
+      ));
 
-        // Update bulk unit and value with fresh state
-        updateBulkFromUnits(unit.bulkId, newUnits);
+      // Update bulk unit and value with fresh state
+      updateBulkFromUnits(unit.bulkId, newUnits);
 
-        return newUnits;
-      });
-    }
+      return newUnits;
+    });
 
-    // set the expandedUnits to the first unit in the list
+    // Set the expandedUnits to the first unit in the list
     const firstUnit = unitItems.find(u => u.id !== unitId);
     if (firstUnit) {
       setExpandedUnits(new Set([`${firstUnit.id}`]));
@@ -871,61 +894,16 @@ export default function InventoryPage() {
     try {
       let result;
 
-      switch (itemToDelete.type) {
-        case 'item':
-          result = await deleteInventoryItem(itemToDelete.id as string);
-          if (result.success) {
-            setSelectedItemId(null);
-            const params = new URLSearchParams(searchParams.toString());
-            params.delete("itemId");
-            router.push(`?${params.toString()}`, { scroll: false });
-            resetForm();
-          }
-          break;
-
-        case 'bulk':
-          result = await deleteInventoryItemBulk(itemToDelete.id as string);
-          if (result.success) {
-            setBulkItems(bulkItems.filter(b => b.uuid !== itemToDelete.id));
-            setUnitItems(unitItems.filter(u => u.inventory_item_bulk_uuid !== itemToDelete.id));
-          }
-          break;
-
-        case 'unit':
-          result = await deleteInventoryItemUnit(itemToDelete.id as string);
-          if (result.success) {
-            const deletedUnit = unitItems.find(u => u.uuid === itemToDelete.id);
-
-            // Use functional update to ensure we capture latest state
-            setUnitItems(prevUnits => {
-              const newUnits = prevUnits.filter(u => u.uuid !== itemToDelete.id);
-
-              if (deletedUnit) {
-                // Find all units with the same bulk
-                const bulkId = deletedUnit.bulkId;
-                const remainingBulkUnits = newUnits.filter(u => u.bulkId === bulkId);
-
-                // Recalculate bulk cost
-                const totalCost = remainingBulkUnits.reduce((sum, u) =>
-                  sum + (u.cost || 0), 0);
-
-                // Update the bulk cost and unit/value immediately
-                setBulkItems(prevBulks => {
-                  const updatedBulks = prevBulks.map(bulk =>
-                    bulk.id === bulkId ? { ...bulk, cost: totalCost } : bulk
-                  );
-
-                  // Call updateBulkFromUnits with the new units
-                  updateBulkFromUnits(bulkId, newUnits);
-
-                  return updatedBulks;
-                });
-              }
-
-              return newUnits;
-            });
-          }
-          break;
+      // Only handle item deletion here, bulk and unit deletions are handled during update
+      if (itemToDelete.type === 'item') {
+        result = await deleteInventoryItem(itemToDelete.id as string);
+        if (result.success) {
+          setSelectedItemId(null);
+          const params = new URLSearchParams(searchParams.toString());
+          params.delete("itemId");
+          router.push(`?${params.toString()}`, { scroll: false });
+          resetForm();
+        }
       }
 
       if (!result?.success) {
@@ -951,6 +929,8 @@ export default function InventoryPage() {
       return false;
     }
 
+    console.log("Validating bulks:", bulkItems);
+
     // Add this in the validateForm function
     for (const bulk of bulkItems) {
       // Existing validation...
@@ -970,6 +950,7 @@ export default function InventoryPage() {
     }
 
     for (const unit of unitItems) {
+      console.log("Validating unit:", unit);
       // Remove unit check since it's inherited from the bulk
       if (!unit.code || !unit.name || typeof unit.unit_value !== 'number' || unit.unit_value <= 0 || typeof unit.cost !== 'number' || unit.cost <= 0) {
         setError("All units require item code, name, valid unit value, and cost");
@@ -981,9 +962,10 @@ export default function InventoryPage() {
   };
 
 
-  const handleSubmit = async () => {
-    if (!validateForm()) return;
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
 
+    if (!validateForm()) return;
 
     setIsLoading(true);
     setError(null);
@@ -1032,6 +1014,18 @@ export default function InventoryPage() {
             properties: bulk.properties as Record<string, any>,
           }));
 
+        // Calculate deleted bulks
+        const currentBulkUuids = new Set(bulkItems.map(bulk => bulk.uuid).filter(Boolean));
+        const deletedBulks = originalBulkItems
+          .filter(bulk => bulk.uuid && !currentBulkUuids.has(bulk.uuid))
+          .map(bulk => bulk.uuid as string);
+
+        // Calculate deleted units - this now includes units removed when switching to single item mode
+        const currentUnitUuids = new Set(unitItems.map(unit => unit.uuid).filter(Boolean));
+        const deletedUnits = originalUnitItems
+          .filter(unit => unit.uuid && !currentUnitUuids.has(unit.uuid))
+          .map(unit => unit.uuid as string);
+
         // Create a mapping of bulkId to new bulk array index
         const bulkIdToIndexMap = new Map();
         bulkItems
@@ -1043,20 +1037,51 @@ export default function InventoryPage() {
         const newUnits = unitItems
           .filter(unit => !unit.uuid)
           .map(unit => {
-            // Use the mapping to get the correct index
-            const bulkIndex = bulkIdToIndexMap.get(unit.bulkId);
+            // Find the parent bulk for this unit
+            const parentBulk = bulkItems.find(bulk => bulk.id === unit.bulkId);
 
-            return {
-              company_uuid: user.company_uuid,
-              code: unit.code as string,
-              unit_value: unit.unit_value as number,
-              unit: unit.unit as string,
-              name: unit.name as string,
-              cost: unit.cost as number,
-              properties: unit.properties as Record<string, any>,
-              _bulkIndex: bulkIndex !== undefined ? bulkIndex : undefined,
-            };
+            if (!parentBulk) {
+              throw new Error(`Parent bulk not found for unit ${unit.id}`);
+            }
+
+            // If the parent bulk has a UUID, this unit should be associated with it
+            if (parentBulk.uuid) {
+              return {
+                company_uuid: user.company_uuid,
+                code: unit.code as string,
+                unit_value: unit.unit_value as number,
+                unit: unit.unit as string,
+                name: unit.name as string,
+                cost: unit.cost as number,
+                properties: unit.properties as Record<string, any>,
+                inventory_item_bulk_uuid: parentBulk.uuid,
+              };
+            } else {
+              // If the parent bulk is new, use the index mapping
+              const bulkIndex = bulkIdToIndexMap.get(unit.bulkId);
+              return {
+                company_uuid: user.company_uuid,
+                code: unit.code as string,
+                unit_value: unit.unit_value as number,
+                unit: unit.unit as string,
+                name: unit.name as string,
+                cost: unit.cost as number,
+                properties: unit.properties as Record<string, any>,
+                _bulkIndex: bulkIndex !== undefined ? bulkIndex : undefined,
+              };
+            }
           });
+
+        console.log("Submitting updates:", {
+          selectedItemId,
+          itemUpdates,
+          bulkUpdates,
+          unitUpdates,
+          newBulks,
+          newUnits,
+          deletedBulks,
+          deletedUnits
+        });
 
         const result = await updateInventoryItem(
           selectedItemId,
@@ -1064,14 +1089,23 @@ export default function InventoryPage() {
           bulkUpdates,
           unitUpdates,
           newBulks,
-          newUnits
+          newUnits,
+          deletedBulks,
+          deletedUnits
         );
 
         if (!result.success) {
           throw new Error(result.error || "Failed to update inventory item");
         }
+
+        // // Show success message
+        // addToast({
+        //   title: "Success",
+        //   description: "Inventory item updated successfully",
+        //   type: "success"
+        // });
       } else {
-        // Create new item
+        // Create new item (existing code remains the same)
         const newItem = {
           company_uuid: user.company_uuid,
           name: inventoryForm.name,
@@ -1116,6 +1150,13 @@ export default function InventoryPage() {
         if (!result.success) {
           throw new Error(result.error || "Failed to create inventory item");
         }
+
+        // // Show success message
+        // addToast({
+        //   title: "Success",
+        //   description: "Inventory item created successfully",
+        //   type: "success"
+        // });
 
         if (result.data) {
           setSelectedItemId(result.data.uuid);
@@ -2175,9 +2216,7 @@ export default function InventoryPage() {
                   </LoadingAnimation>
                 </div>
               </motion.div>
-
             </CardList>
-
           </Form>
         </div>
       </div>

@@ -314,14 +314,13 @@ export async function updateInventoryItem(
   bulkUpdates: (Partial<InventoryItemBulk> & { uuid: string })[],
   unitUpdates: (Partial<InventoryItemUnit> & { uuid: string })[],
   newBulks: Pick<InventoryItemBulk, "company_uuid" | "unit" | "unit_value" | "bulk_unit" | "cost" | "is_single_item" | "properties">[],
-  newUnits: (Pick<InventoryItemUnit, "company_uuid" | "code" | "unit_value" | "unit" | "name" | "cost" | "properties"> & { _bulkIndex?: number })[]
+  newUnits: (Pick<InventoryItemUnit,  "company_uuid" | "code" | "unit_value" | "unit" | "name" | "cost" | "properties"> & { _bulkIndex?: number, inventory_item_bulk_uuid?: string })[],
+  deletedBulks: string[] = [],
+  deletedUnits: string[] = []
 ) {
   const supabase = await createClient();
 
   try {
-    // // Start a transaction
-    // const { data: client } = await supabase.rpc('begin_transaction');
-
     // Update inventory item
     const { error: inventoryError } = await supabase
       .from("inventory_items")
@@ -329,6 +328,26 @@ export async function updateInventoryItem(
       .eq("uuid", uuid);
 
     if (inventoryError) throw inventoryError;
+
+    // Delete removed bulk items (this will cascade delete their units)
+    if (deletedBulks.length > 0) {
+      const { error: deleteBulksError } = await supabase
+        .from("inventory_item_bulk")
+        .delete()
+        .in("uuid", deletedBulks);
+
+      if (deleteBulksError) throw deleteBulksError;
+    }
+
+    // Delete removed unit items
+    if (deletedUnits.length > 0) {
+      const { error: deleteUnitsError } = await supabase
+        .from("inventory_item_unit")
+        .delete()
+        .in("uuid", deletedUnits);
+
+      if (deleteUnitsError) throw deleteUnitsError;
+    }
 
     // Update existing bulk items
     for (const bulk of bulkUpdates) {
@@ -384,9 +403,14 @@ export async function updateInventoryItem(
 
     // Create new unit items
     for (const unit of newUnits) {
-      const bulkUuid = unit._bulkIndex !== undefined && unit._bulkIndex >= 0 && unit._bulkIndex < createdBulkUuids.length
-        ? createdBulkUuids[unit._bulkIndex]
-        : null;
+      let bulkUuid = null;
+      
+      // Check if unit has an existing inventory_item_bulk_uuid
+      if ((unit as any).inventory_item_bulk_uuid) {
+        bulkUuid = (unit as any).inventory_item_bulk_uuid;
+      } else if (unit._bulkIndex !== undefined && unit._bulkIndex >= 0 && unit._bulkIndex < createdBulkUuids.length) {
+        bulkUuid = createdBulkUuids[unit._bulkIndex];
+      }
 
       const { error: unitError } = await supabase
         .from("inventory_item_unit")
@@ -405,9 +429,6 @@ export async function updateInventoryItem(
       if (unitError) throw unitError;
     }
 
-    // // Commit the transaction
-    // await supabase.rpc('commit_transaction', { client_id: client.client_id });
-
     return { success: true };
   } catch (error) {
     console.error("Error updating inventory item:", error);
@@ -417,7 +438,6 @@ export async function updateInventoryItem(
     };
   }
 }
-
 /**
  * Deletes an inventory item with all its bulks and units
  */

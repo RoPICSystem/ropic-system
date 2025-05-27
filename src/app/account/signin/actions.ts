@@ -37,9 +37,7 @@ export async function signin(formData: FormData):
   }
 
   // Add the userdata in cookies
-  setUserInCookies(data);
-
-  console.log("User data:", data);
+  await setUserInCookies(data);
 
   // Revalidate cache to reflect the new authentication state
   revalidatePath('/', 'layout')

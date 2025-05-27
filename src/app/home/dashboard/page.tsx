@@ -373,6 +373,8 @@ export default function DashboardPage() {
         return;
       }
 
+      console.log("Dashboard data loaded:", data);
+
       setDashboardData(data);
     } catch (err) {
       console.error("Failed to load dashboard data:", err);
@@ -408,10 +410,7 @@ export default function DashboardPage() {
   ] : [];
 
   // Prepare reorder point data - items that need reordering
-  const lowStockItems = !loading && dashboardData?.reorderPointItems ?
-    dashboardData.reorderPointItems.filter((item: any) =>
-      item.current_stock <= item.reorder_point
-    ) : [];
+  const lowStockItems = !loading && dashboardData?.reorderPointItems;
 
   return (
     <div className="container mx-auto p-2 max-w-4xl">
