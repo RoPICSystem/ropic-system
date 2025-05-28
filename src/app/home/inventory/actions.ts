@@ -140,48 +140,27 @@ export async function getInventoryItem(uuid: string, getItemsInWarehouse: boolea
   const supabase = await createClient();
 
   try {
-    // First get the inventory item
-    const { data: item, error: itemError } = await supabase
-      .from("inventory_items")
-      .select("*")
-      .eq("uuid", uuid)
-      .single();
+    const { data, error } = await supabase
+      .rpc('get_inventory_item_details', {
+        p_inventory_uuid: uuid,
+        p_include_warehouse_items: getItemsInWarehouse
+      });
 
-    if (itemError) throw itemError;
+    if (error) throw error;
 
-    // Then get all bulk items for this inventory item
-    let queryBulk = supabase
-      .from("inventory_item_bulk")
-      .select("*")
-      .eq("inventory_uuid", uuid)
+    if (!data || data.length === 0) {
+      return {
+        success: false,
+        error: "Inventory item not found"
+      };
+    }
 
-    if (!getItemsInWarehouse)
-      queryBulk = queryBulk.neq("status", "IN_WAREHOUSE");
-
-    const { data: bulks, error: bulksError } = await queryBulk;
-
-    if (bulksError) throw bulksError;
-
-    // Then get all unit items
-    const { data: units, error: unitsError } = await supabase
-      .from("inventory_item_unit")
-      .select("*")
-      .eq("inventory_uuid", uuid);
-
-    if (unitsError) throw unitsError;
-
-    // Group units by their bulk
-    const bulksWithUnits = bulks.map(bulk => ({
-      ...bulk,
-      inventory_item_units: units.filter(unit => unit.inventory_item_bulk_uuid === bulk.uuid)
-    }));
+    // The RPC function should return the inventory item with nested bulks and units
+    const inventoryItem = data[0];
 
     return {
       success: true,
-      data: {
-        ...item,
-        inventory_item_bulks: bulksWithUnits
-      }
+      data: inventoryItem
     };
   } catch (error) {
     console.error("Error fetching inventory item:", error);

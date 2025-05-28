@@ -50,3 +50,24 @@ export const copyToClipboard = (str: string): void => {
 
     });
   }
+
+export const toSnakeCase = (str: string) => {
+  return str.toLowerCase().replace(/\s+/g, '_');
+}
+
+export const toNormalCase = (str: string) => {
+  return str.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
+}
+
+export const toSentenceCase = (str: string) => {
+  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+}
+
+// to title case
+export const toTitleCase = (str: string) => {
+  return str
+    .toLowerCase()
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}

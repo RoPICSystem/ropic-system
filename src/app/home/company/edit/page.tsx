@@ -356,14 +356,14 @@ export default function CompanyEditPage() {
     regions, provinces, cityMunicipalities, barangays]);
 
   return (
-    <div className="container mx-auto max-w-4xl p-2">
+    <div className="container mx-auto max-w-5xl p-2">
       <Form onSubmit={handleSubmit}>
         <div className="space-y-4 w-full">
           <div className="flex justify-between items-center">
-            <div>
+            <div className="flex flex-col w-full xl:text-left text-center">
               <h1 className="text-2xl font-bold">Edit Company</h1>
               {isLoading ? (
-                <div className="text-default-500 flex items-center">
+                <div className="text-default-500 flex xl:justify-start justify-center items-center">
                   <p className='my-auto mr-1'>Loading company information</p>
                   <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
                 </div>

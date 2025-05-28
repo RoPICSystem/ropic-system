@@ -46,7 +46,7 @@ import {
 import jsQR from "jsqr";
 import { InventoryItem, InventoryItemBulk, InventoryItemUnit } from '../inventory/actions';
 import { Warehouse } from '../warehouses/actions';
-import { copyToClipboard, formatDate, formatNumber } from '@/utils/tools';
+import { copyToClipboard, formatDate, formatNumber, toNormalCase, toSentenceCase, toTitleCase } from '@/utils/tools';
 import { BitMatrix } from 'jsqr/dist/BitMatrix';
 import { getUserFromCookies } from '@/utils/supabase/server/user';
 import LoadingAnimation from '@/components/loading-animation';
@@ -1816,12 +1816,12 @@ export default function DeliveryPage() {
     }
   }, [selectedFloor, selectedColumn, selectedRow, selectedGroup, selectedDepth, formData.status, currentBulkLocationIndex, locations, locationCodes, selectedCode, selectedDeliveryId]);
   return (
-    <div className="container mx-auto p-2 max-w-4xl">
+    <div className="container mx-auto p-2 max-w-5xl">
       <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
         <div className="flex flex-col w-full xl:text-left text-center">
           <h1 className="text-2xl font-bold">Delivery Management</h1>
           {(isLoading || isLoadingItems) ? (
-            <div className="text-default-500 flex items-center">
+            <div className="text-default-500 flex xl:justify-start justify-center items-center">
               <p className='my-auto mr-1'>Loading delivery data</p>
               <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
             </div>
@@ -1829,22 +1829,20 @@ export default function DeliveryPage() {
             <p className="text-default-500">Track and manage your deliveries efficiently.</p>
           )}
         </div>
-        <div className="flex gap-4">
-          <div className="mt-4 text-center">
-            {user && user.is_admin ? (
-              <Button color="primary" variant="shadow" onPress={handleNewDelivery}
-                startContent={<Icon icon="mdi:plus" />}
-                isDisabled={isLoading || isLoadingItems || isLoadingBulks}>
-                New Delivery
-              </Button>
-            ) : selectedDeliveryId ? (
-              <Button color="primary" variant="shadow" onPress={() => setShowAcceptDeliveryModal(true)}
-                startContent={<Icon icon="mdi:qrcode-scan" />}
-                isDisabled={isLoading || isLoadingItems}>
-                Accept Delivery
-              </Button>
-            ) : null}
-          </div>
+        <div className="flex gap-4 xl:mt-0 mt-4 text-center">
+          {user && user.is_admin ? (
+            <Button color="primary" variant="shadow" onPress={handleNewDelivery}
+              startContent={<Icon icon="mdi:plus" />}
+              isDisabled={isLoading || isLoadingItems || isLoadingBulks}>
+              New Delivery
+            </Button>
+          ) : selectedDeliveryId ? (
+            <Button color="primary" variant="shadow" onPress={() => setShowAcceptDeliveryModal(true)}
+              startContent={<Icon icon="mdi:qrcode-scan" />}
+              isDisabled={isLoading || isLoadingItems}>
+              Accept Delivery
+            </Button>
+          ) : null}
         </div>
       </div>
       <div className="flex flex-col xl:flex-row gap-4">
@@ -2572,7 +2570,7 @@ export default function DeliveryPage() {
                                             <Button
                                               className=" py-6 px-2 -m-2"
                                               variant='light'
-                                              endContent={ expandedBulkDetails.has(bulk.uuid) && bulkDetails.has(bulk.uuid) ? 
+                                              endContent={expandedBulkDetails.has(bulk.uuid) && bulkDetails.has(bulk.uuid) ?
                                                 <Icon icon="mdi:chevron-up" className="text-default-500" width={16} /> :
                                                 <Icon icon="mdi:chevron-down" className="text-default-500" width={16} />}
                                               onPress={() => handleBulkDetailsToggle(bulk.uuid, bulk.name)}
@@ -2652,7 +2650,7 @@ export default function DeliveryPage() {
                                                           </Button>
                                                         </div>
 
-                                                        <div className="grid grid-cols-1 gap-3 text-sm bg-default-100 p-3 rounded-xl border-2 border-default-200">
+                                                        <div className="grid grid-cols-1 gap-3 text-sm bg-default-50 p-3 rounded-xl border-2 border-default-200">
                                                           <div className="col-span-1">
                                                             <span className="text-default-500">Bulk ID:</span>
                                                             <span className="ml-2 font-mono text-xs">{details.uuid}</span>
@@ -2675,30 +2673,31 @@ export default function DeliveryPage() {
                                                               <span className="ml-2">{details.is_single_item ? "Single Item" : "Multiple Units"}</span>
                                                             </div>
                                                           </div>
+                                                          {/* Custom Properties */}
+                                                          {details.properties && Object.keys(details.properties).length > 0 && (
+                                                            <div className="p-3 bg-default-100 rounded-xl border-2 border-default-200">
+                                                              <div className="flex items-center gap-2 mb-2">
+                                                                <Icon icon="mdi:tag-multiple" className="text-default-500" width={16} />
+                                                                <span className="text-sm font-medium">Bulk Properties</span>
+                                                              </div>
+                                                              <div className="grid grid-cols-2 gap-3 text-sm">
+                                                                {Object.entries(details.properties).map(([key, value]) => (
+                                                                  <div key={key}>
+                                                                    <span className="text-default-500">{toTitleCase(toNormalCase(key))}:</span>
+                                                                    <span className="ml-2">{String(value)}</span>
+                                                                  </div>
+                                                                ))}
+                                                              </div>
+                                                            </div>
+                                                          )}
                                                         </div>
 
-                                                        {/* Custom Properties */}
-                                                        {details.properties && Object.keys(details.properties).length > 0 && (
-                                                          <div className="p-3 bg-default-100 rounded-xl border-2 border-default-200">
-                                                            <div className="flex items-center gap-2 mb-2">
-                                                              <Icon icon="mdi:tag-multiple" className="text-default-500" width={16} />
-                                                              <span className="text-sm font-medium">Properties</span>
-                                                            </div>
-                                                            <div className="space-y-1">
-                                                              {Object.entries(details.properties).map(([key, value]) => (
-                                                                <div key={key} className="flex justify-between text-sm">
-                                                                  <span className="text-default-600">{key}:</span>
-                                                                  <span className="text-default-800">{String(value)}</span>
-                                                                </div>
-                                                              ))}
-                                                            </div>
-                                                          </div>
-                                                        )}
+
                                                       </div>
 
                                                       {/* Units Section */}
                                                       {details.inventory_item_units && details.inventory_item_units.length > 0 && (
-                                                        <div className="space-y-3">
+                                                        <div className="space-y-4 border-2 border-default-200 rounded-xl bg-default-50/50 p-4">
                                                           <div className="flex items-center justify-between">
                                                             <h4 className="font-semibold text-lg">Units in this Bulk</h4>
                                                             <Chip color="default" variant="flat" size="sm">
@@ -2708,7 +2707,7 @@ export default function DeliveryPage() {
 
                                                           <div className="space-y-3">
                                                             {details.inventory_item_units.map((unit, unitIndex) => (
-                                                              <div key={unit.uuid} className="p-3 bg-default-100 rounded-xl border-2 border-default-200">
+                                                              <div key={unit.uuid} className="p-3 bg-default-50 rounded-xl border-2 space-y-3 border-default-200">
                                                                 <div className="flex items-center justify-between mb-3">
                                                                   <div className="flex items-center gap-2">
                                                                     <Icon icon="mdi:cube-outline" className="text-default-500" width={16} />
@@ -2755,16 +2754,16 @@ export default function DeliveryPage() {
 
                                                                 {/* Unit Properties */}
                                                                 {unit.properties && Object.keys(unit.properties).length > 0 && (
-                                                                  <div className="mt-3 pt-3 border-t border-default-200">
+                                                                  <div className="p-3 bg-default-100 rounded-xl border-2 border-default-200">
                                                                     <div className="flex items-center gap-2 mb-2">
                                                                       <Icon icon="mdi:tag" className="text-default-500" width={14} />
                                                                       <span className="text-sm font-medium">Unit Properties</span>
                                                                     </div>
-                                                                    <div className="space-y-1">
+                                                                    <div className="grid grid-cols-2 gap-3 text-sm">
                                                                       {Object.entries(unit.properties).map(([key, value]) => (
-                                                                        <div key={key} className="flex justify-between text-sm">
-                                                                          <span className="text-default-600">{key}:</span>
-                                                                          <span className="text-default-800">{String(value)}</span>
+                                                                        <div key={key}>
+                                                                          <span className="text-default-500">{toTitleCase(toNormalCase(key))}:</span>
+                                                                          <span className="ml-2">{String(value)}</span>
                                                                         </div>
                                                                       ))}
                                                                     </div>
@@ -2823,819 +2822,819 @@ export default function DeliveryPage() {
 
 
                           </div>
-                </div>
+                        </div>
                       )}
-              </div>
-            </LoadingAnimation>
-                </div>
-
-
-        <div>
-          <LoadingAnimation
-            condition={!user || isLoading}
-            skeleton={
-              <div className="space-y-4">
-                <Skeleton className="h-[1.75rem] w-48 rounded-xl mx-auto" /> {/* Title skeleton */}
-                <Skeleton className="h-16 w-full rounded-xl" /> {/* Delivery address textarea skeleton */}
-                <Skeleton className="h-16 w-full rounded-xl" /> {/* Notes textarea skeleton */}
-              </div>
-            }
-          >
-            <h2 className="text-xl font-semibold mb-4 w-full text-center">
-              Delivery Details
-            </h2>
-            <div className="space-y-4">
-              {/* Only show recipient details when an operator is assigned */}
-              <Textarea
-                name="delivery_address"
-                label="Delivery Address"
-                classNames={inputStyle}
-                placeholder="Enter complete delivery address"
-                value={formData.delivery_address || ""}
-                onChange={handleInputChange}
-                maxRows={5}
-                minRows={1}
-                isRequired={isDeliveryProcessing() && (user === null || user.is_admin)}
-                isReadOnly
-                errorMessage={errors.delivery_address}
-                startContent={<Icon icon="mdi:map-marker" className="text-default-500 mb-[0.2rem]" />}
-              />
-
-
-              <Textarea
-                name="notes"
-                label="Additional Notes"
-                maxRows={5}
-                minRows={1}
-                classNames={inputStyle}
-                placeholder="Enter any special instructions or notes"
-                value={formData.notes || ""}
-                onChange={handleInputChange}
-                startContent={<Icon icon="mdi:note-text" className="text-default-500 mt-[0.1rem]" />}
-                isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
-              />
-            </div>
-
-          </LoadingAnimation>
-        </div>
-
-        <div>
-          <LoadingAnimation
-            condition={!user || isLoading}
-            skeleton={
-              <div className="space-y-4">
-                <Skeleton className="h-[1.75rem] w-48 rounded-xl mx-auto" /> {/* Section title */}
-                <div className="border-2 border-default-200 rounded-xl bg-gradient-to-b from-background to-default-50/30">
-                  {/* Status box header */}
-                  <div className="flex justify-between items-center border-b border-default-200 p-4">
-                    <Skeleton className="h-5 w-32 rounded-xl" /> {/* Current Status text */}
-                    <Skeleton className="h-6 w-24 rounded-xl" /> {/* Status chip */}
-                  </div>
-
-                  {/* Status history section */}
-                  <div className="p-4">
-                    <Skeleton className="h-5 w-36 rounded-xl mb-4" /> {/* Status History text */}
-                    <div className="relative">
-                      {/* Timeline line */}
-                      <div className="absolute left-[calc((3rem/2)-0.1rem)] top-0 bottom-1 w-0.5 bg-default-100 rounded-full"></div>
-
-                      {/* Timeline entries */}
-                      <div className="space-y-5">
-                        {[...Array(3)].map((_, i) => (
-                          <div key={i} className="flex items-start">
-                            <Skeleton className="w-12 h-12 rounded-full flex-shrink-0" /> {/* Timeline icon */}
-                            <div className="ml-4 p-3 rounded-xl border border-default-200 flex-grow">
-                              <div className="flex justify-between items-center flex-wrap gap-2">
-                                <Skeleton className="h-6 w-28 rounded-xl" /> {/* Status text */}
-                                <Skeleton className="h-4 w-36 rounded-xl" /> {/* Date text */}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
                     </div>
-                  </div>
+                  </LoadingAnimation>
                 </div>
-              </div>
-            }>
 
-            <h2 className="text-xl font-semibold mb-4 w-full text-center">Delivery Status</h2>
-            <div>
-              {!user ? (
-                <Skeleton className="h-16 w-full rounded-xl" />
-              ) : (
-                <div className="border-2 border-default-200 rounded-xl bg-gradient-to-b from-background to-default-50/30">
-                  <div className="flex justify-between items-center border-b border-default-200 p-4">
-                    <h3 className="text-md font-medium">Current Status</h3>
-                    <Chip
-                      color={getStatusColor(formData.status || "PENDING")}
-                      size="sm"
-                      variant="shadow"
-                      className="px-3 font-medium"
-                    >
-                      {formData.status?.replaceAll('_', ' ') || "PENDING"}
-                    </Chip>
-                  </div>
 
-                  {formData.status_history && Object.keys(formData.status_history).length > 0 ? (
-                    <div className="p-4">
-                      <h3 className="text-md font-medium mb-4">Status History</h3>
-                      <div className="relative">
-                        {/* Fixed timeline line with better alignment */}
-                        <div className="absolute left-[calc((3rem/2)-0.1rem)] top-0 bottom-1 w-0.5 bg-default-100 rounded-full"></div>
-                        <div className="space-y-5">
-                          {Object.entries(formData.status_history)
-                            .sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime()) // Sort by timestamp descending
-                            .map(([timestamp, status]) => {
-                              // Determine icon based on status
-                              const statusIcon =
-                                status === "PENDING" ? "mdi:clock-outline" :
-                                  status === "PROCESSING" ? "mdi:clock-start" :
-                                    status === "IN_TRANSIT" ? "mdi:truck-fast" :
-                                      status === "DELIVERED" ? "mdi:check" :
-                                        status === "CANCELLED" ? "mdi:close" :
-                                          "mdi:help-circle";
+                <div>
+                  <LoadingAnimation
+                    condition={!user || isLoading}
+                    skeleton={
+                      <div className="space-y-4">
+                        <Skeleton className="h-[1.75rem] w-48 rounded-xl mx-auto" /> {/* Title skeleton */}
+                        <Skeleton className="h-16 w-full rounded-xl" /> {/* Delivery address textarea skeleton */}
+                        <Skeleton className="h-16 w-full rounded-xl" /> {/* Notes textarea skeleton */}
+                      </div>
+                    }
+                  >
+                    <h2 className="text-xl font-semibold mb-4 w-full text-center">
+                      Delivery Details
+                    </h2>
+                    <div className="space-y-4">
+                      {/* Only show recipient details when an operator is assigned */}
+                      <Textarea
+                        name="delivery_address"
+                        label="Delivery Address"
+                        classNames={inputStyle}
+                        placeholder="Enter complete delivery address"
+                        value={formData.delivery_address || ""}
+                        onChange={handleInputChange}
+                        maxRows={5}
+                        minRows={1}
+                        isRequired={isDeliveryProcessing() && (user === null || user.is_admin)}
+                        isReadOnly
+                        errorMessage={errors.delivery_address}
+                        startContent={<Icon icon="mdi:map-marker" className="text-default-500 mb-[0.2rem]" />}
+                      />
 
-                              return (
-                                <div key={timestamp} className="flex items-start group">
-                                  <div className={`w-12 h-12 rounded-full flex-shrink-0 bg-${getStatusColor(status)}-100 flex items-center justify-center shadow-sm group-hover:shadow-md transition-all duration-200 z-10`}>
-                                    <Icon
-                                      icon={statusIcon}
-                                      className={`text-${getStatusColor(status)}-900 text-[1.25rem]`}
-                                    />
-                                  </div>
-                                  <div className="ml-4 bg-background/50 p-3 rounded-xl border border-default-200 shadow-sm flex-grow group-hover:shadow-md group-hover:border-default-300 transition-all duration-200">
-                                    <div className="flex justify-between items-center flex-wrap gap-2">
-                                      <Chip
-                                        color={getStatusColor(status)}
-                                        size="sm"
-                                        variant="flat"
-                                        className="font-medium"
-                                      >
-                                        <Icon icon={statusIcon} className="mr-1" />
-                                        {status.replaceAll('_', ' ')}
-                                      </Chip>
-                                      <div className="text-xs text-default-500 flex items-center">
-                                        <Icon icon="mdi:calendar-clock" className="mr-1" />
-                                        {format(parseISO(timestamp), "MMM d, yyyy 'at' h:mm a")}
+
+                      <Textarea
+                        name="notes"
+                        label="Additional Notes"
+                        maxRows={5}
+                        minRows={1}
+                        classNames={inputStyle}
+                        placeholder="Enter any special instructions or notes"
+                        value={formData.notes || ""}
+                        onChange={handleInputChange}
+                        startContent={<Icon icon="mdi:note-text" className="text-default-500 mt-[0.1rem]" />}
+                        isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
+                      />
+                    </div>
+
+                  </LoadingAnimation>
+                </div>
+
+                <div>
+                  <LoadingAnimation
+                    condition={!user || isLoading}
+                    skeleton={
+                      <div className="space-y-4">
+                        <Skeleton className="h-[1.75rem] w-48 rounded-xl mx-auto" /> {/* Section title */}
+                        <div className="border-2 border-default-200 rounded-xl bg-gradient-to-b from-background to-default-50/30">
+                          {/* Status box header */}
+                          <div className="flex justify-between items-center border-b border-default-200 p-4">
+                            <Skeleton className="h-5 w-32 rounded-xl" /> {/* Current Status text */}
+                            <Skeleton className="h-6 w-24 rounded-xl" /> {/* Status chip */}
+                          </div>
+
+                          {/* Status history section */}
+                          <div className="p-4">
+                            <Skeleton className="h-5 w-36 rounded-xl mb-4" /> {/* Status History text */}
+                            <div className="relative">
+                              {/* Timeline line */}
+                              <div className="absolute left-[calc((3rem/2)-0.1rem)] top-0 bottom-1 w-0.5 bg-default-100 rounded-full"></div>
+
+                              {/* Timeline entries */}
+                              <div className="space-y-5">
+                                {[...Array(3)].map((_, i) => (
+                                  <div key={i} className="flex items-start">
+                                    <Skeleton className="w-12 h-12 rounded-full flex-shrink-0" /> {/* Timeline icon */}
+                                    <div className="ml-4 p-3 rounded-xl border border-default-200 flex-grow">
+                                      <div className="flex justify-between items-center flex-wrap gap-2">
+                                        <Skeleton className="h-6 w-28 rounded-xl" /> {/* Status text */}
+                                        <Skeleton className="h-4 w-36 rounded-xl" /> {/* Date text */}
                                       </div>
                                     </div>
                                   </div>
-                                </div>
-                              );
-                            })}
+                                ))}
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ) : (
-                    <Alert
-                      variant="faded"
-                      color="danger"
-                      className="text-center m-4 w-[calc(100%-2rem)]"
-                      icon={<Icon icon="mdi:history" className="text-default-500" />}
-                    >
-                      No status history available.
-                    </Alert>
-                  )}
-                </div>
-              )}
+                    }>
 
-              <AnimatePresence>
-                {(user === null || user.is_admin) && selectedDeliveryId && formData.status !== "DELIVERED" && formData.status !== "CANCELLED" && (
-                  <motion.div {...motionTransition}>
-                    <div className="flex flex-col gap-4 pt-4 -mx-4">
-                      <hr className="border-default-200" />
-                      <h3 className="text-lg font-semibold w-full text-center">Quick Status Update</h3>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 px-4">
-                        <Button
-                          color="warning"
-                          variant="flat"
-                          className="w-full"
-                          isDisabled={formData.status === "PROCESSING" || formData.status === "IN_TRANSIT" || formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading}
-                          onPress={() => handleStatusChange("PROCESSING")}
-                        >
-                          <Icon icon="mdi:clock-start" className="mr-1" />
-                          Processing
-                        </Button>
-                        <Button
-                          color="primary"
-                          variant="flat"
-                          className="w-full"
-                          isDisabled={formData.status === "IN_TRANSIT" || formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading}
-                          onPress={() => handleStatusChange("IN_TRANSIT")}
-                        >
-                          <Icon icon="mdi:truck-fast" className="mr-1" />
-                          In Transit
-                        </Button>
-                        <Button
-                          color="success"
-                          variant="flat"
-                          className="w-full"
-                          isDisabled={formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading || isFloorConfigNotSet() || selectedBulks.length === 0 || locations.length < selectedBulks.length}
-                          onPress={() => handleStatusChange("DELIVERED")}
-                        >
-                          <Icon icon="mdi:check-circle" className="mr-1" />
-                          Delivered
-                        </Button>
-                        <Button
-                          color="danger"
-                          variant="flat"
-                          className="w-full"
-                          isDisabled={formData.status === "CANCELLED" || formData.status === "DELIVERED" || isLoading}
-                          onPress={() => handleStatusChange("CANCELLED")}
-                        >
-                          <Icon icon="mdi:close-circle" className="mr-1" />
-                          Cancel
-                        </Button>
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          </LoadingAnimation>
+                    <h2 className="text-xl font-semibold mb-4 w-full text-center">Delivery Status</h2>
+                    <div>
+                      {!user ? (
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                      ) : (
+                        <div className="border-2 border-default-200 rounded-xl bg-gradient-to-b from-background to-default-50/30">
+                          <div className="flex justify-between items-center border-b border-default-200 p-4">
+                            <h3 className="text-md font-medium">Current Status</h3>
+                            <Chip
+                              color={getStatusColor(formData.status || "PENDING")}
+                              size="sm"
+                              variant="shadow"
+                              className="px-3 font-medium"
+                            >
+                              {formData.status?.replaceAll('_', ' ') || "PENDING"}
+                            </Chip>
+                          </div>
 
-        </div>
+                          {formData.status_history && Object.keys(formData.status_history).length > 0 ? (
+                            <div className="p-4">
+                              <h3 className="text-md font-medium mb-4">Status History</h3>
+                              <div className="relative">
+                                {/* Fixed timeline line with better alignment */}
+                                <div className="absolute left-[calc((3rem/2)-0.1rem)] top-0 bottom-1 w-0.5 bg-default-100 rounded-full"></div>
+                                <div className="space-y-5">
+                                  {Object.entries(formData.status_history)
+                                    .sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime()) // Sort by timestamp descending
+                                    .map(([timestamp, status]) => {
+                                      // Determine icon based on status
+                                      const statusIcon =
+                                        status === "PENDING" ? "mdi:clock-outline" :
+                                          status === "PROCESSING" ? "mdi:clock-start" :
+                                            status === "IN_TRANSIT" ? "mdi:truck-fast" :
+                                              status === "DELIVERED" ? "mdi:check" :
+                                                status === "CANCELLED" ? "mdi:close" :
+                                                  "mdi:help-circle";
 
-        {(user === null || user.is_admin || formData.status === "DELIVERED") && (
-          <motion.div {...motionTransition}>
-            <div className="flex flex-col flex-1 gap-4">
-              <AnimatePresence>
-                {error && (
-                  <motion.div {...motionTransition}>
-                    <Alert color="danger" variant="flat" onClose={() => setError(null)}>
-                      {error}
-                    </Alert>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              <LoadingAnimation
-                condition={!user || isLoading || isLoadingItems || isLoadingBulks}
-                skeleton={
-                  <div className="flex justify-center items-center gap-4">
-                    <Skeleton className="h-10 w-full rounded-xl" />
-                    <Skeleton className="h-10 w-full rounded-xl" />
-                  </div>
-                }
-              >
-                <div className="flex flex-col md:flex-row justify-center items-center gap-4">
-                  {selectedDeliveryId && (
-                    <>
-                      <Button
-                        color="secondary"
-                        variant="shadow"
-                        className="w-full"
-                        onPress={() => setShowQrCode(true)}
-                      >
-                        <Icon icon="mdi:qrcode" className="mr-1" />
-                        Show Delivery QR
-                      </Button>
-
-                      {formData.status === "DELIVERED" && (
-                        <Button
-                          color="success"
-                          variant="shadow"
-                          className="w-full"
-                          onPress={handleViewInventory}
-                        >
-                          <Icon icon="mdi:package-variant" className="mr-1" />
-                          {(user === null || user.is_admin)
-                            ? "Show Inventory"
-                            : "Show in Warehouse"}
-                        </Button>
+                                      return (
+                                        <div key={timestamp} className="flex items-start group">
+                                          <div className={`w-12 h-12 rounded-full flex-shrink-0 bg-${getStatusColor(status)}-100 flex items-center justify-center shadow-sm group-hover:shadow-md transition-all duration-200 z-10`}>
+                                            <Icon
+                                              icon={statusIcon}
+                                              className={`text-${getStatusColor(status)}-900 text-[1.25rem]`}
+                                            />
+                                          </div>
+                                          <div className="ml-4 bg-background/50 p-3 rounded-xl border border-default-200 shadow-sm flex-grow group-hover:shadow-md group-hover:border-default-300 transition-all duration-200">
+                                            <div className="flex justify-between items-center flex-wrap gap-2">
+                                              <Chip
+                                                color={getStatusColor(status)}
+                                                size="sm"
+                                                variant="flat"
+                                                className="font-medium"
+                                              >
+                                                <Icon icon={statusIcon} className="mr-1" />
+                                                {status.replaceAll('_', ' ')}
+                                              </Chip>
+                                              <div className="text-xs text-default-500 flex items-center">
+                                                <Icon icon="mdi:calendar-clock" className="mr-1" />
+                                                {format(parseISO(timestamp), "MMM d, yyyy 'at' h:mm a")}
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <Alert
+                              variant="faded"
+                              color="danger"
+                              className="text-center m-4 w-[calc(100%-2rem)]"
+                              icon={<Icon icon="mdi:history" className="text-default-500" />}
+                            >
+                              No status history available.
+                            </Alert>
+                          )}
+                        </div>
                       )}
-                    </>
-                  )}
 
-                  {/* Show submit button only for admins creating/updating or operators with selected delivery */}
-                  {(user.is_admin && formData.status !== "DELIVERED") && (
-                    <Button
-                      type="submit"
-                      form="deliveryForm"
-                      color="primary"
-                      variant="shadow"
-                      className="w-full"
-                      isLoading={isLoading}
-                    >
-                      <Icon icon="mdi:content-save" className="mr-1" />
-                      {selectedDeliveryId ? "Update Delivery" : "Create Delivery"}
-                    </Button>
-                  )}
+                      <AnimatePresence>
+                        {(user === null || user.is_admin) && selectedDeliveryId && formData.status !== "DELIVERED" && formData.status !== "CANCELLED" && (
+                          <motion.div {...motionTransition}>
+                            <div className="flex flex-col gap-4 pt-4 -mx-4">
+                              <hr className="border-default-200" />
+                              <h3 className="text-lg font-semibold w-full text-center">Quick Status Update</h3>
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 px-4">
+                                <Button
+                                  color="warning"
+                                  variant="flat"
+                                  className="w-full"
+                                  isDisabled={formData.status === "PROCESSING" || formData.status === "IN_TRANSIT" || formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading}
+                                  onPress={() => handleStatusChange("PROCESSING")}
+                                >
+                                  <Icon icon="mdi:clock-start" className="mr-1" />
+                                  Processing
+                                </Button>
+                                <Button
+                                  color="primary"
+                                  variant="flat"
+                                  className="w-full"
+                                  isDisabled={formData.status === "IN_TRANSIT" || formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading}
+                                  onPress={() => handleStatusChange("IN_TRANSIT")}
+                                >
+                                  <Icon icon="mdi:truck-fast" className="mr-1" />
+                                  In Transit
+                                </Button>
+                                <Button
+                                  color="success"
+                                  variant="flat"
+                                  className="w-full"
+                                  isDisabled={formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading || isFloorConfigNotSet() || selectedBulks.length === 0 || locations.length < selectedBulks.length}
+                                  onPress={() => handleStatusChange("DELIVERED")}
+                                >
+                                  <Icon icon="mdi:check-circle" className="mr-1" />
+                                  Delivered
+                                </Button>
+                                <Button
+                                  color="danger"
+                                  variant="flat"
+                                  className="w-full"
+                                  isDisabled={formData.status === "CANCELLED" || formData.status === "DELIVERED" || isLoading}
+                                  onPress={() => handleStatusChange("CANCELLED")}
+                                >
+                                  <Icon icon="mdi:close-circle" className="mr-1" />
+                                  Cancel
+                                </Button>
+                              </div>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  </LoadingAnimation>
+
+                </div>
+
+                {(user === null || user.is_admin || formData.status === "DELIVERED") && (
+                  <motion.div {...motionTransition}>
+                    <div className="flex flex-col flex-1 gap-4">
+                      <AnimatePresence>
+                        {error && (
+                          <motion.div {...motionTransition}>
+                            <Alert color="danger" variant="flat" onClose={() => setError(null)}>
+                              {error}
+                            </Alert>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                      <LoadingAnimation
+                        condition={!user || isLoading || isLoadingItems || isLoadingBulks}
+                        skeleton={
+                          <div className="flex justify-center items-center gap-4">
+                            <Skeleton className="h-10 w-full rounded-xl" />
+                            <Skeleton className="h-10 w-full rounded-xl" />
+                          </div>
+                        }
+                      >
+                        <div className="flex flex-col md:flex-row justify-center items-center gap-4">
+                          {selectedDeliveryId && (
+                            <>
+                              <Button
+                                color="secondary"
+                                variant="shadow"
+                                className="w-full"
+                                onPress={() => setShowQrCode(true)}
+                              >
+                                <Icon icon="mdi:qrcode" className="mr-1" />
+                                Show Delivery QR
+                              </Button>
+
+                              {formData.status === "DELIVERED" && (
+                                <Button
+                                  color="success"
+                                  variant="shadow"
+                                  className="w-full"
+                                  onPress={handleViewInventory}
+                                >
+                                  <Icon icon="mdi:package-variant" className="mr-1" />
+                                  {(user === null || user.is_admin)
+                                    ? "Show Inventory"
+                                    : "Show in Warehouse"}
+                                </Button>
+                              )}
+                            </>
+                          )}
+
+                          {/* Show submit button only for admins creating/updating or operators with selected delivery */}
+                          {(user.is_admin && formData.status !== "DELIVERED") && (
+                            <Button
+                              type="submit"
+                              form="deliveryForm"
+                              color="primary"
+                              variant="shadow"
+                              className="w-full"
+                              isLoading={isLoading}
+                            >
+                              <Icon icon="mdi:content-save" className="mr-1" />
+                              {selectedDeliveryId ? "Update Delivery" : "Create Delivery"}
+                            </Button>
+                          )}
+                        </div>
+                      </LoadingAnimation>
+                    </div>
+                  </motion.div>
+                )}
+              </CardList>
+            </Form>
+          ) : (
+            <div className="items-center justify-center p-12 border border-dashed border-default-300 rounded-2xl bg-background">
+              <LoadingAnimation
+                condition={!user || isLoadingItems}
+                skeleton={
+                  <div className="flex flex-col items-center justify-center">
+                    <Skeleton className="w-16 h-16 rounded-full mb-4" />
+                    <Skeleton className="h-6 w-48 rounded-xl mb-2" />
+                    <Skeleton className="h-4 w-64 rounded-xl mb-6" />
+                    <Skeleton className="h-10 w-32 rounded-xl" />
+                  </div>
+                }>
+                <div className="flex flex-col items-center justify-center">
+                  <Icon icon="mdi:truck-delivery" className="text-default-300" width={64} height={64} />
+                  <h3 className="text-xl font-semibold text-default-800">No Delivery Selected</h3>
+                  <p className="text-default-500 text-center mt-2 mb-6">
+                    Select a delivery from the list to view details, or click the "Accept Delivery" button to scan a QR code.
+                  </p>
+                  <Button
+                    color="primary"
+                    variant="shadow"
+                    className="mb-4"
+                    onPress={() => setShowAcceptDeliveryModal(true)}
+                  >
+                    <Icon icon="mdi:qrcode-scan" className="mr-2" />
+                    Accept Delivery
+                  </Button>
                 </div>
               </LoadingAnimation>
             </div>
-          </motion.div>
-        )}
-      </CardList>
-    </Form>
-  ) : (
-    <div className="items-center justify-center p-12 border border-dashed border-default-300 rounded-2xl bg-background">
-      <LoadingAnimation
-        condition={!user || isLoadingItems}
-        skeleton={
-          <div className="flex flex-col items-center justify-center">
-            <Skeleton className="w-16 h-16 rounded-full mb-4" />
-            <Skeleton className="h-6 w-48 rounded-xl mb-2" />
-            <Skeleton className="h-4 w-64 rounded-xl mb-6" />
-            <Skeleton className="h-10 w-32 rounded-xl" />
-          </div>
-        }>
-        <div className="flex flex-col items-center justify-center">
-          <Icon icon="mdi:truck-delivery" className="text-default-300" width={64} height={64} />
-          <h3 className="text-xl font-semibold text-default-800">No Delivery Selected</h3>
-          <p className="text-default-500 text-center mt-2 mb-6">
-            Select a delivery from the list to view details, or click the "Accept Delivery" button to scan a QR code.
-          </p>
-          <Button
-            color="primary"
-            variant="shadow"
-            className="mb-4"
-            onPress={() => setShowAcceptDeliveryModal(true)}
-          >
-            <Icon icon="mdi:qrcode-scan" className="mr-2" />
-            Accept Delivery
-          </Button>
-        </div>
-      </LoadingAnimation>
-    </div>
-  )
-}
+          )
+          }
         </div >
       </div >
 
-  {/* QR Code Modal */ }
-  < Modal isOpen = { showQrCode } onClose = {() => setShowQrCode(false)
-      } placement = "auto" backdrop = "blur" size = "lg" classNames = {{ backdrop: "bg-background/50" }}>
-  <ModalContent>
-    <ModalHeader>Delivery QR Code</ModalHeader>
-    <ModalBody className="flex flex-col items-center">
-      <div className="bg-white rounded-xl overflow-hidden">
-        <QRCodeCanvas id="delivery-qrcode" value={generateDeliveryJson()} size={320} marginSize={4} level="L" />
-      </div>
-      <p className="text-center mt-4 text-default-600">
-        Scan this code to get delivery details
-      </p>
-      <div className="mt-4 w-full bg-default-50 overflow-auto max-h-64 rounded-xl">
-        <SyntaxHighlighter language="json" style={window.resolveTheme === 'dark' ? materialDark : materialLight} customStyle={{ margin: 0, borderRadius: '0.5rem', fontSize: '0.75rem' }}>
-          {generateDeliveryJson(2)}
-        </SyntaxHighlighter>
-      </div>
-    </ModalBody>
-    <ModalFooter className="flex justify-end p-4 gap-4">
-      <Button color="default" onPress={() => setShowQrCode(false)}>Close</Button>
-      <Button color="primary" variant="shadow" onPress={() => {
-        const canvas = document.getElementById('delivery-qrcode') as HTMLCanvasElement;
-        const pngUrl = canvas.toDataURL('image/png');
-        const downloadLink = document.createElement('a');
-        downloadLink.href = pngUrl;
-        downloadLink.download = `delivery-${formData.recipient_name?.replace(/\s+/g, '-') || 'item'}-${new Date().toISOString()}.png`;
-        document.body.appendChild(downloadLink);
-        downloadLink.click();
-        document.body.removeChild(downloadLink);
-        setShowQrCode(false);
-      }}>
-        <Icon icon="mdi:download" className="mr-1" />
-        Download QR
-      </Button>
-    </ModalFooter>
-  </ModalContent>
-      </Modal >
-
-  {/* Accept Delivery Modal */ }
-  < Modal isOpen = { showAcceptDeliveryModal } onClose = {() => { setShowAcceptDeliveryModal(false); setDeliveryJson(""); setJsonValidationError(""); setJsonValidationSuccess(false); }} isDismissable = {!isLoading && !isProcessingImage} placement = "auto" backdrop = "blur" size = "lg" classNames = {{ backdrop: "bg-background/50" }}>
-    <ModalContent>
-      <ModalHeader>Accept Delivery</ModalHeader>
-      <ModalBody className="flex flex-col items-center">
-        <div className="w-full space-y-4">
-          <p className="text-default-700">
-            Scan the delivery QR code or enter the delivery code provided by the user:
-          </p>
-
-          {/* QR Code Image Upload */}
-          <div className="flex flex-col items-center w-full">
-            <input type="file" accept="image/*" onChange={handleQrImageUpload} className="hidden" ref={fileInputRef} />
-            <Button color="primary" variant="flat" className="w-full mb-4" onPress={() => fileInputRef.current?.click()}
-              startContent={<Icon icon="mdi:camera" />} isLoading={isProcessingImage} isDisabled={isLoading || jsonValidationSuccess}>
-              Upload QR Code Image
+      {/* QR Code Modal */}
+      < Modal isOpen={showQrCode} onClose={() => setShowQrCode(false)
+      } placement="auto" backdrop="blur" size="lg" classNames={{ backdrop: "bg-background/50" }}>
+        <ModalContent>
+          <ModalHeader>Delivery QR Code</ModalHeader>
+          <ModalBody className="flex flex-col items-center">
+            <div className="bg-white rounded-xl overflow-hidden">
+              <QRCodeCanvas id="delivery-qrcode" value={generateDeliveryJson()} size={320} marginSize={4} level="L" />
+            </div>
+            <p className="text-center mt-4 text-default-600">
+              Scan this code to get delivery details
+            </p>
+            <div className="mt-4 w-full bg-default-50 overflow-auto max-h-64 rounded-xl">
+              <SyntaxHighlighter language="json" style={window.resolveTheme === 'dark' ? materialDark : materialLight} customStyle={{ margin: 0, borderRadius: '0.5rem', fontSize: '0.75rem' }}>
+                {generateDeliveryJson(2)}
+              </SyntaxHighlighter>
+            </div>
+          </ModalBody>
+          <ModalFooter className="flex justify-end p-4 gap-4">
+            <Button color="default" onPress={() => setShowQrCode(false)}>Close</Button>
+            <Button color="primary" variant="shadow" onPress={() => {
+              const canvas = document.getElementById('delivery-qrcode') as HTMLCanvasElement;
+              const pngUrl = canvas.toDataURL('image/png');
+              const downloadLink = document.createElement('a');
+              downloadLink.href = pngUrl;
+              downloadLink.download = `delivery-${formData.recipient_name?.replace(/\s+/g, '-') || 'item'}-${new Date().toISOString()}.png`;
+              document.body.appendChild(downloadLink);
+              downloadLink.click();
+              document.body.removeChild(downloadLink);
+              setShowQrCode(false);
+            }}>
+              <Icon icon="mdi:download" className="mr-1" />
+              Download QR
             </Button>
-            <div className="w-full border-t border-default-200 my-4 relative">
-              <span className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-content1 px-4 text-default-400 text-sm">
-                OR
-              </span>
-            </div>
-          </div>
-
-          <Textarea
-            ref={deliveryJsonTextareaRef}
-            label="Delivery Code"
-            placeholder="Paste the delivery JSON code here"
-            value={deliveryJson}
-            onChange={(e) => setDeliveryJson(e.target.value)}
-            onPaste={handleDeliveryJsonPaste}
-            minRows={4}
-            maxRows={6}
-            classNames={{
-              base: "w-full",
-              inputWrapper: `border-2 ${jsonValidationError ? 'border-danger' : jsonValidationSuccess ? 'border-success' : 'border-default-200'} hover:border-default-400 !transition-all duration-200`
-            }}
-            isInvalid={!!jsonValidationError}
-            errorMessage={jsonValidationError}
-            startContent={<Icon icon="mdi:code-json" className="text-default-500 mt-[0.15rem]" />}
-          />
-
-          {jsonValidationSuccess && (
-            <div className="flex items-center py-2 px-4 bg-success-50 rounded-xl">
-              <Icon icon="mdi:check-circle" className="text-success text-xl mr-2" />
-              <div>
-                <p className="font-medium text-success">Delivery accepted successfully!</p>
-              </div>
-            </div>
-          )}
-        </div>
-      </ModalBody>
-      <ModalFooter className="flex justify-end p-4 gap-4">
-        <Button color="default" onPress={() => {
-          setShowAcceptDeliveryModal(false);
-          setDeliveryJson("");
-          setJsonValidationError("");
-          setJsonValidationSuccess(false);
-        }} isDisabled={isLoading || isProcessingImage}>
-          Cancel
-        </Button>
-        <Button {...isLoading ? {} : { startContent: <Icon icon="mdi:check" className="mr-1" /> }} color="primary" variant="shadow" onPress={(e) => handleDeliveryJsonValidation()} isLoading={isLoading || isProcessingImage}
-          isDisabled={jsonValidationSuccess || isLoading || isProcessingImage || !deliveryJson.trim()}>
-          Validate & Accept
-        </Button>
-      </ModalFooter>
-    </ModalContent>
+          </ModalFooter>
+        </ModalContent>
       </Modal >
 
-  {/* Modal for the 3D shelf selector */ }
-  < Modal isOpen = { isOpen } onClose = { handleCancelLocation } placement = 'auto' classNames = {{ backdrop: "bg-background/50", wrapper: 'overflow-hidden' }} backdrop = "blur" size = "5xl" >
-    <ModalContent>
-      <ModalHeader>Interactive Warehouse Floorplan</ModalHeader>
-      <ModalBody className='p-0'>
-        <div className="h-[80vh] bg-primary-50 rounded-md overflow-hidden relative">
-          <Suspense fallback={
-            <div className="flex items-center justify-center h-full">
-              <Spinner size="lg" color="primary" />
-              <span className="ml-2">Loading 3D viewer...</span>
-            </div>
-          }>
-            <ShelfSelector3D
-              floors={floorConfigs}
-              onSelect={handleShelfSelection}
-              occupiedLocations={filteredOccupiedLocations}
-              canSelectOccupiedLocations={false}
-              className="w-full h-full"
-              highlightedFloor={highlightedFloor}
-              onHighlightFloor={setHighlightedFloor}
-              externalSelection={externalSelection}
-              cameraOffsetY={-0.25}
-              shelfColorAssignments={shelfColorAssignments}
-            />
-          </Suspense>
+      {/* Accept Delivery Modal */}
+      < Modal isOpen={showAcceptDeliveryModal} onClose={() => { setShowAcceptDeliveryModal(false); setDeliveryJson(""); setJsonValidationError(""); setJsonValidationSuccess(false); }} isDismissable={!isLoading && !isProcessingImage} placement="auto" backdrop="blur" size="lg" classNames={{ backdrop: "bg-background/50" }}>
+        <ModalContent>
+          <ModalHeader>Accept Delivery</ModalHeader>
+          <ModalBody className="flex flex-col items-center">
+            <div className="w-full space-y-4">
+              <p className="text-default-700">
+                Scan the delivery QR code or enter the delivery code provided by the user:
+              </p>
 
-
-          {/* Shelf controls */}
-          <AnimatePresence>
-            {tempSelectedCode && showControls &&
-              <motion.div {...motionTransition}
-                className="absolute overflow-hidden bottom-4 left-4 flex flex-col gap-2 bg-background/50 rounded-2xl backdrop-blur-lg w-auto">
-                <div className="grid md:grid-cols-2 grid-cols-1 gap-3 p-4">
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold w-16">Floor</span>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          size="sm"
-                          isIconOnly
-                          onPress={() => handleFloorChange(Math.max(1, ((externalSelection?.floor || 0) + 1) - 1))}
-                          isDisabled={(externalSelection?.floor || 0) <= 0}
-                          className="min-w-8 h-8"
-                        >
-                          <Icon icon="mdi:chevron-left" className="text-sm" />
-                        </Button>
-                        <div className="bg-default-100 px-3 h-8 rounded-md flex items-center justify-center w-14">
-                          {(externalSelection?.floor || 0) + 1}
-                        </div>
-                        <Button
-                          size="sm"
-                          isIconOnly
-                          onPress={() => handleFloorChange(Math.min(floorConfigs.length, ((externalSelection?.floor || 0) + 1) + 1))}
-                          isDisabled={(externalSelection?.floor || 0) + 1 >= floorConfigs.length}
-                          className="min-w-8 h-8"
-                        >
-                          <Icon icon="mdi:chevron-right" className="text-sm" />
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold w-16">Group</span>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          size="sm"
-                          isIconOnly
-                          onPress={() => handleGroupChange(Math.max(1, ((externalSelection?.group || 0) + 1) - 1))}
-                          isDisabled={(externalSelection?.group || 0) <= 0}
-                          className="min-w-8 h-8"
-                        >
-                          <Icon icon="mdi:chevron-left" className="text-sm" />
-                        </Button>
-                        <div className="bg-default-100 px-3 h-8 rounded-md flex items-center justify-center w-14">
-                          {(externalSelection?.group || 0) + 1}
-                        </div>
-                        <Button
-                          size="sm"
-                          isIconOnly
-                          onPress={() => handleGroupChange(Math.min(maxGroupId + 1, ((externalSelection?.group || 0) + 1) + 1))}
-                          isDisabled={(externalSelection?.group || 0) + 1 > maxGroupId}
-                          className="min-w-8 h-8"
-                        >
-                          <Icon icon="mdi:chevron-right" className="text-sm" />
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-2 md:pl-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold w-16">Row</span>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          size="sm"
-                          isIconOnly
-                          onPress={() => handleRowChange(Math.max(1, ((externalSelection?.row || 0) + 1) - 1))}
-                          isDisabled={(externalSelection?.row || 0) <= 0}
-                          className="min-w-8 h-8"
-                        >
-                          <Icon icon="mdi:chevron-left" className="text-sm" />
-                        </Button>
-                        <div className="bg-default-100 px-3 h-8 rounded-md flex items-center justify-center w-14">
-                          {(externalSelection?.row || 0) + 1}
-                        </div>
-                        <Button
-                          size="sm"
-                          isIconOnly
-                          onPress={() => handleRowChange(Math.min(maxRow + 1, ((externalSelection?.row || 0) + 1) + 1))}
-                          isDisabled={(externalSelection?.row || 0) + 1 > maxRow}
-                          className="min-w-8 h-8"
-                        >
-                          <Icon icon="mdi:chevron-right" className="text-sm" />
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold w-16">Column</span>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          size="sm"
-                          isIconOnly
-                          onPress={() => handleColumnChange(Math.max(1, ((externalSelection?.column || 0) + 1) - 1))}
-                          isDisabled={(externalSelection?.column || 0) <= 0}
-                          className="min-w-8 h-8"
-                        >
-                          <Icon icon="mdi:chevron-left" className="text-sm" />
-                        </Button>
-                        <div className="bg-default-100 px-3 h-8 rounded-md flex items-center justify-center w-14">
-                          {parseColumn((externalSelection?.column || 0) + 1) || ""}
-                        </div>
-                        <Button
-                          size="sm"
-                          isIconOnly
-                          onPress={() => handleColumnChange(Math.min(maxColumn + 1, ((externalSelection?.column || 0) + 1) + 1))}
-                          isDisabled={(externalSelection?.column || 0) + 1 > maxColumn}
-                          className="min-w-8 h-8"
-                        >
-                          <Icon icon="mdi:chevron-right" className="text-sm" />
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 md:mb-0 mb-10">
-                      <span className="text-sm font-semibold w-16">Depth</span>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          size="sm"
-                          isIconOnly
-                          onPress={() => handleDepthChange(Math.max(1, ((externalSelection?.depth || 0) + 1) - 1))}
-                          isDisabled={(externalSelection?.depth || 0) <= 0}
-                          className="min-w-8 h-8"
-                        >
-                          <Icon icon="mdi:chevron-left" className="text-sm" />
-                        </Button>
-                        <div className="bg-default-100 px-3 h-8 rounded-md flex items-center justify-center w-14">
-                          {(externalSelection?.depth || 0) + 1}
-                        </div>
-                        <Button
-                          size="sm"
-                          isIconOnly
-                          onPress={() => handleDepthChange(Math.min(maxDepth + 1, ((externalSelection?.depth || 0) + 1) + 1))}
-                          isDisabled={(externalSelection?.depth || 0) + 1 > maxDepth}
-                          className="min-w-8 h-8"
-                        >
-                          <Icon icon="mdi:chevron-right" className="text-sm" />
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            }
-          </AnimatePresence>
-
-          <AnimatePresence>
-            {(tempSelectedCode || showControls) &&
-              <motion.div {...motionTransition}
-                className={`absolute overflow-hidden ${showControls ? "bottom-8 left-8 h-8 shadow-sm" : "bottom-4 left-4 h-10 shadow-lg"} w-[12.6rem] bg-default-200/50 rounded-xl backdrop-blur-lg z-10 transition-all duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]`}>
-                <Button
-                  onPress={() => setShowControls(!showControls)}
-                  color="default"
-                  className={`flex items-center p-4 text-default-800 bg-transparent w-full !scale-100 ${showControls ? "h-8" : "h-10"} !transition-all !duration-500 duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]`}
-                >
-                  <Icon icon="ic:round-control-camera" className="w-4 h-4" />
-                  <span className="text-sm font-semibold">
-                    {showControls ? "Hide Controls" : "Show Controls"}
-                  </span>
+              {/* QR Code Image Upload */}
+              <div className="flex flex-col items-center w-full">
+                <input type="file" accept="image/*" onChange={handleQrImageUpload} className="hidden" ref={fileInputRef} />
+                <Button color="primary" variant="flat" className="w-full mb-4" onPress={() => fileInputRef.current?.click()}
+                  startContent={<Icon icon="mdi:camera" />} isLoading={isProcessingImage} isDisabled={isLoading || jsonValidationSuccess}>
+                  Upload QR Code Image
                 </Button>
-              </motion.div>
-            }
-          </AnimatePresence>
-
-          <AnimatePresence>
-            {tempSelectedCode &&
-              <motion.div {...motionTransition} className="absolute top-4 right-4 flex items-center gap-2 bg-background/50 rounded-2xl backdrop-blur-lg">
-                <span className="text-sm font-semibold p-4">CODE: <b>{tempSelectedCode}</b></span>
-              </motion.div>
-            }
-          </AnimatePresence>
-        </div>
-      </ModalBody>
-      <ModalFooter className="flex justify-between gap-4 p-4">
-        <Popover
-          classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
-          motionProps={popoverTransition(false)}
-          placement="bottom">
-          <PopoverTrigger>
-            <Button className="capitalize" color="warning" variant="flat">
-              <Icon icon="heroicons:question-mark-circle-solid" className="w-4 h-4 mr-1" />
-              Help
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="p-4 max-w-sm">
-            <div className="flex items-center gap-2 mb-4">
-              <Icon icon="heroicons:lifebuoy" className="w-5 h-5 text-warning-500" width={20} />
-              <h3 className="font-semibold text-lg">3D Navigation Controls</h3>
-            </div>
-
-            <Accordion variant="splitted">
-              <AccordionItem key="mouse" aria-label="Mouse Controls" title="Mouse Controls" className="text-sm overflow-hidden bg-primary-50">
-                <div className="space-y-2 pb-2">
-                  <div className="flex items-start gap-2">
-                    <Icon icon="heroicons:cursor-arrow-ripple" className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary-600" />
-                    <p><strong>Left Click</strong>: Select a shelf</p>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <Icon icon="heroicons:hand-raised" className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary-600" />
-                    <p><strong>Click + Drag</strong>: Rotate camera around scene</p>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <Icon icon="heroicons:cursor-arrow-rays" className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary-600" />
-                    <p><strong>Right Click + Drag</strong>: Pan camera</p>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <Icon icon="heroicons:view-columns" className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary-600" />
-                    <p><strong>Mouse Wheel</strong>: Zoom in/out</p>
-                  </div>
-                </div>
-              </AccordionItem>
-
-              <AccordionItem key="keyboard" aria-label="Keyboard Controls" title="Keyboard Controls" className="text-sm overflow-hidden bg-primary-50">
-                <div className="space-y-2 pb-2">
-                  <div className="flex items-start gap-2">
-                    <Kbd className="border border-default-300">W</Kbd>
-                    <p className="my-auto">Move camera forward</p>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <Kbd className="border border-default-300">S</Kbd>
-                    <p className="my-auto">Move camera backward</p>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <Kbd className="border border-default-300">A</Kbd>
-                    <p className="my-auto">Move camera left</p>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <Kbd className="border border-default-300">D</Kbd>
-                    <p className="my-auto">Move camera right</p>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <Kbd className="border border-default-300" keys={['shift']}>W</Kbd>
-                    <p className="my-auto">Move camera up</p>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <Kbd className="border border-default-300" keys={['shift']}>S</Kbd>
-                    <p className="my-auto">Move camera down</p>
-                  </div>
-                </div>
-              </AccordionItem>
-
-              <AccordionItem key="shelf-navigation" aria-label="Shelf Navigation" title="Shelf Navigation" className="text-sm overflow-hidden bg-primary-50">
-                <div className="space-y-2 pb-2">
-                  <div className="flex items-start gap-2">
-                    <Kbd className="border border-default-300" keys={['left']}></Kbd>
-                    <p>Move to previous shelf or group</p>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <Kbd className="border border-default-300" keys={['right']}></Kbd>
-                    <p>Move to next shelf or group</p>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <Kbd className="border border-default-300" keys={['up']}></Kbd>
-                    <p>Move to shelf above</p>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <Kbd className="border border-default-300" keys={['down']}></Kbd>
-                    <p>Move to shelf below</p>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <div className="flex">
-                      <Kbd className="border border-default-300" keys={['shift']}></Kbd>
-                      <span className="mx-1">+</span>
-                      <Kbd className="border border-default-300" keys={['up', 'down', 'left', 'right']}></Kbd>
-                    </div>
-                    <p>Navigate between shelf groups</p>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <div className="flex">
-                      <Kbd className="border border-default-300" keys={['ctrl']}></Kbd>
-                      <span className="mx-1">+</span>
-                      <Kbd className="border border-default-300" keys={['up', 'down']}></Kbd>
-                    </div>
-                    <p>Navigate shelf depth (front/back)</p>
-                  </div>
-                </div>
-              </AccordionItem>
-            </Accordion>
-
-            <div className="mt-4 border-t pt-3 border-default-200 w-full px-4">
-              <h4 className="font-medium mb-2">Color Legend:</h4>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: window.shelfSelectorColors!.floorColor }}></div>
-                  <span className="text-xs">Floor</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: window.shelfSelectorColors!.floorHighlightedColor }}></div>
-                  <span className="text-xs">Selected Floor</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: window.shelfSelectorColors!.groupColor }}></div>
-                  <span className="text-xs">Group</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: window.shelfSelectorColors!.groupSelectedColor }}></div>
-                  <span className="text-xs">Selected Group</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: window.shelfSelectorColors!.shelfColor }}></div>
-                  <span className="text-xs">Shelf</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: window.shelfSelectorColors!.shelfHoverColor }}></div>
-                  <span className="text-xs">Hovered Shelf</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: window.shelfSelectorColors!.shelfSelectedColor }}></div>
-                  <span className="text-xs">Selected Shelf</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: window.shelfSelectorColors!.occupiedShelfColor }}></div>
-                  <span className="text-xs">Occupied Shelf</span>
+                <div className="w-full border-t border-default-200 my-4 relative">
+                  <span className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-content1 px-4 text-default-400 text-sm">
+                    OR
+                  </span>
                 </div>
               </div>
-            </div>
 
-            <div className="mt-4 text-xs text-default-500">
-              Tip: Use WASD and arrow keys for easiest navigation through the warehouse.
-            </div>
-          </PopoverContent>
-        </Popover>
+              <Textarea
+                ref={deliveryJsonTextareaRef}
+                label="Delivery Code"
+                placeholder="Paste the delivery JSON code here"
+                value={deliveryJson}
+                onChange={(e) => setDeliveryJson(e.target.value)}
+                onPaste={handleDeliveryJsonPaste}
+                minRows={4}
+                maxRows={6}
+                classNames={{
+                  base: "w-full",
+                  inputWrapper: `border-2 ${jsonValidationError ? 'border-danger' : jsonValidationSuccess ? 'border-success' : 'border-default-200'} hover:border-default-400 !transition-all duration-200`
+                }}
+                isInvalid={!!jsonValidationError}
+                errorMessage={jsonValidationError}
+                startContent={<Icon icon="mdi:code-json" className="text-default-500 mt-[0.15rem]" />}
+              />
 
-        <div className="flex items-center gap-2">
-          <Button color="danger" variant="shadow" onPress={handleCancelLocation}>
-            {isDeliveryProcessing() && (user === null || user.is_admin) ? "Cancel" : "Close"}
-          </Button>
-          {isDeliveryProcessing() && (user === null || user.is_admin) && (
-            <Button color="primary" variant="shadow" onPress={handleConfirmLocation} isDisabled={isSelectedLocationOccupied}>
-              {isSelectedLocationOccupied ? "Location Occupied" : "Confirm Location"}
+              {jsonValidationSuccess && (
+                <div className="flex items-center py-2 px-4 bg-success-50 rounded-xl">
+                  <Icon icon="mdi:check-circle" className="text-success text-xl mr-2" />
+                  <div>
+                    <p className="font-medium text-success">Delivery accepted successfully!</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </ModalBody>
+          <ModalFooter className="flex justify-end p-4 gap-4">
+            <Button color="default" onPress={() => {
+              setShowAcceptDeliveryModal(false);
+              setDeliveryJson("");
+              setJsonValidationError("");
+              setJsonValidationSuccess(false);
+            }} isDisabled={isLoading || isProcessingImage}>
+              Cancel
             </Button>
-          )}
-        </div>
-      </ModalFooter>
-    </ModalContent>
+            <Button {...isLoading ? {} : { startContent: <Icon icon="mdi:check" className="mr-1" /> }} color="primary" variant="shadow" onPress={(e) => handleDeliveryJsonValidation()} isLoading={isLoading || isProcessingImage}
+              isDisabled={jsonValidationSuccess || isLoading || isProcessingImage || !deliveryJson.trim()}>
+              Validate & Accept
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal >
+
+      {/* Modal for the 3D shelf selector */}
+      < Modal isOpen={isOpen} onClose={handleCancelLocation} placement='auto' classNames={{ backdrop: "bg-background/50", wrapper: 'overflow-hidden' }} backdrop="blur" size="5xl" >
+        <ModalContent>
+          <ModalHeader>Interactive Warehouse Floorplan</ModalHeader>
+          <ModalBody className='p-0'>
+            <div className="h-[80vh] bg-primary-50 rounded-md overflow-hidden relative">
+              <Suspense fallback={
+                <div className="flex items-center justify-center h-full">
+                  <Spinner size="lg" color="primary" />
+                  <span className="ml-2">Loading 3D viewer...</span>
+                </div>
+              }>
+                <ShelfSelector3D
+                  floors={floorConfigs}
+                  onSelect={handleShelfSelection}
+                  occupiedLocations={filteredOccupiedLocations}
+                  canSelectOccupiedLocations={false}
+                  className="w-full h-full"
+                  highlightedFloor={highlightedFloor}
+                  onHighlightFloor={setHighlightedFloor}
+                  externalSelection={externalSelection}
+                  cameraOffsetY={-0.25}
+                  shelfColorAssignments={shelfColorAssignments}
+                />
+              </Suspense>
+
+
+              {/* Shelf controls */}
+              <AnimatePresence>
+                {tempSelectedCode && showControls &&
+                  <motion.div {...motionTransition}
+                    className="absolute overflow-hidden bottom-4 left-4 flex flex-col gap-2 bg-background/50 rounded-2xl backdrop-blur-lg w-auto">
+                    <div className="grid md:grid-cols-2 grid-cols-1 gap-3 p-4">
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold w-16">Floor</span>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              size="sm"
+                              isIconOnly
+                              onPress={() => handleFloorChange(Math.max(1, ((externalSelection?.floor || 0) + 1) - 1))}
+                              isDisabled={(externalSelection?.floor || 0) <= 0}
+                              className="min-w-8 h-8"
+                            >
+                              <Icon icon="mdi:chevron-left" className="text-sm" />
+                            </Button>
+                            <div className="bg-default-100 px-3 h-8 rounded-md flex items-center justify-center w-14">
+                              {(externalSelection?.floor || 0) + 1}
+                            </div>
+                            <Button
+                              size="sm"
+                              isIconOnly
+                              onPress={() => handleFloorChange(Math.min(floorConfigs.length, ((externalSelection?.floor || 0) + 1) + 1))}
+                              isDisabled={(externalSelection?.floor || 0) + 1 >= floorConfigs.length}
+                              className="min-w-8 h-8"
+                            >
+                              <Icon icon="mdi:chevron-right" className="text-sm" />
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold w-16">Group</span>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              size="sm"
+                              isIconOnly
+                              onPress={() => handleGroupChange(Math.max(1, ((externalSelection?.group || 0) + 1) - 1))}
+                              isDisabled={(externalSelection?.group || 0) <= 0}
+                              className="min-w-8 h-8"
+                            >
+                              <Icon icon="mdi:chevron-left" className="text-sm" />
+                            </Button>
+                            <div className="bg-default-100 px-3 h-8 rounded-md flex items-center justify-center w-14">
+                              {(externalSelection?.group || 0) + 1}
+                            </div>
+                            <Button
+                              size="sm"
+                              isIconOnly
+                              onPress={() => handleGroupChange(Math.min(maxGroupId + 1, ((externalSelection?.group || 0) + 1) + 1))}
+                              isDisabled={(externalSelection?.group || 0) + 1 > maxGroupId}
+                              className="min-w-8 h-8"
+                            >
+                              <Icon icon="mdi:chevron-right" className="text-sm" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-2 md:pl-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold w-16">Row</span>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              size="sm"
+                              isIconOnly
+                              onPress={() => handleRowChange(Math.max(1, ((externalSelection?.row || 0) + 1) - 1))}
+                              isDisabled={(externalSelection?.row || 0) <= 0}
+                              className="min-w-8 h-8"
+                            >
+                              <Icon icon="mdi:chevron-left" className="text-sm" />
+                            </Button>
+                            <div className="bg-default-100 px-3 h-8 rounded-md flex items-center justify-center w-14">
+                              {(externalSelection?.row || 0) + 1}
+                            </div>
+                            <Button
+                              size="sm"
+                              isIconOnly
+                              onPress={() => handleRowChange(Math.min(maxRow + 1, ((externalSelection?.row || 0) + 1) + 1))}
+                              isDisabled={(externalSelection?.row || 0) + 1 > maxRow}
+                              className="min-w-8 h-8"
+                            >
+                              <Icon icon="mdi:chevron-right" className="text-sm" />
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold w-16">Column</span>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              size="sm"
+                              isIconOnly
+                              onPress={() => handleColumnChange(Math.max(1, ((externalSelection?.column || 0) + 1) - 1))}
+                              isDisabled={(externalSelection?.column || 0) <= 0}
+                              className="min-w-8 h-8"
+                            >
+                              <Icon icon="mdi:chevron-left" className="text-sm" />
+                            </Button>
+                            <div className="bg-default-100 px-3 h-8 rounded-md flex items-center justify-center w-14">
+                              {parseColumn((externalSelection?.column || 0) + 1) || ""}
+                            </div>
+                            <Button
+                              size="sm"
+                              isIconOnly
+                              onPress={() => handleColumnChange(Math.min(maxColumn + 1, ((externalSelection?.column || 0) + 1) + 1))}
+                              isDisabled={(externalSelection?.column || 0) + 1 > maxColumn}
+                              className="min-w-8 h-8"
+                            >
+                              <Icon icon="mdi:chevron-right" className="text-sm" />
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 md:mb-0 mb-10">
+                          <span className="text-sm font-semibold w-16">Depth</span>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              size="sm"
+                              isIconOnly
+                              onPress={() => handleDepthChange(Math.max(1, ((externalSelection?.depth || 0) + 1) - 1))}
+                              isDisabled={(externalSelection?.depth || 0) <= 0}
+                              className="min-w-8 h-8"
+                            >
+                              <Icon icon="mdi:chevron-left" className="text-sm" />
+                            </Button>
+                            <div className="bg-default-100 px-3 h-8 rounded-md flex items-center justify-center w-14">
+                              {(externalSelection?.depth || 0) + 1}
+                            </div>
+                            <Button
+                              size="sm"
+                              isIconOnly
+                              onPress={() => handleDepthChange(Math.min(maxDepth + 1, ((externalSelection?.depth || 0) + 1) + 1))}
+                              isDisabled={(externalSelection?.depth || 0) + 1 > maxDepth}
+                              className="min-w-8 h-8"
+                            >
+                              <Icon icon="mdi:chevron-right" className="text-sm" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                }
+              </AnimatePresence>
+
+              <AnimatePresence>
+                {(tempSelectedCode || showControls) &&
+                  <motion.div {...motionTransition}
+                    className={`absolute overflow-hidden ${showControls ? "bottom-8 left-8 h-8 shadow-sm" : "bottom-4 left-4 h-10 shadow-lg"} w-[12.6rem] bg-default-200/50 rounded-xl backdrop-blur-lg z-10 transition-all duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]`}>
+                    <Button
+                      onPress={() => setShowControls(!showControls)}
+                      color="default"
+                      className={`flex items-center p-4 text-default-800 bg-transparent w-full !scale-100 ${showControls ? "h-8" : "h-10"} !transition-all !duration-500 duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]`}
+                    >
+                      <Icon icon="ic:round-control-camera" className="w-4 h-4" />
+                      <span className="text-sm font-semibold">
+                        {showControls ? "Hide Controls" : "Show Controls"}
+                      </span>
+                    </Button>
+                  </motion.div>
+                }
+              </AnimatePresence>
+
+              <AnimatePresence>
+                {tempSelectedCode &&
+                  <motion.div {...motionTransition} className="absolute top-4 right-4 flex items-center gap-2 bg-background/50 rounded-2xl backdrop-blur-lg">
+                    <span className="text-sm font-semibold p-4">CODE: <b>{tempSelectedCode}</b></span>
+                  </motion.div>
+                }
+              </AnimatePresence>
+            </div>
+          </ModalBody>
+          <ModalFooter className="flex justify-between gap-4 p-4">
+            <Popover
+              classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
+              motionProps={popoverTransition(false)}
+              placement="bottom">
+              <PopoverTrigger>
+                <Button className="capitalize" color="warning" variant="flat">
+                  <Icon icon="heroicons:question-mark-circle-solid" className="w-4 h-4 mr-1" />
+                  Help
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="p-4 max-w-sm">
+                <div className="flex items-center gap-2 mb-4">
+                  <Icon icon="heroicons:lifebuoy" className="w-5 h-5 text-warning-500" width={20} />
+                  <h3 className="font-semibold text-lg">3D Navigation Controls</h3>
+                </div>
+
+                <Accordion variant="splitted">
+                  <AccordionItem key="mouse" aria-label="Mouse Controls" title="Mouse Controls" className="text-sm overflow-hidden bg-primary-50">
+                    <div className="space-y-2 pb-2">
+                      <div className="flex items-start gap-2">
+                        <Icon icon="heroicons:cursor-arrow-ripple" className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary-600" />
+                        <p><strong>Left Click</strong>: Select a shelf</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Icon icon="heroicons:hand-raised" className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary-600" />
+                        <p><strong>Click + Drag</strong>: Rotate camera around scene</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Icon icon="heroicons:cursor-arrow-rays" className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary-600" />
+                        <p><strong>Right Click + Drag</strong>: Pan camera</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Icon icon="heroicons:view-columns" className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary-600" />
+                        <p><strong>Mouse Wheel</strong>: Zoom in/out</p>
+                      </div>
+                    </div>
+                  </AccordionItem>
+
+                  <AccordionItem key="keyboard" aria-label="Keyboard Controls" title="Keyboard Controls" className="text-sm overflow-hidden bg-primary-50">
+                    <div className="space-y-2 pb-2">
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300">W</Kbd>
+                        <p className="my-auto">Move camera forward</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300">S</Kbd>
+                        <p className="my-auto">Move camera backward</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300">A</Kbd>
+                        <p className="my-auto">Move camera left</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300">D</Kbd>
+                        <p className="my-auto">Move camera right</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300" keys={['shift']}>W</Kbd>
+                        <p className="my-auto">Move camera up</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300" keys={['shift']}>S</Kbd>
+                        <p className="my-auto">Move camera down</p>
+                      </div>
+                    </div>
+                  </AccordionItem>
+
+                  <AccordionItem key="shelf-navigation" aria-label="Shelf Navigation" title="Shelf Navigation" className="text-sm overflow-hidden bg-primary-50">
+                    <div className="space-y-2 pb-2">
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300" keys={['left']}></Kbd>
+                        <p>Move to previous shelf or group</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300" keys={['right']}></Kbd>
+                        <p>Move to next shelf or group</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300" keys={['up']}></Kbd>
+                        <p>Move to shelf above</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Kbd className="border border-default-300" keys={['down']}></Kbd>
+                        <p>Move to shelf below</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="flex">
+                          <Kbd className="border border-default-300" keys={['shift']}></Kbd>
+                          <span className="mx-1">+</span>
+                          <Kbd className="border border-default-300" keys={['up', 'down', 'left', 'right']}></Kbd>
+                        </div>
+                        <p>Navigate between shelf groups</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="flex">
+                          <Kbd className="border border-default-300" keys={['ctrl']}></Kbd>
+                          <span className="mx-1">+</span>
+                          <Kbd className="border border-default-300" keys={['up', 'down']}></Kbd>
+                        </div>
+                        <p>Navigate shelf depth (front/back)</p>
+                      </div>
+                    </div>
+                  </AccordionItem>
+                </Accordion>
+
+                <div className="mt-4 border-t pt-3 border-default-200 w-full px-4">
+                  <h4 className="font-medium mb-2">Color Legend:</h4>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: window.shelfSelectorColors!.floorColor }}></div>
+                      <span className="text-xs">Floor</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: window.shelfSelectorColors!.floorHighlightedColor }}></div>
+                      <span className="text-xs">Selected Floor</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: window.shelfSelectorColors!.groupColor }}></div>
+                      <span className="text-xs">Group</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: window.shelfSelectorColors!.groupSelectedColor }}></div>
+                      <span className="text-xs">Selected Group</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: window.shelfSelectorColors!.shelfColor }}></div>
+                      <span className="text-xs">Shelf</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: window.shelfSelectorColors!.shelfHoverColor }}></div>
+                      <span className="text-xs">Hovered Shelf</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: window.shelfSelectorColors!.shelfSelectedColor }}></div>
+                      <span className="text-xs">Selected Shelf</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: window.shelfSelectorColors!.occupiedShelfColor }}></div>
+                      <span className="text-xs">Occupied Shelf</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 text-xs text-default-500">
+                  Tip: Use WASD and arrow keys for easiest navigation through the warehouse.
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            <div className="flex items-center gap-2">
+              <Button color="danger" variant="shadow" onPress={handleCancelLocation}>
+                {isDeliveryProcessing() && (user === null || user.is_admin) ? "Cancel" : "Close"}
+              </Button>
+              {isDeliveryProcessing() && (user === null || user.is_admin) && (
+                <Button color="primary" variant="shadow" onPress={handleConfirmLocation} isDisabled={isSelectedLocationOccupied}>
+                  {isSelectedLocationOccupied ? "Location Occupied" : "Confirm Location"}
+                </Button>
+              )}
+            </div>
+          </ModalFooter>
+        </ModalContent>
       </Modal >
     </div >
   );

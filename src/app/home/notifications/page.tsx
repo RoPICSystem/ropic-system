@@ -383,12 +383,12 @@ export default function NotificationsPage() {
 
 
   return (
-    <div className="container mx-auto p-2 max-w-4xl">
-      <div className="flex justify-between items-center mb-6">
-        <div>
+    <div className="container mx-auto p-2 max-w-5xl">
+      <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
+        <div className="flex flex-col w-full xl:text-left text-center">
           <h1 className="text-2xl font-bold">Notifications</h1>
           {loading ? (
-            <div className="text-default-500 flex items-center">
+            <div className="text-default-500 flex xl:justify-start justify-center items-center">
               <p className='my-auto mr-1'>Loading notification data</p>
               <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default"/>
             </div>
@@ -396,8 +396,7 @@ export default function NotificationsPage() {
           <p className="text-default-500">Track changes across your system</p>
           )}
         </div>
-
-        <div className="flex gap-2">
+        <div className="flex gap-4 xl:mt-0 mt-4 text-center">
           {user?.is_admin && (
             <Button
               color="danger"

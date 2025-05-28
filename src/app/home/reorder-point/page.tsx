@@ -663,12 +663,12 @@ export default function ReorderPointPage() {
   }, [warehouses]);
 
   return (
-    <div className="container mx-auto p-2 max-w-4xl">
+    <div className="container mx-auto p-2 max-w-5xl">
       <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
         <div className="flex flex-col w-full xl:text-left text-center">
           <h1 className="text-2xl font-bold">Reorder Point Management</h1>
           {(isLoading || isLoadingItems) ? (
-            <div className="text-default-500 flex items-center">
+            <div className="text-default-500 flex xl:justify-start justify-center items-center">
               <p className='my-auto mr-1'>Loading reorder point data</p>
               <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
             </div>
@@ -676,7 +676,7 @@ export default function ReorderPointPage() {
             <p className="text-default-500">Monitor stock levels and set reorder points for your inventory.</p>
           )}
         </div>
-        <div className="flex gap-4">
+        <div className="flex gap-4 xl:mt-0 mt-4 text-center">
           <Button
             color="primary"
             variant="shadow"

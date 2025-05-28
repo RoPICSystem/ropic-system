@@ -56,7 +56,7 @@ import {
 } from "./actions";
 import { getOccupiedShelfLocations } from "../delivery/actions";
 import { formatCode, parseColumn } from '@/utils/floorplan';
-import { copyToClipboard, formatDate, formatNumber } from "@/utils/tools";
+import { copyToClipboard, formatDate, formatNumber, toNormalCase, toTitleCase } from "@/utils/tools";
 import { getUserFromCookies } from "@/utils/supabase/server/user";
 import LoadingAnimation from "@/components/loading-animation";
 import { ShelfLocation } from "@/components/shelf-selector-3d";
@@ -345,8 +345,8 @@ export default function WarehouseItemsPage() {
     setPage(1); // Reset to first page on filter change
 
 
-    if (!warehouseId|| warehouseId ===  "null") {
-      setSelectedWarehouse(null); 
+    if (!warehouseId || warehouseId === "null") {
+      setSelectedWarehouse(null);
       setIsLoadingItems(false);
       return;
     };
@@ -590,16 +590,81 @@ export default function WarehouseItemsPage() {
           const refreshedItems = await getWarehouseInventoryItems(
             user.company_uuid,
             selectedWarehouse || undefined,
-            searchQuery
+            searchQuery,
+            null, // status
+            null, // year
+            null, // month
+            null, // week
+            null, // day
+            rowsPerPage, // limit
+            (page - 1) * rowsPerPage // offset
           );
           setWarehouseItems(refreshedItems.data || []);
+          setTotalPages(refreshedItems.totalPages || 1);
+          setTotalItems(refreshedItems.totalCount || 0);
 
           // If we have a selected item, refresh its details including bulks and units
           if (selectedItemId) {
             const refreshedItem = await getWarehouseInventoryItem(selectedItemId);
             if (refreshedItem.success && refreshedItem.data) {
               setFormData(refreshedItem.data);
-              // await loadItemBulks(selectedItemId);
+            }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'warehouse_inventory_item_bulk',
+          filter: `company_uuid=eq.${user.company_uuid}`
+        },
+        async (payload) => {
+          console.log('Real-time warehouse bulk update received:', payload);
+
+          // If we have a selected item, refresh its details
+          if (selectedItemId) {
+            const refreshedItem = await getWarehouseInventoryItem(selectedItemId);
+            if (refreshedItem.success && refreshedItem.data) {
+              setFormData(refreshedItem.data);
+
+              // Update shelf color assignments if bulk locations changed
+              const assignments: Array<any> = refreshedItem.data.bulks.map((bulk: WarehouseInventoryItemBulk) => {
+                if (bulk.location) {
+                  return {
+                    floor: bulk.location.floor,
+                    group: bulk.location.group,
+                    row: bulk.location.row,
+                    column: bulk.location.column,
+                    depth: bulk.location.depth || 0,
+                    colorType: 'secondary'
+                  };
+                }
+                return null;
+              }).filter(Boolean);
+
+              setShelfColorAssignments(assignments);
+            }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'warehouse_inventory_item_unit',
+          filter: `company_uuid=eq.${user.company_uuid}`
+        },
+        async (payload) => {
+          console.log('Real-time warehouse unit update received:', payload);
+
+          // If we have a selected item, refresh its details
+          if (selectedItemId) {
+            const refreshedItem = await getWarehouseInventoryItem(selectedItemId);
+            if (refreshedItem.success && refreshedItem.data) {
+              setFormData(refreshedItem.data);
             }
           }
         }
@@ -610,16 +675,16 @@ export default function WarehouseItemsPage() {
     return () => {
       supabase.removeChannel(warehouseInventoryChannel);
     };
-  }, [user?.company_uuid, searchQuery, selectedWarehouse, selectedItemId]);
+  }, [user?.company_uuid, searchQuery, selectedWarehouse, selectedItemId, page, rowsPerPage]);
 
 
   return (
-    <div className="container mx-auto p-2 max-w-4xl">
+    <div className="container mx-auto p-2 max-w-5xl">
       <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
         <div className="flex flex-col w-full xl:text-left text-center">
           <h1 className="text-2xl font-bold">Warehouse Inventory</h1>
           {(isLoading || isLoadingItems) ? (
-            <div className="text-default-500 flex items-center">
+            <div className="text-default-500 flex xl:justify-start justify-center items-center">
               <p className='my-auto mr-1'>Loading warehouse items</p>
               <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
             </div>
@@ -771,7 +836,7 @@ export default function WarehouseItemsPage() {
                 </div>
               </LoadingAnimation>
             </div>
-            
+
             <div className="h-full absolute w-full">
               <div className={`space-y-4 p-4 mt-1 pt-[11.5rem] h-full relative ${(user && !isLoadingItems) && "overflow-y-auto"}`}>
                 <ListLoadingAnimation
@@ -904,6 +969,7 @@ export default function WarehouseItemsPage() {
                           <Skeleton className="h-16 rounded-xl" />
                         </div>
                         <Skeleton className="h-28 w-full rounded-xl" />
+                        <Skeleton className="h-28 w-full rounded-xl" />
                       </div>
                     </div>
                   }>
@@ -989,6 +1055,24 @@ export default function WarehouseItemsPage() {
                           classNames={inputStyle}
                           startContent={<Icon icon="mdi:text-box" className="text-default-500 mb-[0.2rem]" />}
                         />
+
+                        {/* Warehouse Properties */}
+                        {formData.properties && Object.keys(formData.properties).length > 0 && (
+                          <div className="mt-4 p-3 bg-default-100 rounded-xl border-2 border-default-200">
+                            <div className="flex items-center gap-2 mb-3">
+                              <Icon icon="mdi:tag" className="text-default-500" width={16} />
+                              <span className="text-sm font-medium">Warehouse Properties</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-sm">
+                              {Object.entries(formData.properties).map(([key, value]) => (
+                                <div key={key}>
+                                  <span className="text-default-500">{toTitleCase(toNormalCase(key))}:</span>
+                                  <span className="ml-2">{String(value)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1024,6 +1108,7 @@ export default function WarehouseItemsPage() {
                               <Skeleton className="h-16 w-full rounded-xl" />
                             </div>
 
+                            <Skeleton className="h-28 w-full rounded-xl" />
 
                             <div className="p-4 border-2 border-default-200 rounded-xl space-y-2">
                               <div className="flex justify-between items-center mb-4">
@@ -1046,6 +1131,9 @@ export default function WarehouseItemsPage() {
                                   <Skeleton className="h-16 w-full rounded-xl" />
                                   <Skeleton className="h-16 w-full rounded-xl" />
                                 </div>
+
+                                <Skeleton className="h-28 w-full rounded-xl" />
+
                               </div>
 
                               <div className="p-4 border-2 border-default-200 rounded-xl flex justify-between">
@@ -1205,6 +1293,24 @@ export default function WarehouseItemsPage() {
                                         />
                                       </div>
 
+                                      {/* Bulk Properties */}
+                                      {bulk.properties && Object.keys(bulk.properties).length > 0 && (
+                                        <div className="mt-4 mx-4 p-3 bg-default-100 rounded-xl border-2 border-default-200">
+                                          <div className="flex items-center gap-2 mb-3">
+                                            <Icon icon="mdi:tag" className="text-default-500" width={16} />
+                                            <span className="text-sm font-medium">Bulk Properties</span>
+                                          </div>
+                                          <div className="grid grid-cols-2 gap-2 text-sm">
+                                            {Object.entries(bulk.properties).map(([key, value]) => (
+                                              <div key={key}>
+                                                <span className="text-default-500">{toTitleCase(toNormalCase(key))}:</span>
+                                                <span className="ml-2">{String(value)}</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
+
                                       <div className="overflow-hidden px-4 py-4">
                                         <AnimatePresence mode="popLayout">
                                           {bulk.is_single_item ? (
@@ -1330,7 +1436,7 @@ export default function WarehouseItemsPage() {
                                                             </div>
                                                           }
                                                         >
-                                                          <div className="space-y-4">
+                                                          <div className="space-y-4 pb-4">
                                                             {unit.uuid && (
                                                               <Input
                                                                 label="Warehouse Unit Identifier"
@@ -1351,7 +1457,7 @@ export default function WarehouseItemsPage() {
                                                               />
                                                             )}
 
-                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pt-0">
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 py-0">
                                                               <Input
                                                                 label="Item Code"
                                                                 value={unit.code || ""}
@@ -1384,6 +1490,24 @@ export default function WarehouseItemsPage() {
                                                                 startContent={<Icon icon="mdi:currency-php" className="text-default-500 mb-[0.2rem]" />}
                                                               />
                                                             </div>
+
+                                                            {/* Unit Properties */}
+                                                            {unit.properties && Object.keys(unit.properties).length > 0 && (
+                                                              <div className="mx-4 p-3 bg-default-100 rounded-xl border-2 border-default-200">
+                                                                <div className="flex items-center gap-2 mb-3">
+                                                                  <Icon icon="mdi:tag" className="text-default-500" width={16} />
+                                                                  <span className="text-sm font-medium">Unit Properties</span>
+                                                                </div>
+                                                                <div className="grid grid-cols-2 gap-2 text-sm">
+                                                                  {Object.entries(unit.properties).map(([key, value]) => (
+                                                                    <div key={key}>
+                                                                      <span className="text-default-500">{toTitleCase(toNormalCase(key))}:</span>
+                                                                      <span className="ml-2">{String(value)}</span>
+                                                                    </div>
+                                                                  ))}
+                                                                </div>
+                                                              </div>
+                                                            )}
                                                           </div>
                                                         </AccordionItem>
                                                       ))}

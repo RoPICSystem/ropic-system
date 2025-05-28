@@ -81,19 +81,20 @@ export default function ProfilePage() {
   }, [])
 
   return (
-    <div className="container mx-auto max-w-4xl p-2">
+    <div className="container mx-auto max-w-5xl p-2">
       <div className="space-y-4 items-center w-full">
         <div className="space-y-4 w-full">
 
-
-          <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-2xl font-bold">Profile</h1>
+          <div className="flex flex-col w-full xl:text-left text-center">
+            <h1 className="text-2xl font-bold">Profile</h1>
+            {(isLoading) ? (
+              <div className="text-default-500 flex xl:justify-start justify-center items-center">
+                <p className='my-auto mr-1'>Loading profile data</p>
+                <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
+              </div>
+            ) : (
               <p className="text-default-500">Listed below is your profile information.</p>
-            </div>
-            <div className="flex gap-4">
-
-            </div>
+            )}
           </div>
 
           {/* Basic Information */}
@@ -370,7 +371,7 @@ export default function ProfilePage() {
                 )}
               </AnimatePresence>
             </div>
-           
+
 
             <LoadingAnimation
               condition={isLoading}

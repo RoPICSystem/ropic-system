@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Providers } from "./providers";
 import "./globals.css";
 import { ThemeProvider as NextThemesProvider } from "next-themes";
@@ -11,6 +11,14 @@ export const metadata: Metadata = {
     icon: "/icon.png",
     shortcut: "/icon.png",
   },
+};
+
+export const viewport: Viewport = {
+  viewportFit: "cover",
+  width: "device-width",
+  initialScale: 0.85,
+  maximumScale: 0.85,
+  userScalable: false,
 };
 
 export default function RootLayout({

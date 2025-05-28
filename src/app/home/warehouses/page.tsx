@@ -576,7 +576,7 @@ export default function WarehousePage() {
   };
 
   return (
-    <div className="container mx-auto p-2 max-w-4xl">
+    <div className="container mx-auto p-2 max-w-5xl">
       <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
         <div className="flex flex-col w-full xl:text-left text-center">
           <h1 className="text-2xl font-bold">Warehouse Management</h1>
@@ -589,17 +589,15 @@ export default function WarehousePage() {
             <p className="text-default-500">Manage your warehouses efficiently.</p>
           )}
         </div>
-        <div className="flex gap-4">
-          <div className="mt-4 text-center">
-            <Button
-              color="primary"
-              variant="shadow"
-              onPress={handleAddWarehouse}
-              startContent={<Icon icon="mdi:plus" width={20} height={20} />}
-              isDisabled={isAddressLoading || detailLoading || listLoading}>
-              New Warehouse
-            </Button>
-          </div>
+        <div className="flex gap-4 xl:mt-0 mt-4 text-center">
+          <Button
+            color="primary"
+            variant="shadow"
+            onPress={handleAddWarehouse}
+            startContent={<Icon icon="mdi:plus" width={20} height={20} />}
+            isDisabled={isAddressLoading || detailLoading || listLoading}>
+            New Warehouse
+          </Button>
         </div>
       </div>
 
@@ -706,23 +704,23 @@ export default function WarehousePage() {
               </div>
 
 
-                {/* Add pagination */}
-                {warehouses.length > 0 && (
-                  <div className="flex flex-col items-center pt-2 pb-4 px-2">
-                    <div className="text-sm text-default-500 mb-2">
-                      Showing {(page - 1) * rowsPerPage + 1} to {Math.min(page * rowsPerPage, totalWarehouses)} of {totalWarehouses} {totalWarehouses === 1 ? 'warehouse' : 'warehousess'}
-                    </div>
-                    <Pagination
-                      total={totalPages}
-                      initialPage={1}
-                      page={page}
-                      onChange={handlePageChange}
-                      color="primary" 
-                      size="sm"
-                      showControls
-                    />
+              {/* Add pagination */}
+              {warehouses.length > 0 && (
+                <div className="flex flex-col items-center pt-2 pb-4 px-2">
+                  <div className="text-sm text-default-500 mb-2">
+                    Showing {(page - 1) * rowsPerPage + 1} to {Math.min(page * rowsPerPage, totalWarehouses)} of {totalWarehouses} {totalWarehouses === 1 ? 'warehouse' : 'warehousess'}
                   </div>
-                )}
+                  <Pagination
+                    total={totalPages}
+                    initialPage={1}
+                    page={page}
+                    onChange={handlePageChange}
+                    color="primary"
+                    size="sm"
+                    showControls
+                  />
+                </div>
+              )}
 
               <AnimatePresence>
                 {!listLoading && warehouses.length === 0 && (

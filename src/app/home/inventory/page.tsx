@@ -244,6 +244,7 @@ export default function InventoryPage() {
   useEffect(() => {
     const fetchItemDetails = async (itemId: string) => {
       setIsLoading(true);
+      setError(null);
 
       try {
         const result = await getInventoryItem(itemId);
@@ -1257,12 +1258,12 @@ export default function InventoryPage() {
   };
 
   return (
-    <div className="container mx-auto p-2 max-w-4xl">
+    <div className="container mx-auto p-2 max-w-5xl">
       <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
         <div className="flex flex-col w-full xl:text-left text-center">
           <h1 className="text-2xl font-bold">Inventory Management</h1>
           {isLoadingItems ? (
-            <div className="text-default-500 flex items-center">
+            <div className="text-default-500 flex xl:justify-start justify-center items-center">
               <p className='my-auto mr-1'>Loading inventory data</p>
               <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
             </div>
@@ -1270,8 +1271,7 @@ export default function InventoryPage() {
             <p className="text-default-500">Manage your inventory items efficiently.</p>
           )}
         </div>
-        <div className="flex gap-4">
-          <div className="mt-4 text-center">
+        <div className="flex gap-4 xl:mt-0 mt-4 text-center">
             <Button
               color="primary"
               variant="shadow"
@@ -1281,8 +1281,6 @@ export default function InventoryPage() {
             >
               New Item
             </Button>
-
-          </div>
         </div>
       </div>
 

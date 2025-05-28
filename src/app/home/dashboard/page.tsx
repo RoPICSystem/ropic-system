@@ -413,10 +413,10 @@ export default function DashboardPage() {
   const lowStockItems = !loading && dashboardData?.reorderPointItems;
 
   return (
-    <div className="container mx-auto p-2 max-w-4xl">
+    <div className="container mx-auto p-2 max-w-5xl">
       {/* Header section */}
-      <div className="flex justify-between items-center mb-6">
-        <div>
+      <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
+        <div className="flex flex-col w-full xl:text-left text-center">
           <h1 className="text-2xl font-bold">Dashboard</h1>
           {loading ? (
             <div className="text-default-500 flex items-center">
@@ -424,11 +424,12 @@ export default function DashboardPage() {
               <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
             </div>
           ) : (
-            <p className="text-default-500">Welcome to RoPIC System inventory and delivery operations.</p>
+            <p className="text-default-500">Welcome to RoPIC System!</p>
           )}
         </div>
-        <div className="flex gap-4 items-center">
-          <div className="flex items-center gap-2 text-default-500">
+        <div className="flex gap-4 xl:mt-0 mt-4 text-center items-center" >
+          
+          <div className="flex flex-0 items-center gap-2 text-default-500 w-32">
             <Icon icon="fluent:calendar-20-filled" width={20} height={20} />
             {format(new Date(), 'MMMM d, yyyy')}
           </div>

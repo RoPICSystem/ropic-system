@@ -3,6 +3,7 @@ import { Button, Input, Autocomplete, AutocompleteItem, Card, CardBody, ScrollSh
 import { Icon } from '@iconify/react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { motionTransition } from "@/utils/anim";
+import { toSnakeCase, toNormalCase } from '@/utils/tools';
 
 interface CustomProperty {
   key: string;
@@ -36,14 +37,6 @@ const commonPropertyKeys = [
   "Grade",
   "Quality"
 ];
-
-const toSnakeCase = (str: string) => {
-  return str.toLowerCase().replace(/\s+/g, '_');
-}
-
-const toNormalCase = (str: string) => {
-  return str.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
-}
 
 export default function CustomProperties({
   properties = {},
@@ -203,7 +196,7 @@ export default function CustomProperties({
                         <div className="flex gap-2 items-center">
                           <div className="flex-1 flex items-center">
                             <Autocomplete
-                              label="Property Name"
+                              label="Name"
                               placeholder="Enter or select property"
                               inputValue={toNormalCase(property.key)}
                               isClearable={false}
@@ -232,7 +225,7 @@ export default function CustomProperties({
                             </Autocomplete>
 
                             <Input
-                              label="Property Value"
+                              label="Value"
                               placeholder="Enter value"
                               value={property.value}
                               onChange={(e) => handlePropertyChange(index, 'value', e.target.value)}
