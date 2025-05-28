@@ -34,6 +34,12 @@ export async function getReorderPointLogs(
   warehouseUuid?: string,
   statusFilter?: InventoryStatus,
   searchQuery: string = "",
+  dateFrom?: string,
+  dateTo?: string,
+  year?: number,
+  month?: number,
+  week?: number,
+  day?: number,
   limit: number = 10,
   offset: number = 0
 ) {
@@ -47,6 +53,12 @@ export async function getReorderPointLogs(
         p_warehouse_uuid: warehouseUuid || null,
         p_status: statusFilter || null,
         p_search: searchQuery || "",
+        p_date_from: dateFrom || null,
+        p_date_to: dateTo || null,
+        p_year: year || null,
+        p_month: month || null,
+        p_week: week || null,
+        p_day: day || null,
         p_limit: limit,
         p_offset: offset
       }
@@ -141,3 +153,40 @@ export async function triggerReorderPointCalculation() {
     };
   }
 }
+
+/**
+ * Fetches users/operators for a company to resolve operator names
+ */
+export async function getOperators(operatorUuids: string[]) {
+  const supabase = await createClient();
+
+  try {
+    // Return empty array if no UUIDs provided
+    if (!operatorUuids || operatorUuids.length === 0) {
+      return {
+        success: true,
+        data: []
+      };
+    }
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('uuid, full_name, email')
+      .in('uuid', operatorUuids);
+
+    if (error) throw error;
+
+    return {
+      success: true,
+      data: data || []
+    };
+  } catch (error: any) {
+    console.error("Error fetching operators:", error);
+    return {
+      success: false,
+      error: error.message || "Failed to fetch operators",
+      data: []
+    };
+  }
+}
+

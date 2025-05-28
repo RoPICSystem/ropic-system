@@ -954,7 +954,7 @@ export async function getDeliveryHistory(inventoryUuid: string) {
   try {
     const { data, error } = await supabase
       .from("delivery_items")
-      .select("uuid, inventory_uuid, delivery_date, status, location_codes, recipient_name")
+      .select("uuid, inventory_uuid, delivery_date, status, location_codes, operator_uuids")
       .eq("inventory_uuid", inventoryUuid)
       .order("delivery_date", { ascending: false });
 

@@ -23,8 +23,13 @@ import {
   Skeleton,
   Spinner,
   Tooltip,
-  useDisclosure
+  useDisclosure,
+  DatePicker,
+  DateRangePicker,
+  Tabs,
+  Tab
 } from "@heroui/react";
+import { CalendarDate } from "@internationalized/date";
 import { Icon } from "@iconify/react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -34,7 +39,7 @@ import { format } from "date-fns";
 // Import server actions
 import CardList from "@/components/card-list";
 import { motionTransition, popoverTransition } from "@/utils/anim";
-import { getReorderPointLogs, updateCustomSafetyStock, triggerReorderPointCalculation, InventoryStatus, ReorderPointLog } from "./actions";
+import { getReorderPointLogs, updateCustomSafetyStock, triggerReorderPointCalculation, InventoryStatus, ReorderPointLog, getOperators } from "./actions";
 import { getWarehouses } from "../warehouses/actions";
 import { getInventoryItems } from "../inventory/actions";
 import { formatDate } from "@/utils/tools";
@@ -46,6 +51,7 @@ import { getCompanyData } from "../company/actions";
 import { getUserFromCookies } from "@/utils/supabase/server/user";
 import LoadingAnimation from "@/components/loading-animation";
 import ListLoadingAnimation from "@/components/list-loading-animation";
+import { getUserCompanyDetails } from "@/utils/supabase/server/companies";
 
 export default function ReorderPointPage() {
   const router = useRouter();
@@ -81,6 +87,16 @@ export default function ReorderPointPage() {
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
 
+  // Add date filter states
+  const [dateFrom, setDateFrom] = useState<string>("");
+  const [dateTo, setDateTo] = useState<string>("");
+  const [yearFilter, setYearFilter] = useState<number | null>(null);
+  const [monthFilter, setMonthFilter] = useState<number | null>(null);
+  const [weekFilter, setWeekFilter] = useState<number | null>(null);
+  const [dayFilter, setDayFilter] = useState<number | null>(null);
+
+  const [dateTabKey, setDateTabKey] = useState("range");
+
   // Input style for consistency
   const inputStyle = {
     inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
@@ -96,7 +112,81 @@ export default function ReorderPointPage() {
     searchQuery: "",
     statusFilter: null as InventoryStatus | null,
     warehouseFilter: null as string | null,
+    dateFrom: null as any,
+    dateTo: null as any,
+    yearFilter: null as number | null,
+    monthFilter: null as number | null,
+    weekFilter: null as number | null,
+    dayFilter: null as number | null,
+    dateTabKey: "range" as string,
   });
+
+  // Add state for PDF export logs
+  const [pdfExportLogs, setPdfExportLogs] = useState<ReorderPointLog[]>([]);
+  const [isLoadingPdfLogs, setIsLoadingPdfLogs] = useState(false);
+
+  // Function to fetch filtered logs for PDF export
+  const fetchPdfExportLogs = useCallback(async () => {
+    if (!user?.company_uuid) return;
+
+    setIsLoadingPdfLogs(true);
+    try {
+      // Convert date objects to strings if they exist
+      const dateFromString = pdfExportState.dateFrom ?
+        new Date(pdfExportState.dateFrom.year, pdfExportState.dateFrom.month - 1, pdfExportState.dateFrom.day).toISOString().split('T')[0] :
+        undefined;
+      const dateToString = pdfExportState.dateTo ?
+        new Date(pdfExportState.dateTo.year, pdfExportState.dateTo.month - 1, pdfExportState.dateTo.day).toISOString().split('T')[0] :
+        undefined;
+
+      const result = await getReorderPointLogs(
+        user.company_uuid,
+        pdfExportState.warehouseFilter || undefined,
+        pdfExportState.statusFilter || undefined,
+        pdfExportState.searchQuery,
+        dateFromString,
+        dateToString,
+        pdfExportState.yearFilter || undefined,
+        pdfExportState.monthFilter || undefined,
+        pdfExportState.weekFilter || undefined,
+        pdfExportState.dayFilter || undefined,
+        1000, // Get more items for export
+        0
+      );
+
+      setPdfExportLogs(result.data || []);
+    } catch (error) {
+      console.error("Error fetching PDF export logs:", error);
+      setPdfExportLogs([]);
+    } finally {
+      setIsLoadingPdfLogs(false);
+    }
+  }, [user?.company_uuid, pdfExportState.warehouseFilter, pdfExportState.statusFilter, pdfExportState.searchQuery, pdfExportState.dateFrom, pdfExportState.dateTo, pdfExportState.yearFilter, pdfExportState.monthFilter, pdfExportState.weekFilter, pdfExportState.dayFilter]);
+
+  // Effect to fetch PDF export logs when filters change
+  useEffect(() => {
+    if (pdfExportState.isPopoverOpen) {
+      fetchPdfExportLogs();
+    }
+  }, [pdfExportState.isPopoverOpen, fetchPdfExportLogs]);
+
+  // Update the getFilteredPdfLogs function to use pdfExportLogs
+  const getFilteredPdfLogs = useCallback(() => {
+    return pdfExportLogs;
+  }, [pdfExportLogs]);
+
+  // Clear PDF export date filters
+  const clearPdfDateFilters = () => {
+    setPdfExportState(prev => ({
+      ...prev,
+      dateFrom: null,
+      dateTo: null,
+      yearFilter: null,
+      monthFilter: null,
+      weekFilter: null,
+      dayFilter: null
+    }));
+  };
 
   // Add this function to handle PDF export log selection
   const handleTogglePdfLogSelection = (logId: string) => {
@@ -109,112 +199,7 @@ export default function ReorderPointPage() {
     });
   };
 
-  // Add this function to filter logs for PDF export
-  const getFilteredPdfLogs = useCallback(() => {
-    let filteredLogs = [...reorderPointLogs];
 
-    // Apply search filter
-    if (pdfExportState.searchQuery) {
-      const query = pdfExportState.searchQuery.toLowerCase();
-      const matchingItemIds = inventoryItems
-        .filter(item => item.name.toLowerCase().includes(query))
-        .map(item => item.uuid);
-
-      filteredLogs = filteredLogs.filter(log =>
-        matchingItemIds.includes(log.inventory_uuid)
-      );
-    }
-
-    // Apply status filter
-    if (pdfExportState.statusFilter) {
-      filteredLogs = filteredLogs.filter(log =>
-        log.status === pdfExportState.statusFilter
-      );
-    }
-
-    // Apply warehouse filter
-    if (pdfExportState.warehouseFilter) {
-      filteredLogs = filteredLogs.filter(log =>
-        log.warehouse_uuid === pdfExportState.warehouseFilter
-      );
-    }
-
-    return filteredLogs;
-  }, [reorderPointLogs, pdfExportState, inventoryItems]);
-
-
-  // Add this function inside the ReorderPointPage component
-  const handleGeneratePdf = async () => {
-    setIsPdfGenerating(true);
-
-    try {
-      // Prepare logs with resolved names
-      const preparedLogs = selectedItemId
-        ? [{
-          ...formData as ReorderPointLog,
-          inventoryItemName: getInventoryItemName(formData.inventory_uuid || ""),
-          warehouseName: getWarehouseName(formData.warehouse_uuid || "")
-        }]
-        : reorderPointLogs.map(log => ({
-          ...log,
-          inventoryItemName: getInventoryItemName(log.inventory_uuid),
-          warehouseName: getWarehouseName(log.warehouse_uuid)
-        }));
-
-      // Get delivery history for all items
-      let allDeliveryHistory: any[] = [];
-
-      // Create a mapping of inventory IDs to their names for the delivery history
-      const inventoryNameMap: Record<string, string> = {};
-
-      // Fetch history for each item in parallel
-      const historyPromises = preparedLogs.map(async (log) => {
-        if (log.inventory_uuid) {
-          inventoryNameMap[log.inventory_uuid] = log.inventoryItemName || "";
-          const result = await getDeliveryHistory(log.inventory_uuid);
-          if (result.success) {
-            // Add inventory name to each delivery history record
-            return result.data.map(delivery => ({
-              ...delivery,
-              inventoryItemName: log.inventoryItemName
-            }));
-          }
-        }
-        return [];
-      });
-
-      // Wait for all history requests to complete
-      const historyResults = await Promise.all(historyPromises);
-
-      // Combine all delivery histories
-      allDeliveryHistory = historyResults.flat();
-
-      const companyData = await getCompanyData(user.company_uuid);
-
-      // Generate PDF
-      const pdfBlob = await generatePdfBlob({
-        logs: preparedLogs,
-        deliveryHistory: allDeliveryHistory,
-        warehouseName: selectedWarehouse ? getWarehouseName(selectedWarehouse) : "All Warehouses",
-        companyName: companyData.data?.name || "Your Company",
-        dateGenerated: new Date().toLocaleString(),
-        inventoryNameMap  // Pass the mapping of inventory IDs to names
-      });
-
-      // Create download link
-      const url = URL.createObjectURL(pdfBlob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `Reorder_Point_Report_${new Date().toISOString().split('T')[0]}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } catch (error) {
-      console.error("Error generating PDF:", error);
-    } finally {
-      setIsPdfGenerating(false);
-    }
-  };
 
   // Helper function to get status chip color
   const getStatusColor = (status: InventoryStatus): "success" | "warning" | "danger" | "default" => {
@@ -237,6 +222,12 @@ export default function ReorderPointPage() {
         selectedWarehouse || undefined,
         statusFilter || undefined,
         query,
+        dateFrom || undefined,
+        dateTo || undefined,
+        yearFilter || undefined,
+        monthFilter || undefined,
+        weekFilter || undefined,
+        dayFilter || undefined,
         rowsPerPage, // limit
         (currentPage - 1) * rowsPerPage // offset
       );
@@ -260,12 +251,12 @@ export default function ReorderPointPage() {
   const handleWarehouseChange = async (warehouseId: string | null) => {
     setSelectedWarehouse(warehouseId);
 
-    if (!warehouseId|| warehouseId ===  "null") {
-      setSelectedWarehouse(null); 
+    if (!warehouseId || warehouseId === "null") {
+      setSelectedWarehouse(null);
       setIsLoadingItems(false);
       return;
     };
-    
+
     try {
       setIsLoadingItems(true);
       const result = await getReorderPointLogs(
@@ -273,6 +264,12 @@ export default function ReorderPointPage() {
         warehouseId || undefined,
         statusFilter || undefined,
         searchQuery,
+        dateFrom || undefined,
+        dateTo || undefined,
+        yearFilter || undefined,
+        monthFilter || undefined,
+        weekFilter || undefined,
+        dayFilter || undefined,
         rowsPerPage, // limit
         0 // offset (reset to first page)
       );
@@ -297,6 +294,12 @@ export default function ReorderPointPage() {
         selectedWarehouse || undefined,
         status || undefined,
         searchQuery,
+        dateFrom || undefined,
+        dateTo || undefined,
+        yearFilter || undefined,
+        monthFilter || undefined,
+        weekFilter || undefined,
+        dayFilter || undefined,
         rowsPerPage, // limit
         0 // offset (reset to first page)
       );
@@ -311,7 +314,86 @@ export default function ReorderPointPage() {
     }
   };
 
-  // Add this page change handler
+  // Add date filter handlers
+  const handleDateFromChange = async (date: string) => {
+    setDateFrom(date);
+    await applyDateFilters(date, dateTo, yearFilter, monthFilter, weekFilter, dayFilter);
+  };
+
+  const handleDateToChange = async (date: string) => {
+    setDateTo(date);
+    await applyDateFilters(dateFrom, date, yearFilter, monthFilter, weekFilter, dayFilter);
+  };
+
+  const handleYearFilterChange = async (year: number | null) => {
+    setYearFilter(year);
+    await applyDateFilters(dateFrom, dateTo, year, monthFilter, weekFilter, dayFilter);
+  };
+
+  const handleMonthFilterChange = async (month: number | null) => {
+    setMonthFilter(month);
+    await applyDateFilters(dateFrom, dateTo, yearFilter, month, weekFilter, dayFilter);
+  };
+
+  const handleWeekFilterChange = async (week: number | null) => {
+    setWeekFilter(week);
+    await applyDateFilters(dateFrom, dateTo, yearFilter, monthFilter, week, dayFilter);
+  };
+
+  const handleDayFilterChange = async (day: number | null) => {
+    setDayFilter(day);
+    await applyDateFilters(dateFrom, dateTo, yearFilter, monthFilter, weekFilter, day);
+  };
+
+
+  // Helper function to apply date filters
+  const applyDateFilters = async (
+    dateFromParam: string,
+    dateToParam: string,
+    yearParam: number | null,
+    monthParam: number | null,
+    weekParam: number | null,
+    dayParam: number | null
+  ) => {
+    try {
+      setIsLoadingItems(true);
+      const result = await getReorderPointLogs(
+        user?.company_uuid || "",
+        selectedWarehouse || undefined,
+        statusFilter || undefined,
+        searchQuery,
+        dateFromParam || undefined,
+        dateToParam || undefined,
+        yearParam || undefined,
+        monthParam || undefined,
+        weekParam || undefined,
+        dayParam || undefined,
+        rowsPerPage,
+        0 // reset to first page
+      );
+      setReorderPointLogs(result.data || []);
+      setTotalPages(result.totalPages || 1);
+      setTotalItems(result.totalCount || 0);
+      setPage(1);
+    } catch (error) {
+      console.error("Error applying date filters:", error);
+    } finally {
+      setIsLoadingItems(false);
+    }
+  };
+
+  // Clear all date filters
+  const clearDateFilters = async () => {
+    setDateFrom("");
+    setDateTo("");
+    setYearFilter(null);
+    setMonthFilter(null);
+    setWeekFilter(null);
+    setDayFilter(null);
+    await applyDateFilters("", "", null, null, null, null);
+  };
+
+  // Update handlePageChange to include date filters
   const handlePageChange = async (newPage: number) => {
     setPage(newPage);
     setIsLoadingItems(true);
@@ -321,6 +403,12 @@ export default function ReorderPointPage() {
         selectedWarehouse || undefined,
         statusFilter || undefined,
         searchQuery,
+        dateFrom || undefined,
+        dateTo || undefined,
+        yearFilter || undefined,
+        monthFilter || undefined,
+        weekFilter || undefined,
+        dayFilter || undefined,
         rowsPerPage,
         (newPage - 1) * rowsPerPage
       );
@@ -334,7 +422,8 @@ export default function ReorderPointPage() {
     }
   };
 
-  // Add this new function next to the existing handleGeneratePdf function
+
+  // Replace the handleGeneratePdfFiltered function
   const handleGeneratePdfFiltered = async (selectedLogIds: string[]) => {
     setIsPdfGenerating(true);
 
@@ -343,7 +432,7 @@ export default function ReorderPointPage() {
       const logsToExport = selectedLogIds.length > 0
         ? reorderPointLogs.filter(log => selectedLogIds.includes(log.uuid))
         : (selectedItemId
-          ? [reorderPointLogs.find(log => log.uuid === selectedItemId)!]
+          ? [reorderPointLogs.find(log => log.uuid === selectedItemId)!].filter(Boolean)
           : reorderPointLogs);
 
       // Prepare logs with resolved names
@@ -353,24 +442,28 @@ export default function ReorderPointPage() {
         warehouseName: getWarehouseName(log.warehouse_uuid)
       }));
 
-      // Get delivery history for all selected items
+      // Get delivery history for all items - collect unique inventory UUIDs to avoid duplicates
       let allDeliveryHistory: any[] = [];
-
-      // Create a mapping of inventory IDs to their names for the delivery history
       const inventoryNameMap: Record<string, string> = {};
+      const uniqueInventoryUuids = new Set<string>();
 
-      // Fetch history for each selected item in parallel
-      const historyPromises = preparedLogs.map(async (log) => {
+      // Collect unique inventory UUIDs from the logs
+      preparedLogs.forEach(log => {
         if (log.inventory_uuid) {
+          uniqueInventoryUuids.add(log.inventory_uuid);
           inventoryNameMap[log.inventory_uuid] = log.inventoryItemName || "";
-          const result = await getDeliveryHistory(log.inventory_uuid);
-          if (result.success) {
-            // Add inventory name to each delivery history record
-            return result.data.map(delivery => ({
-              ...delivery,
-              inventoryItemName: log.inventoryItemName
-            }));
-          }
+        }
+      });
+
+      // Fetch history for each unique inventory item
+      const historyPromises = Array.from(uniqueInventoryUuids).map(async (inventoryUuid) => {
+        const result = await getDeliveryHistory(inventoryUuid);
+        if (result.success) {
+          // Add inventory name to each delivery history record
+          return result.data.map(delivery => ({
+            ...delivery,
+            inventoryItemName: inventoryNameMap[inventoryUuid]
+          }));
         }
         return [];
       });
@@ -381,7 +474,43 @@ export default function ReorderPointPage() {
       // Combine all delivery histories
       allDeliveryHistory = historyResults.flat();
 
+      // Get all unique operator UUIDs from delivery history
+      const operatorUuids = new Set<string>();
+      allDeliveryHistory.forEach(delivery => {
+        if (delivery.operator_uuids && Array.isArray(delivery.operator_uuids)) {
+          delivery.operator_uuids.forEach((uuid: string) => operatorUuids.add(uuid));
+        }
+      });
+
+      // Fetch operator names
+      const operatorNameMap: Record<string, string> = {};
+      if (operatorUuids.size > 0) {
+        const operatorsResult = await getOperators(Array.from(operatorUuids));
+        if (operatorsResult.success) {
+          operatorsResult.data.forEach((operator: any) => {
+            operatorNameMap[operator.uuid] = operator.full_name.trim();
+          });
+        }
+      }
+
+      // Map operator names to delivery history
+      const deliveryHistoryWithOperatorNames = allDeliveryHistory.map(delivery => ({
+        ...delivery,
+        recipient_name: delivery.operator_uuids && Array.isArray(delivery.operator_uuids)
+          ? delivery.operator_uuids
+            .map((uuid: string) => operatorNameMap[uuid] || 'Unknown Operator')
+            .join(', ')
+          : 'No Operator Assigned'
+      }));
+
+      // Get company data including logo
       const companyData = await getCompanyData(user.company_uuid);
+      const { data: companyDetails, error: companyError } = await getUserCompanyDetails(user.uuid);
+
+      let companyLogoUrl = null;
+      if (companyDetails?.logo_url && !companyDetails?.logo_url.error) {
+        companyLogoUrl = companyDetails.logo_url;
+      }
 
       // Determine warehouse name for the report
       let warehouseNameForReport = "All Warehouses";
@@ -394,9 +523,10 @@ export default function ReorderPointPage() {
       // Generate PDF
       const pdfBlob = await generatePdfBlob({
         logs: preparedLogs,
-        deliveryHistory: allDeliveryHistory,
+        deliveryHistory: deliveryHistoryWithOperatorNames,
         warehouseName: warehouseNameForReport,
         companyName: companyData.data?.name || "Your Company",
+        companyLogoUrl: companyLogoUrl,
         dateGenerated: new Date().toLocaleString(),
         inventoryNameMap
       });
@@ -405,7 +535,7 @@ export default function ReorderPointPage() {
       const url = URL.createObjectURL(pdfBlob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `Reorder_Point_Report_${new Date().toISOString().split('T')[0]}.pdf`;
+      link.download = `RoPIC_Report_${(companyData.data?.name || 'Company').replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}_${new Date().toLocaleTimeString('en-US', { hour12: false }).replace(/:/g, '-')}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -574,6 +704,12 @@ export default function ReorderPointPage() {
             undefined, // warehouseUuid
             undefined, // statusFilter
             "", // searchQuery
+            undefined, // dateFrom
+            undefined, // dateTo
+            undefined, // year
+            undefined, // month
+            undefined, // week
+            undefined, // day
             rowsPerPage, // limit
             0 // offset
           );
@@ -616,12 +752,18 @@ export default function ReorderPointPage() {
         async (payload) => {
           console.log('Real-time reorder point log update received:', payload);
 
-          // Refresh reorder point logs with pagination
+          // Refresh reorder point logs with pagination and date filters
           const refreshedLogs = await getReorderPointLogs(
             user.company_uuid,
             selectedWarehouse || undefined,
             statusFilter || undefined,
             searchQuery,
+            dateFrom || undefined,
+            dateTo || undefined,
+            yearFilter || undefined,
+            monthFilter || undefined,
+            weekFilter || undefined,
+            dayFilter || undefined,
             rowsPerPage, // limit
             (page - 1) * rowsPerPage // offset
           );
@@ -647,7 +789,7 @@ export default function ReorderPointPage() {
     return () => {
       supabase.removeChannel(reorderLogsChannel);
     };
-  }, [user?.company_uuid, searchQuery, selectedWarehouse, selectedItemId, statusFilter, page, rowsPerPage]);
+  }, [user?.company_uuid, searchQuery, selectedWarehouse, selectedItemId, statusFilter, page, rowsPerPage, dateFrom, dateTo, yearFilter, monthFilter, weekFilter, dayFilter]);
 
 
   // Helper to get inventory item name
@@ -713,12 +855,12 @@ export default function ReorderPointPage() {
                 variant="shadow"
                 startContent={!isPdfGenerating && <Icon icon="mdi:file-pdf-box" />}
                 isLoading={isPdfGenerating}
-                isDisabled={isPdfGenerating || reorderPointLogs.length === 0 || isLoading}
+                isDisabled={isPdfGenerating || isLoading}
               >
                 Export PDF
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-96 p-0">
+            <PopoverContent className="w-96 p-0 overflow-hidden">
               <div className="w-full">
                 <div className="px-4 pt-4 text-center">
                   <h3 className="text-lg font-semibold">Export Reorder Point Report</h3>
@@ -754,7 +896,8 @@ export default function ReorderPointPage() {
                               Filters
                             </Button>
                           </PopoverTrigger>
-                          <PopoverContent className="p-4 w-80 p-0">
+                          <PopoverContent className="w-96 p-0 overflow-hidden">
+
                             <div>
                               <div className="space-y-4 p-4">
                                 <h3 className="text-lg font-semibold items-center w-full text-center">
@@ -795,8 +938,207 @@ export default function ReorderPointPage() {
                                   <AutocompleteItem key="CRITICAL">Critical</AutocompleteItem>
                                   <AutocompleteItem key="OUT_OF_STOCK">Out of Stock</AutocompleteItem>
                                 </Autocomplete>
+
+                                {/* Date Filters using Tabs */}
+                                <div className="space-y-3 border-2 border-default-200 rounded-xl p-4 bg-default-100/25">
+                                  <div className="flex items-center gap-2">
+                                    <Icon icon="mdi:calendar-range" className="text-default-500" />
+                                    <span className="text-sm font-medium">Date Filters</span>
+                                  </div>
+
+                                  <Tabs
+                                    variant="solid"
+                                    color="primary"
+                                    fullWidth
+                                    size="md"
+                                    classNames={{
+                                      panel: "p-0",
+                                      tabList: "border-2 border-default-200",
+                                      tabContent: "text-default-700",
+
+                                    }}
+                                    selectedKey={pdfExportState.dateTabKey}
+                                    onSelectionChange={(key) => {
+                                      const tabKey = key as string;
+                                      setPdfExportState(prev => ({
+                                        ...prev,
+                                        dateTabKey: tabKey,
+                                        // Reset all date filters when switching tabs
+                                        dateFrom: null,
+                                        dateTo: null,
+                                        yearFilter: null,
+                                        monthFilter: null,
+                                        weekFilter: null,
+                                        dayFilter: null
+                                      }));
+                                    }}
+                                    className="w-full"
+                                  >
+                                    <Tab key="range" title="Date Range">
+                                      <DateRangePicker
+                                        label="Select Date Range"
+                                        className="w-full"
+                                        value={pdfExportState.dateFrom && pdfExportState.dateTo ? {
+                                          start: pdfExportState.dateFrom,
+                                          end: pdfExportState.dateTo
+                                        } : null}
+                                        onChange={(range) => {
+                                          setPdfExportState(prev => ({
+                                            ...prev,
+                                            dateFrom: range?.start || null,
+                                            dateTo: range?.end || null
+                                          }));
+                                        }}
+                                        classNames={inputStyle}
+                                      />
+                                    </Tab>
+
+                                    <Tab key="week" title="By Week">
+                                      <div className="space-y-3">
+                                        <div className="flex gap-2">
+                                          <Input
+                                            type="number"
+                                            label="Year"
+                                            placeholder="2024"
+                                            value={pdfExportState.yearFilter?.toString() || ""}
+                                            onChange={(e) => setPdfExportState(prev => ({
+                                              ...prev,
+                                              yearFilter: e.target.value ? parseInt(e.target.value) : null
+                                            }))}
+                                            className="flex-1"
+                                            classNames={inputStyle}
+                                            min="2000"
+                                            max="2100"
+                                          />
+                                          <Input
+                                            type="number"
+                                            label="Week"
+                                            placeholder="1-53"
+                                            value={pdfExportState.weekFilter?.toString() || ""}
+                                            onChange={(e) => setPdfExportState(prev => ({
+                                              ...prev,
+                                              weekFilter: e.target.value ? parseInt(e.target.value) : null,
+                                              // Auto-set current year if not set
+                                              yearFilter: prev.yearFilter || new Date().getFullYear()
+                                            }))}
+                                            className="flex-1"
+                                            classNames={inputStyle}
+                                            min="1"
+                                            max="53"
+                                          />
+                                        </div>
+                                        {(pdfExportState.yearFilter || pdfExportState.weekFilter) && (
+                                          <Button
+                                            size="sm"
+                                            variant="flat"
+                                            color="warning"
+                                            onPress={() => setPdfExportState(prev => ({
+                                              ...prev,
+                                              yearFilter: null,
+                                              weekFilter: null
+                                            }))}
+                                            className="w-full"
+                                            startContent={<Icon icon="mdi:close" />}
+                                          >
+                                            Clear Week Filter
+                                          </Button>
+                                        )}
+                                      </div>
+                                    </Tab>
+
+                                    <Tab key="specific" title="Specific Date">
+                                      <div className="space-y-3">
+                                        <div className="grid grid-cols-3 gap-2">
+                                          <Input
+                                            type="number"
+                                            label="Year"
+                                            placeholder="2024"
+                                            value={pdfExportState.yearFilter?.toString() || ""}
+                                            onChange={(e) => setPdfExportState(prev => ({
+                                              ...prev,
+                                              yearFilter: e.target.value ? parseInt(e.target.value) : null
+                                            }))}
+                                            classNames={inputStyle}
+                                            min="2000"
+                                            max="2100"
+                                          />
+                                          <Input
+                                            type="number"
+                                            label="Month"
+                                            placeholder="1-12"
+                                            value={pdfExportState.monthFilter?.toString() || ""}
+                                            onChange={(e) => setPdfExportState(prev => ({
+                                              ...prev,
+                                              monthFilter: e.target.value ? parseInt(e.target.value) : null
+                                            }))}
+                                            classNames={inputStyle}
+                                            min="1"
+                                            max="12"
+                                          />
+                                          <Input
+                                            type="number"
+                                            label="Day"
+                                            placeholder="1-31"
+                                            value={pdfExportState.dayFilter?.toString() || ""}
+                                            onChange={(e) => setPdfExportState(prev => ({
+                                              ...prev,
+                                              dayFilter: e.target.value ? parseInt(e.target.value) : null
+                                            }))}
+                                            classNames={inputStyle}
+                                            min="1"
+                                            max="31"
+                                          />
+                                        </div>
+                                        {(pdfExportState.yearFilter || pdfExportState.monthFilter || pdfExportState.dayFilter) && (
+                                          <Button
+                                            size="sm"
+                                            variant="flat"
+                                            color="warning"
+                                            onPress={() => setPdfExportState(prev => ({
+                                              ...prev,
+                                              yearFilter: null,
+                                              monthFilter: null,
+                                              dayFilter: null
+                                            }))}
+                                            className="w-full"
+                                            startContent={<Icon icon="mdi:close" />}
+                                          >
+                                            Clear Specific Date Filter
+                                          </Button>
+                                        )}
+                                      </div>
+                                    </Tab>
+                                  </Tabs>
+                                </div>
+
                               </div>
-                              <div className="p-4 border-t border-default-200 flex justify-end gap-2  bg-default-100/50 ">
+
+                              <div className="p-4 border-t border-default-200 flex justify-end gap-2 bg-default-100/50">
+                                {/* Clear All Filters Button */}
+                                {(pdfExportState.warehouseFilter || pdfExportState.statusFilter || pdfExportState.dateFrom || pdfExportState.dateTo || pdfExportState.yearFilter || pdfExportState.monthFilter || pdfExportState.weekFilter || pdfExportState.dayFilter) && (
+                                  <Button
+                                    variant="flat"
+                                    color="danger"
+                                    size="sm"
+                                    onPress={() => {
+                                      setPdfExportState(prev => ({
+                                        ...prev,
+                                        warehouseFilter: null,
+                                        statusFilter: null,
+                                        dateFrom: null,
+                                        dateTo: null,
+                                        yearFilter: null,
+                                        monthFilter: null,
+                                        weekFilter: null,
+                                        dayFilter: null,
+                                        dateTabKey: "range" // Reset to default tab
+                                      }));
+                                    }}
+                                    startContent={<Icon icon="mdi:filter-remove" />}
+                                  >
+                                    Clear All Filters
+                                  </Button>
+                                )}
                                 <Button
                                   size="sm"
                                   variant="flat"
@@ -804,10 +1146,10 @@ export default function ReorderPointPage() {
                                 >
                                   Close
                                 </Button>
-
                               </div>
                             </div>
                           </PopoverContent>
+
                         </Popover>
 
                         {pdfExportState.warehouseFilter && (
@@ -840,14 +1182,70 @@ export default function ReorderPointPage() {
                           </Chip>
                         )}
 
-                        {(pdfExportState.warehouseFilter || pdfExportState.statusFilter) && (
+                        {(pdfExportState.dateFrom || pdfExportState.dateTo) && (
+                          <Chip
+                            variant="flat"
+                            color="secondary"
+                            onClose={() => setPdfExportState(prev => ({ ...prev, dateFrom: null, dateTo: null }))}
+                            size="sm"
+                            className="h-8 p-2"
+                          >
+                            <div className="flex items-center gap-1">
+                              <Icon icon="mdi:calendar-range" className="text-xs" />
+                              {pdfExportState.dateFrom && pdfExportState.dateTo ? `${format(new Date(pdfExportState.dateFrom), 'MMM d')} - ${format(new Date(pdfExportState.dateTo), 'MMM d')}` : 'Date Range'}
+                            </div>
+                          </Chip>
+                        )}
+
+                        {pdfExportState.weekFilter && (
+                          <Chip
+                            variant="flat"
+                            color="secondary"
+                            onClose={() => setPdfExportState(prev => ({ ...prev, weekFilter: null, yearFilter: null }))}
+                            size="sm"
+                            className="h-8 p-2"
+                          >
+                            <div className="flex items-center gap-1">
+                              <Icon icon="mdi:calendar-week" className="text-xs" />
+                              Week {pdfExportState.weekFilter}/{pdfExportState.yearFilter || new Date().getFullYear()}
+                            </div>
+                          </Chip>
+                        )}
+
+                        {(pdfExportState.yearFilter || pdfExportState.monthFilter || pdfExportState.dayFilter) && !pdfExportState.weekFilter && (
+                          <Chip
+                            variant="flat"
+                            color="secondary"
+                            onClose={() => setPdfExportState(prev => ({ ...prev, yearFilter: null, monthFilter: null, dayFilter: null }))}
+                            size="sm"
+                            className="h-8 p-2"
+                          >
+                            <div className="flex items-center gap-1">
+                              <Icon icon="mdi:calendar" className="text-xs" />
+                              {pdfExportState.yearFilter && pdfExportState.monthFilter && pdfExportState.dayFilter
+                                ? `${pdfExportState.dayFilter}/${pdfExportState.monthFilter}/${pdfExportState.yearFilter}`
+                                : `Custom Date`}
+                            </div>
+                          </Chip>
+                        )}
+
+                        {(pdfExportState.warehouseFilter || pdfExportState.statusFilter || pdfExportState.dateFrom || pdfExportState.dateTo || pdfExportState.yearFilter || pdfExportState.monthFilter || pdfExportState.weekFilter || pdfExportState.dayFilter) && (
                           <Button
                             size="sm"
                             variant="light"
                             className="rounded-lg"
                             onPress={() => {
-                              setPdfExportState(prev => ({ ...prev, warehouseFilter: null }));
-                              setPdfExportState(prev => ({ ...prev, statusFilter: null }));
+                              setPdfExportState(prev => ({
+                                ...prev,
+                                warehouseFilter: null,
+                                statusFilter: null,
+                                dateFrom: null,
+                                dateTo: null,
+                                yearFilter: null,
+                                monthFilter: null,
+                                weekFilter: null,
+                                dayFilter: null
+                              }));
                             }}
                           >
                             Clear all
@@ -859,7 +1257,12 @@ export default function ReorderPointPage() {
                 </div>
 
                 <div className="max-h-64 overflow-y-auto">
-                  {getFilteredPdfLogs().length === 0 ? (
+                  {isLoadingPdfLogs ? (
+                    <div className="p-4 text-center">
+                      <Spinner size="sm" />
+                      <p className="text-sm text-default-500 mt-2">Loading items...</p>
+                    </div>
+                  ) : getFilteredPdfLogs().length === 0 ? (
                     <div className="p-4 text-center text-default-500">
                       No items match the selected filters
                     </div>
@@ -984,84 +1387,251 @@ export default function ReorderPointPage() {
 
                   {/* Replace the single Autocomplete with this new filter UI */}
                   <div className="flex items-center gap-2 mt-2">
-                    <Popover
-                      isOpen={isSearchFilterOpen}
-                      onOpenChange={setIsSearchFilterOpen}
-                      classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
-                      motionProps={popoverTransition()}
-                      offset={10}
-                      placement="bottom-start">
-                      <PopoverTrigger>
-                        <Button
-                          variant="flat"
-                          color="default"
-                          className="w-24 h-10 rounded-lg !outline-none rounded-xl"
-                          startContent={<Icon icon="mdi:filter-variant" className="text-default-500" />}
-                        >
-                          Filters
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="p-4 w-80 p-0">
-                        <div>
-                          <div className="space-y-4 p-4">
-                            <h3 className="text-lg font-semibold items-center w-full text-center">
-                              Filter Options
-                            </h3>
-
-
-                            {/* Warehouse filter */}
-                            <Autocomplete
-                              name="warehouse_uuid"
-                              label="Filter by Warehouse"
-                              placeholder="All Warehouses"
-                              selectedKey={selectedWarehouse || ""}
-                              onSelectionChange={(e) => handleWarehouseChange(`${e}` || null)}
-                              startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
-                              inputProps={autoCompleteStyle}
-                            >
-                              {[
-                                (<AutocompleteItem key="">All Warehouses</AutocompleteItem>),
-                                ...warehouses.map((warehouse) => (
-                                  <AutocompleteItem key={warehouse.uuid}>
-                                    {warehouse.name}
-                                  </AutocompleteItem>
-                                ))]}
-                            </Autocomplete>
-
-                            <Autocomplete
-                              name="status_filter"
-                              label="Filter by Status"
-                              placeholder="All Statuses"
-                              selectedKey={statusFilter || ""}
-                              onSelectionChange={(e) => setStatusFilter(e as InventoryStatus || null)}
-                              startContent={<Icon icon="mdi:filter-variant" className="text-default-500 mb-[0.2rem]" />}
-                              inputProps={autoCompleteStyle}
-                            >
-                              <AutocompleteItem key="">All Statuses</AutocompleteItem>
-                              <AutocompleteItem key="IN_STOCK">In Stock</AutocompleteItem>
-                              <AutocompleteItem key="WARNING">Warning</AutocompleteItem>
-                              <AutocompleteItem key="CRITICAL">Critical</AutocompleteItem>
-                              <AutocompleteItem key="OUT_OF_STOCK">Out of Stock</AutocompleteItem>
-                            </Autocomplete>
-
-                          </div>
-
-                          <div className="p-4 border-t border-default-200 flex justify-end gap-2  bg-default-100/50 ">
-                            <Button
-                              size="sm"
-                              variant="flat"
-                              onPress={() => setIsSearchFilterOpen(false)}
-                            >
-                              Close
-                            </Button>
-
-                          </div>
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-
                     <ScrollShadow orientation="horizontal" className="flex-1 overflow-x-auto" hideScrollBar>
                       <div className="inline-flex items-center gap-2">
+                        <Popover
+                          isOpen={isSearchFilterOpen}
+                          onOpenChange={setIsSearchFilterOpen}
+                          classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
+                          motionProps={popoverTransition()}
+                          offset={10}
+                          placement="bottom-start">
+                          <PopoverTrigger>
+                            <Button
+                              variant="flat"
+                              color="default"
+                              className="w-24 h-10 rounded-lg !outline-none rounded-xl"
+                              startContent={<Icon icon="mdi:filter-variant" className="text-default-500" />}
+                            >
+                              Filters
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-96 p-0 overflow-hidden">
+                            <div>
+                              <div className="space-y-4 p-4">
+                                <h3 className="text-lg font-semibold items-center w-full text-center">
+                                  Filter Options
+                                </h3>
+
+                                {/* Warehouse filter */}
+                                <Autocomplete
+                                  name="warehouse_uuid"
+                                  label="Filter by Warehouse"
+                                  placeholder="All Warehouses"
+                                  selectedKey={selectedWarehouse || ""}
+                                  onSelectionChange={(e) => handleWarehouseChange(`${e}` || null)}
+                                  startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
+                                  inputProps={autoCompleteStyle}
+                                >
+                                  {[
+                                    (<AutocompleteItem key="">All Warehouses</AutocompleteItem>),
+                                    ...warehouses.map((warehouse) => (
+                                      <AutocompleteItem key={warehouse.uuid}>
+                                        {warehouse.name}
+                                      </AutocompleteItem>
+                                    ))]}
+                                </Autocomplete>
+
+                                <Autocomplete
+                                  name="status_filter"
+                                  label="Filter by Status"
+                                  placeholder="All Statuses"
+                                  selectedKey={statusFilter || ""}
+                                  onSelectionChange={(e) => handleStatusFilterChange(e as InventoryStatus || null)}
+                                  startContent={<Icon icon="mdi:filter-variant" className="text-default-500 mb-[0.2rem]" />}
+                                  inputProps={autoCompleteStyle}
+                                >
+                                  <AutocompleteItem key="">All Statuses</AutocompleteItem>
+                                  <AutocompleteItem key="IN_STOCK">In Stock</AutocompleteItem>
+                                  <AutocompleteItem key="WARNING">Warning</AutocompleteItem>
+                                  <AutocompleteItem key="CRITICAL">Critical</AutocompleteItem>
+                                  <AutocompleteItem key="OUT_OF_STOCK">Out of Stock</AutocompleteItem>
+                                </Autocomplete>
+
+                                {/* Date Filters using Tabs */}
+                                <div className="space-y-3 border-2 border-default-200 rounded-xl p-4 bg-default-100/25">
+                                  <div className="flex items-center gap-2">
+                                    <Icon icon="mdi:calendar-range" className="text-default-500" />
+                                    <span className="text-sm font-medium">Date Filters</span>
+                                  </div>
+
+                                  <Tabs
+                                    variant="solid"
+                                    color="primary"
+                                    fullWidth
+                                    size="md"
+                                    classNames={{
+                                      panel: "p-0",
+                                      tabList: "border-2 border-default-200",
+                                      tabContent: "text-default-700",
+                                    }}
+                                    selectedKey={dateTabKey}
+                                    onSelectionChange={(key) => {
+                                      const tabKey = key as string;
+                                      setDateTabKey(tabKey);
+                                      // Reset all date filters when switching tabs
+                                      clearDateFilters();
+                                    }}
+                                    className="w-full"
+                                  >
+                                    <Tab key="range" title="Date Range">
+                                      <DateRangePicker
+                                        label="Select Date Range"
+                                        value={dateFrom && dateTo ? {
+                                          start: new CalendarDate(parseInt(dateFrom.split('-')[0]), parseInt(dateFrom.split('-')[1]), parseInt(dateFrom.split('-')[2])),
+                                          end: new CalendarDate(parseInt(dateTo.split('-')[0]), parseInt(dateTo.split('-')[1]), parseInt(dateTo.split('-')[2]))
+                                        } : null}
+                                        onChange={(range) => {
+                                          if (range?.start && range?.end) {
+                                            const startDate = `${range.start.year}-${String(range.start.month).padStart(2, '0')}-${String(range.start.day).padStart(2, '0')}`;
+                                            const endDate = `${range.end.year}-${String(range.end.month).padStart(2, '0')}-${String(range.end.day).padStart(2, '0')}`;
+                                            handleDateFromChange(startDate);
+                                            handleDateToChange(endDate);
+                                          } else {
+                                            clearDateFilters();
+                                          }
+                                        }}
+                                        classNames={inputStyle}
+                                      />
+                                    </Tab>
+
+                                    <Tab key="week" title="By Week">
+                                      <div className="space-y-3">
+                                        <div className="flex gap-2">
+                                          <Input
+                                            type="number"
+                                            label="Year"
+                                            placeholder="2024"
+                                            value={yearFilter?.toString() || ""}
+                                            onChange={(e) => handleYearFilterChange(e.target.value ? parseInt(e.target.value) : null)}
+                                            className="flex-1"
+                                            classNames={inputStyle}
+                                            min="2000"
+                                            max="2100"
+                                          />
+                                          <Input
+                                            type="number"
+                                            label="Week"
+                                            placeholder="1-53"
+                                            value={weekFilter?.toString() || ""}
+                                            onChange={(e) => {
+                                              const week = e.target.value ? parseInt(e.target.value) : null;
+                                              handleWeekFilterChange(week);
+                                              // Auto-set current year if not set
+                                              if (week && !yearFilter) {
+                                                handleYearFilterChange(new Date().getFullYear());
+                                              }
+                                            }}
+                                            className="flex-1"
+                                            classNames={inputStyle}
+                                            min="1"
+                                            max="53"
+                                          />
+                                        </div>
+                                        {(yearFilter || weekFilter) && (
+                                          <Button
+                                            size="sm"
+                                            variant="flat"
+                                            color="warning"
+                                            onPress={() => {
+                                              handleYearFilterChange(null);
+                                              handleWeekFilterChange(null);
+                                            }}
+                                            className="w-full"
+                                            startContent={<Icon icon="mdi:close" />}
+                                          >
+                                            Clear Week Filter
+                                          </Button>
+                                        )}
+                                      </div>
+                                    </Tab>
+
+                                    <Tab key="specific" title="Specific Date">
+                                      <div className="space-y-3">
+                                        <div className="grid grid-cols-3 gap-2">
+                                          <Input
+                                            type="number"
+                                            label="Year"
+                                            placeholder="2024"
+                                            value={yearFilter?.toString() || ""}
+                                            onChange={(e) => handleYearFilterChange(e.target.value ? parseInt(e.target.value) : null)}
+                                            classNames={inputStyle}
+                                            min="2000"
+                                            max="2100"
+                                          />
+                                          <Input
+                                            type="number"
+                                            label="Month"
+                                            placeholder="1-12"
+                                            value={monthFilter?.toString() || ""}
+                                            onChange={(e) => handleMonthFilterChange(e.target.value ? parseInt(e.target.value) : null)}
+                                            classNames={inputStyle}
+                                            min="1"
+                                            max="12"
+                                          />
+                                          <Input
+                                            type="number"
+                                            label="Day"
+                                            placeholder="1-31"
+                                            value={dayFilter?.toString() || ""}
+                                            onChange={(e) => handleDayFilterChange(e.target.value ? parseInt(e.target.value) : null)}
+                                            classNames={inputStyle}
+                                            min="1"
+                                            max="31"
+                                          />
+                                        </div>
+                                        {(yearFilter || monthFilter || dayFilter) && (
+                                          <Button
+                                            size="sm"
+                                            variant="flat"
+                                            color="warning"
+                                            onPress={() => {
+                                              handleYearFilterChange(null);
+                                              handleMonthFilterChange(null);
+                                              handleDayFilterChange(null);
+                                            }}
+                                            className="w-full"
+                                            startContent={<Icon icon="mdi:close" />}
+                                          >
+                                            Clear Specific Date Filter
+                                          </Button>
+                                        )}
+                                      </div>
+                                    </Tab>
+                                  </Tabs>
+                                </div>
+                              </div>
+
+                              <div className="p-4 border-t border-default-200 flex justify-end gap-2 bg-default-100/50">
+                                {/* Clear All Filters Button */}
+                                {(selectedWarehouse || statusFilter || dateFrom || dateTo || yearFilter || monthFilter || weekFilter || dayFilter) && (
+                                  <Button
+                                    variant="flat"
+                                    color="danger"
+                                    size="sm"
+                                    onPress={() => {
+                                      handleWarehouseChange(null);
+                                      handleStatusFilterChange(null);
+                                      clearDateFilters();
+                                      setDateTabKey("range"); // Reset to default tab
+                                    }}
+                                    startContent={<Icon icon="mdi:filter-remove" />}
+                                  >
+                                    Clear All Filters
+                                  </Button>
+                                )}
+                                <Button
+                                  size="sm"
+                                  variant="flat"
+                                  onPress={() => setIsSearchFilterOpen(false)}
+                                >
+                                  Close
+                                </Button>
+                              </div>
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+
                         {selectedWarehouse && (
                           <Chip
                             variant="flat"
@@ -1092,7 +1662,65 @@ export default function ReorderPointPage() {
                           </Chip>
                         )}
 
-                        {(selectedWarehouse || statusFilter) && (
+                        {(dateFrom || dateTo) && (
+                          <Chip
+                            variant="flat"
+                            color="secondary"
+                            onClose={() => {
+                              setDateFrom("");
+                              setDateTo("");
+                              applyDateFilters("", "", yearFilter, monthFilter, weekFilter, dayFilter);
+                            }}
+                            size="sm"
+                            className="h-8 p-2"
+                          >
+                            <div className="flex items-center gap-1">
+                              <Icon icon="mdi:calendar-range" className="text-xs" />
+                              {dateFrom && dateTo ? `${format(new Date(dateFrom), 'MMM d')} - ${format(new Date(dateTo), 'MMM d')}` : 'Date Range'}
+                            </div>
+                          </Chip>
+                        )}
+
+                        {weekFilter && (
+                          <Chip
+                            variant="flat"
+                            color="secondary"
+                            onClose={() => {
+                              handleWeekFilterChange(null);
+                              handleYearFilterChange(null);
+                            }}
+                            size="sm"
+                            className="h-8 p-2"
+                          >
+                            <div className="flex items-center gap-1">
+                              <Icon icon="mdi:calendar-week" className="text-xs" />
+                              Week {weekFilter}/{yearFilter || new Date().getFullYear()}
+                            </div>
+                          </Chip>
+                        )}
+
+                        {(yearFilter || monthFilter || dayFilter) && !weekFilter && (
+                          <Chip
+                            variant="flat"
+                            color="secondary"
+                            onClose={() => {
+                              handleYearFilterChange(null);
+                              handleMonthFilterChange(null);
+                              handleDayFilterChange(null);
+                            }}
+                            size="sm"
+                            className="h-8 p-2"
+                          >
+                            <div className="flex items-center gap-1">
+                              <Icon icon="mdi:calendar" className="text-xs" />
+                              {yearFilter && monthFilter && dayFilter
+                                ? `${dayFilter}/${monthFilter}/${yearFilter}`
+                                : 'Custom Date'}
+                            </div>
+                          </Chip>
+                        )}
+
+                        {(selectedWarehouse || statusFilter || dateFrom || dateTo || yearFilter || monthFilter || weekFilter || dayFilter) && (
                           <Button
                             size="sm"
                             variant="light"
@@ -1100,12 +1728,13 @@ export default function ReorderPointPage() {
                             onPress={() => {
                               handleWarehouseChange(null);
                               handleStatusFilterChange(null);
+                              clearDateFilters();
+                              setDateTabKey("range");
                             }}
                           >
                             Clear all
                           </Button>
                         )}
-
                       </div>
                     </ScrollShadow>
                   </div>
@@ -1328,7 +1957,7 @@ export default function ReorderPointPage() {
 
                 <div>
                   <LoadingAnimation
-                    condition={isLoading || isLoadingItems}
+                    condition={isLoading}
                     skeleton={
                       <>
                         {/* Header skeleton */}
