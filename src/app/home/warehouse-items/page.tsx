@@ -584,30 +584,51 @@ export default function WarehouseItemsPage() {
           filter: `company_uuid=eq.${user.company_uuid}`
         },
         async (payload) => {
-          console.log('Real-time warehouse inventory update received:', payload);
+          console.log('Real-time warehouse inventory update received:', {
+            eventType: payload.eventType,
+            table: payload.table,
+            schema: payload.schema,
+            commitTimestamp: payload.commit_timestamp,
+            old: payload.old,
+            new: payload.new,
+            errors: payload.errors
+          });
 
-          // Refresh warehouse items
-          const refreshedItems = await getWarehouseInventoryItems(
-            user.company_uuid,
-            selectedWarehouse || undefined,
-            searchQuery,
-            null, // status
-            null, // year
-            null, // month
-            null, // week
-            null, // day
-            rowsPerPage, // limit
-            (page - 1) * rowsPerPage // offset
-          );
-          setWarehouseItems(refreshedItems.data || []);
-          setTotalPages(refreshedItems.totalPages || 1);
-          setTotalItems(refreshedItems.totalCount || 0);
+          // Refresh warehouse items list with current pagination
+          try {
+            const refreshedItems = await getWarehouseInventoryItems(
+              user.company_uuid,
+              selectedWarehouse || undefined,
+              searchQuery,
+              null, // status
+              null, // year
+              null, // month
+              null, // week
+              null, // day
+              rowsPerPage, // limit
+              (page - 1) * rowsPerPage // offset
+            );
 
-          // If we have a selected item, refresh its details including bulks and units
-          if (selectedItemId) {
-            const refreshedItem = await getWarehouseInventoryItem(selectedItemId);
-            if (refreshedItem.success && refreshedItem.data) {
-              setFormData(refreshedItem.data);
+            if (refreshedItems.success) {
+              setWarehouseItems(refreshedItems.data || []);
+              setTotalPages(refreshedItems.totalPages || 1);
+              setTotalItems(refreshedItems.totalCount || 0);
+              console.log(`Updated warehouse items list: ${refreshedItems.data?.length || 0} items loaded`);
+            }
+          } catch (error) {
+            console.error('Error refreshing warehouse items after real-time update:', error);
+          }
+
+          // If we have a selected item and it was updated, refresh its details
+          if (selectedItemId && payload.new && (payload.new as any)?.uuid === selectedItemId) {
+            try {
+              const refreshedItem = await getWarehouseInventoryItem(selectedItemId);
+              if (refreshedItem.success && refreshedItem.data) {
+                setFormData(refreshedItem.data);
+                console.log(`Updated selected item details for: ${refreshedItem.data.name}`);
+              }
+            } catch (error) {
+              console.error('Error refreshing selected item after real-time update:', error);
             }
           }
         }
@@ -621,31 +642,72 @@ export default function WarehouseItemsPage() {
           filter: `company_uuid=eq.${user.company_uuid}`
         },
         async (payload) => {
-          console.log('Real-time warehouse bulk update received:', payload);
+          console.log('Real-time warehouse bulk update received:', {
+            eventType: payload.eventType,
+            table: payload.table,
+            schema: payload.schema,
+            commitTimestamp: payload.commit_timestamp,
+            bulkId: (payload.new as any)?.uuid || (payload.old as any)?.uuid,
+            warehouseInventoryId: (payload.new as any)?.warehouse_inventory_uuid || (payload.old as any)?.warehouse_inventory_uuid,
+            status: (payload.new as any)?.status || (payload.old as any)?.status,
+            locationCode: (payload.new as any)?.location_code || (payload.old as any)?.location_code,
+            old: payload.old,
+            new: payload.new,
+            errors: payload.errors
+          });
 
-          // If we have a selected item, refresh its details
+          // If we have a selected item, refresh its details including bulks and units
           if (selectedItemId) {
-            const refreshedItem = await getWarehouseInventoryItem(selectedItemId);
-            if (refreshedItem.success && refreshedItem.data) {
-              setFormData(refreshedItem.data);
+            try {
+              const refreshedItem = await getWarehouseInventoryItem(selectedItemId);
+              if (refreshedItem.success && refreshedItem.data) {
+                setFormData(refreshedItem.data);
+                console.log(`Updated bulk data for item: ${refreshedItem.data.name}, bulks count: ${refreshedItem.data.bulks?.length || 0}`);
 
-              // Update shelf color assignments if bulk locations changed
-              const assignments: Array<any> = refreshedItem.data.bulks.map((bulk: WarehouseInventoryItemBulk) => {
-                if (bulk.location) {
-                  return {
-                    floor: bulk.location.floor,
-                    group: bulk.location.group,
-                    row: bulk.location.row,
-                    column: bulk.location.column,
-                    depth: bulk.location.depth || 0,
-                    colorType: 'secondary'
-                  };
-                }
-                return null;
-              }).filter(Boolean);
+                // Update shelf color assignments if bulk locations changed
+                const assignments: Array<any> = refreshedItem.data.bulks.map((bulk: WarehouseInventoryItemBulk) => {
+                  if (bulk.location) {
+                    return {
+                      floor: bulk.location.floor,
+                      group: bulk.location.group,
+                      row: bulk.location.row,
+                      column: bulk.location.column,
+                      depth: bulk.location.depth || 0,
+                      colorType: 'secondary'
+                    };
+                  }
+                  return null;
+                }).filter(Boolean);
 
-              setShelfColorAssignments(assignments);
+                setShelfColorAssignments(assignments);
+                console.log(`Updated shelf assignments: ${assignments.length} locations assigned`);
+              }
+            } catch (error) {
+              console.error('Error refreshing item after bulk update:', error);
             }
+          }
+
+          // Also refresh the warehouse items list to update bulk counts
+          try {
+            const refreshedItems = await getWarehouseInventoryItems(
+              user.company_uuid,
+              selectedWarehouse || undefined,
+              searchQuery,
+              null, // status
+              null, // year
+              null, // month
+              null, // week
+              null, // day
+              rowsPerPage, // limit
+              (page - 1) * rowsPerPage // offset
+            );
+
+            if (refreshedItems.success) {
+              setWarehouseItems(refreshedItems.data || []);
+              console.log(`Refreshed warehouse items list after bulk change`);
+            }
+          } catch (error) {
+            console.error('Error refreshing warehouse items after bulk update:', error);
           }
         }
       )
@@ -658,24 +720,57 @@ export default function WarehouseItemsPage() {
           filter: `company_uuid=eq.${user.company_uuid}`
         },
         async (payload) => {
-          console.log('Real-time warehouse unit update received:', payload);
+          console.log('Real-time warehouse unit update received:', {
+            eventType: payload.eventType,
+            table: payload.table,
+            schema: payload.schema,
+            commitTimestamp: payload.commit_timestamp,
+            unitId: (payload.new as any)?.uuid || (payload.old as any)?.uuid,
+            bulkId: (payload.new as any)?.warehouse_inventory_bulk_uuid || (payload.old as any)?.warehouse_inventory_bulk_uuid,
+            warehouseInventoryId: (payload.new as any)?.warehouse_inventory_uuid || (payload.old as any)?.warehouse_inventory_uuid,
+            unitCode: (payload.new as any)?.code || (payload.old as any)?.code,
+            unitName: (payload.new as any)?.name || (payload.old as any)?.name,
+            status: (payload.new as any)?.status || (payload.old as any)?.status,
+            locationCode: (payload.new as any)?.location_code || (payload.old as any)?.location_code,
+            old: payload.old,
+            new: payload.new,
+            errors: payload.errors
+          });
 
-          // If we have a selected item, refresh its details
+          // If we have a selected item, refresh its details to include updated units
           if (selectedItemId) {
-            const refreshedItem = await getWarehouseInventoryItem(selectedItemId);
-            if (refreshedItem.success && refreshedItem.data) {
-              setFormData(refreshedItem.data);
+            try {
+              const refreshedItem = await getWarehouseInventoryItem(selectedItemId);
+              if (refreshedItem.success && refreshedItem.data) {
+                setFormData(refreshedItem.data);
+
+                // Count total units across all bulks
+                const totalUnits = refreshedItem.data.bulks.reduce((sum: number, bulk: any) => sum + (bulk.units?.length || 0), 0);
+                console.log(`Updated unit data for item: ${refreshedItem.data.name}, total units: ${totalUnits}`);
+              }
+            } catch (error) {
+              console.error('Error refreshing item after unit update:', error);
             }
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Real-time subscription status:', {
+          status,
+          channel: 'warehouse-inventory-changes',
+          timestamp: new Date().toISOString(),
+          userCompany: user.company_uuid,
+          subscribedTables: ['warehouse_inventory_items', 'warehouse_inventory_item_bulk', 'warehouse_inventory_item_unit']
+        });
+      });
 
     // Cleanup function
     return () => {
+      console.log('Cleaning up real-time subscriptions for warehouse inventory');
       supabase.removeChannel(warehouseInventoryChannel);
     };
   }, [user?.company_uuid, searchQuery, selectedWarehouse, selectedItemId, page, rowsPerPage]);
+
 
 
   return (

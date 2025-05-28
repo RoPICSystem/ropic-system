@@ -1747,19 +1747,19 @@ export default function DeliveryPage() {
   }, []);
 
 
-  // Update useEffect with real-time subscription to include filter parameters
+  // Update the useEffect with real-time subscription to include bulk details refresh
   useEffect(() => {
     if (!user?.company_uuid) return;
 
     const supabase = createClient();
 
-    // Set up real-time subscription for delivery items
+    // Set up real-time subscription for delivery items with more specific filtering
     const deliveryChannel = supabase
       .channel('delivery-changes')
       .on(
         'postgres_changes',
         {
-          event: '*',
+          event: '*', // Listen to INSERT, UPDATE, DELETE
           schema: 'public',
           table: 'delivery_items',
           filter: `company_uuid=eq.${user.company_uuid}`
@@ -1767,32 +1767,63 @@ export default function DeliveryPage() {
         async (payload) => {
           console.log('Real-time delivery update received:', payload);
 
-          // Refresh delivery items with filters and pagination
-          const refreshedItems = await getDeliveryItems(
-            user.company_uuid,
-            searchQuery,
-            statusFilter,
-            warehouseFilter,
-            null, // operatorUuid
-            null, // inventoryUuid
-            null, // dateFrom
-            null, // dateTo
-            null, // year
-            null, // month
-            null, // week
-            null, // day
-            rowsPerPage, // limit
-            (page - 1) * rowsPerPage // offset
-          );
+          // Only refresh if the change affects current view
+          const shouldRefresh =
+            payload.eventType === 'INSERT' ||
+            payload.eventType === 'DELETE' ||
+            (payload.eventType === 'UPDATE' && payload.old && payload.new);
 
-          setDeliveryItems(refreshedItems.data || []);
-          setTotalPages(refreshedItems.totalPages || 1);
-          setTotalDeliveries(refreshedItems.totalCount || 0);
+          if (shouldRefresh) {
+            // Refresh delivery items with current filters and pagination
+            const refreshedItems = await getDeliveryItems(
+              user.company_uuid,
+              searchQuery,
+              statusFilter,
+              warehouseFilter,
+              null, // operatorUuid
+              null, // inventoryUuid
+              null, // dateFrom
+              null, // dateTo
+              null, // year
+              null, // month
+              null, // week
+              null, // day
+              rowsPerPage, // limit
+              (page - 1) * rowsPerPage // offset
+            );
+
+            setDeliveryItems(refreshedItems.data || []);
+            setTotalPages(refreshedItems.totalPages || 1);
+            setTotalDeliveries(refreshedItems.totalCount || 0);
+
+            // If currently viewing an updated delivery, refresh its data
+            if (selectedDeliveryId && payload.new && (payload.new as any)?.uuid === selectedDeliveryId) {
+              const updatedDelivery = refreshedItems.data?.find((d: any) => d.uuid === selectedDeliveryId);
+              if (updatedDelivery) {
+                setFormData(updatedDelivery);
+
+                // Update selected bulks if they changed
+                if (updatedDelivery.inventory_item_bulk_uuids) {
+                  setSelectedBulks(updatedDelivery.inventory_item_bulk_uuids);
+                  setPrevSelectedBulks(updatedDelivery.inventory_item_bulk_uuids);
+                }
+
+                // Update locations if they changed
+                if (updatedDelivery.locations) {
+                  setLocations(updatedDelivery.locations);
+                }
+
+                if (updatedDelivery.location_codes) {
+                  setLocationCodes(updatedDelivery.location_codes);
+                }
+              }
+            }
+          }
         }
       )
       .subscribe();
 
-    // Set up real-time subscription for inventory items
+    // Set up real-time subscription for inventory items with specific event filtering
     const inventoryChannel = supabase
       .channel('inventory-changes')
       .on(
@@ -1804,15 +1835,147 @@ export default function DeliveryPage() {
           filter: `company_uuid=eq.${user.company_uuid}`
         },
         async (payload) => {
-          console.log('Real-time inventory update received:', payload);
+          console.log('Real-time inventory update received:', payload.eventType, payload);
 
-          // Refresh inventory items
-          const refreshedItems = await getInventoryItems(user.company_uuid);
-          setInventoryItems(refreshedItems.data || []);
+          // Only refresh inventory list if items were added, removed, or significantly updated
+          if (payload.eventType === 'INSERT' || payload.eventType === 'DELETE' ||
+            (payload.eventType === 'UPDATE' && payload.old?.name !== payload.new?.name)) {
 
-          // If we have a selected item, refresh its bulks
-          if (selectedItem) {
-            loadInventoryBulks(selectedItem);
+            const refreshedItems = await getInventoryItems(user.company_uuid);
+            setInventoryItems(refreshedItems.data || []);
+          }
+
+          // If we have a selected item and it was updated, refresh its bulks
+          if (selectedItem && payload.eventType === 'UPDATE' && payload.new?.uuid === selectedItem) {
+            loadInventoryBulks(selectedItem, true); // Preserve selection
+          }
+        }
+      )
+      .subscribe();
+
+    // Set up real-time subscription for inventory item bulks with more detailed filtering
+    const bulkChannel = supabase
+      .channel('bulk-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'inventory_item_bulk',
+          filter: `company_uuid=eq.${user.company_uuid}`
+        },
+        async (payload) => {
+          console.log('Real-time bulk update received:', payload.eventType, payload);
+
+
+
+          // Check if the change affects currently displayed inventory item
+          const affectedInventoryUuid = (payload.new as any)?.inventory_item_uuid || (payload.old as any)?.inventory_item_uuid;
+
+          if (selectedItem && affectedInventoryUuid === selectedItem) {
+            await loadInventoryBulks(selectedItem, true); // Preserve selection
+          }
+
+          // Handle bulk detail updates for expanded bulks
+          if (expandedBulkDetails.size > 0) {
+            const affectedBulkUuid = (payload.new as any)?.uuid || (payload.old as any)?.uuid;
+
+            if (affectedBulkUuid && expandedBulkDetails.has(affectedBulkUuid)) {
+              try {
+                if (payload.eventType === 'DELETE') {
+                  // Remove from expanded details if bulk was deleted
+                  setExpandedBulkDetails(prev => {
+                    const newSet = new Set(prev);
+                    newSet.delete(affectedBulkUuid);
+                    return newSet;
+                  });
+                  setBulkDetails(prev => {
+                    const newMap = new Map(prev);
+                    newMap.delete(affectedBulkUuid);
+                    return newMap;
+                  });
+                } else {
+                  // Refresh bulk details for updates/inserts
+                  const result = await getBulkDetails(affectedBulkUuid);
+                  if (result.success && result.data) {
+                    setBulkDetails(prev => new Map(prev).set(affectedBulkUuid, result.data));
+                  }
+                }
+              } catch (error) {
+                console.error(`Error handling bulk details update for ${affectedBulkUuid}:`, error);
+              }
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    // Set up real-time subscription for inventory item units with specific filtering
+    const unitChannel = supabase
+      .channel('unit-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'inventory_item_unit',
+          filter: `company_uuid=eq.${user.company_uuid}`
+        },
+        async (payload) => {
+          console.log('Real-time unit update received:', payload.eventType, payload);
+
+          // Get the affected bulk UUID from both new and old records
+          const affectedBulkUuid = (payload.new as any)?.inventory_item_bulk_uuid || (payload.old as any)?.inventory_item_bulk_uuid;
+
+          if (!affectedBulkUuid || !expandedBulkDetails.has(affectedBulkUuid)) {
+            return; // Skip if bulk is not currently expanded
+          }
+
+          try {
+            // Refresh the bulk details to get updated unit information
+            const result = await getBulkDetails(affectedBulkUuid);
+            if (result.success && result.data) {
+              setBulkDetails(prev => new Map(prev).set(affectedBulkUuid, result.data));
+            } else if (payload.eventType === 'DELETE') {
+              // If bulk no longer exists, remove from expanded details
+              setExpandedBulkDetails(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(affectedBulkUuid);
+                return newSet;
+              });
+              setBulkDetails(prev => {
+                const newMap = new Map(prev);
+                newMap.delete(affectedBulkUuid);
+                return newMap;
+              });
+            }
+          } catch (error) {
+            console.error(`Error refreshing bulk details for ${affectedBulkUuid}:`, error);
+          }
+        }
+      )
+      .subscribe();
+
+    // Set up real-time subscription for warehouse inventory items (for location tracking)
+    const warehouseInventoryChannel = supabase
+      .channel('warehouse-inventory-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'warehouse_inventory_items',
+          filter: `company_uuid=eq.${user.company_uuid}`
+        },
+        async (payload) => {
+          console.log('Real-time warehouse inventory update received:', payload.eventType, payload);
+
+          // Refresh occupied locations if warehouse is selected
+          if (formData.warehouse_uuid) {
+            const occupiedResult = await getOccupiedShelfLocations(formData.warehouse_uuid);
+            if (occupiedResult.success) {
+              setOccupiedLocations(occupiedResult.data || []);
+            }
           }
         }
       )
@@ -1822,9 +1985,23 @@ export default function DeliveryPage() {
     return () => {
       supabase.removeChannel(deliveryChannel);
       supabase.removeChannel(inventoryChannel);
+      supabase.removeChannel(bulkChannel);
+      supabase.removeChannel(unitChannel);
+      supabase.removeChannel(warehouseInventoryChannel);
     };
-  }, [user?.company_uuid, searchQuery, statusFilter, warehouseFilter, selectedItem, loadInventoryBulks]);
-
+  }, [
+    user?.company_uuid,
+    searchQuery,
+    statusFilter,
+    warehouseFilter,
+    selectedItem,
+    selectedDeliveryId,
+    loadInventoryBulks,
+    expandedBulkDetails,
+    page,
+    rowsPerPage,
+    formData.warehouse_uuid
+  ]);
 
   useEffect(() => {
     // When the delivery status changes to DELIVERED, we want to ensure location fields are ready
@@ -2600,255 +2777,282 @@ export default function DeliveryPage() {
                                     )).map((bulk, index) => (
 
                                       <div key={bulk.uuid}>
-                                        <div className="flex items-center justify-between p-3 border border-default-200 rounded-xl">
-                                          <div className="flex items-center">
-                                            {(isDeliveryProcessing() && user.is_admin) && (
-                                              <div className="flex items-center pr-2">
-                                                <Checkbox
-                                                  isSelected={selectedBulks.includes(bulk.uuid)}
-                                                  onValueChange={(isSelected) => {
-                                                    handleBulkSelectionToggle(bulk.uuid, isSelected);
-                                                    // Update the form data
-                                                    setFormData(prev => {
-                                                      const newBulkUuids = isSelected
-                                                        ? [...(prev.inventory_item_bulk_uuids || []), bulk.uuid]
-                                                        : (prev.inventory_item_bulk_uuids || []).filter(uuid => uuid !== bulk.uuid);
+                                        <div className="flex flex-col gap-2 border border-default-200 rounded-xl bg-default-50/50 mb-2">
+                                          <div className="flex items-center justify-between p-3 ">
+                                            <div className="flex items-center">
+                                              {(isDeliveryProcessing() && user.is_admin) && (
+                                                <div className="flex items-center pr-2">
+                                                  <Checkbox
+                                                    isSelected={selectedBulks.includes(bulk.uuid)}
+                                                    onValueChange={(isSelected) => {
+                                                      handleBulkSelectionToggle(bulk.uuid, isSelected);
+                                                      // Update the form data
+                                                      setFormData(prev => {
+                                                        const newBulkUuids = isSelected
+                                                          ? [...(prev.inventory_item_bulk_uuids || []), bulk.uuid]
+                                                          : (prev.inventory_item_bulk_uuids || []).filter(uuid => uuid !== bulk.uuid);
 
-                                                      return {
-                                                        ...prev,
-                                                        inventory_item_bulk_uuids: newBulkUuids
-                                                      };
-                                                    });
-                                                  }}
-                                                  isDisabled={formData.status !== "PENDING" || !(user === null || user.is_admin) || (bulk.status !== "AVAILABLE" && !prevSelectedBulks.includes(bulk.uuid))}
-                                                >
+                                                        return {
+                                                          ...prev,
+                                                          inventory_item_bulk_uuids: newBulkUuids
+                                                        };
+                                                      });
+                                                    }}
+                                                    isDisabled={formData.status !== "PENDING" || !(user === null || user.is_admin) || (bulk.status !== "AVAILABLE" && !prevSelectedBulks.includes(bulk.uuid))}
+                                                  >
 
-                                                </Checkbox>
-                                              </div>
-                                            )}
-
-                                            <Button
-                                              className=" py-6 px-2 -m-2"
-                                              variant='light'
-                                              endContent={expandedBulkDetails.has(bulk.uuid) && bulkDetails.has(bulk.uuid) ?
-                                                <Icon icon="mdi:chevron-up" className="text-default-500" width={18} /> :
-                                                <Icon icon="mdi:chevron-down" className="text-default-500" width={18} />}
-                                              onPress={() => handleBulkDetailsToggle(bulk.uuid, bulk.name)}
-                                              isLoading={loadingBulkDetails.has(bulk.uuid)}
-                                            >
-                                              <div className="flex flex-0 flex-col items-start rounded-lg">
-                                                <span className="font-medium">{bulk.name || `Bulk ${index + 1}`}</span>
-                                                <div className="flex items-center gap-2">
-                                                  <span className="text-xs text-default-500">
-                                                    {bulk.bulk_unit ? `${bulk.unit_value} ${bulk.unit} (${bulk.bulk_unit})` : `${bulk.unit_value} ${bulk.unit}`}
-                                                  </span>
+                                                  </Checkbox>
                                                 </div>
-                                              </div>
-                                            </Button>
-                                          </div>
+                                              )}
 
-
-
-                                          <div className="flex items-center gap-2">
-                                            {bulk.status && bulk.status !== "AVAILABLE" && !prevSelectedBulks.includes(bulk.uuid) && (
-                                              <Chip color={bulk.status === "AVAILABLE" ? "success" : "danger"} variant="flat" size="sm">
-                                                {bulk.status}
-                                              </Chip>
-                                            )}
-                                            {selectedBulks.includes(bulk.uuid) && (
-                                              <div className="flex items-center">
-                                                <Chip
-                                                  size="sm"
-                                                  color={locationCodes[selectedBulks.indexOf(bulk.uuid)] ? "success" : "warning"}
-                                                  variant="flat"
-                                                  className="mr-2"
-                                                >
-                                                  {locationCodes[selectedBulks.indexOf(bulk.uuid)] || "No location"}
+                                              <Button
+                                                className="py-6 px-2 -m-2 rounded-lg"
+                                                variant='light'
+                                                endContent={expandedBulkDetails.has(bulk.uuid) && bulkDetails.has(bulk.uuid) ?
+                                                  <Icon icon="mdi:chevron-up" className="text-default-500" width={18} /> :
+                                                  <Icon icon="mdi:chevron-down" className="text-default-500" width={18} />}
+                                                onPress={() => handleBulkDetailsToggle(bulk.uuid, bulk.name)}
+                                                isLoading={loadingBulkDetails.has(bulk.uuid)}
+                                              >
+                                                <div className="flex flex-0 flex-col items-start rounded-lg">
+                                                  <span className="font-medium">{bulk.name || `Bulk ${index + 1}`}</span>
+                                                  <div className="flex items-center gap-2">
+                                                    <span className="text-xs text-default-500">
+                                                      {bulk.bulk_unit ? `${bulk.unit_value} ${bulk.unit} (${bulk.bulk_unit})` : `${bulk.unit_value} ${bulk.unit}`}
+                                                    </span>
+                                                  </div>
+                                                </div>
+                                              </Button>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                              {bulk.status && bulk.status !== "AVAILABLE" && !prevSelectedBulks.includes(bulk.uuid) && (
+                                                <Chip color={bulk.status === "AVAILABLE" ? "success" : "danger"} variant="flat" size="sm">
+                                                  {bulk.status}
                                                 </Chip>
-                                                <Button
-                                                  size="sm"
-                                                  color="primary"
-                                                  variant="flat"
-                                                  onPress={() => handleAssignLocation(selectedBulks.indexOf(bulk.uuid))}
-                                                  isDisabled={isWarehouseNotSet() || isFloorConfigNotSet()}
-                                                >
-                                                  {(formData.status === "DELIVERED" || formData.status === "CANCELLED" || !user.is_admin) ? "View Location" :
-                                                    locationCodes[selectedBulks.indexOf(bulk.uuid)] ? "Change Location" : "Assign Location"}
-                                                </Button>
-                                              </div>
-                                            )}
+                                              )}
+                                              {selectedBulks.includes(bulk.uuid) && (
+                                                <div className="flex items-center">
+                                                  <Chip
+                                                    size="sm"
+                                                    color={locationCodes[selectedBulks.indexOf(bulk.uuid)] ? "success" : "warning"}
+                                                    variant="flat"
+                                                    className="mr-2"
+                                                  >
+                                                    {locationCodes[selectedBulks.indexOf(bulk.uuid)] || "No location"}
+                                                  </Chip>
+                                                  <Button
+                                                    size="sm"
+                                                    color="primary"
+                                                    variant="flat"
+                                                    onPress={() => handleAssignLocation(selectedBulks.indexOf(bulk.uuid))}
+                                                    isDisabled={isWarehouseNotSet() || isFloorConfigNotSet()}
+                                                  >
+                                                    {(formData.status === "DELIVERED" || formData.status === "CANCELLED" || !user.is_admin) ? "View Location" :
+                                                      locationCodes[selectedBulks.indexOf(bulk.uuid)] ? "Change Location" : "Assign Location"}
+                                                  </Button>
+                                                </div>
+                                              )}
+                                            </div>
                                           </div>
+
+                                          {/* Bulk Details Expansion */}
+                                          <AnimatePresence>
+                                            {expandedBulkDetails.has(bulk.uuid) && bulkDetails.has(bulk.uuid) && (
+                                              <motion.div {...motionTransition}>
+                                                <div className="border border-default-200 rounded-xl bg-default-50/50 m-3 mt-0">
+                                                  {(() => {
+                                                    const details = bulkDetails.get(bulk.uuid);
+                                                    if (!details) return null;
+
+                                                    return (
+                                                      <div className="p-4 space-y-4">
+                                                        {/* Bulk Information */}
+                                                        <div className="space-y-3">
+
+                                                          <div className="flex items-center justify-between">
+                                                            <h4 className="font-semibold text-lg">Bulk Information</h4>
+                                                            <div className="flex items-center gap-2">
+                                                              <Button
+                                                                variant="flat"
+                                                                color="default"
+                                                                size="sm"
+                                                                isIconOnly
+                                                                onPress={async () => {
+                                                                  setLoadingBulkDetails(prev => new Set(prev).add(bulk.uuid));
+                                                                  try {
+                                                                    const result = await getBulkDetails(bulk.uuid);
+                                                                    if (result.success && result.data) {
+                                                                      setBulkDetails(prev => new Map(prev).set(bulk.uuid, result.data));
+                                                                    }
+                                                                  } catch (error) {
+                                                                    console.error(`Error refreshing bulk details for ${bulk.uuid}:`, error);
+                                                                  } finally {
+                                                                    setLoadingBulkDetails(prev => {
+                                                                      const newSet = new Set(prev);
+                                                                      newSet.delete(bulk.uuid);
+                                                                      return newSet;
+                                                                    });
+                                                                  }
+                                                                }}
+                                                                isLoading={loadingBulkDetails.has(bulk.uuid)}
+                                                              >
+                                                                <Icon icon="mdi:refresh" className="text-default-500 text-lg" />
+                                                              </Button>
+                                                              <Button
+                                                                variant="flat"
+                                                                color="default"
+                                                                size="sm"
+                                                                isIconOnly
+                                                                onPress={() => copyToClipboard(details.uuid)}
+                                                              >
+                                                                <Icon icon="mdi:content-copy" className="text-default-500 text-sm" />
+                                                              </Button>
+                                                            </div>
+                                                          </div>
+
+                                                          <div className="grid grid-cols-1 gap-3 text-sm bg-default-50 p-3 rounded-xl border-2 border-default-200">
+                                                            <div className="col-span-1">
+                                                              <span className="text-default-500">Bulk ID:</span>
+                                                              <span className="ml-2 font-mono text-xs">{details.uuid}</span>
+                                                            </div>
+                                                            <div className="grid grid-cols-2 gap-3">
+                                                              <div>
+                                                                <span className="text-default-500">Unit Value:</span>
+                                                                <span className="ml-2">{formatNumber(details.unit_value)} {details.unit}</span>
+                                                              </div>
+                                                              <div>
+                                                                <span className="text-default-500">Bulk Unit:</span>
+                                                                <span className="ml-2">{details.bulk_unit}</span>
+                                                              </div>
+                                                              <div>
+                                                                <span className="text-default-500">Total Cost:</span>
+                                                                <span className="ml-2">₱{formatNumber(details.cost)}</span>
+                                                              </div>
+                                                              <div>
+                                                                <span className="text-default-500">Type:</span>
+                                                                <span className="ml-2">{details.is_single_item ? "Single Item" : "Multiple Units"}</span>
+                                                              </div>
+                                                            </div>
+                                                            {/* Custom Properties */}
+                                                            {details.properties && Object.keys(details.properties).length > 0 && (
+                                                              <div className="p-3 bg-default-100 rounded-xl border-2 border-default-200">
+                                                                <div className="flex items-center gap-2 mb-2">
+                                                                  <Icon icon="mdi:tag-multiple" className="text-default-500" width={16} />
+                                                                  <span className="text-sm font-medium">Bulk Properties</span>
+                                                                </div>
+                                                                <div className="grid grid-cols-2 gap-3 text-sm">
+                                                                  {Object.entries(details.properties).map(([key, value]) => (
+                                                                    <div key={key}>
+                                                                      <span className="text-default-500">{toTitleCase(toNormalCase(key))}:</span>
+                                                                      <span className="ml-2">{String(value)}</span>
+                                                                    </div>
+                                                                  ))}
+                                                                </div>
+                                                              </div>
+                                                            )}
+                                                          </div>
+
+
+                                                        </div>
+
+                                                        {/* Units Section */}
+                                                        {details.inventory_item_units && details.inventory_item_units.length > 0 && (
+                                                          <div className="space-y-4 border-2 border-default-200 rounded-xl bg-default-50/50 p-4">
+                                                            <div className="flex items-center justify-between">
+                                                              <h4 className="font-semibold text-lg">Units in this Bulk</h4>
+                                                              <Chip color="default" variant="flat" size="sm">
+                                                                {details.inventory_item_units.length} unit{details.inventory_item_units.length > 1 ? 's' : ''}
+                                                              </Chip>
+                                                            </div>
+
+                                                            <div className="space-y-3">
+                                                              {details.inventory_item_units.map((unit, unitIndex) => (
+                                                                <div key={unit.uuid} className="p-3 bg-default-50 rounded-xl border-2 space-y-3 border-default-200">
+                                                                  <div className="flex items-center justify-between mb-3">
+                                                                    <div className="flex items-center gap-2">
+                                                                      <Icon icon="mdi:cube-outline" className="text-default-500" width={16} />
+                                                                      <span className="font-medium">
+                                                                        {unit.name || `Unit ${unitIndex + 1}`}
+                                                                      </span>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2">
+                                                                      <Button
+                                                                        variant="flat"
+                                                                        color="default"
+                                                                        size="sm"
+                                                                        isIconOnly
+                                                                        onPress={() => copyToClipboard(unit.uuid)}
+                                                                      >
+                                                                        <Icon icon="mdi:content-copy" className="text-default-500" />
+                                                                      </Button>
+                                                                    </div>
+                                                                  </div>
+                                                                  <div className="grid grid-cols-1 gap-3 text-sm">
+                                                                    <div className="col-span-1">
+                                                                      <span className="text-default-500">Unit ID:</span>
+                                                                      <span className="ml-2 font-mono text-xs">{unit.uuid}</span>
+                                                                    </div>
+                                                                    <div className="grid grid-cols-2 gap-3">
+                                                                      <div>
+                                                                        <span className="text-default-500">Code:</span>
+                                                                        <span className="ml-2 font-mono">{unit.code || 'N/A'}</span>
+                                                                      </div>
+                                                                      <div>
+                                                                        <span className="text-default-500">Value:</span>
+                                                                        <span className="ml-2">{formatNumber(unit.unit_value)} {unit.unit}</span>
+                                                                      </div>
+                                                                      <div>
+                                                                        <span className="text-default-500">Cost:</span>
+                                                                        <span className="ml-2">₱{formatNumber(unit.cost)}</span>
+                                                                      </div>
+                                                                      <div>
+                                                                        <span className="text-default-500">Status:</span>
+                                                                        <span className={`text-${unit.status === "AVAILABLE" ? "success" : "danger"}-500 ml-2`}>{(unit.status || 'N/A').replaceAll('_', ' ')}</span>
+                                                                      </div>
+                                                                    </div>
+                                                                  </div>
+
+                                                                  {/* Unit Properties */}
+                                                                  {unit.properties && Object.keys(unit.properties).length > 0 && (
+                                                                    <div className="p-3 bg-default-100 rounded-xl border-2 border-default-200">
+                                                                      <div className="flex items-center gap-2 mb-2">
+                                                                        <Icon icon="mdi:tag" className="text-default-500" width={14} />
+                                                                        <span className="text-sm font-medium">Unit Properties</span>
+                                                                      </div>
+                                                                      <div className="grid grid-cols-2 gap-3 text-sm">
+                                                                        {Object.entries(unit.properties).map(([key, value]) => (
+                                                                          <div key={key}>
+                                                                            <span className="text-default-500">{toTitleCase(toNormalCase(key))}:</span>
+                                                                            <span className="ml-2">{String(value)}</span>
+                                                                          </div>
+                                                                        ))}
+                                                                      </div>
+                                                                    </div>
+                                                                  )}
+                                                                </div>
+                                                              ))}
+                                                            </div>
+                                                          </div>
+                                                        )}
+
+                                                        {/* No units message for single items */}
+                                                        {(!details.inventory_item_units || details.inventory_item_units.length === 0) && details.is_single_item && (
+                                                          <div className="p-4 text-center text-default-500 border border-dashed border-default-200 rounded-lg h-32 flex flex-col items-center justify-center">
+                                                            <Icon icon="mdi:information-outline" className="mx-auto mb-2" width={24} height={24} />
+                                                            <p className="text-sm">This is a single item bulk with no individual units.</p>
+                                                          </div>
+                                                        )}
+                                                      </div>
+                                                    );
+                                                  })()}
+                                                </div>
+                                              </motion.div>
+                                            )}
+                                          </AnimatePresence>
                                         </div>
 
 
 
-
-                                        {/* Bulk Details Expansion */}
-                                        <AnimatePresence>
-                                          {expandedBulkDetails.has(bulk.uuid) && bulkDetails.has(bulk.uuid) && (
-                                            <motion.div {...motionTransition} className="mt-2">
-                                              <div className="border border-default-200 rounded-xl bg-default-50/50">
-                                                {(() => {
-                                                  const details = bulkDetails.get(bulk.uuid);
-                                                  if (!details) return null;
-
-                                                  return (
-                                                    <div className="p-4 space-y-4">
-                                                      {/* Bulk Information */}
-                                                      <div className="space-y-3">
-
-                                                        <div className="flex items-center justify-between">
-                                                          <h4 className="font-semibold text-lg">Bulk Information</h4>
-                                                          <Button
-                                                            variant="flat"
-                                                            color="default"
-                                                            size="sm"
-                                                            isIconOnly
-                                                            onPress={() => copyToClipboard(details.uuid)}
-                                                          >
-                                                            <Icon icon="mdi:content-copy" className="text-default-500" />
-                                                          </Button>
-                                                        </div>
-
-                                                        <div className="grid grid-cols-1 gap-3 text-sm bg-default-50 p-3 rounded-xl border-2 border-default-200">
-                                                          <div className="col-span-1">
-                                                            <span className="text-default-500">Bulk ID:</span>
-                                                            <span className="ml-2 font-mono text-xs">{details.uuid}</span>
-                                                          </div>
-                                                          <div className="grid grid-cols-2 gap-3">
-                                                            <div>
-                                                              <span className="text-default-500">Unit Value:</span>
-                                                              <span className="ml-2">{formatNumber(details.unit_value)} {details.unit}</span>
-                                                            </div>
-                                                            <div>
-                                                              <span className="text-default-500">Bulk Unit:</span>
-                                                              <span className="ml-2">{details.bulk_unit}</span>
-                                                            </div>
-                                                            <div>
-                                                              <span className="text-default-500">Total Cost:</span>
-                                                              <span className="ml-2">₱{formatNumber(details.cost)}</span>
-                                                            </div>
-                                                            <div>
-                                                              <span className="text-default-500">Type:</span>
-                                                              <span className="ml-2">{details.is_single_item ? "Single Item" : "Multiple Units"}</span>
-                                                            </div>
-                                                          </div>
-                                                          {/* Custom Properties */}
-                                                          {details.properties && Object.keys(details.properties).length > 0 && (
-                                                            <div className="p-3 bg-default-100 rounded-xl border-2 border-default-200">
-                                                              <div className="flex items-center gap-2 mb-2">
-                                                                <Icon icon="mdi:tag-multiple" className="text-default-500" width={16} />
-                                                                <span className="text-sm font-medium">Bulk Properties</span>
-                                                              </div>
-                                                              <div className="grid grid-cols-2 gap-3 text-sm">
-                                                                {Object.entries(details.properties).map(([key, value]) => (
-                                                                  <div key={key}>
-                                                                    <span className="text-default-500">{toTitleCase(toNormalCase(key))}:</span>
-                                                                    <span className="ml-2">{String(value)}</span>
-                                                                  </div>
-                                                                ))}
-                                                              </div>
-                                                            </div>
-                                                          )}
-                                                        </div>
-
-
-                                                      </div>
-
-                                                      {/* Units Section */}
-                                                      {details.inventory_item_units && details.inventory_item_units.length > 0 && (
-                                                        <div className="space-y-4 border-2 border-default-200 rounded-xl bg-default-50/50 p-4">
-                                                          <div className="flex items-center justify-between">
-                                                            <h4 className="font-semibold text-lg">Units in this Bulk</h4>
-                                                            <Chip color="default" variant="flat" size="sm">
-                                                              {details.inventory_item_units.length} unit{details.inventory_item_units.length > 1 ? 's' : ''}
-                                                            </Chip>
-                                                          </div>
-
-                                                          <div className="space-y-3">
-                                                            {details.inventory_item_units.map((unit, unitIndex) => (
-                                                              <div key={unit.uuid} className="p-3 bg-default-50 rounded-xl border-2 space-y-3 border-default-200">
-                                                                <div className="flex items-center justify-between mb-3">
-                                                                  <div className="flex items-center gap-2">
-                                                                    <Icon icon="mdi:cube-outline" className="text-default-500" width={16} />
-                                                                    <span className="font-medium">
-                                                                      {unit.name || `Unit ${unitIndex + 1}`}
-                                                                    </span>
-                                                                  </div>
-                                                                  <div className="flex items-center gap-2">
-                                                                    <Button
-                                                                      variant="flat"
-                                                                      color="default"
-                                                                      size="sm"
-                                                                      isIconOnly
-                                                                      onPress={() => copyToClipboard(unit.uuid)}
-                                                                    >
-                                                                      <Icon icon="mdi:content-copy" className="text-default-500" />
-                                                                    </Button>
-                                                                  </div>
-                                                                </div>
-                                                                <div className="grid grid-cols-1 gap-3 text-sm">
-                                                                  <div className="col-span-1">
-                                                                    <span className="text-default-500">Unit ID:</span>
-                                                                    <span className="ml-2 font-mono text-xs">{unit.uuid}</span>
-                                                                  </div>
-                                                                  <div className="grid grid-cols-2 gap-3">
-                                                                    <div>
-                                                                      <span className="text-default-500">Code:</span>
-                                                                      <span className="ml-2 font-mono">{unit.code || 'N/A'}</span>
-                                                                    </div>
-                                                                    <div>
-                                                                      <span className="text-default-500">Value:</span>
-                                                                      <span className="ml-2">{formatNumber(unit.unit_value)} {unit.unit}</span>
-                                                                    </div>
-                                                                    <div>
-                                                                      <span className="text-default-500">Cost:</span>
-                                                                      <span className="ml-2">₱{formatNumber(unit.cost)}</span>
-                                                                    </div>
-                                                                    <div>
-                                                                      <span className="text-default-500">Status:</span>
-                                                                      <span className={`text-${unit.status === "AVAILABLE" ? "success" : "danger"}-500 ml-2`}>{(unit.status || 'N/A').replaceAll('_', ' ')}</span>
-                                                                    </div>
-                                                                  </div>
-                                                                </div>
-
-                                                                {/* Unit Properties */}
-                                                                {unit.properties && Object.keys(unit.properties).length > 0 && (
-                                                                  <div className="p-3 bg-default-100 rounded-xl border-2 border-default-200">
-                                                                    <div className="flex items-center gap-2 mb-2">
-                                                                      <Icon icon="mdi:tag" className="text-default-500" width={14} />
-                                                                      <span className="text-sm font-medium">Unit Properties</span>
-                                                                    </div>
-                                                                    <div className="grid grid-cols-2 gap-3 text-sm">
-                                                                      {Object.entries(unit.properties).map(([key, value]) => (
-                                                                        <div key={key}>
-                                                                          <span className="text-default-500">{toTitleCase(toNormalCase(key))}:</span>
-                                                                          <span className="ml-2">{String(value)}</span>
-                                                                        </div>
-                                                                      ))}
-                                                                    </div>
-                                                                  </div>
-                                                                )}
-                                                              </div>
-                                                            ))}
-                                                          </div>
-                                                        </div>
-                                                      )}
-
-                                                      {/* No units message for single items */}
-                                                      {(!details.inventory_item_units || details.inventory_item_units.length === 0) && details.is_single_item && (
-                                                        <div className="p-4 text-center text-default-500 border border-dashed border-default-200 rounded-lg">
-                                                          <Icon icon="mdi:information-outline" className="mx-auto mb-2" width={24} height={24} />
-                                                          <p className="text-sm">This is a single item bulk with no individual units.</p>
-                                                        </div>
-                                                      )}
-                                                    </div>
-                                                  );
-                                                })()}
-                                              </div>
-                                            </motion.div>
-                                          )}
-                                        </AnimatePresence>
                                       </div>
                                     ))}
                                   </ListLoadingAnimation>

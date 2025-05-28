@@ -33,6 +33,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { createWarehouse, deleteWarehouse, getWarehouseByUuid, getWarehouseLayout, getWarehouses, updateWarehouse, Warehouse } from './actions';
 
+import { copyToClipboard } from '@/utils/tools';
 import WarehouseLayoutEditorModal from './layout-editor-modal';
 import LoadingAnimation from '@/components/loading-animation';
 import ListLoadingAnimation from '@/components/list-loading-animation';
@@ -119,7 +120,7 @@ export default function WarehousePage() {
   const [user, setUser] = useState<any>(null);
 
   const inputStyle = {
-    inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200"
+    inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
   };
 
   const autoCompleteStyle = { classNames: inputStyle };
@@ -766,6 +767,58 @@ export default function WarehousePage() {
         <div className="xl:w-2/3">
           <Form id="warehouseForm" onSubmit={handleSubmitWarehouse} className="items-stretch space-y-4">
             <CardList>
+
+              <LoadingAnimation
+                condition={detailLoading}
+                skeleton={
+                  <div>
+                    <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" /> {/* Section Title */}
+                    <div className="space-y-4">
+                      <Skeleton className="h-16 w-full rounded-xl" />
+                      <Skeleton className="h-16 w-full rounded-xl" />
+                    </div>
+                  </div>}>
+                <div>
+                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouse Information</h2>
+                  <div className="space-y-4"><AnimatePresence>
+                    {currentWarehouse?.uuid && (
+                      <motion.div {...motionTransition}>
+                        <Input
+                          label="Warehouse Identifier"
+                          value={currentWarehouse?.uuid || ""}
+                          isReadOnly
+                          classNames={inputStyle}
+                          startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
+                          endContent={
+                            currentWarehouse?.uuid ? (
+                              <Button
+                                variant="flat"
+                                color="default"
+                                isIconOnly
+                                onPress={() => copyToClipboard(currentWarehouse.uuid || "")}
+                              >
+                                <Icon icon="mdi:content-copy" className="text-default-500" />
+                              </Button>
+                            ) : undefined
+                          }
+                        />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                    <Input
+                      name="name"
+                      label="Warehouse Name"
+                      classNames={inputStyle}
+                      placeholder="Enter warehouse name"
+                      value={currentWarehouse?.name || ""}
+                      onChange={(e) => setCurrentWarehouse(prev => ({ ...prev, name: e.target.value }))}
+                      isRequired
+                    />
+                  </div>
+                </div>
+              </LoadingAnimation>
+
+
               <LoadingAnimation
                 condition={detailLoading}
                 skeleton={
