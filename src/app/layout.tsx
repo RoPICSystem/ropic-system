@@ -37,10 +37,7 @@ export default function RootLayout({
           defaultTheme="system"
           themes={['dark', 'light', 'system']}>
           <Providers>
-            <SplashScreen>
-              {children}
-            </SplashScreen> 
-            {/* {children} */}
+            {children}
           </Providers>
         </NextThemesProvider>
       </body>

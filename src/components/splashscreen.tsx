@@ -9,7 +9,12 @@ import { isChrome } from '@/utils/is-chrome';
 import { useState, useEffect } from "react";
 import { hslToRgb } from "@/utils/colors";
 
-export default function SplashScreen({ children }: { children: React.ReactNode }) {
+interface SplashScreenProps {
+  children: React.ReactNode;
+  isLoading?: boolean;
+}
+
+export default function SplashScreen({ children, isLoading = true }: SplashScreenProps) {
   const [browserChrome, setBrowserChrome] = useState(false);
 
   useEffect(() => {
@@ -42,11 +47,16 @@ export default function SplashScreen({ children }: { children: React.ReactNode }
       <motion.div
         initial={{ opacity: 1, visibility: "visible" }}
         animate={{
-          opacity: 0, visibility: "hidden",
-          filter: "blur(8px)",
-          scale: 1.05
+          opacity: isLoading ? 1 : 0,
+          visibility: isLoading ? "visible" : "hidden",
+          filter: isLoading ? "blur(0px)" : "blur(8px)",
+          scale: isLoading ? 1 : 1.05
         }}
-        transition={{ duration: 1.5, delay: 2.5, ease: [0.87, 0, 0.13, 1] }}
+        transition={{ 
+          duration: isLoading ? 0 : 1.5, 
+          delay: isLoading ? 0 : 0, 
+          ease: [0.87, 0, 0.13, 1] 
+        }}
         className="fixed inset-0 flex flex-col items-center justify-center z-50"
       >
         <div className="absolute inset-0 z-0">
@@ -106,8 +116,17 @@ export default function SplashScreen({ children }: { children: React.ReactNode }
           filter: browserChrome ? "blur(8px)" : "blur(0)",
           scale: 0.95
         }}
-        animate={{ opacity: 1, visibility: "visible", filter: "blur(0px)", scale: 1 }}
-        transition={{ duration: 1.5, delay: 2.5, ease: [0.87, 0, 0.13, 1] }}
+        animate={{ 
+          opacity: isLoading ? 0 : 1, 
+          visibility: isLoading ? "hidden" : "visible", 
+          filter: "blur(0px)", 
+          scale: 1 
+        }}
+        transition={{ 
+          duration: isLoading ? 0 : 1.5, 
+          delay: isLoading ? 0 : 0, 
+          ease: [0.87, 0, 0.13, 1] 
+        }}
       >
         {children}
       </motion.div>

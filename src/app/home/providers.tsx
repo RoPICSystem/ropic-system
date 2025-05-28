@@ -1,6 +1,7 @@
 // app/providers.tsx
 "use client";
 
+import SplashScreen from "@/components/splashscreen";
 import { createClient } from "@/utils/supabase/client";
 import { getUserFromCookies, getUserProfile, setUserInCookies } from '@/utils/supabase/server/user';
 import { Spinner } from "@heroui/react";
@@ -89,18 +90,14 @@ export function Providers({ children }: { children: React.ReactNode }) {
     fetchSubscriptionData();
   }, []);
 
-  
 
-  if (user === null) {
-    return (
-      <div className="flex items-center justify-center w-full h-screen">
-        <div className="flex flex-col items-center justify-center">
-          <Spinner size="lg" />
-        </div>
-      </div>
-    );
-  } else {
-    return children;
-  }
+
+  return (
+    <SplashScreen isLoading={user === null}>
+      {children}
+    </SplashScreen>
+
+  );
+
 
 }

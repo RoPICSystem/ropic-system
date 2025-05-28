@@ -2,6 +2,7 @@
 "use client";
 
 import { ShelfSelectorColors } from "@/components/shelf-selector-3d";
+import SplashScreen from "@/components/splashscreen";
 import { herouiColor } from "@/utils/colors";
 import { HeroUIProvider, Spinner } from "@heroui/react";
 import { ToastProvider } from "@heroui/toast";
@@ -45,7 +46,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       tertiaryShelfColor: herouiColor('warning', 'hex') as string,
       tertiaryShelfSelectedColor: herouiColor('warning-300', 'hex') as string,
       occupiedHoverShelfColor: herouiColor('danger-400', 'hex') as string,
-      
+
       textColor: herouiColor('text', 'hex') as string,
     };
   }
@@ -70,22 +71,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, [resolvedTheme])
 
 
-
-  if (typeof window === "undefined") {
-    return (
-      <div className="flex items-center justify-center w-full h-screen">
-        <div className="flex flex-col items-center justify-center">
-          <Spinner size="lg" />
-        </div>
-      </div>
-    );
-  } else {
-    window.shelfSelectorColors = getDefaultTheme();
-
-    return <HeroUIProvider navigate={router.push}>
+  return     <HeroUIProvider navigate={router.push}>
       <ToastProvider />
       {children}
-    </HeroUIProvider>;
-  }
+    </HeroUIProvider>
 
 }
