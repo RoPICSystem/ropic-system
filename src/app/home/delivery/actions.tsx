@@ -23,9 +23,7 @@ export interface DeliveryItem {
   status_history?: Record<string, string>;
   locations: any[]; // Changed from location to locations array
   location_codes: string[]; // Changed from location_code to location_codes array
-  operator_uuid?: string;
-  recipient_name?: string;
-  recipient_contact?: string;
+  operator_uuids?: string[]; // Changed from operator_uuid to operator_uuids array
 
   created_at: string;
   updated_at: string;
@@ -52,7 +50,7 @@ export async function createDeliveryItem(
     DeliveryItem,
     "admin_uuid" | "company_uuid" | "inventory_uuid" | "warehouse_uuid" |
     "delivery_address" | "delivery_date" | "notes" | "status" | "status_history" |
-    "name" | "locations" | "location_codes" | "operator_uuid" | "recipient_name" | "recipient_contact">) {
+    "name" | "locations" | "location_codes" | "operator_uuids">) { 
   const supabase = await createClient();
 
   try {
@@ -73,6 +71,31 @@ export async function createDeliveryItem(
     return {
       success: false,
       error: `Failed to create delivery item: ${error.message || "Unknown error"}`,
+    };
+  }
+}
+
+/**
+ * Get operator details by UUIDs
+ */
+export async function getOperatorDetails(operatorUuids: string[]) {
+  const supabase = await createClient();
+
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('uuid, email, full_name, phone_number')
+      .in('uuid', operatorUuids);
+
+    if (error) throw error;
+
+    return { success: true, data: data || [] };
+  } catch (error: Error | any) {
+    console.error('Error fetching operator details:', error);
+    return {
+      success: false,
+      error: `Failed to fetch operator details: ${error.message || "Unknown error"}`,
+      data: []
     };
   }
 }
@@ -207,13 +230,13 @@ export async function getDeliveryItems(
   search: string = "",
   status?: string | null,
   warehouseUuid?: string | null,
-  operatorUuid?: string | null,
+  operatorUuids?: string[] | null,
   inventoryUuid?: string | null,
   dateFrom?: string | null,
   dateTo?: string | null,
   year?: number | null,
   month?: number | null,
-  week?: number | null, 
+  week?: number | null,
   day?: number | null,
   limit: number = 10,
   offset: number = 0
@@ -222,14 +245,14 @@ export async function getDeliveryItems(
 
   try {
     const currentPage = Math.floor(offset / limit) + 1;
-    
+
     const { data, error } = await supabase
       .rpc('get_delivery_items', {
         p_company_uuid: companyUuid || null,
         p_search: search || '',
         p_status: status || null,
         p_warehouse_uuid: warehouseUuid || null,
-        p_operator_uuid: operatorUuid || null,
+        p_operator_uuids: operatorUuids || null, // Changed parameter name
         p_inventory_uuid: inventoryUuid || null,
         p_date_from: dateFrom || null,
         p_date_to: dateTo || null,
@@ -244,14 +267,14 @@ export async function getDeliveryItems(
     if (error) {
       throw error;
     }
-    
+
     // Extract total count and remove from each item
     const totalCount = data && data.length > 0 ? data[0].total_count : 0;
-    
+
     // Calculate total pages and has more
     const totalPages = Math.ceil(totalCount / limit);
     const hasMore = currentPage < totalPages;
-    
+
     // Remove total_count from each item
     const items = data ? data.map(({ total_count, ...item }: any) => item) : [];
 

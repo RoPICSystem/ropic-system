@@ -7,9 +7,10 @@ import {
   Chip, DatePicker, form, Form, Input, Kbd, Modal, ModalBody, ModalContent, ModalFooter,
   ModalHeader, NumberInput, Pagination, Popover, PopoverContent, PopoverTrigger,
   ScrollShadow, Skeleton, Spinner, Switch, Table, TableBody, TableCell,
-  TableColumn, TableHeader, TableRow, Textarea, Tooltip, useDisclosure
+  TableColumn, TableHeader, TableRow, Textarea, Tooltip, useDisclosure,
+  Select, SelectItem,
 } from "@heroui/react";
-import { Icon } from "@iconify-icon/react";
+import { Icon } from "@iconify/react";
 import { getLocalTimeZone, parseDate, today } from '@internationalized/date';
 import { format, parseISO } from "date-fns";
 import { AnimatePresence, motion } from 'framer-motion';
@@ -161,6 +162,7 @@ export default function DeliveryPage() {
 
   // Add new state variables after other state declarations
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [operatorFilter, setOperatorFilter] = useState<string | null>(null);
   const [warehouseFilter, setWarehouseFilter] = useState<string | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
 
@@ -169,6 +171,10 @@ export default function DeliveryPage() {
   const [rowsPerPage, setRowsPerPage] = useState(15);
   const [totalPages, setTotalPages] = useState(1);
   const [totalDeliveries, setTotalDeliveries] = useState(0);
+
+
+  // Update operator selection state
+  const [selectedOperators, setSelectedOperators] = useState<Operator[]>([]); // Changed from selectedOperator
 
 
   // Form state
@@ -181,6 +187,7 @@ export default function DeliveryPage() {
     delivery_address: "",
     delivery_date: format(new Date(), "yyyy-MM-dd"),
     locations: [], // Changed from location to locations array
+    operator_uuids: [], // Changed from operator_uuid
     location_codes: [], // Changed from location_code to location_codes array
     notes: "",
     status: "PENDING",
@@ -243,8 +250,8 @@ export default function DeliveryPage() {
     });
 
     // Include operator_uuid if assigned
-    if (formData.operator_uuid) {
-      output.operator_uuid = formData.operator_uuid;
+    if (formData.operator_uuids && formData.operator_uuids.length > 0) {
+      output.operator_uuids = formData.operator_uuids
     }
 
     return JSON.stringify(output, null, space);
@@ -466,6 +473,26 @@ export default function DeliveryPage() {
     setShelfColorAssignments(assignments);
   }, [locations, currentBulkLocationIndex]);
 
+  // Update the form validation function to remove assignOperator check
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {};
+
+    if (!formData.inventory_uuid) newErrors.inventory_uuid = "Please select an inventory item";
+    if (!formData.delivery_address) newErrors.delivery_address = "Delivery address is required";
+    if (!formData.delivery_date) newErrors.delivery_date = "Delivery date is required";
+    if (!formData.warehouse_uuid) newErrors.warehouse_uuid = "Please select a warehouse";
+
+    // Check if each selected bulk has a location assigned
+    if (formData.inventory_item_bulk_uuids &&
+      formData.inventory_item_bulk_uuids.length > 0 &&
+      (!formData.locations || formData.locations.length !== formData.inventory_item_bulk_uuids.length)) {
+      newErrors.locations = "Please assign a location for each selected bulk item";
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
   // Handle location assignment for a specific bulk
   const handleAssignLocation = (bulkIndex: number) => {
     setCurrentBulkLocationIndex(bulkIndex);
@@ -521,7 +548,6 @@ export default function DeliveryPage() {
     // Open the location selector modal
     onOpen();
   };
-
 
   // Update handleSearch to accept filter parameters
   const handleSearch = async (query: string, status?: string | null, warehouse?: string | null, currentPage: number = page) => {
@@ -619,6 +645,12 @@ export default function DeliveryPage() {
     handleSearch(searchQuery, status, warehouseFilter, 1);
   };
 
+  const handleOperatorFilterChange = (status: string | null) => {
+    setOperatorFilter(status);
+    setPage(1); // Reset to first page when filter changes
+    handleSearch(searchQuery, statusFilter, warehouseFilter, 1);
+  };
+
   const handleWarehouseFilterChange = (warehouseId: string | null) => {
     setWarehouseFilter(warehouseId);
     setPage(1); // Reset to first page when filter changes
@@ -650,22 +682,74 @@ export default function DeliveryPage() {
     }
   };
 
-  // Handle operator assignment toggle
-  const handleAssignOperatorToggle = (checked: boolean) => {
-    setAssignOperator(checked);
+  // Update the operator assignment toggle handler (can be removed since no checkbox)
+  // const handleAssignOperatorToggle = (checked: boolean) => {
+  //   setAssignOperator(checked);
+  //   if (checked) {
+  //     // Keep existing operator_uuids if toggling back on
+  //   } else {
+  //     // Clear operator_uuids if toggling off
+  //     setFormData(prev => {
+  //       const { operator_uuids, ...rest } = prev;
+  //       return { ...rest };
+  //     });
+  //     setSelectedOperators([]);
+  //   }
+  // };
 
-    if (checked) {
-      // Keep existing operator_uuid if toggling back on
-    } else {
-      // Clear recipient info and operator_uuid if toggling off
-      // Remove operator_uuid, recipient_name, and recipient_contact from formData
-      setFormData(prev => {
-        const { operator_uuid, recipient_name, recipient_contact, ...rest } = prev;
-        return {
-          ...rest
-        };
+  // Update the operator selection handler to add operator instead of replacing
+  const handleAddOperator = (operatorUuid: string) => {
+    if (!operatorUuid) return;
+
+    const operatorToAdd = operators.find(op => op.uuid === operatorUuid);
+    if (!operatorToAdd) return;
+
+    // Check if operator is already selected
+    if (selectedOperators.some(op => op.uuid === operatorUuid)) return;
+
+    const newSelectedOperators = [...selectedOperators, operatorToAdd];
+    setSelectedOperators(newSelectedOperators);
+
+    setFormData(prev => ({
+      ...prev,
+      operator_uuids: newSelectedOperators.map(op => op.uuid)
+    }));
+
+    // Clear validation error when operators are selected
+    setErrors(prev => {
+      const { operator_uuids, ...rest } = prev;
+      return rest;
+    });
+  };
+
+  // Add function to remove operator
+  const handleRemoveOperator = (operatorUuid: string) => {
+    const newSelectedOperators = selectedOperators.filter(op => op.uuid !== operatorUuid);
+    setSelectedOperators(newSelectedOperators);
+
+    setFormData(prev => ({
+      ...prev,
+      operator_uuids: newSelectedOperators.map(op => op.uuid)
+    }));
+  };
+
+
+  // Update the operator selection handler
+  const handleOperatorSelection = (operatorUuids: string[]) => {
+    const selectedOps = operators.filter(op => operatorUuids.includes(op.uuid));
+    setSelectedOperators(selectedOps);
+
+    setFormData(prev => ({
+      ...prev,
+      operator_uuids: operatorUuids
+    }));
+
+    // Clear validation error when operators are selected
+    if (operatorUuids.length > 0) {
+      setErrors(prev => {
+        const { operator_uuids, ...rest } = prev;
+        return rest;
       });
-      setSelectedOperator(null);
     }
   };
 
@@ -889,7 +973,7 @@ export default function DeliveryPage() {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  // Form submission
+  // Update form submission to remove assignOperator check
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -912,20 +996,6 @@ export default function DeliveryPage() {
       formData.inventory_item_bulk_uuids.length > 0 &&
       (!formData.locations || formData.locations.length !== formData.inventory_item_bulk_uuids.length)) {
       newErrors.locations = "Please assign a location for each selected bulk item";
-    }
-
-    if (assignOperator) {
-      if (!formData.operator_uuid) newErrors.operator_uuid = "Please select an operator";
-      if (!formData.recipient_name) newErrors.recipient_name = "Recipient name is required when assigning an operator";
-      if (!formData.recipient_contact) newErrors.recipient_contact = "Recipient contact is required when assigning an operator";
-    } else {
-      // Clear recipient details if not assigning an operator
-      setFormData(prev => {
-        const { operator_uuid, recipient_name, recipient_contact, ...rest } = prev;
-        return {
-          ...rest
-        };
-      });
     }
 
     console.log("Form Data:", formData);
@@ -951,12 +1021,10 @@ export default function DeliveryPage() {
         locations: formData.locations || [],
         location_codes: formData.location_codes || [],
         notes: formData.notes || "",
-        ...(assignOperator ?
-          {
-            operator_uuid: formData.operator_uuid,
-            recipient_name: formData.recipient_name,
-            recipient_contact: formData.recipient_contact,
-          } : {}),
+        // Include operator_uuids if any operators are selected
+        ...(formData.operator_uuids && formData.operator_uuids.length > 0 ? {
+          operator_uuids: formData.operator_uuids
+        } : {}),
       };
 
       if (selectedDeliveryId) {
@@ -1352,7 +1420,9 @@ export default function DeliveryPage() {
       }
 
       // If the operator is assigned to this delivery, select it
-      if (matchingDelivery.operator_uuid === user?.uuid || matchingDelivery.operator_uuid === null) {
+      if (matchingDelivery.operator_uuids?.includes(user?.uuid) ||
+        matchingDelivery.operator_uuids === null ||
+        matchingDelivery.operator_uuids?.length === 0) {
         // Set as the selected delivery
         handleSelectDelivery(matchingDelivery.uuid);
 
@@ -1447,47 +1517,38 @@ export default function DeliveryPage() {
     }
   }, [showAcceptDeliveryModal]);
 
-  // Effect to handle URL params (deliveryId and setInventory)
+
+  // Update the useEffect for URL params to remove assignOperator references
   useEffect(() => {
     if (!user?.company_uuid || isLoadingItems) return;
 
-    // Check if we have a deliveryId in the URL
     const deliveryId = searchParams.get("deliveryId");
-
-    // Check if we're adding an inventory item to a new delivery
     const setInventoryId = searchParams.get("setInventory");
 
     if (deliveryId) {
       // Set selected delivery from URL
       setSelectedDeliveryId(deliveryId);
 
-      // Find the delivery in the list
       const delivery = deliveryItems.find(d => d.uuid === deliveryId);
       if (!delivery) return;
 
       console.log("Selected Delivery:", delivery);
 
-      // Set the form data
       setFormData(delivery);
       setSelectedItem(delivery.inventory_uuid || "");
 
-      // Load bulk items for this inventory item
       if (delivery.inventory_uuid) {
-        // First load inventory bulks (preserving selection)
         loadInventoryBulks(delivery.inventory_uuid, true);
 
-        // Then set selected bulks from the delivery
         if (delivery.inventory_item_bulk_uuids && delivery.inventory_item_bulk_uuids.length > 0) {
           setSelectedBulks(delivery.inventory_item_bulk_uuids);
           setPrevSelectedBulks(delivery.inventory_item_bulk_uuids);
         }
       }
 
-      // Set locations array
       if (delivery.locations && delivery.locations.length > 0) {
         setLocations(delivery.locations);
 
-        // Set first location as current selection
         const firstLoc = delivery.locations[0];
         setSelectedFloor(firstLoc.floor);
         setSelectedColumnCode(parseColumn(firstLoc.column) || "");
@@ -1497,23 +1558,19 @@ export default function DeliveryPage() {
         setSelectedGroup(firstLoc.group);
       }
 
-      // Set location codes
       if (delivery.location_codes && delivery.location_codes.length > 0) {
         setLocationCodes(delivery.location_codes);
         setSelectedCode(delivery.location_codes[0] || "");
       }
 
-      // Check if there's an operator assigned
-      const hasOperator = !!delivery.operator_uuid;
-      setAssignOperator(hasOperator);
-
       handleWarehouseChange(delivery.warehouse_uuid || "");
 
-      if (hasOperator && delivery.operator_uuid) {
-        const operator = operators.find(op => op.uuid === delivery.operator_uuid);
-        setSelectedOperator(operator || null);
+      // Set selected operators if any are assigned
+      if (delivery.operator_uuids && delivery.operator_uuids.length > 0) {
+        const assignedOperators = operators.filter(op => delivery.operator_uuids?.includes(op.uuid));
+        setSelectedOperators(assignedOperators);
       } else {
-        setSelectedOperator(null);
+        setSelectedOperators([]);
       }
 
     } else if (setInventoryId) {
@@ -1542,15 +1599,15 @@ export default function DeliveryPage() {
           setLocationCodes(existingDelivery.location_codes || []);
         }
 
-        // Check if there's an operator assigned
-        const hasOperator = !!existingDelivery.operator_uuid;
-        setAssignOperator(hasOperator);
+        // Check if there are operators assigned
+        const hasOperators = !!existingDelivery.operator_uuids && existingDelivery.operator_uuids.length > 0;
+        setAssignOperator(hasOperators);
 
-        if (hasOperator && existingDelivery.operator_uuid) {
-          const operator = operators.find(op => op.uuid === existingDelivery.operator_uuid);
-          setSelectedOperator(operator || null);
+        if (hasOperators && existingDelivery.operator_uuids && existingDelivery.operator_uuids.length > 0) {
+          const assignedOperators = operators.filter(op => existingDelivery.operator_uuids?.includes(op.uuid));
+          setSelectedOperators(assignedOperators);
         } else {
-          setSelectedOperator(null);
+          setSelectedOperators([]);
         }
 
         // Update URL with the found delivery ID
@@ -1616,8 +1673,7 @@ export default function DeliveryPage() {
       setSelectedBulks([]);
       setLocations([]);
       setLocationCodes([]);
-      setAssignOperator(false);
-      setSelectedOperator(null);
+      setSelectedOperators([]);
       setDeliveryJson("");
 
       resetWarehouseLocation();
@@ -1815,6 +1871,7 @@ export default function DeliveryPage() {
       setLocationCodes(newLocationCodes);
     }
   }, [selectedFloor, selectedColumn, selectedRow, selectedGroup, selectedDepth, formData.status, currentBulkLocationIndex, locations, locationCodes, selectedCode, selectedDeliveryId]);
+
   return (
     <div className="container mx-auto p-2 max-w-5xl">
       <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
@@ -1949,6 +2006,27 @@ export default function DeliveryPage() {
                                 <AutocompleteItem key="DELIVERED">Delivered</AutocompleteItem>
                                 <AutocompleteItem key="CANCELLED">Cancelled</AutocompleteItem>
                               </Autocomplete>
+
+                              {/* Operator filter */}
+                              <Autocomplete
+                                name="operator_filter"
+                                label="Filter by Operator"
+                                placeholder="All Operators"
+                                selectedKey={operatorFilter}
+                                onSelectionChange={(key) => {
+                                  handleOperatorFilterChange(key as string || null);
+                                }}
+                                startContent={<Icon icon="mdi:account" className="text-default-500 mb-[0.2rem]" />}
+                                inputProps={autoCompleteStyle}
+                              >
+                                {[
+                                  (<AutocompleteItem key="">All Operators</AutocompleteItem>),
+                                  ...operators.map((operator) => (
+                                    <AutocompleteItem key={operator.uuid}>
+                                      {operator.full_name}
+                                    </AutocompleteItem>
+                                  ))]}
+                              </Autocomplete>
                             </div>
 
                             <div className="p-4 border-t border-default-200 flex justify-end gap-2 bg-default-100/50">
@@ -2058,10 +2136,15 @@ export default function DeliveryPage() {
                           <Chip color={getStatusColor(delivery.status)} variant={selectedDeliveryId === delivery.uuid ? "shadow" : "flat"} size="sm">
                             {delivery.status.replaceAll('_', ' ')}
                           </Chip>
-                          {delivery.operator_uuid && (
+                          {delivery.operator_uuids && delivery.operator_uuids.length > 0 && (
                             <Chip color="success" variant={selectedDeliveryId === delivery.uuid ? "shadow" : "flat"} size="sm">
-                              <Icon icon="mdi:account" className="mr-1" />
-                              {operators.find(op => op.uuid === delivery.operator_uuid)?.full_name.split(' ')[0] || 'Operator'}
+                              <div className="flex items-center gap-1">
+                                <Icon icon="mdi:account" className="mb-[0.1rem]" />
+                                {delivery.operator_uuids.length === 1
+                                  ? operators.find(op => delivery.operator_uuids?.includes(op.uuid))?.full_name.split(' ')[0] || 'Operator'
+                                  : `${delivery.operator_uuids.length} operators`
+                                }
+                              </div>
                             </Chip>
                           )}
                         </div>
@@ -2132,220 +2215,197 @@ export default function DeliveryPage() {
           {((user && user.is_admin) || selectedDeliveryId) ? (
             <Form id="deliveryForm" onSubmit={handleSubmit} className="items-stretch space-y-4">
               <CardList>
-
                 <div className="space-y-4">
                   <LoadingAnimation
                     condition={!user || isLoading}
                     skeleton={
-                      <Skeleton className="h-[1.75rem] w-48 rounded-xl mx-auto" />
-                    }>
-                    <h2 className="text-xl font-semibold w-full text-center">Delivery Information</h2>
-                  </LoadingAnimation>
-
-
-
-
-                  {/* Operator Assignment Toggle */}
-                  <AnimatePresence>
-                    {isDeliveryProcessing() && (user === null || user.is_admin) && (
-                      <motion.div {...motionTransition}>
-                        <LoadingAnimation
-                          condition={!user || isLoading}
-                          skeleton={
-                            <div className="flex items-center justify-between">
-                              <Skeleton className="h-8 w-32 rounded-xl" />
-                              <Skeleton className="h-8 w-16 rounded-full" />
-                            </div>
-                          }>
-                          <div className="flex items-center justify-between">
-
-                            <span className="text-default-700 font-medium">Assign Operator</span>
-                            <Switch
-                              isSelected={assignOperator}
-                              onValueChange={handleAssignOperatorToggle}
-                              color="primary"
-                            />
-                          </div>
-                        </LoadingAnimation>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-
-                  {/* Operator Selection (shown only when assignOperator is true) */}
-                  <AnimatePresence>
-                    {assignOperator && (
-                      <motion.div {...motionTransition}>
-                        <LoadingAnimation
-                          condition={!user || isLoading}
-                          skeleton={
-                            <Skeleton className="h-16 w-full rounded-xl" />
-                          }>
-                          <Autocomplete
-                            name="operator_uuid"
-                            label="Select Operator"
-                            placeholder="Choose an operator"
-                            selectedKey={formData.operator_uuid || ""}
-                            onSelectionChange={(e) => handleAutoSelectChange(`operator_uuid`, `${e}`)}
-                            isRequired={isDeliveryProcessing() && assignOperator && (user === null || user.is_admin)}
-                            isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
-                            selectorIcon={(!isDeliveryProcessing() || !(user === null || user.is_admin)) ? null : <Icon icon="heroicons:chevron-down" height={15} />}
-                            popoverProps={{ className: (!isDeliveryProcessing() || !(user === null || user.is_admin)) ? "collapse" : "" }}
-                            inputProps={autoCompleteStyle}
-                            classNames={{ clearButton: "text-default-800" }}
-                            isInvalid={!!errors.operator_uuid}
-                            errorMessage={errors.operator_uuid}
-                            startContent={<Icon icon="mdi:account" className="text-default-500 mb-[0.2rem]" />}
-                          >
-                            {operators.map((operator) => (
-                              <AutocompleteItem key={operator.uuid}>
-                                {`${operator.full_name} (${operator.email})`}
-                              </AutocompleteItem>
-                            ))}
-                          </Autocomplete>
-                        </LoadingAnimation>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-
-                  <LoadingAnimation
-                    condition={!user || isLoading}
-                    skeleton={
                       <div className="space-y-4">
-                        <Skeleton className="h-16 w-full rounded-xl" />
-                        <Skeleton className="h-16 w-full rounded-xl" />
-                      </div>
-                    }>
-                    {/* Warehouse Selection */}
-                    <div className="space-y-4">
-                      <Autocomplete
-                        id="warehouse_uuid"
-                        name="warehouse_uuid"
-                        label="Warehouse"
-                        isRequired={isDeliveryProcessing() && (user === null || user.is_admin)}
-                        isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
-                        selectorIcon={(!isDeliveryProcessing() || !(user === null || user.is_admin)) ? null : <Icon icon="heroicons:chevron-down" height={15} />}
-                        popoverProps={{ className: (!isDeliveryProcessing() || !(user === null || user.is_admin)) ? "collapse" : "" }}
-                        placeholder="Select warehouse"
-                        selectedKey={formData.warehouse_uuid || ""}
-                        onSelectionChange={(e) => {
-                          const selectedWarehouse = warehouses.find(w => w.uuid === e);
-                          if (selectedWarehouse) {
-                            setFormData(prev => ({
-                              ...prev,
-                              delivery_address: selectedWarehouse.address.fullAddress
-                            }));
-                            handleAutoSelectChange(`warehouse_uuid`, `${e}`)
-                          } else {
-                            setFormData(prev => ({
-                              ...prev,
-                              delivery_address: ""
-                            }));
-                            handleAutoSelectChange(`warehouse_uuid`, null)
-                          }
-                        }}
-                        inputProps={autoCompleteStyle}
-                        classNames={{ clearButton: "text-default-800" }}
-                        isInvalid={!!errors.warehouse_uuid}
-                        errorMessage={errors.warehouse_uuid}
-                        startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
-                      >
-                        {warehouses.map((warehouse) => (
-                          <AutocompleteItem key={warehouse.uuid}>
-                            {`${warehouse.name} (${warehouse.address.municipality.desc}, ${warehouse.address.barangay.desc})`}
-                          </AutocompleteItem>
-                        ))}
-                      </Autocomplete>
+                        <Skeleton className="h-[1.75rem] w-48 rounded-xl mx-auto" />
 
-                      <DatePicker
-                        name="delivery_date"
-                        label="Delivery Date"
-                        defaultValue={formData.delivery_date ?
-                          parseDate(formData.delivery_date) :
-                          today(getLocalTimeZone())}
-                        onChange={(date: any) => {
-                          setFormData(prev => ({
-                            ...prev,
-                            delivery_date: date.toString()
-                          }));
-                        }}
-                        isRequired={isDeliveryProcessing() && (user === null || user.is_admin)}
-                        isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
-                        classNames={{
-                          base: "w-full",
-                          inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
-                          selectorButton: "w-12 h-10 mb-4 mr-[-0.4rem]",
-                        }}
-                        isInvalid={!!errors.delivery_date}
-                        errorMessage={errors.delivery_date}
-                      />
+                        <Skeleton className="h-16 w-full rounded-xl" />
+
+                        <div className="flex flex-col lg:flex-row gap-4">
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                        </div>
+                      </div>
+
+                    }>
+                    <div className="space-y-4">
+                      <h2 className="text-xl font-semibold w-full text-center">Delivery Information</h2>
+
+                      {selectedDeliveryId && (
+                        <Input
+                          label="Delivery Identifier"
+                          value={selectedDeliveryId}
+                          isReadOnly
+                          classNames={inputStyle}
+                          startContent={<Icon icon="mdi:truck-delivery" className="text-default-500 mb-[0.2rem]" />}
+                          endContent={
+                            <Button
+                              variant="flat"
+                              color="default"
+                              isIconOnly
+                              onPress={() => copyToClipboard(selectedDeliveryId || "")}
+                            >
+                              <Icon icon="mdi:content-copy" className="text-default-500" />
+                            </Button>
+                          }
+                        />
+                      )}
+
+                      {/* Warehouse Selection and Date Picker */}
+                      <div className="flex flex-col lg:flex-row gap-4">
+                        <Autocomplete
+                          label="Warehouse"
+                          placeholder="Select warehouse"
+                          selectedKey={formData.warehouse_uuid || ""}
+                          onSelectionChange={(value) => handleAutoSelectChange("warehouse_uuid", value)}
+                          isRequired={isDeliveryProcessing() && (user === null || user.is_admin)}
+                          isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
+                          inputProps={autoCompleteStyle}
+                          isInvalid={!!errors.warehouse_uuid}
+                          errorMessage={errors.warehouse_uuid}
+                          startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
+                          isLoading={isLoadingWarehouses}
+                        >
+                          {warehouses.map((warehouse) => (
+                            <AutocompleteItem key={warehouse.uuid}>
+                              {warehouse.name}
+                            </AutocompleteItem>
+                          ))}
+                        </Autocomplete>
+
+                        <DatePicker
+                          name="delivery_date"
+                          label="Delivery Date"
+                          defaultValue={formData.delivery_date ?
+                            parseDate(formData.delivery_date) :
+                            today(getLocalTimeZone())}
+                          onChange={(date: any) => {
+                            const dateString = date.toString();
+                            handleAutoSelectChange("delivery_date", dateString);
+                          }}
+                          isRequired={isDeliveryProcessing() && (user === null || user.is_admin)}
+                          isReadOnly={!isDeliveryProcessing() || !(user === null || user.is_admin)}
+                          classNames={{
+                            base: "w-full",
+                            inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
+                            selectorButton: "w-12 h-10 mb-4 mr-[-0.4rem]",
+                          }}
+                          isInvalid={!!errors.delivery_date}
+                          errorMessage={errors.delivery_date}
+                        />
+                      </div>
                     </div>
                   </LoadingAnimation>
                 </div>
 
-                <div {...(!assignOperator ? { className: '!min-h-0 !p-0 !h-0  border-none' } : {})}>
-                  {/* Recipient Details (shown only when assignOperator is true) */}
-                  <AnimatePresence>
-                    {assignOperator && (
-                      <motion.div {...motionTransition}>
-                        <LoadingAnimation
-                          condition={!user || isLoading}
-                          skeleton={
-                            <div className="space-y-4">
-                              <Skeleton className="h-[1.75rem] w-48 rounded-xl mx-auto" />
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
-                                <Skeleton className="h-16 w-full rounded-xl" />
-                                <Skeleton className="h-16 w-full rounded-xl" />
+                <div>
+                  <LoadingAnimation
+                    condition={!user || isLoading}
+                    skeleton={
+                      <div className="space-y-4 justify-center items-center">
+                        <Skeleton className="h-[1.75rem] w-48 rounded-xl mx-auto" /> {/* Title skeleton */}
+                        <Skeleton className="h-16 w-full rounded-xl" /> {/* Autocomplete input skeleton */}
+
+                        {/* Selected operators list skeleton */}
+                        <div className="space-y-2">
+                          {[...Array(2)].map((_, i) => (
+                            <div key={i} className="flex items-center justify-between p-4 bg-default-50 rounded-xl border border-default-200 gap-4">
+                              <div className="flex items-center gap-3">
+                                <Skeleton className="w-10 h-10 rounded-full" /> {/* Profile icon skeleton */}
+                                <div className="flex flex-col gap-1">
+                                  <Skeleton className="h-5 w-32 rounded-xl" /> {/* Name skeleton */}
+                                  <div className="flex flex-col sm:flex-row sm:gap-4">
+                                    <Skeleton className="h-4 w-40 rounded-xl" /> {/* Email skeleton */}
+                                    <Skeleton className="h-4 w-28 rounded-xl" /> {/* Phone skeleton */}
+                                  </div>
+                                </div>
                               </div>
+                              <Skeleton className="w-8 h-8 rounded-xl" /> {/* Delete button skeleton */}
                             </div>
-                          }>
-                          <div>
-                            <h2 className="text-xl font-semibold mb-4 w-full text-center">
-                              Recipient Details
-                            </h2>
+                          ))}
+                        </div>
+                      </div>
+                    }>
+                    <div className="space-y-4 justify-center items-center">
+                      <h3 className="text-lg text-center font-semibold">Assigned Operators</h3>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
-                              {!user ? (
-                                <>
-                                  <Skeleton className="h-16 w-full rounded-xl" />
-                                  <Skeleton className="h-16 w-full rounded-xl" />
-                                </>
-                              ) : (
-                                <>
-                                  <Input
-                                    name="recipient_name"
-                                    label="Recipient Name"
-                                    classNames={inputStyle}
-                                    placeholder="Enter recipient name"
-                                    value={formData.recipient_name || ""}
-                                    onChange={handleInputChange}
-                                    isRequired={assignOperator && (user === null || user.is_admin)}
-                                    isReadOnly={!(user === null || user.is_admin)}
-                                    isInvalid={!!errors.recipient_name}
-                                    errorMessage={errors.recipient_name}
-                                    startContent={<Icon icon="mdi:account" className="text-default-500 mb-[0.2rem]" />}
-                                  />
+                      {/* Operator Selection Autocomplete - only show if delivery is processing and user is admin */}
+                      {isDeliveryProcessing() && (user === null || user.is_admin) && (
+                        <Autocomplete
+                          label="Add Operator"
+                          placeholder="Select an operator to add"
+                          onSelectionChange={(value) => {
+                            if (value) {
+                              handleAddOperator(value as string);
+                            }
+                          }}
+                          inputProps={autoCompleteStyle}
+                          startContent={<Icon icon="mdi:account-plus" className="text-default-500 mb-[0.2rem]" />}
+                        >
+                          {operators
+                            .filter(operator => !selectedOperators.some(selected => selected.uuid === operator.uuid))
+                            .map((operator) => (
+                              <AutocompleteItem key={operator.uuid}>
+                                {operator.full_name} - {operator.email}
+                              </AutocompleteItem>
+                            ))}
+                        </Autocomplete>
+                      )}
 
-                                  <Input
-                                    name="recipient_contact"
-                                    label="Contact Number"
-                                    classNames={inputStyle}
-                                    placeholder="Enter contact number"
-                                    value={formData.recipient_contact || ""}
-                                    onChange={handleInputChange}
-                                    isRequired={assignOperator && (user === null || user.is_admin)}
-                                    isReadOnly={!(user === null || user.is_admin)}
-                                    isInvalid={!!errors.recipient_contact}
-                                    errorMessage={errors.recipient_contact}
-                                    startContent={<Icon icon="mdi:phone" className="text-default-500 mb-[0.2rem]" />}
-                                  />
-                                </>
+                      {/* Display Selected Operators */}
+                      {selectedOperators.length > 0 ? (
+                        <div className="space-y-2">
+                          {selectedOperators.map((operator) => (
+                            <div key={operator.uuid} className="flex items-center justify-between p-4 bg-default-50 rounded-xl border border-default-200 gap-4">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
+                                  <Icon icon="mdi:account" className="text-primary-600" />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <p className="font-medium text-default-800">{operator.full_name}</p>
+                                  <div className="flex flex-col sm:flex-row sm:gap-4 text-sm text-default-600">
+                                    <p className="text-sm text-default-500 flex items-center gap-1">
+                                      <Icon icon="mdi:email" className="text-xs" />
+                                      {operator.email}
+                                    </p>
+                                    {operator.phone_number && (
+                                      <p className="text-sm text-default-500 flex items-center gap-1">
+                                        <Icon icon="mdi:phone" className="text-xs" />
+                                        {operator.phone_number}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Only show delete button if delivery is processing and user is admin */}
+                              {isDeliveryProcessing() && (user === null || user.is_admin) && (
+                                <Button
+                                  color="danger"
+                                  variant="light"
+                                  isIconOnly
+                                  size="sm"
+                                  onPress={() => handleRemoveOperator(operator.uuid)}
+                                >
+                                  <Icon icon="mdi:delete" className="w-4 h-4" />
+                                </Button>
                               )}
                             </div>
-                          </div>
-                        </LoadingAnimation>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="p-4 text-center text-default-500 bg-default-50 rounded-xl border border-dashed border-default-300">
+                          {isDeliveryProcessing() && (user === null || user.is_admin)
+                            ? "No operators assigned. Use the dropdown above to add operators."
+                            : "No operators assigned to this delivery."
+                          }
+                        </div>
+                      )}
+                    </div>
+                  </LoadingAnimation>
                 </div>
 
 
@@ -2971,7 +3031,6 @@ export default function DeliveryPage() {
                                                 variant="flat"
                                                 className="font-medium"
                                               >
-                                                <Icon icon={statusIcon} className="mr-1" />
                                                 {status.replaceAll('_', ' ')}
                                               </Chip>
                                               <div className="text-xs text-default-500 flex items-center">
@@ -3188,7 +3247,7 @@ export default function DeliveryPage() {
               const pngUrl = canvas.toDataURL('image/png');
               const downloadLink = document.createElement('a');
               downloadLink.href = pngUrl;
-              downloadLink.download = `delivery-${formData.recipient_name?.replace(/\s+/g, '-') || 'item'}-${new Date().toISOString()}.png`;
+              downloadLink.download = `delivery-${user.full_name?.replace(/\s+/g, '-') || 'item'}-${new Date().toISOString()}.png`;
               document.body.appendChild(downloadLink);
               downloadLink.click();
               document.body.removeChild(downloadLink);
