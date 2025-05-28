@@ -419,7 +419,7 @@ export default function DashboardPage() {
         <div className="flex flex-col w-full xl:text-left text-center">
           <h1 className="text-2xl font-bold">Dashboard</h1>
           {loading ? (
-            <div className="text-default-500 flex items-center">
+            <div className="text-default-500 flex xl:justify-start justify-center items-center">
               <p className='my-auto mr-1'>Loading dashboard data</p>
               <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
             </div>

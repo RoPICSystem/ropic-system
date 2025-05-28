@@ -2571,8 +2571,8 @@ export default function DeliveryPage() {
                                               className=" py-6 px-2 -m-2"
                                               variant='light'
                                               endContent={expandedBulkDetails.has(bulk.uuid) && bulkDetails.has(bulk.uuid) ?
-                                                <Icon icon="mdi:chevron-up" className="text-default-500" width={16} /> :
-                                                <Icon icon="mdi:chevron-down" className="text-default-500" width={16} />}
+                                                <Icon icon="mdi:chevron-up" className="text-default-500" width={18} /> :
+                                                <Icon icon="mdi:chevron-down" className="text-default-500" width={18} />}
                                               onPress={() => handleBulkDetailsToggle(bulk.uuid, bulk.name)}
                                               isLoading={loadingBulkDetails.has(bulk.uuid)}
                                             >
