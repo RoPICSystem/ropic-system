@@ -1875,21 +1875,20 @@ export default function ReorderPointPage() {
                     skeleton={
                       <>
                         {/* Header skeleton */}
-                        <div className="relative mb-4">
-                          <Skeleton className="h-7 w-40 mx-auto rounded-full" />
-                          <Skeleton className="absolute right-0 bottom-0 h-6 w-20 rounded-full" />
-                        </div>
-
-                        {/* Form fields skeleton */}
                         <div className="space-y-4">
+                          <div className="relative">
+                            <Skeleton className="h-7 w-40 mx-auto rounded-full" />
+                            <Skeleton className="absolute right-0 bottom-0 h-6 w-20 rounded-full" />
+                          </div>
+
                           {/* Item Name skeleton */}
                           <Skeleton className="h-16 w-full rounded-xl" />
 
                           {/* Warehouse skeleton */}
                           <Skeleton className="h-16 w-full rounded-xl" />
 
-                          {/* Current Stock and Last Updated grid skeleton */}
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {/* Current Stock and Last Updated flex skeleton */}
+                          <div className="flex flex-col md:flex-row gap-4">
                             <Skeleton className="h-16 w-full rounded-xl" />
                             <Skeleton className="h-16 w-full rounded-xl" />
                           </div>
