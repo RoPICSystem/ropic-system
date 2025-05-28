@@ -957,13 +957,21 @@ export default function DeliveryPage() {
 
       setFloorOptions(warehouseLayout.map((layout: any) => layout.floor));
 
+      setFormData(prev => ({
+        ...prev,
+        delivery_address: selectedWarehouse.address.fullAddress
+      }));
+
       // Fetch occupied shelf locations
       const occupiedResult = await getOccupiedShelfLocations(selectedWarehouse.uuid);
       if (occupiedResult.success) {
         setOccupiedLocations(occupiedResult.data || []);
       }
-
     } else {
+      setFormData(prev => ({
+        ...prev,
+        delivery_address: ""
+      }));
       resetWarehouseLocation();
     }
   };
@@ -1069,8 +1077,7 @@ export default function DeliveryPage() {
 
       // Handle successful creation/update
       if (result.success && result.data) {
-        const newDelivery = (result.data as any)[0];
-        setSelectedDeliveryId(newDelivery?.uuid || null);
+        const newDelivery = result.data;
 
         // Update URL with new delivery ID
         setTimeout(() => {
@@ -1531,8 +1538,6 @@ export default function DeliveryPage() {
 
       const delivery = deliveryItems.find(d => d.uuid === deliveryId);
       if (!delivery) return;
-
-      console.log("Selected Delivery:", delivery);
 
       setFormData(delivery);
       setSelectedItem(delivery.inventory_uuid || "");

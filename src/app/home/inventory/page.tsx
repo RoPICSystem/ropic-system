@@ -2063,6 +2063,7 @@ export default function InventoryPage() {
                                                                   placeholder="Enter code"
                                                                   value={unit.code || ""}
                                                                   onChange={(e) => handleUnitChange(unit.id, 'code', e.target.value)}
+                                                                  isDisabled={!isBulkEditable(bulk)}
                                                                   isRequired
                                                                   classNames={inputStyle}
                                                                   startContent={<Icon icon="mdi:barcode" className="text-default-500 mb-[0.2rem]" />}
@@ -2073,6 +2074,7 @@ export default function InventoryPage() {
                                                                   placeholder="Enter name"
                                                                   value={unit.name || inventoryForm.name}
                                                                   onChange={(e) => handleUnitChange(unit.id, 'name', e.target.value)}
+                                                                  isDisabled={!isBulkEditable(bulk)}
                                                                   isRequired
                                                                   classNames={inputStyle}
                                                                   startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
@@ -2083,6 +2085,7 @@ export default function InventoryPage() {
                                                                   placeholder="0"
                                                                   value={unit.unit_value || 0}
                                                                   onValueChange={(value) => handleUnitChange(unit.id, 'unit_value', value)}
+                                                                  isDisabled={!isBulkEditable(bulk)}
                                                                   isRequired
                                                                   minValue={0}
                                                                   classNames={inputStyle}
@@ -2107,6 +2110,7 @@ export default function InventoryPage() {
                                                                   placeholder="0.00"
                                                                   value={unit.cost || 0}
                                                                   onValueChange={(value) => handleUnitChange(unit.id, 'cost', value)}
+                                                                  isDisabled={!isBulkEditable(bulk)}
                                                                   isRequired
                                                                   minValue={0}
                                                                   classNames={{

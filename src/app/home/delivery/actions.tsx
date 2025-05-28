@@ -714,7 +714,8 @@ export async function getOccupiedShelfLocations(warehouseUuid: string) {
     const { data: deliveryData, error: deliveryError } = await supabase
       .from("delivery_items")
       .select("locations") // Updated to match the new field name
-      .eq("warehouse_uuid", warehouseUuid);
+      .eq("warehouse_uuid", warehouseUuid)
+      .neq("status", "CANCELLED");
 
     if (deliveryError) {
       throw deliveryError;
