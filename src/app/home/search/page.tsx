@@ -18,13 +18,17 @@ import {
   Accordion,
   AccordionItem,
   Spinner,
+  CardFooter,
+  Alert,
+  Snippet,
+  Tooltip,
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 
 import { getUserFromCookies } from "@/utils/supabase/server/user";
 import { formatDate, formatNumber } from "@/utils/tools";
-import { motionTransition } from "@/utils/anim";
+import { motionTransition, motionTransitionScale } from "@/utils/anim";
 import LoadingAnimation from "@/components/loading-animation";
 
 import {
@@ -44,7 +48,7 @@ export default function GoPage() {
   const [isSearching, setIsSearching] = useState(false);
 
   // Item details states
-  const [itemType, setItemType] = useState<'delivery' | 'inventory' | 'warehouse' | null>(null);
+  const [itemType, setItemType] = useState<'delivery' | 'inventory' | 'warehouse_inventory' | null>(null);
   const [itemDetails, setItemDetails] = useState<GoPageDeliveryDetails | GoPageInventoryDetails | GoPageWarehouseDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,6 +66,33 @@ export default function GoPage() {
     }).format(value);
   }
 
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      // You could add a toast notification here
+    } catch (err) {
+      console.error('Failed to copy text: ', err);
+    }
+  };
+
+  const renderProperties = (properties: Record<string, any> | undefined) => {
+    if (!properties || Object.keys(properties).length === 0) return null;
+
+    return (
+      <div className="mt-4">
+        <p className="text-sm font-medium text-default-500 mb-2">Custom Properties</p>
+        <div className="space-y-2">
+          {Object.entries(properties).map(([key, value]) => (
+            <div key={key} className="flex justify-between items-center p-2 bg-default-100 rounded-lg">
+              <span className="text-sm font-medium text-default-700">{key}:</span>
+              <span className="text-sm text-default-600">{JSON.stringify(value)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   // Load user and check for UUID in URL
   useEffect(() => {
     const initPage = async () => {
@@ -78,8 +109,9 @@ export default function GoPage() {
         const inventoryId = searchParams.get("inventoryId");
         const warehouseItemId = searchParams.get("warehouseItemId");
         const itemId = searchParams.get("itemId");
+        const query = searchParams.get("q");
 
-        const uuid = deliveryId || inventoryId || warehouseItemId || itemId;
+        const uuid = deliveryId || inventoryId || warehouseItemId || itemId || query;
 
         if (uuid) {
           await loadItemDetails(uuid);
@@ -144,14 +176,27 @@ export default function GoPage() {
   };
 
   const handleSearch = async () => {
+    // check if the search query changed from the current URL
+    const currentQuery = searchParams.get("q");
+    if (currentQuery === searchQuery.trim()) {
+      return; // No change in search query
+    }
+
+    setIsSearching(true);
+
     if (!searchQuery.trim()) {
       setItemDetails(null);
       setItemType(null);
       setError(null);
+
+      // Clear the search parameter from URL
+      router.push('/home/search');
       return;
     }
 
-    await loadItemDetails(searchQuery.trim());
+    // Update URL with search query
+    router.push(`/home/search?q=${encodeURIComponent(searchQuery.trim())}`);
+
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -180,20 +225,48 @@ export default function GoPage() {
   };
 
   const renderDeliveryDetails = (details: GoPageDeliveryDetails) => (
-    <div className="space-2">
+    <div className="space-y-4">
       {/* Header */}
-
-      <Card className="bg-background mt-4">
+      <Card className="bg-background">
         <CardHeader className="p-4 justify-between flex-wrap">
           <div className="flex items-center gap-3">
             <div className="flex items-center justify-center w-12 h-12 bg-warning-100 rounded-lg">
-              <Icon icon="mdi:truck-delivery" className="text-warning" width={24} />
+              <Icon icon="mdi:truck-delivery" className="text-warning-600" width={24} />
             </div>
-            <div className="flex-1">
+            <div className="flex-1 flex items-center gap-4 mt-1">
               <h2 className="text-lg font-semibold">
                 {details.name || "Delivery Item"}
               </h2>
-              <p className="text-xs text-default-500">Delivery ID: {details.uuid}</p>
+              <div className="flex items-center gap-2">
+                <div
+                  className="xl:block hidden">
+                  <Snippet
+                    symbol=""
+                    variant="flat"
+                    color="default"
+                    size="sm"
+                    className="text-xs p-1 pl-2"
+                    classNames={{ copyButton: "bg-default-200 hover:bg-default-300 text-sm p-0 h-6 w-6" }}
+                    codeString={details.uuid}
+                    checkIcon={<Icon icon="fluent:checkmark-16-filled" className="text-success" />}
+                    copyIcon={<Icon icon="fluent:copy-16-regular" className="text-default-500" />}
+                    onCopy={() => copyToClipboard(details.uuid)}
+                  >
+                    {details.uuid}
+                  </Snippet>
+                </div>
+                <Button
+                  size="sm"
+                  variant="flat"
+                  color="default"
+                  isIconOnly
+                  className="xl:hidden"
+                  onPress={() => copyToClipboard(details.uuid)}
+                >
+                  <Icon icon="fluent:copy-16-regular" className="text-default-500 text-sm" />
+                </Button>
+              </div>
+
             </div>
           </div>
           <Chip size='sm' color={getStatusColor(details.status)} variant="flat">
@@ -222,16 +295,81 @@ export default function GoPage() {
           </div>
 
           {details.notes && (
-            <div>
+            <div className="mt-4">
               <p className="text-sm font-medium text-default-500">Notes</p>
               <p>{details.notes}</p>
+            </div>
+          )}
+
+          {/* Status History */}
+          {details.status_history && Object.keys(details.status_history).length > 0 && (
+            <div className="mt-4">
+              <p className="text-sm font-medium text-default-500 mb-2">Status History</p>
+              <div className="space-y-2">
+                {Object.entries(details.status_history).map(([status, timestamp]) => (
+                  <div key={status} className="flex justify-between items-center p-2 bg-default-100 rounded-lg">
+                    <Chip size="sm" color={getStatusColor(status)} variant="flat">
+                      {status}
+                    </Chip>
+                    <span className="text-xs text-default-600">{formatDate(timestamp)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Location Information */}
+          {details.locations && details.locations.length > 0 && (
+            <div className="mt-4">
+              <p className="text-sm font-medium text-default-500 mb-2">Locations</p>
+              <div className="space-y-2">
+                {details.locations.map((location, index) => (
+                  <div key={index} className="p-3 bg-default-100 rounded-lg">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                      <div>
+                        <p className="text-default-600">Floor</p>
+                        <p>{location.floor}</p>
+                      </div>
+                      <div>
+                        <p className="text-default-600">Group</p>
+                        <p>{location.group}</p>
+                      </div>
+                      <div>
+                        <p className="text-default-600">Row</p>
+                        <p>{location.row}</p>
+                      </div>
+                      <div>
+                        <p className="text-default-600">Column</p>
+                        <p>{location.column}</p>
+                      </div>
+                    </div>
+                    {details.location_codes && details.location_codes[index] && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <p className="text-default-600 text-sm">Location Code:</p>
+                        <Snippet
+                          symbol=""
+                          variant="flat"
+                          color="primary"
+                          size="sm"
+                          className="text-xs p-1 pl-2 mt-1"
+                          classNames={{ copyButton: "bg-default-300 hover:bg-default-300 text-sm p-0 h-6 w-6" }}
+                          codeString={details.location_codes[index]}
+                          onCopy={() => copyToClipboard(details.location_codes![index])}
+                        >
+                          {details.location_codes[index]}
+                        </Snippet>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </CardBody>
       </Card>
 
       {/* Related Information */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Inventory Item */}
         {details.inventory_item && (
           <Card className="bg-background mt-4">
@@ -251,13 +389,32 @@ export default function GoPage() {
                 <p className="text-sm font-medium text-default-500">Unit</p>
                 <p>{details.inventory_item.unit}</p>
               </div>
+              <div>
+                <p className="text-sm font-medium text-default-500 mb-1">Inventory ID</p>
+                <Snippet
+                  symbol=""
+                  variant="flat"
+                  color="primary"
+                  size="sm"
+                  className="text-xs p-1 pl-2"
+                  classNames={{ copyButton: "bg-primary-100 hover:!bg-primary-200 text-sm p-0 h-6 w-6" }}
+                  codeString={details.inventory_item.uuid}
+                  onCopy={() => copyToClipboard(details.inventory_item!.uuid)}
+                >
+                  {details.inventory_item.uuid}
+                </Snippet>
+              </div>
               {details.inventory_item.description && (
                 <div>
                   <p className="text-sm font-medium text-default-500">Description</p>
                   <p>{details.inventory_item.description}</p>
                 </div>
               )}
+              {renderProperties(details.inventory_item.properties)}
+            </CardBody>
+            <CardFooter>
               <Button
+                className="w-full"
                 size="sm"
                 color="primary"
                 variant="flat"
@@ -265,7 +422,7 @@ export default function GoPage() {
               >
                 View Details
               </Button>
-            </CardBody>
+            </CardFooter>
           </Card>
         )}
 
@@ -285,20 +442,38 @@ export default function GoPage() {
                 <p>{details.warehouse.name}</p>
               </div>
               <div>
+                <p className="text-sm font-medium text-default-500 mb-1">Warehouse ID</p>
+                <Snippet
+                  symbol=""
+                  variant="flat"
+                  color="success"
+                  size="sm"
+                  className="text-xs p-1 pl-2"
+                  classNames={{ copyButton: "bg-success-100 hover:!bg-success-200 text-sm p-0 h-6 w-6" }}
+                  codeString={details.warehouse.uuid}
+                  onCopy={() => copyToClipboard(details.warehouse?.uuid || '')}
+                >
+                  {details.warehouse.uuid}
+                </Snippet>
+              </div>
+              <div>
                 <p className="text-sm font-medium text-default-500">Address</p>
                 <p>
                   {details.warehouse.address?.fullAddress || "Address not available"}
                 </p>
               </div>
+            </CardBody>
+            <CardFooter>
               <Button
+                className="w-full"
                 size="sm"
                 color="success"
                 variant="flat"
-                onPress={() => router.push(`/home/warehouses?warehouseItemId=${details.warehouse!.uuid}`)}
+                onPress={() => router.push(`/home/warehouses?warehouseId=${details.warehouse!.uuid}`)}
               >
-                View Warehouse
+                View Details
               </Button>
-            </CardBody>
+            </CardFooter>
           </Card>
         )}
       </div>
@@ -330,6 +505,18 @@ export default function GoPage() {
                     {operator.phone_number && (
                       <p className="text-sm text-default-600">{operator.phone_number}</p>
                     )}
+                    <Snippet
+                      symbol=""
+                      variant="flat"
+                      color="secondary"
+                      size="sm"
+                      className="text-xs p-1 pl-2 mt-1"
+                      classNames={{ copyButton: "bg-secondary-100 hover:!bg-secondary-200 text-sm p-0 h-6 w-6" }}
+                      codeString={operator.uuid}
+                      onCopy={() => copyToClipboard(operator.uuid)}
+                    >
+                      {operator.uuid.slice(0, 8)}...
+                    </Snippet>
                   </div>
                 </div>
               ))}
@@ -392,6 +579,23 @@ export default function GoPage() {
                   }
                 >
                   <div className="space-y-4 p-4">
+                    {/* Bulk ID */}
+                    <div>
+                      <p className="text-sm font-medium text-default-500 mb-1">Bulk ID</p>
+                      <Snippet
+                        symbol=""
+                        variant="flat"
+                        color="primary"
+                        size="sm"
+                        className="text-xs p-1 pl-2"
+                        classNames={{ copyButton: "bg-primary-100 hover:!bg-primary-200 text-sm p-0 h-6 w-6" }}
+                        codeString={bulk.uuid}
+                        onCopy={() => copyToClipboard(bulk.uuid)}
+                      >
+                        {bulk.uuid}
+                      </Snippet>
+                    </div>
+
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       <div>
                         <p className="text-sm font-medium text-default-500">Unit Value</p>
@@ -411,6 +615,9 @@ export default function GoPage() {
                       </div>
                     </div>
 
+                    {/* Custom Properties */}
+                    {renderProperties(bulk.properties)}
+
                     {/* Units */}
                     <div>
                       <h4 className="font-semibold text-default-900 mb-3">
@@ -429,11 +636,22 @@ export default function GoPage() {
                             <div key={unit.uuid} className="p-3 bg-default-100 rounded-lg">
                               <div className="flex items-center justify-between mb-2">
                                 <span className="font-medium text-default-900">{unit.name || unit.code}</span>
-                                <Chip size="sm" color={getStatusColor(unit.status || "AVAILABLE")} variant="flat">
-                                  {unit.status || "AVAILABLE"}
-                                </Chip>
+                                <div className="flex items-center gap-2">
+                                  <Chip size="sm" color={getStatusColor(unit.status || "AVAILABLE")} variant="flat">
+                                    {unit.status || "AVAILABLE"}
+                                  </Chip>
+                                  <Button
+                                    size="sm"
+                                    variant="flat"
+                                    color="default"
+                                    isIconOnly
+                                    onPress={() => copyToClipboard(unit.uuid)}
+                                  >
+                                    <Icon icon="mdi:content-copy" className="text-default-500 text-sm" />
+                                  </Button>
+                                </div>
                               </div>
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm mb-2">
                                 <div>
                                   <p className="text-default-600">Code</p>
                                   <p>{unit.code}</p>
@@ -451,6 +669,22 @@ export default function GoPage() {
                                   <p>{unit.status || "AVAILABLE"}</p>
                                 </div>
                               </div>
+                              <div className="mb-2">
+                                <p className="text-default-600 text-sm mb-1">Unit ID:</p>
+                                <Snippet
+                                  symbol=""
+                                  variant="flat"
+                                  color="default"
+                                  size="sm"
+                                  className="text-xs p-1 pl-2"
+                                  classNames={{ copyButton: "bg-default-300 hover:!bg-default-400 text-sm p-0 h-6 w-6" }}
+                                  codeString={unit.uuid}
+                                  onCopy={() => copyToClipboard(unit.uuid)}
+                                >
+                                  {unit.uuid}
+                                </Snippet>
+                              </div>
+                              {renderProperties(unit.properties)}
                             </div>
                           )) || (
                               <p className="text-default-600 text-center py-4">No units found</p>
@@ -471,9 +705,9 @@ export default function GoPage() {
   );
 
   const renderInventoryDetails = (details: GoPageInventoryDetails) => (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
-      <Card className="bg-background mt-2">
+      <Card className="bg-background">
         <CardHeader className="p-4 justify-between flex-wrap">
           <div className="flex items-center gap-3">
             <div className="flex items-center justify-center w-12 h-12 bg-secondary-100 rounded-lg">
@@ -481,9 +715,22 @@ export default function GoPage() {
             </div>
             <div className="flex-1">
               <h2 className="text-lg font-semibold">
-                {details.name || "Delivery Item"}
+                {details.name || "Inventory Item"}
               </h2>
-              <p className="text-xs text-default-500">Inventory ID: {details.uuid}</p>
+              <div className="flex items-center gap-2 mt-1">
+                <p className="text-xs text-default-500">Inventory ID:</p>
+                <Snippet
+                  symbol=""
+                  variant="flat"
+                  color="default"
+                  size="sm"
+                  className="text-xs"
+                  codeString={details.uuid}
+                  onCopy={() => copyToClipboard(details.uuid)}
+                >
+                  {details.uuid.slice(0, 8)}...
+                </Snippet>
+              </div>
             </div>
           </div>
           <Chip size='sm' color={getStatusColor(details.status || "AVAILABLE")} variant="flat">
@@ -517,6 +764,9 @@ export default function GoPage() {
               <p>{details.description}</p>
             </div>
           )}
+
+          {/* Custom Properties */}
+          {renderProperties(details.properties)}
         </CardBody>
       </Card>
 
@@ -561,6 +811,22 @@ export default function GoPage() {
                 }
               >
                 <div className="space-y-4 p-4">
+                  {/* Bulk ID */}
+                  <div>
+                    <p className="text-sm font-medium text-default-500 mb-1">Bulk ID</p>
+                    <Snippet
+                      symbol=""
+                      variant="flat"
+                      color="primary"
+                      size="sm"
+                      className="text-xs"
+                      codeString={bulk.uuid}
+                      onCopy={() => copyToClipboard(bulk.uuid)}
+                    >
+                      {bulk.uuid}
+                    </Snippet>
+                  </div>
+
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div>
                       <p className="text-sm font-medium text-default-500">Unit Value</p>
@@ -580,6 +846,9 @@ export default function GoPage() {
                     </div>
                   </div>
 
+                  {/* Custom Properties */}
+                  {renderProperties(bulk.properties)}
+
                   {/* Units */}
                   {bulk.inventory_item_units && bulk.inventory_item_units.length > 0 && (
                     <div>
@@ -589,11 +858,22 @@ export default function GoPage() {
                           <div key={unit.uuid} className="p-3 bg-default-100 rounded-lg">
                             <div className="flex items-center justify-between mb-2">
                               <span className="font-medium text-default-900">{unit.name || unit.code}</span>
-                              <Chip size="sm" color={getStatusColor(unit.status || "AVAILABLE")} variant="flat">
-                                {unit.status || "AVAILABLE"}
-                              </Chip>
+                              <div className="flex items-center gap-2">
+                                <Chip size="sm" color={getStatusColor(unit.status || "AVAILABLE")} variant="flat">
+                                  {unit.status || "AVAILABLE"}
+                                </Chip>
+                                <Button
+                                  size="sm"
+                                  variant="flat"
+                                  color="default"
+                                  isIconOnly
+                                  onPress={() => copyToClipboard(unit.uuid)}
+                                >
+                                  <Icon icon="mdi:content-copy" className="text-default-500 text-sm" />
+                                </Button>
+                              </div>
                             </div>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm mb-2">
                               <div>
                                 <p className="text-default-600">Code</p>
                                 <p>{unit.code}</p>
@@ -611,6 +891,21 @@ export default function GoPage() {
                                 <p>{unit.status || "AVAILABLE"}</p>
                               </div>
                             </div>
+                            <div className="mb-2">
+                              <p className="text-default-600 text-sm mb-1">Unit ID:</p>
+                              <Snippet
+                                symbol=""
+                                variant="flat"
+                                color="default"
+                                size="sm"
+                                className="text-xs"
+                                codeString={unit.uuid}
+                                onCopy={() => copyToClipboard(unit.uuid)}
+                              >
+                                {unit.uuid}
+                              </Snippet>
+                            </div>
+                            {renderProperties(unit.properties)}
                           </div>
                         ))}
                       </div>
@@ -647,6 +942,17 @@ export default function GoPage() {
                   <div className="flex-1">
                     <p className="font-medium text-default-900">{delivery.delivery_address}</p>
                     <p className="text-sm text-default-600">{formatDate(delivery.delivery_date)}</p>
+                    <Snippet
+                      symbol=""
+                      variant="flat"
+                      color="warning"
+                      size="sm"
+                      className="text-xs mt-1"
+                      codeString={delivery.uuid}
+                      onCopy={() => copyToClipboard(delivery.uuid)}
+                    >
+                      {delivery.uuid.slice(0, 8)}...
+                    </Snippet>
                   </div>
                   <Chip size="sm" color={getStatusColor(delivery.status)} variant="flat">
                     {delivery.status}
@@ -661,11 +967,11 @@ export default function GoPage() {
   );
 
   const renderWarehouseDetails = (details: GoPageWarehouseDetails) => (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
-      <Card className="bg-background mt-4">
+      <Card className="bg-background">
         <CardHeader className="p-4 justify-between flex-wrap">
-           <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3">
             <div className="flex items-center justify-center w-12 h-12 bg-secondary-100 rounded-lg">
               <Icon icon="mdi:package-variant" className="text-secondary" width={24} />
             </div>
@@ -673,7 +979,20 @@ export default function GoPage() {
               <h2 className="text-lg font-semibold">
                 {details.name}
               </h2>
-              <p className="text-xs text-default-500">Warehouse ID: {details.uuid}</p>
+              <div className="flex items-center gap-2 mt-1">
+                <p className="text-xs text-default-500">Warehouse Item ID:</p>
+                <Snippet
+                  symbol=""
+                  variant="flat"
+                  color="default"
+                  size="sm"
+                  className="text-xs"
+                  codeString={details.uuid}
+                  onCopy={() => copyToClipboard(details.uuid)}
+                >
+                  {details.uuid.slice(0, 8)}...
+                </Snippet>
+              </div>
             </div>
           </div>
           <Chip size='sm' color={getStatusColor(details.status)} variant="flat">
@@ -709,6 +1028,9 @@ export default function GoPage() {
               <p>{details.description}</p>
             </div>
           )}
+
+          {/* Custom Properties */}
+          {renderProperties(details.properties)}
         </CardBody>
       </Card>
 
@@ -728,6 +1050,20 @@ export default function GoPage() {
               <div>
                 <p className="text-sm font-medium text-default-500">Name</p>
                 <p>{details.warehouse.name}</p>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-default-500 mb-1">Warehouse ID</p>
+                <Snippet
+                  symbol=""
+                  variant="flat"
+                  color="success"
+                  size="sm"
+                  className="text-xs"
+                  codeString={details.warehouse.uuid}
+                  onCopy={() => copyToClipboard(details.warehouse?.uuid || '')}
+                >
+                  {details.warehouse.uuid.slice(0, 8)}...
+                </Snippet>
               </div>
               <div>
                 <p className="text-sm font-medium text-default-500">Address</p>
@@ -766,6 +1102,20 @@ export default function GoPage() {
                 <p className="text-sm font-medium text-default-500">Unit</p>
                 <p>{details.inventory_item.unit}</p>
               </div>
+              <div>
+                <p className="text-sm font-medium text-default-500 mb-1">Inventory ID</p>
+                <Snippet
+                  symbol=""
+                  variant="flat"
+                  color="primary"
+                  size="sm"
+                  className="text-xs"
+                  codeString={details.inventory_item.uuid}
+                  onCopy={() => copyToClipboard(details.inventory_item?.uuid || '')}
+                >
+                  {details.inventory_item.uuid.slice(0, 8)}...
+                </Snippet>
+              </div>
               {details.inventory_item.description && (
                 <div>
                   <p className="text-sm font-medium text-default-500">Description</p>
@@ -802,6 +1152,17 @@ export default function GoPage() {
               <div className="flex-1">
                 <p className="font-medium text-default-900">{details.delivery_item.delivery_address}</p>
                 <p className="text-sm text-default-600">{formatDate(details.delivery_item.delivery_date)}</p>
+                <Snippet
+                  symbol=""
+                  variant="flat"
+                  color="warning"
+                  size="sm"
+                  className="text-xs mt-1"
+                  codeString={details.delivery_item.uuid}
+                  onCopy={() => copyToClipboard(details.delivery_item?.uuid || '')}
+                >
+                  {details.delivery_item.uuid.slice(0, 8)}...
+                </Snippet>
               </div>
               <Chip size="sm" color={getStatusColor(details.delivery_item.status)} variant="flat">
                 {details.delivery_item.status}
@@ -865,6 +1226,22 @@ export default function GoPage() {
                 }
               >
                 <div className="space-y-4 p-4">
+                  {/* Bulk ID */}
+                  <div>
+                    <p className="text-sm font-medium text-default-500 mb-1">Bulk ID</p>
+                    <Snippet
+                      symbol=""
+                      variant="flat"
+                      color="success"
+                      size="sm"
+                      className="text-xs"
+                      codeString={bulk.uuid}
+                      onCopy={() => copyToClipboard(bulk.uuid)}
+                    >
+                      {bulk.uuid}
+                    </Snippet>
+                  </div>
+
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div>
                       <p className="text-sm font-medium text-default-500">Location Code</p>
@@ -909,6 +1286,9 @@ export default function GoPage() {
                     </div>
                   )}
 
+                  {/* Custom Properties */}
+                  {renderProperties(bulk.properties)}
+
                   {/* Units - Lazy loaded */}
                   <div>
                     <h4 className="font-semibold text-default-900 mb-3">
@@ -928,11 +1308,22 @@ export default function GoPage() {
                           <div key={unit.uuid} className="p-3 bg-default-100 rounded-lg">
                             <div className="flex items-center justify-between mb-2">
                               <span className="font-medium text-default-900">{unit.name || unit.code}</span>
-                              <Chip size="sm" color={getStatusColor(unit.status)} variant="flat">
-                                {unit.status}
-                              </Chip>
+                              <div className="flex items-center gap-2">
+                                <Chip size="sm" color={getStatusColor(unit.status)} variant="flat">
+                                  {unit.status}
+                                </Chip>
+                                <Button
+                                  size="sm"
+                                  variant="flat"
+                                  color="default"
+                                  isIconOnly
+                                  onPress={() => copyToClipboard(unit.uuid)}
+                                >
+                                  <Icon icon="mdi:content-copy" className="text-default-500 text-sm" />
+                                </Button>
+                              </div>
                             </div>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm mb-2">
                               <div>
                                 <p className="text-default-600">Code</p>
                                 <p>{unit.code}</p>
@@ -950,6 +1341,21 @@ export default function GoPage() {
                                 <p>{unit.location_code || "Not set"}</p>
                               </div>
                             </div>
+                            <div className="mb-2">
+                              <p className="text-default-600 text-sm mb-1">Unit ID:</p>
+                              <Snippet
+                                symbol=""
+                                variant="flat"
+                                color="default"
+                                size="sm"
+                                className="text-xs"
+                                codeString={unit.uuid}
+                                onCopy={() => copyToClipboard(unit.uuid)}
+                              >
+                                {unit.uuid}
+                              </Snippet>
+                            </div>
+                            {renderProperties(unit.properties)}
                           </div>
                         )) || (
                             <p className="text-default-600 text-center py-4">No units found</p>
@@ -974,9 +1380,7 @@ export default function GoPage() {
       <div className="flex flex-col gap-6">
         {/* Header */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={motionTransition}
+          {...motionTransitionScale}
           className="flex flex-col gap-4"
         >
           <div className="flex flex-col w-full xl:text-left text-center">
@@ -987,31 +1391,36 @@ export default function GoPage() {
                 <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
               </div>
             ) : (
-              <p className="text-default-500">Enter a UUID to view detailed information about any item in your system.</p>
+              <p className="text-default-500">Enter an identifier to view detailed information about any item in your system.</p>
             )}
           </div>
 
           {/* Search Bar */}
           <CardList>
-            <div className="flex gap-3 items-center w-full">
+            <div className="flex gap-3 items-center w-full relative">
               <Input
                 placeholder="Enter UUID (delivery, inventory, or warehouse item)..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                disabled={isSearching || !searchQuery.trim()}
                 onKeyPress={handleKeyPress}
                 startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
-                classNames={inputStyle}
+                classNames={{
+                  inputWrapper: "bg-default-100 border-2 border-default-200 hover:border-default-300 focus-within:!border-primary-500 !cursor-text rounded-lg",
+                  input: "text-default-500",
+                  label: "text-default-600"
+                }}
                 size="lg"
                 className="flex-1"
               />
               <Button
                 color="primary"
+                variant="shadow"
                 onPress={handleSearch}
-                className="px-8 h-12"
-                size="lg"
-                startContent={
-                  isSearching ? <Spinner className="inline-block scale-75" size="sm" color="default" /> : <Icon icon="mdi:magnify" />
-                }
+                className="rounded-lg absolute right-2 -translate-y-1/2 top-1/2"
+                size="sm"
+                isLoading={isSearching}
+                startContent={!isSearching && <Icon icon="mdi:magnify" />}
                 disabled={isSearching || !searchQuery.trim()}
               >
                 Search
@@ -1019,88 +1428,149 @@ export default function GoPage() {
             </div>
           </CardList>
         </motion.div>
+        <AnimatePresence mode="wait">
+          {/* Error Message */}
+          {error && (
+            <motion.div
+              key="error"
+              {...motionTransition}
+            >
+              <Alert
+                color="danger"
+                variant="solid"
+                className="shadow-danger-500/20 shadow-xl"
+                icon={
+                  <Icon icon="mdi:alert-circle" width={24} />
+                }
+                endContent={
+                  <Button
+                    color="danger"
+                    variant="solid"
+                    isIconOnly
+                    onPress={() => setError(null)}
+                  >
+                    <Icon icon="mdi:close" />
+                  </Button>
+                }
+                title="Error"
+                description={error}
+              />
+            </motion.div>
+          )}
 
-        {/* Error Message */}
-        {error && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={motionTransition}
-          >
-            <Card className="shadow-md border-l-4 border-l-danger">
-              <CardBody className="p-4">
-                <div className="flex items-center gap-3">
-                  <Icon icon="mdi:alert-circle" className="text-danger" width={24} />
-                  <div>
-                    <p className="font-semibold text-danger">Error</p>
-                    <p className="text-default-500">{error}</p>
-                  </div>
-                </div>
-              </CardBody>
-            </Card>
-          </motion.div>
-        )}
-
-        {/* Item Details */}
-        {itemDetails && itemType && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ ...motionTransition, delay: 0.1 }}
-          >
-            {itemType === 'delivery' && renderDeliveryDetails(itemDetails as GoPageDeliveryDetails)}
-            {itemType === 'inventory' && renderInventoryDetails(itemDetails as GoPageInventoryDetails)}
-            {itemType === 'warehouse' && renderWarehouseDetails(itemDetails as GoPageWarehouseDetails)}
-          </motion.div>
-        )}
-
-        {/* Instructions */}
-        {!itemDetails && !error && !isSearching && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ ...motionTransition, delay: 0.2 }}
-          >
-            <Card className="bg-background mt-4">
-              <CardBody className="text-center py-12">
-                <Icon icon="mdi:information-outline" className="text-default-400 mx-auto mb-4" width={48} />
-                <h3 className="text-xl font-semibold text-default-900 mb-2">
-                  How to Use Go to Item Details
-                </h3>
-                <p className="text-default-600 mb-6 max-w-md mx-auto">
-                  Enter any UUID from your delivery items, inventory items, or warehouse items to view comprehensive details.
-                </p>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-2xl mx-auto">
-                  <div className="text-center">
-                    <div className="w-12 h-12 bg-warning-100 rounded-lg flex items-center justify-center mx-auto mb-2">
-                      <Icon icon="mdi:truck-delivery" className="text-warning" width={24} />
+          {/* Loading State */}
+          {isSearching && !error && (
+            <motion.div
+              key="loading"
+              {...motionTransition}
+            >
+              <Card className="bg-background">
+                <CardBody className="p-6">
+                  <div className="flex flex-col items-center justify-center space-y-4">
+                    <div className="flex items-center justify-center w-16 h-16 bg-primary-100 rounded-full">
+                      <Icon icon="mdi:magnify" className="text-primary-600 animate-pulse" width={32} />
                     </div>
-                    <p className="font-medium text-default-900">Delivery Items</p>
-                    <p className="text-sm text-default-600">View delivery details, operators, locations</p>
-                  </div>
-
-                  <div className="text-center">
-                    <div className="w-12 h-12 bg-primary-100 rounded-lg flex items-center justify-center mx-auto mb-2">
-                      <Icon icon="mdi:package-variant" className="text-primary" width={24} />
+                    <div className="text-center">
+                      <h3 className="text-lg font-semibold text-default-900 mb-2">
+                        Searching for Item Details
+                      </h3>
+                      <p className="text-default-500 mb-4">
+                        Please wait while we retrieve the information...
+                      </p>
+                      <div className="flex items-center justify-center gap-2">
+                        <Spinner size="sm" color="primary" />
+                        <span className="text-sm text-default-600">Processing your request</span>
+                      </div>
                     </div>
-                    <p className="font-medium text-default-900">Inventory Items</p>
-                    <p className="text-sm text-default-600">View bulks, units, delivery history</p>
                   </div>
+                </CardBody>
+              </Card>
+            </motion.div>
+          )}
 
-                  <div className="text-center">
-                    <div className="w-12 h-12 bg-success-100 rounded-lg flex items-center justify-center mx-auto mb-2">
-                      <Icon icon="mdi:warehouse" className="text-success" width={24} />
+          {/* Item Delivery Details */}
+          {itemDetails && itemType && itemType === 'delivery' && (
+            <motion.div
+              key="delivery-details"
+              {...motionTransition}
+            >
+              <div className={`transition-opacity transition-blur ${isSearching && !error && 'opacity-75 blur-sm'}`}>
+                {renderDeliveryDetails(itemDetails as GoPageDeliveryDetails)}
+              </div>
+            </motion.div>
+          )}
+
+          {/* Item Inventory Details */}
+          {itemDetails && itemType && itemType === 'inventory' && (
+            <motion.div
+              key="inventory-details"
+              {...motionTransition}
+            >
+              <div className={`transition-opacity transition-blur ${isSearching && !error && 'opacity-75 blur-sm'}`}>
+                {renderInventoryDetails(itemDetails as GoPageInventoryDetails)}
+              </div>
+            </motion.div>
+          )}
+
+          {/* Item Warehouse Invenrtory Details */}
+          {itemDetails && itemType && itemType === 'warehouse_inventory' && (
+            <motion.div
+              key="warehouse-details"
+              {...motionTransition}
+            >
+              <div className={`transition-opacity transition-blur ${isSearching && !error && 'opacity-75 blur-sm'}`}>
+                {renderWarehouseDetails(itemDetails as GoPageWarehouseDetails)}
+              </div>
+            </motion.div>
+          )}
+
+          {/* Instructions */}
+          {!itemDetails && !error && !isSearching && (
+            <motion.div
+              key="instructions"
+              {...motionTransition}
+            >
+              <Card className="bg-background">
+                <CardBody className="text-center py-12">
+                  <Icon icon="mdi:information-outline" className="text-default-400 mx-auto mb-4" width={48} />
+                  <h3 className="text-xl font-semibold text-default-900 mb-2">
+                    How to Use Go to Item Details
+                  </h3>
+                  <p className="text-default-600 mb-6 max-w-md mx-auto">
+                    Enter any UUID from your delivery items, inventory items, or warehouse items to view comprehensive details.
+                  </p>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-2xl mx-auto">
+                    <div className="text-center">
+                      <div className="w-12 h-12 bg-warning-100 rounded-lg flex items-center justify-center mx-auto mb-2">
+                        <Icon icon="mdi:truck-delivery" className="text-warning" width={24} />
+                      </div>
+                      <p className="font-medium text-default-900">Delivery Items</p>
+                      <p className="text-sm text-default-600">View delivery details, operators, locations</p>
                     </div>
-                    <p className="font-medium text-default-900">Warehouse Items</p>
-                    <p className="text-sm text-default-600">View storage locations, units</p>
+
+                    <div className="text-center">
+                      <div className="w-12 h-12 bg-secondary-100 rounded-lg flex items-center justify-center mx-auto mb-2">
+                        <Icon icon="mdi:package-variant" className="text-secondary" width={24} />
+                      </div>
+                      <p className="font-medium text-default-900">Inventory Items</p>
+                      <p className="text-sm text-default-600">View bulks, units, delivery history</p>
+                    </div>
+
+                    <div className="text-center">
+                      <div className="w-12 h-12 bg-success-100 rounded-lg flex items-center justify-center mx-auto mb-2">
+                        <Icon icon="mdi:warehouse" className="text-success" width={24} />
+                      </div>
+                      <p className="font-medium text-default-900">Warehouse Items</p>
+                      <p className="text-sm text-default-600">View storage locations, units</p>
+                    </div>
                   </div>
-                </div>
-              </CardBody>
-            </Card>
-          </motion.div>
-        )}
-      </div>
-    </div>
+                </CardBody>
+              </Card>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div >
+    </div >
   );
 }

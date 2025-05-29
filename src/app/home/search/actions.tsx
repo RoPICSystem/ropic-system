@@ -15,13 +15,14 @@ export interface GoPageDeliveryDetails {
   operator_uuids?: string[];
   created_at: string;
   updated_at: string;
-  
+
   // Related data
   inventory_item?: {
     uuid: string;
     name: string;
     description?: string;
     unit: string;
+    properties?: Record<string, any>;
     status?: string;
   };
   warehouse?: {
@@ -47,7 +48,7 @@ export interface GoPageInventoryDetails {
   properties: Record<string, any>;
   created_at: Date;
   updated_at: Date;
-  
+
   // Related data
   inventory_item_bulks: {
     uuid: string;
@@ -57,6 +58,7 @@ export interface GoPageInventoryDetails {
     cost: number;
     is_single_item: boolean;
     status?: string;
+    properties?: Record<string, any>;
     inventory_item_units?: {
       uuid: string;
       code: string;
@@ -65,6 +67,7 @@ export interface GoPageInventoryDetails {
       name: string;
       cost: number;
       status?: string;
+      properties?: Record<string, any>;
     }[];
   }[];
   delivery_history?: {
@@ -84,7 +87,7 @@ export interface GoPageWarehouseDetails {
   properties?: any;
   created_at?: string;
   updated_at?: string;
-  
+
   // Related data
   warehouse?: {
     uuid: string;
@@ -107,6 +110,7 @@ export interface GoPageWarehouseDetails {
     location: any;
     location_code: string;
     status: string;
+    properties?: Record<string, any>;
     units?: {
       uuid: string;
       code: string;
@@ -117,6 +121,7 @@ export interface GoPageWarehouseDetails {
       location: any;
       location_code: string | null;
       status: string;
+      properties?: Record<string, any>;
     }[];
     unit_count?: number;
   }[];
@@ -145,7 +150,8 @@ export async function getDeliveryItemDetails(uuid: string): Promise<{ success: b
           name,
           description,
           unit,
-          status
+          status,
+          properties
         ),
         warehouses!warehouse_uuid (
           uuid,
@@ -163,7 +169,7 @@ export async function getDeliveryItemDetails(uuid: string): Promise<{ success: b
     if (deliveryData.operator_uuids && deliveryData.operator_uuids.length > 0) {
       const { data: operatorData, error: operatorError } = await supabase
         .from("profiles")  // Changed from "users" to "profiles" table
-        .select("uuid, full_name, email, phone_number")
+        .select("uuid, full_name, email, phone_number, profile_image")
         .in("uuid", deliveryData.operator_uuids);
 
       if (!operatorError) {
@@ -380,7 +386,7 @@ export async function getBulkUnitsDetails(bulkUuid: string, isWarehouseBulk: boo
  */
 export async function getItemDetailsByUuid(uuid: string): Promise<{
   success: boolean;
-  type?: 'delivery' | 'inventory' | 'warehouse';
+  type?: 'delivery' | 'inventory' | 'warehouse_inventory';
   data?: GoPageDeliveryDetails | GoPageInventoryDetails | GoPageWarehouseDetails;
   error?: string;
 }> {
@@ -388,7 +394,7 @@ export async function getItemDetailsByUuid(uuid: string): Promise<{
 
   try {
     // Try to find the UUID in different tables
-    
+
     // Check delivery items
     const { data: deliveryCheck, error: deliveryCheckError } = await supabase
       .from("delivery_items")
@@ -434,7 +440,7 @@ export async function getItemDetailsByUuid(uuid: string): Promise<{
       const result = await getWarehouseItemDetails(uuid);
       return {
         success: result.success,
-        type: 'warehouse',
+        type: 'warehouse_inventory',
         data: result.data,
         error: result.error
       };
