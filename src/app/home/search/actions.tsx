@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/utils/supabase/server";
+import { getProfileImagePath } from "@/utils/supabase/server/user";
 
 export interface GoPageDeliveryDetails {
   uuid: string;
@@ -35,6 +36,7 @@ export interface GoPageDeliveryDetails {
     full_name: string;
     email: string;
     phone_number: string;
+    profile_image: string;
   }[];
   inventory_bulks?: any[];
 }
@@ -46,8 +48,8 @@ export interface GoPageInventoryDetails {
   unit: string;
   status?: string;
   properties: Record<string, any>;
-  created_at: Date;
-  updated_at: Date;
+  created_at: string;
+  updated_at: string;
 
   // Related data
   inventory_item_bulks: {
@@ -99,6 +101,7 @@ export interface GoPageWarehouseDetails {
     name: string;
     description?: string;
     unit: string;
+    properties: Record<string, any>;
   };
   bulks: {
     uuid: string;
@@ -165,7 +168,7 @@ export async function getDeliveryItemDetails(uuid: string): Promise<{ success: b
     if (deliveryError) throw deliveryError;
 
     // Get operator details if any
-    let operators: { uuid: string; full_name: string; email: string; phone_number: string; }[] = [];
+    let operators: { uuid: string; full_name: string; email: string; phone_number: string; profile_image: string }[] = [];
     if (deliveryData.operator_uuids && deliveryData.operator_uuids.length > 0) {
       const { data: operatorData, error: operatorError } = await supabase
         .from("profiles")  // Changed from "users" to "profiles" table
@@ -176,6 +179,11 @@ export async function getDeliveryItemDetails(uuid: string): Promise<{ success: b
         operators = operatorData || [];
       }
     }
+
+    operators = await Promise.all(operators.map(async operator => ({
+      ...operator,
+      profile_image: (await getProfileImagePath(operator.profile_image!)) || '' // Handle null case with empty string
+    })));
 
     // Get inventory bulks with basic details (units will be loaded lazily)
     let inventoryBulks = [];
@@ -288,7 +296,7 @@ export async function getWarehouseItemDetails(uuid: string): Promise<{ success: 
     // Get original inventory item details
     const { data: inventoryInfo, error: inventoryInfoError } = await supabase
       .from("inventory_items")
-      .select("uuid, name, description, unit")
+      .select("uuid, name, description, unit, properties")
       .eq("uuid", warehouseData.item.inventory_uuid)
       .single();
 

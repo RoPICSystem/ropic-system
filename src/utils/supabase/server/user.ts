@@ -100,6 +100,29 @@ export async function getUserProfile() {
     error: null
   }
 }
+
+// gets profile_image full path based from the profile data
+export async function getProfileImagePath(profile_image: string): Promise<string | null> {
+  if (!profile_image) return null
+
+  const supabase = await createClient()
+
+  try {
+    // Construct the full path according to storage policy structure
+    const fullPath = profile_image
+
+    const { data } = supabase
+      .storage
+      .from('profile-images')
+      .getPublicUrl(fullPath)
+
+    return data?.publicUrl || null
+  } catch (err) {
+    console.error('Error getting image URL:', err)
+    return null
+  }
+}
+
 // Provides parameters needed to set up real-time profile subscription in client component
 export async function getProfileSubscription(
   uuid: string,
