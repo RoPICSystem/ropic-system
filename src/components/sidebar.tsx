@@ -57,6 +57,7 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
         const newNavigation = data?.is_admin 
         ? [
             { name: 'Dashboard', href: '/home/dashboard', icon: "heroicons:home-solid" },
+            { name: 'Search', href: '/home/search', icon: "heroicons:magnifying-glass-20-solid" },
             { name: 'Warehouses', href: '/home/warehouses', icon: 'material-symbols:warehouse-rounded' },
             { name: 'Inventory', href: '/home/inventory', icon: "fluent:box-20-filled" },
             { name: 'Delivery', href: '/home/delivery', icon: "heroicons:truck-20-solid" },
@@ -67,6 +68,7 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
           ]
         : [
             { name: 'Dashboard', href: '/home/dashboard', icon: "heroicons:home-solid" },
+            { name: 'Search', href: '/home/search', icon: "heroicons:magnifying-glass-20-solid" },
             { name: 'Delivery', href: '/home/delivery', icon: "heroicons:truck-20-solid" },
             { name: 'Warehouse Items', href: '/home/warehouse-items', icon: "fluent:box-20-filled" },
             { name: 'Reorder Point', href: '/home/reorder-point', icon: "heroicons:chart-bar-20-solid" },

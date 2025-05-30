@@ -147,6 +147,14 @@ export default function SearchPage() {
       result = await getItemDetailsByUuid(uuid);
 
       if (result.success && result.data && result.type) {
+        // Check if user is trying to access inventory details without admin privileges
+        if (result.type === 'inventory' && user && user.is_admin === false) {
+          setError("Access denied: Only administrators can view inventory item details");
+          setItemDetails(null);
+          setItemType(null);
+          return null;
+        }
+
         setItemType(result.type);
         setItemDetails(result.data);
         setSearchQuery(uuid);
@@ -678,9 +686,9 @@ export default function SearchPage() {
       </Card>
 
       {/* Related Information */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Inventory Item */}
-        {details.inventory_item && (
+      <div className={`grid grid-cols-1 ${user && user.is_admin ? 'lg:grid-cols-2' : ''} gap-4`}>
+        {/* Inventory Item - Only show for admin users */}
+        {details.inventory_item && user && user.is_admin && (
           <Card className="bg-background mt-4">
             <CardHeader className="p-4 bg-secondary-50/30">
               <div className="flex items-center gap-3">
@@ -912,211 +920,210 @@ export default function SearchPage() {
         )
       }
 
-      {/* Inventory Bulks - Using Accordion like inventory details */}
-      {
-        details.inventory_bulks && details.inventory_bulks.length > 0 && (
-          <Card className="bg-background mt-4">
-            <CardHeader className="p-4 bg-primary-50/30">
-              <div className="flex items-center justify-between w-full">
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center justify-center w-12 h-12 bg-primary-100 rounded-lg">
-                    <Icon icon="mdi:cube-outline" className="text-primary" width={22} />
-                  </div>
-                  <h3 className="text-lg font-semibold">Inventory Bulks</h3>
+      {/* Inventory Bulks - Only show for admin users */}
+      {details.inventory_bulks && details.inventory_bulks.length > 0 && user && user.is_admin && (
+        <Card className="bg-background mt-4">
+          <CardHeader className="p-4 bg-primary-50/30">
+            <div className="flex items-center justify-between w-full">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center w-12 h-12 bg-primary-100 rounded-lg">
+                  <Icon icon="mdi:cube-outline" className="text-primary" width={22} />
                 </div>
-                <Chip size="sm" variant="flat" color="primary">
-                  {details.inventory_bulks.length}
-                </Chip>
+                <h3 className="text-lg font-semibold">Inventory Bulks</h3>
               </div>
-            </CardHeader>
-            <Divider />
-            <CardBody className="px-2 py-4 bg-primary-50/30">
-              <Accordion
-                selectionMode="multiple"
-                variant="splitted"
-                itemClasses={{
-                  base: "p-0 bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
-                  title: "font-normal text-lg font-semibold",
-                  trigger: "p-4 data-[hover=true]:bg-default-100 h-18 flex items-center transition-colors",
-                  indicator: "text-medium",
-                  content: "text-small p-0",
-                }}
-                onSelectionChange={(keys) => {
-                  // Load units for opened accordion items
-                  if (keys instanceof Set) {
-                    keys.forEach(key => {
-                      const bulkIndex = parseInt(key.toString());
-                      if (details.inventory_bulks && details.inventory_bulks[bulkIndex]) {
-                        const bulk = details.inventory_bulks[bulkIndex];
-                        loadBulkUnits(bulk.uuid, false);
-                      }
-                    });
-                  }
-                }}>
-                {details.inventory_bulks.map((bulk, index) => (
-                  <AccordionItem
-                    key={index}
-                    title={
-                      <div className="flex items-center justify-between w-full">
-                        <div className="flex items-center gap-3">
-                          <div className="flex-1 flex flex-row xl:flex-col gap-2">
-                            <h3 className="text-lg font-semibold">
-                              Bulk #{index + 1}
-                            </h3>
-                            <div className="flex items-center gap-2">
-                              <div className="xl:block hidden">
-                                <Snippet
-                                  symbol=""
-                                  variant="flat"
-                                  color="primary"
-                                  size="sm"
-                                  className="text-xs p-1 pl-2"
-                                  classNames={{ copyButton: "bg-primary-100 hover:!bg-primary-200 text-sm p-0 h-6 w-6" }}
-                                  codeString={bulk.uuid}
-                                  checkIcon={<Icon icon="fluent:checkmark-16-filled" className="text-success" />}
-                                  copyIcon={<Icon icon="fluent:copy-16-regular" className="text-primary-500" />}
-                                  onCopy={() => copyToClipboard(bulk.uuid)}
-                                >
-                                  {bulk.uuid}
-                                </Snippet>
-                              </div>
-                              <Button
-                                size="sm"
+              <Chip size="sm" variant="flat" color="primary">
+                {details.inventory_bulks.length}
+              </Chip>
+            </div>
+          </CardHeader>
+          <Divider />
+          <CardBody className="px-2 py-4 bg-primary-50/30">
+            <Accordion
+              selectionMode="multiple"
+              variant="splitted"
+              itemClasses={{
+                base: "p-0 bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
+                title: "font-normal text-lg font-semibold",
+                trigger: "p-4 data-[hover=true]:bg-default-100 h-18 flex items-center transition-colors",
+                indicator: "text-medium",
+                content: "text-small p-0",
+              }}
+              onSelectionChange={(keys) => {
+                // Load units for opened accordion items
+                if (keys instanceof Set) {
+                  keys.forEach(key => {
+                    const bulkIndex = parseInt(key.toString());
+                    if (details.inventory_bulks && details.inventory_bulks[bulkIndex]) {
+                      const bulk = details.inventory_bulks[bulkIndex];
+                      loadBulkUnits(bulk.uuid, false);
+                    }
+                  });
+                }
+              }}>
+              {details.inventory_bulks.map((bulk, index) => (
+                <AccordionItem
+                  key={index}
+                  title={
+                    <div className="flex items-center justify-between w-full">
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 flex flex-row xl:flex-col gap-2">
+                          <h3 className="text-lg font-semibold">
+                            Bulk #{index + 1}
+                          </h3>
+                          <div className="flex items-center gap-2">
+                            <div className="xl:block hidden">
+                              <Snippet
+                                symbol=""
                                 variant="flat"
                                 color="primary"
-                                isIconOnly
-                                className="xl:hidden"
-                                onPress={() => copyToClipboard(bulk.uuid)}
+                                size="sm"
+                                className="text-xs p-1 pl-2"
+                                classNames={{ copyButton: "bg-primary-100 hover:!bg-primary-200 text-sm p-0 h-6 w-6" }}
+                                codeString={bulk.uuid}
+                                checkIcon={<Icon icon="fluent:checkmark-16-filled" className="text-success" />}
+                                copyIcon={<Icon icon="fluent:copy-16-regular" className="text-primary-500" />}
+                                onCopy={() => copyToClipboard(bulk.uuid)}
                               >
-                                <Icon icon="fluent:copy-16-regular" className="text-primary-500 text-sm" />
-                              </Button>
+                                {bulk.uuid}
+                              </Snippet>
                             </div>
+                            <Button
+                              size="sm"
+                              variant="flat"
+                              color="primary"
+                              isIconOnly
+                              className="xl:hidden"
+                              onPress={() => copyToClipboard(bulk.uuid)}
+                            >
+                              <Icon icon="fluent:copy-16-regular" className="text-primary-500 text-sm" />
+                            </Button>
                           </div>
                         </div>
-                        <div className="items-center gap-2 ml-2 md hidden sm:flex md:hidden lg:flex">
-                          <Chip size="sm" color={getStatusColor(bulk.status || "AVAILABLE")} variant="flat">
-                            {bulk.status || "AVAILABLE"}
-                          </Chip>
-                          <Chip size="sm" variant="flat" color="default">
-                            {bulk.unit_value} {bulk.unit}
-                          </Chip>
-                          <Chip size="sm" variant="flat" color="default">
-                            {formatCurrency(bulk.cost)}
-                          </Chip>
-                        </div>
                       </div>
-                    }
-                  >
-                    <div className="space-y-4 p-4">
-                      {/* Bulk ID */}
-                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div className="bg-primary-50 rounded-lg p-3 border border-primary-100">
-                          <p className="text-sm font-medium text-primary-700">Unit Value</p>
-                          <p className="text-primary-900">{bulk.unit_value} {bulk.unit}</p>
-                        </div>
-                        <div className="bg-primary-50 rounded-lg p-3 border border-primary-100">
-                          <p className="text-sm font-medium text-primary-700">Bulk Unit</p>
-                          <p className="text-primary-900">{bulk.bulk_unit}</p>
-                        </div>
-                        <div className="bg-primary-50 rounded-lg p-3 border border-primary-100">
-                          <p className="text-sm font-medium text-primary-700">Cost</p>
-                          <p className="text-primary-900">{formatCurrency(bulk.cost)}</p>
-                        </div>
-                        <div className="bg-primary-50 rounded-lg p-3 border border-primary-100">
-                          <p className="text-sm font-medium text-primary-700">Type</p>
-                          <p className="text-primary-900">{bulk.is_single_item ? "Single Item" : "Multiple Items"}</p>
-                        </div>
-                      </div>
-
-                      {/* Custom Properties */}
-                      {renderProperties(bulk.properties, "grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-2")}
-
-                      {/* Units */}
-                      <div>
-                        <h4 className="font-semibold text-default-900 mb-3">
-                          Units {loadingBulkUnits.has(bulk.uuid) ? "(Loading...)" :
-                            loadedBulkUnits.has(bulk.uuid) ? `(${loadedBulkUnits.get(bulk.uuid)?.length || 0})` : ""}
-                        </h4>
-
-                        <ListLoadingAnimation
-                          skeleton=
-                          {[...Array(3)].map((_, i) => (
-                            <Skeleton key={i} className="h-20 rounded-lg" />
-                          ))}
-                          containerClassName="space-y-3"
-                          condition={loadingBulkUnits.has(bulk.uuid) && !loadedBulkUnits.has(bulk.uuid)}
-                        >
-                          {loadedBulkUnits.get(bulk.uuid)?.map((unit: any) => (
-                            <div key={unit.uuid} className="p-3 bg-default-100 rounded-lg">
-                              <div className="flex items-center justify-between mb-2">
-                                <div className="flex-1 flex flex-row xl:flex-col gap-2">
-                                  <span className="text-lg font-semibold">{unit.name || unit.code}</span>
-                                  <div className="flex items-center gap-2">
-                                    <div className="xl:block hidden">
-                                      <Snippet
-                                        symbol=""
-                                        variant="flat"
-                                        color="default"
-                                        size="sm"
-                                        className="text-xs p-1 pl-2"
-                                        classNames={{ copyButton: "bg-default-100 hover:!bg-default-200 text-sm p-0 h-6 w-6" }}
-                                        codeString={unit.uuid}
-                                        checkIcon={<Icon icon="fluent:checkmark-16-filled" className="text-success" />}
-                                        copyIcon={<Icon icon="fluent:copy-16-regular" className="text-default-500" />}
-                                        onCopy={() => copyToClipboard(unit.uuid)}
-                                      >
-                                        {unit.uuid}
-                                      </Snippet>
-                                    </div>
-                                    <Button
-                                      size="sm"
-                                      variant="flat"
-                                      color="default"
-                                      isIconOnly
-                                      className="xl:hidden"
-                                      onPress={() => copyToClipboard(unit.uuid)}
-                                    >
-                                      <Icon icon="fluent:copy-16-regular" className="text-default-500 text-sm" />
-                                    </Button>
-                                  </div>
-                                </div>
-                                <div className="items-center gap-2 ml-2 md hidden sm:flex md:hidden lg:flex">
-                                  <Chip size="sm" color={getStatusColor(unit.status || "AVAILABLE")} variant="flat">
-                                    {unit.status || "AVAILABLE"}
-                                  </Chip>
-                                </div>
-                              </div>
-                              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-2">
-                                <div className="bg-default-50 rounded-lg p-3 border border-default-100">
-                                  <p className="text-sm font-medium text-default-700">Code</p>
-                                  <p className="text-default-900">{unit.code}</p>
-                                </div>
-                                <div className="bg-default-50 rounded-lg p-3 border border-default-100">
-                                  <p className="text-sm font-medium text-default-700">Value</p>
-                                  <p className="text-default-900">{unit.unit_value} {unit.unit}</p>
-                                </div>
-                                <div className="bg-default-50 rounded-lg p-3 border border-default-100">
-                                  <p className="text-sm font-medium text-default-700">Cost</p>
-                                  <p className="text-default-900">{formatCurrency(unit.cost)}</p>
-                                </div>
-                                <div className="bg-default-50 rounded-lg p-3 border border-default-100">
-                                  <p className="text-sm font-medium text-default-700">Status</p>
-                                  <p className="text-default-900">{unit.status || "AVAILABLE"}</p>
-                                </div>
-                              </div>
-                              {renderProperties(unit.properties, "grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-2")}
-                            </div>
-                          )) || [<p className="text-default-600 text-center py-4">No units found</p>]}
-                        </ListLoadingAnimation>
-
+                      <div className="items-center gap-2 ml-2 md hidden sm:flex md:hidden lg:flex">
+                        <Chip size="sm" color={getStatusColor(bulk.status || "AVAILABLE")} variant="flat">
+                          {bulk.status || "AVAILABLE"}
+                        </Chip>
+                        <Chip size="sm" variant="flat" color="default">
+                          {bulk.unit_value} {bulk.unit}
+                        </Chip>
+                        <Chip size="sm" variant="flat" color="default">
+                          {formatCurrency(bulk.cost)}
+                        </Chip>
                       </div>
                     </div>
-                  </AccordionItem>
-                ))}
-              </Accordion>
-            </CardBody>
-          </Card>
-        )
+                  }
+                >
+                  <div className="space-y-4 p-4">
+                    {/* Bulk ID */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="bg-primary-50 rounded-lg p-3 border border-primary-100">
+                        <p className="text-sm font-medium text-primary-700">Unit Value</p>
+                        <p className="text-primary-900">{bulk.unit_value} {bulk.unit}</p>
+                      </div>
+                      <div className="bg-primary-50 rounded-lg p-3 border border-primary-100">
+                        <p className="text-sm font-medium text-primary-700">Bulk Unit</p>
+                        <p className="text-primary-900">{bulk.bulk_unit}</p>
+                      </div>
+                      <div className="bg-primary-50 rounded-lg p-3 border border-primary-100">
+                        <p className="text-sm font-medium text-primary-700">Cost</p>
+                        <p className="text-primary-900">{formatCurrency(bulk.cost)}</p>
+                      </div>
+                      <div className="bg-primary-50 rounded-lg p-3 border border-primary-100">
+                        <p className="text-sm font-medium text-primary-700">Type</p>
+                        <p className="text-primary-900">{bulk.is_single_item ? "Single Item" : "Multiple Items"}</p>
+                      </div>
+                    </div>
+
+                    {/* Custom Properties */}
+                    {renderProperties(bulk.properties, "grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-2")}
+
+                    {/* Units */}
+                    <div>
+                      <h4 className="font-semibold text-default-900 mb-3">
+                        Units {loadingBulkUnits.has(bulk.uuid) ? "(Loading...)" :
+                          loadedBulkUnits.has(bulk.uuid) ? `(${loadedBulkUnits.get(bulk.uuid)?.length || 0})` : ""}
+                      </h4>
+
+                      <ListLoadingAnimation
+                        skeleton=
+                        {[...Array(3)].map((_, i) => (
+                          <Skeleton key={i} className="h-20 rounded-lg" />
+                        ))}
+                        containerClassName="space-y-3"
+                        condition={loadingBulkUnits.has(bulk.uuid) && !loadedBulkUnits.has(bulk.uuid)}
+                      >
+                        {loadedBulkUnits.get(bulk.uuid)?.map((unit: any) => (
+                          <div key={unit.uuid} className="p-3 bg-default-100 rounded-lg">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex-1 flex flex-row xl:flex-col gap-2">
+                                <span className="text-lg font-semibold">{unit.name || unit.code}</span>
+                                <div className="flex items-center gap-2">
+                                  <div className="xl:block hidden">
+                                    <Snippet
+                                      symbol=""
+                                      variant="flat"
+                                      color="default"
+                                      size="sm"
+                                      className="text-xs p-1 pl-2"
+                                      classNames={{ copyButton: "bg-default-100 hover:!bg-default-200 text-sm p-0 h-6 w-6" }}
+                                      codeString={unit.uuid}
+                                      checkIcon={<Icon icon="fluent:checkmark-16-filled" className="text-success" />}
+                                      copyIcon={<Icon icon="fluent:copy-16-regular" className="text-default-500" />}
+                                      onCopy={() => copyToClipboard(unit.uuid)}
+                                    >
+                                      {unit.uuid}
+                                    </Snippet>
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    variant="flat"
+                                    color="default"
+                                    isIconOnly
+                                    className="xl:hidden"
+                                    onPress={() => copyToClipboard(unit.uuid)}
+                                  >
+                                    <Icon icon="fluent:copy-16-regular" className="text-default-500 text-sm" />
+                                  </Button>
+                                </div>
+                              </div>
+                              <div className="items-center gap-2 ml-2 md hidden sm:flex md:hidden lg:flex">
+                                <Chip size="sm" color={getStatusColor(unit.status || "AVAILABLE")} variant="flat">
+                                  {unit.status || "AVAILABLE"}
+                                </Chip>
+                              </div>
+                            </div>
+                            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-2">
+                              <div className="bg-default-50 rounded-lg p-3 border border-default-100">
+                                <p className="text-sm font-medium text-default-700">Code</p>
+                                <p className="text-default-900">{unit.code}</p>
+                              </div>
+                              <div className="bg-default-50 rounded-lg p-3 border border-default-100">
+                                <p className="text-sm font-medium text-default-700">Value</p>
+                                <p className="text-default-900">{unit.unit_value} {unit.unit}</p>
+                              </div>
+                              <div className="bg-default-50 rounded-lg p-3 border border-default-100">
+                                <p className="text-sm font-medium text-default-700">Cost</p>
+                                <p className="text-default-900">{formatCurrency(unit.cost)}</p>
+                              </div>
+                              <div className="bg-default-50 rounded-lg p-3 border border-default-100">
+                                <p className="text-sm font-medium text-default-700">Status</p>
+                                <p className="text-default-900">{unit.status || "AVAILABLE"}</p>
+                              </div>
+                            </div>
+                            {renderProperties(unit.properties, "grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-2")}
+                          </div>
+                        )) || [<p className="text-default-600 text-center py-4">No units found</p>]}
+                      </ListLoadingAnimation>
+
+                    </div>
+                  </div>
+                </AccordionItem>
+              ))}
+            </Accordion>
+          </CardBody>
+        </Card>
+      )
       }
     </div >
   );
@@ -2127,7 +2134,7 @@ export default function SearchPage() {
                 disabled={isSearching}
                 onKeyPress={handleKeyPress}
                 classNames={{
-                  inputWrapper: "bg-default-100 border-2 border-default-200 hover:border-default-300 focus-within:!border-primary-500 !cursor-text rounded-lg",
+                  inputWrapper: "bg-default-100 border-2 border-default-200 hover:border-default-300 focus-within:!border-primary-500 !cursor-text rounded-lg pr-24",
                   input: "text-default-500",
                   label: "text-default-600"
                 }}
@@ -2138,7 +2145,7 @@ export default function SearchPage() {
                 color="primary"
                 variant="shadow"
                 onPress={handleSearch}
-                className="rounded-lg absolute right-2 -translate-y-1/2 top-1/2"
+                className="rounded-lg absolute right-2 -translate-y-1/2 top-1/2 z-10"
                 size="sm"
                 isLoading={isSearching}
                 startContent={!isSearching && <Icon icon="mdi:magnify" />}
@@ -2275,14 +2282,14 @@ export default function SearchPage() {
                         <Icon icon="mdi:package-variant" className="text-secondary" width={24} />
                       </div>
                       <p className="font-medium text-default-900">Inventory Items</p>
-                      <p className="text-sm text-default-600">View bulks, units, delivery history</p>
+                      <p className="text-sm text-default-600">View bulks, units, delivery history {user && !user.is_admin && "(Admin only)"}</p>
                     </div>
 
                     <div className="text-center">
                       <div className="w-12 h-12 bg-success-100 rounded-lg flex items-center justify-center mx-auto mb-2">
                         <Icon icon="mdi:warehouse" className="text-success" width={24} />
                       </div>
-                      <p className="font-medium text-default-900">Warehouse Items</p>
+                      <p className="font-medium text-default-900">Warehouse Inventory Items</p>
                       <p className="text-sm text-default-600">View storage locations, units</p>
                     </div>
                   </div>

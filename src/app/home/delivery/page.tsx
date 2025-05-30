@@ -15,7 +15,8 @@ import {
   Card,
   CardFooter,
   CardBody,
-  CardHeader
+  CardHeader,
+  DateRangePicker
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { getLocalTimeZone, parseDate, today } from '@internationalized/date';
@@ -56,6 +57,10 @@ import { copyToClipboard, formatDate, formatNumber, toNormalCase, toTitleCase } 
 import jsQR from "jsqr";
 import { InventoryItem, InventoryItemBulk, InventoryItemUnit } from '../inventory/actions';
 import { Warehouse } from '../warehouses/actions';
+
+// Import at the top of your DeliveryPage component 
+import { generatePdfBlob } from './pdf-document';
+import { getUserCompanyDetails } from "@/utils/supabase/server/companies";
 
 // Import the ShelfSelector3D component
 const ShelfSelector3D = lazy(() =>
@@ -190,6 +195,65 @@ export default function DeliveryPage() {
   const [availableDeliveries, setAvailableDeliveries] = useState<DeliveryItem[]>([]);
   const [isLoadingAvailableDeliveries, setIsLoadingAvailableDeliveries] = useState(false);
 
+  // Add to the existing state declarations in the DeliveryPage component
+  const [isPdfGenerating, setIsPdfGenerating] = useState(false);
+
+  // State for PDF export popover and filters
+  const [pdfExportState, setPdfExportState] = useState({
+    isPopoverOpen: false,
+    selectedDeliveries: [] as string[],
+    searchQuery: "",
+    statusFilter: null as string | null,
+    warehouseFilter: null as string | null,
+    operatorFilter: null as string | null,
+    inventoryFilter: null as string | null, // Add inventory filter
+    dateFrom: null as any,
+    dateTo: null as any,
+    yearFilter: null as number | null,
+    monthFilter: null as number | null,
+    weekFilter: null as number | null,
+    dayFilter: null as number | null,
+    dateTabKey: "range" as string,
+  });
+
+  // Add state for export search filter open
+  const [isExportSearchFilterOpen, setIsExportSearchFilterOpen] = useState(false);
+
+  // Add comprehensive main list filter states
+  const [mainFilterState, setMainFilterState] = useState({
+    dateFrom: null as any,
+    dateTo: null as any,
+    yearFilter: null as number | null,
+    monthFilter: null as number | null,
+    weekFilter: null as number | null,
+    dayFilter: null as number | null,
+    dateTabKey: "range" as string,
+    inventoryFilter: null as string | null,
+  });
+
+  // Add state for main search filter open
+  const [isMainSearchFilterOpen, setIsMainSearchFilterOpen] = useState(false);
+
+
+  // Clear PDF export date filters
+  const clearPdfDateFilters = () => {
+    setPdfExportState(prev => ({
+      ...prev,
+      dateFrom: null,
+      dateTo: null,
+      yearFilter: null,
+      monthFilter: null,
+      weekFilter: null,
+      dayFilter: null
+    }));
+  };
+
+
+  // State for PDF export deliveries list
+  const [pdfExportDeliveries, setPdfExportDeliveries] = useState<DeliveryItem[]>([]);
+  const [isLoadingPdfDeliveries, setIsLoadingPdfDeliveries] = useState(false);
+
+
   // Form state
   const [formData, setFormData] = useState<Partial<DeliveryItem>>({
     company_uuid: null,
@@ -303,6 +367,8 @@ export default function DeliveryPage() {
       setIsSelectedLocationOccupied(checkIfLocationOccupied(location));
     }
   };
+
+
 
   // Helper function to determine chip color based on status
   function getStatusColor(status: string): "default" | "primary" | "secondary" | "success" | "warning" | "danger" {
@@ -585,8 +651,8 @@ export default function DeliveryPage() {
     onOpen();
   };
 
-  // Update handleSearch to accept filter parameters
-  const handleSearch = async (query: string, status?: string | null, warehouse?: string | null, currentPage: number = page) => {
+  // Update handleSearch to accept all filter parameters
+  const handleSearch = async (query: string, status?: string | null, warehouse?: string | null, operator?: string | null, inventory?: string | null, dateFrom?: string | null, dateTo?: string | null, year?: number | null, month?: number | null, week?: number | null, day?: number | null, currentPage: number = page) => {
     setSearchQuery(query);
 
     try {
@@ -595,6 +661,18 @@ export default function DeliveryPage() {
       // Use provided parameters or fall back to state values
       const statusToUse = status !== undefined ? status : statusFilter;
       const warehouseToUse = warehouse !== undefined ? warehouse : warehouseFilter;
+      const operatorToUse = operator !== undefined ? operator : operatorFilter;
+      const inventoryToUse = inventory !== undefined ? inventory : mainFilterState.inventoryFilter;
+
+      // Use date parameters or fall back to state values
+      const dateFromToUse = dateFrom !== undefined ? dateFrom :
+        (mainFilterState.dateFrom ? new Date(mainFilterState.dateFrom.year, mainFilterState.dateFrom.month - 1, mainFilterState.dateFrom.day).toISOString().split('T')[0] : null);
+      const dateToToUse = dateTo !== undefined ? dateTo :
+        (mainFilterState.dateTo ? new Date(mainFilterState.dateTo.year, mainFilterState.dateTo.month - 1, mainFilterState.dateTo.day).toISOString().split('T')[0] : null);
+      const yearToUse = year !== undefined ? year : mainFilterState.yearFilter;
+      const monthToUse = month !== undefined ? month : mainFilterState.monthFilter;
+      const weekToUse = week !== undefined ? week : mainFilterState.weekFilter;
+      const dayToUse = day !== undefined ? day : mainFilterState.dayFilter;
 
       // Calculate offset based on current page and rows per page
       const offset = (currentPage - 1) * rowsPerPage;
@@ -604,14 +682,14 @@ export default function DeliveryPage() {
         query,
         statusToUse,
         warehouseToUse,
-        null, // operatorUuid
-        null, // inventoryUuid
-        null, // dateFrom
-        null, // dateTo
-        null, // year
-        null, // month
-        null, // week
-        null, // day
+        operatorToUse ? [operatorToUse] : null,
+        inventoryToUse,
+        dateFromToUse,
+        dateToToUse,
+        yearToUse,
+        monthToUse,
+        weekToUse,
+        dayToUse,
         rowsPerPage, // limit
         offset // offset
       );
@@ -624,6 +702,130 @@ export default function DeliveryPage() {
     } finally {
       setIsLoadingItems(false);
     }
+  };
+
+  // Function to generate QR PDF
+  const handleGenerateQrPdf = async (selectedDeliveryIds: string[]) => {
+    setIsPdfGenerating(true);
+
+    try {
+      // Get selected deliveries
+      const deliveriesToExport = selectedDeliveryIds.length > 0
+        ? deliveryItems.filter(item => selectedDeliveryIds.includes(item.uuid))
+        : (selectedDeliveryId
+          ? [deliveryItems.find(item => item.uuid === selectedDeliveryId)!].filter(Boolean)
+          : deliveryItems);
+
+      // Prepare deliveries with QR URLs and warehouse names
+      const preparedDeliveries = deliveriesToExport.map(delivery => {
+        // Generate QR URL for each delivery
+        const baseUrl = "https://ropic.vercel.app/home/search";
+        const params = new URLSearchParams({
+          q: delivery.uuid,
+          deliveryAutoAccept: "true"
+        });
+        const qrUrl = `${baseUrl}?${params.toString()}`;
+
+        // Find warehouse name
+        const warehouse = warehouses.find(w => w.uuid === delivery.warehouse_uuid);
+        const warehouseName = warehouse?.name || 'Unknown Warehouse';
+
+        return {
+          ...delivery,
+          qrUrl,
+          deliveryDate: delivery.delivery_date,
+          itemName: inventoryItems.find(i => i.uuid === delivery.inventory_uuid)?.name || 'Unknown Item',
+          warehouse_name: warehouseName
+        };
+      });
+
+      // Get company data including logo
+      const companyData = await getUserCompanyDetails(user.uuid);
+
+      let companyLogoUrl = null;
+      if (companyData?.data?.logo_url && !companyData?.data?.logo_url.error) {
+        companyLogoUrl = companyData.data.logo_url;
+      }
+
+      // Generate PDF
+      const pdfBlob = await generatePdfBlob({
+        deliveries: preparedDeliveries,
+        companyName: companyData?.data?.name || "Your Company",
+        companyLogoUrl: companyLogoUrl,
+        dateGenerated: new Date().toLocaleString()
+      });
+
+      // Create download link
+      const url = URL.createObjectURL(pdfBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Delivery_QR_Codes_${new Date().toISOString().split('T')[0]}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (error) {
+      console.error("Error generating delivery QR PDF:", error);
+    } finally {
+      setIsPdfGenerating(false);
+    }
+  };
+
+  // Function to fetch filtered deliveries for PDF export
+  const fetchPdfExportDeliveries = useCallback(async () => {
+    if (!user?.company_uuid) return;
+
+    setIsLoadingPdfDeliveries(true);
+    try {
+      // Convert date objects to strings if they exist
+      const dateFromString = pdfExportState.dateFrom ?
+        new Date(pdfExportState.dateFrom.year, pdfExportState.dateFrom.month - 1, pdfExportState.dateFrom.day).toISOString().split('T')[0] :
+        undefined;
+      const dateToString = pdfExportState.dateTo ?
+        new Date(pdfExportState.dateTo.year, pdfExportState.dateTo.month - 1, pdfExportState.dateTo.day).toISOString().split('T')[0] :
+        undefined;
+
+      const result = await getDeliveryItems(
+        user.company_uuid,
+        pdfExportState.searchQuery,
+        pdfExportState.statusFilter,
+        pdfExportState.warehouseFilter,
+        pdfExportState.operatorFilter ? [pdfExportState.operatorFilter] : null,
+        pdfExportState.inventoryFilter,
+        dateFromString,
+        dateToString,
+        pdfExportState.yearFilter,
+        pdfExportState.monthFilter,
+        pdfExportState.weekFilter,
+        pdfExportState.dayFilter,
+        1000, // Get more items for export
+        0
+      );
+
+      setPdfExportDeliveries(result.data || []);
+    } catch (error) {
+      console.error("Error fetching PDF export deliveries:", error);
+      setPdfExportDeliveries([]);
+    } finally {
+      setIsLoadingPdfDeliveries(false);
+    }
+  }, [user?.company_uuid, pdfExportState.warehouseFilter, pdfExportState.statusFilter, pdfExportState.searchQuery, pdfExportState.operatorFilter, pdfExportState.inventoryFilter, pdfExportState.dateFrom, pdfExportState.dateTo, pdfExportState.yearFilter, pdfExportState.monthFilter, pdfExportState.weekFilter, pdfExportState.dayFilter]);
+
+  // Effect to fetch PDF export deliveries when popover opens
+  useEffect(() => {
+    if (pdfExportState.isPopoverOpen) {
+      fetchPdfExportDeliveries();
+    }
+  }, [pdfExportState.isPopoverOpen, fetchPdfExportDeliveries]);
+
+  // Add this function to handle PDF export delivery selection
+  const handleTogglePdfDeliverySelection = (deliveryId: string) => {
+    setPdfExportState(prev => {
+      if (prev.selectedDeliveries.includes(deliveryId)) {
+        return { ...prev, selectedDeliveries: prev.selectedDeliveries.filter(id => id !== deliveryId) };
+      } else {
+        return { ...prev, selectedDeliveries: [...prev.selectedDeliveries, deliveryId] };
+      }
+    });
   };
 
   // Handle bulk details expansion
@@ -671,26 +873,86 @@ export default function DeliveryPage() {
   // 3. Add function to handle page changes
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
-    handleSearch(searchQuery, statusFilter, warehouseFilter, newPage);
+    handleSearch(searchQuery, statusFilter, warehouseFilter, operatorFilter, mainFilterState.inventoryFilter, null, null, mainFilterState.yearFilter, mainFilterState.monthFilter, mainFilterState.weekFilter, mainFilterState.dayFilter, newPage);
   };
 
-  // 4. Update filter handlers to reset pagination
+  // 4. Update filter handlers to reset pagination and include new filters
   const handleStatusFilterChange = (status: string | null) => {
     setStatusFilter(status);
     setPage(1); // Reset to first page when filter changes
-    handleSearch(searchQuery, status, warehouseFilter, 1);
+    handleSearch(searchQuery, status, warehouseFilter, operatorFilter, mainFilterState.inventoryFilter, null, null, mainFilterState.yearFilter, mainFilterState.monthFilter, mainFilterState.weekFilter, mainFilterState.dayFilter, 1);
   };
 
-  const handleOperatorFilterChange = (status: string | null) => {
-    setOperatorFilter(status);
+  const handleOperatorFilterChange = (operator: string | null) => {
+    setOperatorFilter(operator);
     setPage(1); // Reset to first page when filter changes
-    handleSearch(searchQuery, statusFilter, warehouseFilter, 1);
+    handleSearch(searchQuery, statusFilter, warehouseFilter, operator, mainFilterState.inventoryFilter, null, null, mainFilterState.yearFilter, mainFilterState.monthFilter, mainFilterState.weekFilter, mainFilterState.dayFilter, 1);
   };
 
   const handleWarehouseFilterChange = (warehouseId: string | null) => {
     setWarehouseFilter(warehouseId);
     setPage(1); // Reset to first page when filter changes
-    handleSearch(searchQuery, statusFilter, warehouseId, 1);
+    handleSearch(searchQuery, statusFilter, warehouseId, operatorFilter, mainFilterState.inventoryFilter, null, null, mainFilterState.yearFilter, mainFilterState.monthFilter, mainFilterState.weekFilter, mainFilterState.dayFilter, 1);
+  };
+
+  // Add new filter handlers for main list
+  const handleMainInventoryFilterChange = (inventoryId: string | null) => {
+    setMainFilterState(prev => ({ ...prev, inventoryFilter: inventoryId }));
+    setPage(1);
+    handleSearch(searchQuery, statusFilter, warehouseFilter, operatorFilter, inventoryId, null, null, mainFilterState.yearFilter, mainFilterState.monthFilter, mainFilterState.weekFilter, mainFilterState.dayFilter, 1);
+  };
+
+  const handleMainDateFromChange = (date: any) => {
+    setMainFilterState(prev => ({ ...prev, dateFrom: date }));
+    setPage(1);
+    const dateString = date ? new Date(date.year, date.month - 1, date.day).toISOString().split('T')[0] : null;
+    handleSearch(searchQuery, statusFilter, warehouseFilter, operatorFilter, mainFilterState.inventoryFilter, dateString, null, mainFilterState.yearFilter, mainFilterState.monthFilter, mainFilterState.weekFilter, mainFilterState.dayFilter, 1);
+  };
+
+  const handleMainDateToChange = (date: any) => {
+    setMainFilterState(prev => ({ ...prev, dateTo: date }));
+    setPage(1);
+    const dateString = date ? new Date(date.year, date.month - 1, date.day).toISOString().split('T')[0] : null;
+    handleSearch(searchQuery, statusFilter, warehouseFilter, operatorFilter, mainFilterState.inventoryFilter, null, dateString, mainFilterState.yearFilter, mainFilterState.monthFilter, mainFilterState.weekFilter, mainFilterState.dayFilter, 1);
+  };
+
+  const handleMainYearFilterChange = (year: number | null) => {
+    setMainFilterState(prev => ({ ...prev, yearFilter: year }));
+    setPage(1);
+    handleSearch(searchQuery, statusFilter, warehouseFilter, operatorFilter, mainFilterState.inventoryFilter, null, null, year, mainFilterState.monthFilter, mainFilterState.weekFilter, mainFilterState.dayFilter, 1);
+  };
+
+  const handleMainMonthFilterChange = (month: number | null) => {
+    setMainFilterState(prev => ({ ...prev, monthFilter: month }));
+    setPage(1);
+    handleSearch(searchQuery, statusFilter, warehouseFilter, operatorFilter, mainFilterState.inventoryFilter, null, null, mainFilterState.yearFilter, month, mainFilterState.weekFilter, mainFilterState.dayFilter, 1);
+  };
+
+  const handleMainWeekFilterChange = (week: number | null) => {
+    setMainFilterState(prev => ({ ...prev, weekFilter: week }));
+    setPage(1);
+    handleSearch(searchQuery, statusFilter, warehouseFilter, operatorFilter, mainFilterState.inventoryFilter, null, null, mainFilterState.yearFilter, mainFilterState.monthFilter, week, mainFilterState.dayFilter, 1);
+  };
+
+  const handleMainDayFilterChange = (day: number | null) => {
+    setMainFilterState(prev => ({ ...prev, dayFilter: day }));
+    setPage(1);
+    handleSearch(searchQuery, statusFilter, warehouseFilter, operatorFilter, mainFilterState.inventoryFilter, null, null, mainFilterState.yearFilter, mainFilterState.monthFilter, mainFilterState.weekFilter, day, 1);
+  };
+
+  // Clear main list date filters
+  const clearMainDateFilters = () => {
+    setMainFilterState(prev => ({
+      ...prev,
+      dateFrom: null,
+      dateTo: null,
+      yearFilter: null,
+      monthFilter: null,
+      weekFilter: null,
+      dayFilter: null
+    }));
+    setPage(1);
+    handleSearch(searchQuery, statusFilter, warehouseFilter, operatorFilter, mainFilterState.inventoryFilter, null, null, null, null, null, null, 1);
   };
 
 
@@ -1714,6 +1976,27 @@ export default function DeliveryPage() {
     }
   };
 
+  // Update the getFilteredPdfDeliveries function
+  const getFilteredPdfDeliveries = useCallback(() => {
+    return pdfExportDeliveries.filter((delivery) => {
+      // Search filter
+      if (pdfExportState.searchQuery) {
+        const searchTerm = pdfExportState.searchQuery.toLowerCase();
+        const matchesSearch =
+          delivery.name?.toLowerCase().includes(searchTerm) ||
+          delivery.delivery_address?.toLowerCase().includes(searchTerm) ||
+          delivery.notes?.toLowerCase().includes(searchTerm) ||
+          delivery.status?.toLowerCase().includes(searchTerm) ||
+          delivery.uuid?.toLowerCase().includes(searchTerm);
+
+        if (!matchesSearch) return false;
+      }
+
+      return true;
+    });
+  }, [pdfExportDeliveries, pdfExportState.searchQuery]);
+
+
   // Add this useEffect to focus on the textarea when modal opens
   useEffect(() => {
     if (showAcceptDeliveryModal && acceptDeliveryTab === "paste-link") {
@@ -2283,6 +2566,591 @@ export default function DeliveryPage() {
               Accept Deliveries
             </Button>
           ) : null}
+
+          {/* PDF Export Popover */}
+          <Popover
+            isOpen={pdfExportState.isPopoverOpen}
+            onOpenChange={(open) => {
+              setPdfExportState(prev => ({
+                ...prev,
+                isPopoverOpen: open,
+                // When opening, default to selected item or clear selection
+                selectedDeliveries: open
+                  ? (selectedDeliveryId ? [selectedDeliveryId] : [])
+                  : prev.selectedDeliveries,
+                searchQuery: "",
+                statusFilter: null,
+                warehouseFilter: null,
+                operatorFilter: null,
+                inventoryFilter: null
+              }));
+            }}
+            motionProps={popoverTransition()}
+            classNames={{ content: "backdrop-blur-lg bg-background/65" }}
+            placement="bottom-end"
+          >
+            <PopoverTrigger>
+              <Button
+                color="secondary"
+                variant="shadow"
+                startContent={!isPdfGenerating && <Icon icon="mdi:file-pdf-box" />}
+                isLoading={isPdfGenerating}
+                isDisabled={isPdfGenerating || isLoading || deliveryItems.length === 0}
+                onPress={() => setPdfExportState(prev => ({ ...prev, isPopoverOpen: true }))}
+              >
+                Export QR PDF
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-96 p-0 overflow-hidden">
+              <div className="w-full">
+                <div className="px-4 pt-4 text-center">
+                  <h3 className="text-lg font-semibold">Export Delivery QR Report</h3>
+                  <p className="text-sm text-default-500">Select deliveries to include in the PDF report</p>
+                </div>
+
+                <div className="p-4 border-b border-default-200 space-y-3">
+                  <Input
+                    placeholder="Search deliveries..."
+                    value={pdfExportState.searchQuery}
+                    onChange={(e) => setPdfExportState(prev => ({ ...prev, searchQuery: e.target.value }))}
+                    isClearable
+                    onClear={() => setPdfExportState(prev => ({ ...prev, searchQuery: "" }))}
+                    startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
+                  />
+
+                  <div className="flex items-center gap-2 mt-2">
+                    <ScrollShadow orientation="horizontal" className="flex-1 overflow-x-auto" hideScrollBar>
+                      <div className="inline-flex items-center gap-2">
+                        <Popover
+                          isOpen={isExportSearchFilterOpen}
+                          onOpenChange={setIsExportSearchFilterOpen}
+                          classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
+                          motionProps={popoverTransition()}
+                          placement="bottom-start">
+                          <PopoverTrigger>
+                            <Button
+                              variant="flat"
+                              color="default"
+                              onPress={() => setIsExportSearchFilterOpen(true)}
+                              className="w-24 h-10 rounded-lg !outline-none rounded-xl"
+                              startContent={<Icon icon="mdi:filter-variant" className="text-default-500" />}
+                            >
+                              Filters
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-96 p-0 overflow-hidden">
+                            <div>
+                              <div className="space-y-4 p-4">
+                                <h3 className="text-lg font-semibold items-center w-full text-center">
+                                  Filter Options
+                                </h3>
+
+                                {/* Warehouse filter */}
+                                <Autocomplete
+                                  name="warehouse_uuid"
+                                  label="Filter by Warehouse"
+                                  placeholder="All Warehouses"
+                                  selectedKey={pdfExportState.warehouseFilter || ""}
+                                  onSelectionChange={(key) => setPdfExportState(prev => ({ ...prev, warehouseFilter: key as string || null }))}
+                                  startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
+                                  inputProps={autoCompleteStyle}
+                                >
+                                  {[
+                                    (<AutocompleteItem key="">All Warehouses</AutocompleteItem>),
+                                    ...warehouses.map((warehouse) => (
+                                      <AutocompleteItem key={warehouse.uuid}>
+                                        {warehouse.name}
+                                      </AutocompleteItem>
+                                    ))]}
+                                </Autocomplete>
+
+                                {/* Status filter */}
+                                <Autocomplete
+                                  name="status_filter"
+                                  label="Filter by Status"
+                                  placeholder="All Statuses"
+                                  selectedKey={pdfExportState.statusFilter || ""}
+                                  onSelectionChange={(key) => setPdfExportState(prev => ({ ...prev, statusFilter: key as string || null }))}
+                                  startContent={<Icon icon="mdi:filter-variant" className="text-default-500 mb-[0.2rem]" />}
+                                  inputProps={autoCompleteStyle}
+                                >
+                                  <AutocompleteItem key="">All Statuses</AutocompleteItem>
+                                  <AutocompleteItem key="PENDING">Pending</AutocompleteItem>
+                                  <AutocompleteItem key="PROCESSING">Processing</AutocompleteItem>
+                                  <AutocompleteItem key="IN_TRANSIT">In Transit</AutocompleteItem>
+                                  <AutocompleteItem key="DELIVERED">Delivered</AutocompleteItem>
+                                  <AutocompleteItem key="CANCELLED">Cancelled</AutocompleteItem>
+                                </Autocomplete>
+
+                                {/* Operator filter */}
+                                <Autocomplete
+                                  name="operator_filter"
+                                  label="Filter by Operator"
+                                  placeholder="All Operators"
+                                  selectedKey={pdfExportState.operatorFilter || ""}
+                                  onSelectionChange={(key) => setPdfExportState(prev => ({ ...prev, operatorFilter: key as string || null }))}
+                                  startContent={<Icon icon="mdi:account" className="text-default-500 mb-[0.2rem]" />}
+                                  inputProps={autoCompleteStyle}
+                                >
+                                  {[
+                                    (<AutocompleteItem key="">All Operators</AutocompleteItem>),
+                                    ...operators.map((operator) => (
+                                      <AutocompleteItem key={operator.uuid}>
+                                        {operator.full_name}
+                                      </AutocompleteItem>
+                                    ))]}
+                                </Autocomplete>
+
+                                {/* Inventory filter */}
+                                <Autocomplete
+                                  name="inventory_filter"
+                                  label="Filter by Item"
+                                  placeholder="All Items"
+                                  selectedKey={pdfExportState.inventoryFilter || ""}
+                                  onSelectionChange={(key) => setPdfExportState(prev => ({ ...prev, inventoryFilter: key as string || null }))}
+                                  startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
+                                  inputProps={autoCompleteStyle}
+                                >
+                                  {[
+                                    (<AutocompleteItem key="">All Items</AutocompleteItem>),
+                                    ...inventoryItems.map((item) => (
+                                      <AutocompleteItem key={item.uuid}>
+                                        {item.name}
+                                      </AutocompleteItem>
+                                    ))]}
+                                </Autocomplete>
+
+                                {/* Date Filters using Tabs */}
+                                <div className="space-y-3 border-2 border-default-200 rounded-xl p-4 bg-default-100/25">
+                                  <div className="flex items-center gap-2">
+                                    <Icon icon="mdi:calendar-range" className="text-default-500" />
+                                    <span className="text-sm font-medium">Date Filters</span>
+                                  </div>
+
+                                  <Tabs
+                                    variant="solid"
+                                    color="primary"
+                                    fullWidth
+                                    size="md"
+                                    classNames={{
+                                      panel: "p-0",
+                                      tabList: "border-2 border-default-200",
+                                      tabContent: "text-default-700",
+                                    }}
+                                    selectedKey={pdfExportState.dateTabKey}
+                                    onSelectionChange={(key) => {
+                                      const tabKey = key as string;
+                                      setPdfExportState(prev => ({
+                                        ...prev,
+                                        dateTabKey: tabKey,
+                                        // Reset all date filters when switching tabs
+                                        dateFrom: null,
+                                        dateTo: null,
+                                        yearFilter: null,
+                                        monthFilter: null,
+                                        weekFilter: null,
+                                        dayFilter: null
+                                      }));
+                                    }}
+                                    className="w-full"
+                                  >
+                                    <Tab key="range" title="Date Range">
+                                      <DateRangePicker
+                                        label="Select Date Range"
+                                        className="w-full"
+                                        value={pdfExportState.dateFrom && pdfExportState.dateTo ? {
+                                          start: pdfExportState.dateFrom,
+                                          end: pdfExportState.dateTo
+                                        } : null}
+                                        onChange={(range) => {
+                                          setPdfExportState(prev => ({
+                                            ...prev,
+                                            dateFrom: range?.start || null,
+                                            dateTo: range?.end || null
+                                          }));
+                                        }}
+                                        classNames={inputStyle}
+                                      />
+                                    </Tab>
+
+                                    <Tab key="week" title="By Week">
+                                      <div className="space-y-3">
+                                        <div className="flex gap-2">
+                                          <Input
+                                            type="number"
+                                            label="Year"
+                                            placeholder="2024"
+                                            value={pdfExportState.yearFilter?.toString() || ""}
+                                            onChange={(e) => setPdfExportState(prev => ({
+                                              ...prev,
+                                              yearFilter: e.target.value ? parseInt(e.target.value) : null
+                                            }))}
+                                            className="flex-1"
+                                            classNames={inputStyle}
+                                            min="2000"
+                                            max="2100"
+                                          />
+                                          <Input
+                                            type="number"
+                                            label="Week"
+                                            placeholder="1-53"
+                                            value={pdfExportState.weekFilter?.toString() || ""}
+                                            onChange={(e) => setPdfExportState(prev => ({
+                                              ...prev,
+                                              weekFilter: e.target.value ? parseInt(e.target.value) : null,
+                                              // Auto-set current year if not set
+                                              yearFilter: prev.yearFilter || new Date().getFullYear()
+                                            }))}
+                                            className="flex-1"
+                                            classNames={inputStyle}
+                                            min="1"
+                                            max="53"
+                                          />
+                                        </div>
+                                        {(pdfExportState.yearFilter || pdfExportState.weekFilter) && (
+                                          <Button
+                                            size="sm"
+                                            variant="flat"
+                                            color="warning"
+                                            onPress={() => setPdfExportState(prev => ({
+                                              ...prev,
+                                              yearFilter: null,
+                                              weekFilter: null
+                                            }))}
+                                            className="w-full"
+                                            startContent={<Icon icon="mdi:close" />}
+                                          >
+                                            Clear Week Filter
+                                          </Button>
+                                        )}
+                                      </div>
+                                    </Tab>
+
+                                    <Tab key="specific" title="Specific Date">
+                                      <div className="space-y-3">
+                                        <div className="grid grid-cols-3 gap-2">
+                                          <Input
+                                            type="number"
+                                            label="Year"
+                                            placeholder="2024"
+                                            value={pdfExportState.yearFilter?.toString() || ""}
+                                            onChange={(e) => setPdfExportState(prev => ({
+                                              ...prev,
+                                              yearFilter: e.target.value ? parseInt(e.target.value) : null
+                                            }))}
+                                            classNames={inputStyle}
+                                            min="2000"
+                                            max="2100"
+                                          />
+                                          <Input
+                                            type="number"
+                                            label="Month"
+                                            placeholder="1-12"
+                                            value={pdfExportState.monthFilter?.toString() || ""}
+                                            onChange={(e) => setPdfExportState(prev => ({
+                                              ...prev,
+                                              monthFilter: e.target.value ? parseInt(e.target.value) : null
+                                            }))}
+                                            classNames={inputStyle}
+                                            min="1"
+                                            max="12"
+                                          />
+                                          <Input
+                                            type="number"
+                                            label="Day"
+                                            placeholder="1-31"
+                                            value={pdfExportState.dayFilter?.toString() || ""}
+                                            onChange={(e) => setPdfExportState(prev => ({
+                                              ...prev,
+                                              dayFilter: e.target.value ? parseInt(e.target.value) : null
+                                            }))}
+                                            classNames={inputStyle}
+                                            min="1"
+                                            max="31"
+                                          />
+                                        </div>
+                                        {(pdfExportState.yearFilter || pdfExportState.monthFilter || pdfExportState.dayFilter) && (
+                                          <Button
+                                            size="sm"
+                                            variant="flat"
+                                            color="warning"
+                                            onPress={() => setPdfExportState(prev => ({
+                                              ...prev,
+                                              yearFilter: null,
+                                              monthFilter: null,
+                                              dayFilter: null
+                                            }))}
+                                            className="w-full"
+                                            startContent={<Icon icon="mdi:close" />}
+                                          >
+                                            Clear Specific Date Filter
+                                          </Button>
+                                        )}
+                                      </div>
+                                    </Tab>
+                                  </Tabs>
+                                </div>
+                              </div>
+
+                              <div className="p-4 border-t border-default-200 flex justify-end gap-2 bg-default-100/50">
+                                {/* Clear All Filters Button */}
+                                {(pdfExportState.warehouseFilter || pdfExportState.statusFilter || pdfExportState.operatorFilter || pdfExportState.inventoryFilter || pdfExportState.dateFrom || pdfExportState.dateTo || pdfExportState.yearFilter || pdfExportState.monthFilter || pdfExportState.weekFilter || pdfExportState.dayFilter) && (
+                                  <Button
+                                    variant="flat"
+                                    color="danger"
+                                    size="sm"
+                                    onPress={() => {
+                                      setPdfExportState(prev => ({
+                                        ...prev,
+                                        warehouseFilter: null,
+                                        statusFilter: null,
+                                        operatorFilter: null,
+                                        inventoryFilter: null,
+                                        dateFrom: null,
+                                        dateTo: null,
+                                        yearFilter: null,
+                                        monthFilter: null,
+                                        weekFilter: null,
+                                        dayFilter: null,
+                                        dateTabKey: "range" // Reset to default tab
+                                      }));
+                                    }}
+                                    startContent={<Icon icon="mdi:filter-remove" />}
+                                  >
+                                    Clear All Filters
+                                  </Button>
+                                )}
+                                <Button
+                                  size="sm"
+                                  variant="flat"
+                                  onPress={() => setIsExportSearchFilterOpen(false)}
+                                >
+                                  Close
+                                </Button>
+                              </div>
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+
+                        {/* Filter chips */}
+                        {pdfExportState.warehouseFilter && (
+                          <Chip
+                            variant="flat"
+                            color="primary"
+                            onClose={() => setPdfExportState(prev => ({ ...prev, warehouseFilter: null }))}
+                            size="sm"
+                            className="h-8 p-2"
+                          >
+                            <div className="flex items-center gap-1">
+                              <Icon icon="mdi:warehouse" className="text-xs" />
+                              {warehouses.find(w => w.uuid === pdfExportState.warehouseFilter)?.name || 'Unknown Warehouse'}
+                            </div>
+                          </Chip>
+                        )}
+
+                        {pdfExportState.statusFilter && (
+                          <Chip
+                            variant="flat"
+                            color={getStatusColor(pdfExportState.statusFilter)}
+                            onClose={() => setPdfExportState(prev => ({ ...prev, statusFilter: null }))}
+                            size="sm"
+                            className="h-8 p-2"
+                          >
+                            <div className="flex items-center gap-1">
+                              <Icon icon="mdi:filter-variant" className="text-xs" />
+                              {pdfExportState.statusFilter.charAt(0).toUpperCase() + pdfExportState.statusFilter.slice(1).toLowerCase().replace('_', ' ')}
+                            </div>
+                          </Chip>
+                        )}
+
+                        {pdfExportState.operatorFilter && (
+                          <Chip
+                            variant="flat"
+                            color="secondary"
+                            onClose={() => setPdfExportState(prev => ({ ...prev, operatorFilter: null }))}
+                            size="sm"
+                            className="h-8 p-2"
+                          >
+                            <div className="flex items-center gap-1">
+                              <Icon icon="mdi:account" className="text-xs" />
+                              {operators.find(op => op.uuid === pdfExportState.operatorFilter)?.full_name || 'Unknown Operator'}
+                            </div>
+                          </Chip>
+                        )}
+
+                        {pdfExportState.inventoryFilter && (
+                          <Chip
+                            variant="flat"
+                            color="success"
+                            onClose={() => setPdfExportState(prev => ({ ...prev, inventoryFilter: null }))}
+                            size="sm"
+                            className="h-8 p-2"
+                          >
+                            <div className="flex items-center gap-1">
+                              <Icon icon="mdi:package-variant" className="text-xs" />
+                              {inventoryItems.find(item => item.uuid === pdfExportState.inventoryFilter)?.name || 'Unknown Item'}
+                            </div>
+                          </Chip>
+                        )}
+
+                        {(pdfExportState.dateFrom || pdfExportState.dateTo) && (
+                          <Chip
+                            variant="flat"
+                            color="secondary"
+                            onClose={() => setPdfExportState(prev => ({ ...prev, dateFrom: null, dateTo: null }))}
+                            size="sm"
+                            className="h-8 p-2"
+                          >
+                            <div className="flex items-center gap-1">
+                              <Icon icon="mdi:calendar-range" className="text-xs" />
+                              {pdfExportState.dateFrom && pdfExportState.dateTo ? `${format(new Date(pdfExportState.dateFrom.year, pdfExportState.dateFrom.month - 1, pdfExportState.dateFrom.day), 'MMM d')} - ${format(new Date(pdfExportState.dateTo.year, pdfExportState.dateTo.month - 1, pdfExportState.dateTo.day), 'MMM d')}` : 'Date Range'}
+                            </div>
+                          </Chip>
+                        )}
+
+                        {pdfExportState.weekFilter && (
+                          <Chip
+                            variant="flat"
+                            color="secondary"
+                            onClose={() => setPdfExportState(prev => ({ ...prev, weekFilter: null, yearFilter: null }))}
+                            size="sm"
+                            className="h-8 p-2"
+                          >
+                            <div className="flex items-center gap-1">
+                              <Icon icon="mdi:calendar-week" className="text-xs" />
+                              Week {pdfExportState.weekFilter}/{pdfExportState.yearFilter || new Date().getFullYear()}
+                            </div>
+                          </Chip>
+                        )}
+
+                        {(pdfExportState.yearFilter || pdfExportState.monthFilter || pdfExportState.dayFilter) && !pdfExportState.weekFilter && (
+                          <Chip
+                            variant="flat"
+                            color="secondary"
+                            onClose={() => setPdfExportState(prev => ({ ...prev, yearFilter: null, monthFilter: null, dayFilter: null }))}
+                            size="sm"
+                            className="h-8 p-2"
+                          >
+                            <div className="flex items-center gap-1">
+                              <Icon icon="mdi:calendar" className="text-xs" />
+                              {pdfExportState.yearFilter && pdfExportState.monthFilter && pdfExportState.dayFilter
+                                ? `${pdfExportState.dayFilter}/${pdfExportState.monthFilter}/${pdfExportState.yearFilter}`
+                                : `Custom Date`}
+                            </div>
+                          </Chip>
+                        )}
+
+                        {(pdfExportState.warehouseFilter || pdfExportState.statusFilter || pdfExportState.operatorFilter || pdfExportState.inventoryFilter || pdfExportState.dateFrom || pdfExportState.dateTo || pdfExportState.yearFilter || pdfExportState.monthFilter || pdfExportState.weekFilter || pdfExportState.dayFilter) && (
+                          <Button
+                            size="sm"
+                            variant="light"
+                            className="rounded-lg"
+                            onPress={() => {
+                              setPdfExportState(prev => ({
+                                ...prev,
+                                warehouseFilter: null,
+                                statusFilter: null,
+                                operatorFilter: null,
+                                inventoryFilter: null,
+                                dateFrom: null,
+                                dateTo: null,
+                                yearFilter: null,
+                                monthFilter: null,
+                                weekFilter: null,
+                                dayFilter: null
+                              }));
+                            }}
+                          >
+                            Clear all
+                          </Button>
+                        )}
+                      </div>
+                    </ScrollShadow>
+                  </div>
+                </div>
+
+                <div className="max-h-64 overflow-y-auto">
+                  {isLoadingPdfDeliveries ? (
+                    <div className="p-4 text-center">
+                      <Spinner size="sm" />
+                      <p className="text-sm text-default-500 mt-2">Loading deliveries...</p>
+                    </div>
+                  ) : getFilteredPdfDeliveries().length === 0 ? (
+                    <div className="p-4 text-center text-default-500">
+                      No deliveries match the selected filters
+                    </div>
+                  ) : (
+                    <div className="p-2">
+                      <div className="flex items-center justify-between px-2 pt-2 pb-4">
+                        <Checkbox
+                          isSelected={pdfExportState.selectedDeliveries.length === getFilteredPdfDeliveries().length && getFilteredPdfDeliveries().length > 0}
+                          isIndeterminate={pdfExportState.selectedDeliveries.length > 0 && pdfExportState.selectedDeliveries.length < getFilteredPdfDeliveries().length}
+                          onValueChange={(selected) => {
+                            if (selected) {
+                              setPdfExportState(prev => ({
+                                ...prev,
+                                selectedDeliveries: getFilteredPdfDeliveries().map(delivery => delivery.uuid)
+                              }));
+                            } else {
+                              setPdfExportState(prev => ({ ...prev, selectedDeliveries: [] }));
+                            }
+                          }}
+                        >
+                          <span className="text-small font-medium pl-2">Select All</span>
+                        </Checkbox>
+                        <span className="text-small text-default-400">
+                          {pdfExportState.selectedDeliveries.length} selected
+                        </span>
+                      </div>
+
+                      {getFilteredPdfDeliveries().map((delivery) => (
+                        <div key={delivery.uuid} className="flex items-center gap-2 p-2 hover:bg-default-100 rounded-md cursor-pointer transition-all duration-200">
+                          <Checkbox
+                            isSelected={pdfExportState.selectedDeliveries.includes(delivery.uuid)}
+                            onValueChange={() => handleTogglePdfDeliverySelection(delivery.uuid)}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-small truncate">
+                              {inventoryItems.find(i => i.uuid === delivery.inventory_uuid)?.name || 'Unknown Item'}
+                            </div>
+                            <div className="text-tiny text-default-400 truncate">
+                              {warehouses.find(w => w.uuid === delivery.warehouse_uuid)?.name || 'Unknown Warehouse'} • {formatDate(delivery.delivery_date)}
+                            </div>
+                          </div>
+                          <Chip color={getStatusColor(delivery.status)} size="sm" variant="flat">
+                            {delivery.status.charAt(0).toUpperCase() + delivery.status.slice(1).toLowerCase().replace('_', ' ')}
+                          </Chip>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-4 border-t border-default-200 flex justify-end gap-2 bg-default-100/50">
+                  <Button
+                    size="sm"
+                    variant="flat"
+                    onPress={() => setPdfExportState(prev => ({ ...prev, isPopoverOpen: false }))}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    color="primary"
+                    isDisabled={pdfExportState.selectedDeliveries.length === 0}
+                    isLoading={isPdfGenerating}
+                    onPress={() => {
+                      setPdfExportState(prev => ({ ...prev, isPopoverOpen: false }));
+                      handleGenerateQrPdf(pdfExportState.selectedDeliveries);
+                    }}
+                  >
+                    Generate PDF
+                  </Button>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+
         </div>
       </div>
       <div className="flex flex-col xl:flex-row gap-4">
@@ -2346,7 +3214,7 @@ export default function DeliveryPage() {
                             Filters
                           </Button>
                         </PopoverTrigger>
-                        <PopoverContent className="p-4 w-80 p-0 overflow-hidden">
+                        <PopoverContent className="w-96 p-0 overflow-hidden">
                           <div>
                             <div className="space-y-4 p-4">
                               <h3 className="text-lg font-semibold items-center w-full text-center">
@@ -2410,9 +3278,218 @@ export default function DeliveryPage() {
                                     </AutocompleteItem>
                                   ))]}
                               </Autocomplete>
+
+                              {/* Inventory filter */}
+                              <Autocomplete
+                                name="inventory_filter"
+                                label="Filter by Item"
+                                placeholder="All Items"
+                                selectedKey={mainFilterState.inventoryFilter || ""}
+                                onSelectionChange={(key) => handleMainInventoryFilterChange(key as string || null)}
+                                startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
+                                inputProps={autoCompleteStyle}
+                              >
+                                {[
+                                  (<AutocompleteItem key="">All Items</AutocompleteItem>),
+                                  ...inventoryItems.map((item) => (
+                                    <AutocompleteItem key={item.uuid}>
+                                      {item.name}
+                                    </AutocompleteItem>
+                                  ))]}
+                              </Autocomplete>
+
+                              {/* Date Filters using Tabs */}
+                              <div className="space-y-3 border-2 border-default-200 rounded-xl p-4 bg-default-100/25">
+                                <div className="flex items-center gap-2">
+                                  <Icon icon="mdi:calendar-range" className="text-default-500" />
+                                  <span className="text-sm font-medium">Date Filters</span>
+                                </div>
+
+                                <Tabs
+                                  variant="solid"
+                                  color="primary"
+                                  fullWidth
+                                  size="md"
+                                  classNames={{
+                                    panel: "p-0",
+                                    tabList: "border-2 border-default-200",
+                                    tabContent: "text-default-700",
+                                  }}
+                                  selectedKey={mainFilterState.dateTabKey}
+                                  onSelectionChange={(key) => {
+                                    const tabKey = key as string;
+                                    setMainFilterState(prev => ({
+                                      ...prev,
+                                      dateTabKey: tabKey,
+                                      // Reset all date filters when switching tabs
+                                      dateFrom: null,
+                                      dateTo: null,
+                                      yearFilter: null,
+                                      monthFilter: null,
+                                      weekFilter: null,
+                                      dayFilter: null
+                                    }));
+                                    clearMainDateFilters();
+                                  }}
+                                  className="w-full"
+                                >
+                                  <Tab key="range" title="Date Range">
+                                    <DateRangePicker
+                                      label="Select Date Range"
+                                      className="w-full"
+                                      value={mainFilterState.dateFrom && mainFilterState.dateTo ? {
+                                        start: mainFilterState.dateFrom,
+                                        end: mainFilterState.dateTo
+                                      } : null}
+                                      onChange={(range) => {
+                                        if (range) {
+                                          handleMainDateFromChange(range.start);
+                                          handleMainDateToChange(range.end);
+                                        } else {
+                                          handleMainDateFromChange(null);
+                                          handleMainDateToChange(null);
+                                        }
+                                      }}
+                                      classNames={inputStyle}
+                                    />
+                                  </Tab>
+
+                                  <Tab key="week" title="By Week">
+                                    <div className="space-y-3">
+                                      <div className="flex gap-2">
+                                        <Input
+                                          type="number"
+                                          label="Year"
+                                          placeholder="2024"
+                                          value={mainFilterState.yearFilter?.toString() || ""}
+                                          onChange={(e) => handleMainYearFilterChange(e.target.value ? parseInt(e.target.value) : null)}
+                                          className="flex-1"
+                                          classNames={inputStyle}
+                                          min="2000"
+                                          max="2100"
+                                        />
+                                        <Input
+                                          type="number"
+                                          label="Week"
+                                          placeholder="1-53"
+                                          value={mainFilterState.weekFilter?.toString() || ""}
+                                          onChange={(e) => {
+                                            const week = e.target.value ? parseInt(e.target.value) : null;
+                                            const year = mainFilterState.yearFilter || new Date().getFullYear();
+                                            handleMainWeekFilterChange(week);
+                                            if (week && !mainFilterState.yearFilter) {
+                                              handleMainYearFilterChange(year);
+                                            }
+                                          }}
+                                          className="flex-1"
+                                          classNames={inputStyle}
+                                          min="1"
+                                          max="53"
+                                        />
+                                      </div>
+                                      {(mainFilterState.yearFilter || mainFilterState.weekFilter) && (
+                                        <Button
+                                          size="sm"
+                                          variant="flat"
+                                          color="warning"
+                                          onPress={() => {
+                                            handleMainYearFilterChange(null);
+                                            handleMainWeekFilterChange(null);
+                                          }}
+                                          className="w-full"
+                                          startContent={<Icon icon="mdi:close" />}
+                                        >
+                                          Clear Week Filter
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </Tab>
+
+                                  <Tab key="specific" title="Specific Date">
+                                    <div className="space-y-3">
+                                      <div className="grid grid-cols-3 gap-2">
+                                        <Input
+                                          type="number"
+                                          label="Year"
+                                          placeholder="2024"
+                                          value={mainFilterState.yearFilter?.toString() || ""}
+                                          onChange={(e) => handleMainYearFilterChange(e.target.value ? parseInt(e.target.value) : null)}
+                                          classNames={inputStyle}
+                                          min="2000"
+                                          max="2100"
+                                        />
+                                        <Input
+                                          type="number"
+                                          label="Month"
+                                          placeholder="1-12"
+                                          value={mainFilterState.monthFilter?.toString() || ""}
+                                          onChange={(e) => handleMainMonthFilterChange(e.target.value ? parseInt(e.target.value) : null)}
+                                          classNames={inputStyle}
+                                          min="1"
+                                          max="12"
+                                        />
+                                        <Input
+                                          type="number"
+                                          label="Day"
+                                          placeholder="1-31"
+                                          value={mainFilterState.dayFilter?.toString() || ""}
+                                          onChange={(e) => handleMainDayFilterChange(e.target.value ? parseInt(e.target.value) : null)}
+                                          classNames={inputStyle}
+                                          min="1"
+                                          max="31"
+                                        />
+                                      </div>
+                                      {(mainFilterState.yearFilter || mainFilterState.monthFilter || mainFilterState.dayFilter) && (
+                                        <Button
+                                          size="sm"
+                                          variant="flat"
+                                          color="warning"
+                                          onPress={() => {
+                                            handleMainYearFilterChange(null);
+                                            handleMainMonthFilterChange(null);
+                                            handleMainDayFilterChange(null);
+                                          }}
+                                          className="w-full"
+                                          startContent={<Icon icon="mdi:close" />}
+                                        >
+                                          Clear Specific Date Filter
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </Tab>
+                                </Tabs>
+                              </div>
                             </div>
 
                             <div className="p-4 border-t border-default-200 flex justify-end gap-2 bg-default-100/50">
+                              {/* Clear All Filters Button */}
+                              {(warehouseFilter || statusFilter || operatorFilter || mainFilterState.inventoryFilter || mainFilterState.dateFrom || mainFilterState.dateTo || mainFilterState.yearFilter || mainFilterState.monthFilter || mainFilterState.weekFilter || mainFilterState.dayFilter) && (
+                                <Button
+                                  variant="flat"
+                                  color="danger"
+                                  size="sm"
+                                  onPress={() => {
+                                    setWarehouseFilter(null);
+                                    setStatusFilter(null);
+                                    setOperatorFilter(null);
+                                    setMainFilterState({
+                                      dateFrom: null,
+                                      dateTo: null,
+                                      yearFilter: null,
+                                      monthFilter: null,
+                                      weekFilter: null,
+                                      dayFilter: null,
+                                      dateTabKey: "range",
+                                      inventoryFilter: null,
+                                    });
+                                    setPage(1);
+                                    handleSearch(searchQuery, null, null, null, null, null, null, null, null, null, null, 1);
+                                  }}
+                                  startContent={<Icon icon="mdi:filter-remove" />}
+                                >
+                                  Clear All Filters
+                                </Button>
+                              )}
                               <Button
                                 size="sm"
                                 variant="flat"
@@ -2456,14 +3533,114 @@ export default function DeliveryPage() {
                         </Chip>
                       )}
 
-                      {(warehouseFilter || statusFilter) && (
+                      {operatorFilter && (
+                        <Chip
+                          variant="flat"
+                          color="secondary"
+                          onClose={() => handleOperatorFilterChange(null)}
+                          size="sm"
+                          className="h-8 p-2"
+                        >
+                          <div className="flex items-center gap-1">
+                            <Icon icon="mdi:account" className="text-xs" />
+                            {operators.find(op => op.uuid === operatorFilter)?.full_name || 'Unknown Operator'}
+                          </div>
+                        </Chip>
+                      )}
+
+                      {mainFilterState.inventoryFilter && (
+                        <Chip
+                          variant="flat"
+                          color="success"
+                          onClose={() => handleMainInventoryFilterChange(null)}
+                          size="sm"
+                          className="h-8 p-2"
+                        >
+                          <div className="flex items-center gap-1">
+                            <Icon icon="mdi:package-variant" className="text-xs" />
+                            {inventoryItems.find(item => item.uuid === mainFilterState.inventoryFilter)?.name || 'Unknown Item'}
+                          </div>
+                        </Chip>
+                      )}
+
+                      {(mainFilterState.dateFrom || mainFilterState.dateTo) && (
+                        <Chip
+                          variant="flat"
+                          color="secondary"
+                          onClose={() => {
+                            handleMainDateFromChange(null);
+                            handleMainDateToChange(null);
+                          }}
+                          size="sm"
+                          className="h-8 p-2"
+                        >
+                          <div className="flex items-center gap-1">
+                            <Icon icon="mdi:calendar-range" className="text-xs" />
+                            {mainFilterState.dateFrom && mainFilterState.dateTo ? `${format(new Date(mainFilterState.dateFrom.year, mainFilterState.dateFrom.month - 1, mainFilterState.dateFrom.day), 'MMM d')} - ${format(new Date(mainFilterState.dateTo.year, mainFilterState.dateTo.month - 1, mainFilterState.dateTo.day), 'MMM d')}` : 'Date Range'}
+                          </div>
+                        </Chip>
+                      )}
+
+                      {mainFilterState.weekFilter && (
+                        <Chip
+                          variant="flat"
+                          color="secondary"
+                          onClose={() => {
+                            handleMainWeekFilterChange(null);
+                            handleMainYearFilterChange(null);
+                          }}
+                          size="sm"
+                          className="h-8 p-2"
+                        >
+                          <div className="flex items-center gap-1">
+                            <Icon icon="mdi:calendar-week" className="text-xs" />
+                            Week {mainFilterState.weekFilter}/{mainFilterState.yearFilter || new Date().getFullYear()}
+                          </div>
+                        </Chip>
+                      )}
+
+                      {(mainFilterState.yearFilter || mainFilterState.monthFilter || mainFilterState.dayFilter) && !mainFilterState.weekFilter && (
+                        <Chip
+                          variant="flat"
+                          color="secondary"
+                          onClose={() => {
+                            handleMainYearFilterChange(null);
+                            handleMainMonthFilterChange(null);
+                            handleMainDayFilterChange(null);
+                          }}
+                          size="sm"
+                          className="h-8 p-2"
+                        >
+                          <div className="flex items-center gap-1">
+                            <Icon icon="mdi:calendar" className="text-xs" />
+                            {mainFilterState.yearFilter && mainFilterState.monthFilter && mainFilterState.dayFilter
+                              ? `${mainFilterState.dayFilter}/${mainFilterState.monthFilter}/${mainFilterState.yearFilter}`
+                              : `Custom Date`}
+                          </div>
+                        </Chip>
+                      )}
+
+                      {(warehouseFilter || statusFilter || operatorFilter || mainFilterState.inventoryFilter || mainFilterState.dateFrom || mainFilterState.dateTo || mainFilterState.yearFilter || mainFilterState.monthFilter || mainFilterState.weekFilter || mainFilterState.dayFilter) && (
                         <Button
                           size="sm"
                           variant="light"
                           className="rounded-lg"
                           onPress={() => {
-                            handleWarehouseFilterChange(null);
-                            handleStatusFilterChange(null);
+                            setWarehouseFilter(null);
+                            setStatusFilter(null);
+                            setOperatorFilter(null);
+                            setMainFilterState({
+                              dateFrom: null,
+                              dateTo: null,
+                              yearFilter: null,
+                              monthFilter: null,
+                              weekFilter: null,
+                              dayFilter: null,
+                              dateTabKey: "range",
+                              inventoryFilter: null,
+                            });
+                            setPage(1);
+                            handleSearch(searchQuery, null, null, null, null, null, null, null, null, null, null, 1);
                           }}
                         >
                           Clear all

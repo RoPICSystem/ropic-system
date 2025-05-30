@@ -42,6 +42,7 @@ export default function NavigationBread() {
         if (data?.is_admin) {
           setNavigation([
             { name: 'Dashboard', href: '/home/dashboard', icon: "heroicons:home-solid" },
+            { name: 'Search', href: '/home/search', icon: "heroicons:magnifying-glass-20-solid" },
             { name: 'Warehouses', href: '/home/warehouses', icon: 'material-symbols:warehouse-rounded' },
             { name: 'Inventory', href: '/home/inventory', icon: "fluent:box-20-filled" },
             { name: 'Delivery', href: '/home/delivery', icon: "heroicons:truck-20-solid" },
@@ -55,6 +56,7 @@ export default function NavigationBread() {
         } else {
           setNavigation([
             { name: 'Dashboard', href: '/home/dashboard', icon: "heroicons:home-solid" },
+            { name: 'Search', href: '/home/search', icon: "heroicons:magnifying-glass-20-solid" },
             { name: 'Warehouse Items', href: '/home/warehouse-items', icon: "fluent:box-20-filled" },
             { name: 'Delivery', href: '/home/delivery', icon: "heroicons:truck-20-solid" },
             { name: 'Reorder Point', href: '/home/reorder-point', icon: "heroicons:chart-bar-20-solid" },
