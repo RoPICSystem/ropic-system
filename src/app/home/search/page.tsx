@@ -22,6 +22,11 @@ import {
   Alert,
   Snippet,
   Tooltip,
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -42,7 +47,7 @@ import CardList from "@/components/card-list";
 import { format, parseISO } from "date-fns";
 import ListLoadingAnimation from "@/components/list-loading-animation";
 
-export default function GoPage() {
+export default function SearchPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [user, setUser] = useState<any>(null);
@@ -60,6 +65,15 @@ export default function GoPage() {
   // Bulk details state for lazy loading
   const [loadedBulkUnits, setLoadedBulkUnits] = useState<Map<string, any[]>>(new Map());
   const [loadingBulkUnits, setLoadingBulkUnits] = useState<Set<string>>(new Set());
+
+  // Add delivery acceptance states
+  const [isAcceptingDelivery, setIsAcceptingDelivery] = useState(false);
+  const [acceptDeliveryError, setAcceptDeliveryError] = useState<string | null>(null);
+  const [acceptDeliverySuccess, setAcceptDeliverySuccess] = useState(false);
+  const [isOperatorAssigned, setIsOperatorAssigned] = useState<boolean>(false);
+
+  // Add modal state
+  const [showAcceptStatusModal, setShowAcceptStatusModal] = useState(false);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -98,16 +112,19 @@ export default function GoPage() {
         setUser(userData);
 
         // Check for UUID parameters
-        const deliveryId = searchParams.get("deliveryId");
-        const inventoryId = searchParams.get("inventoryId");
-        const warehouseItemId = searchParams.get("warehouseItemId");
-        const itemId = searchParams.get("itemId");
+        const isDeliveryAutoAccept = searchParams.get("deliveryAutoAccept") === "true";
         const query = searchParams.get("q");
 
-        const uuid = deliveryId || inventoryId || warehouseItemId || itemId || query;
+        const uuid = query;
 
         if (uuid) {
-          await loadItemDetails(uuid);
+          const resultLoadItemDetails = await loadItemDetails(uuid);
+
+
+          // Auto-accept delivery if parameter is set and item is a delivery
+          if (isDeliveryAutoAccept && resultLoadItemDetails && resultLoadItemDetails.type === 'delivery') {
+            await handleAcceptDelivery(resultLoadItemDetails.data as GoPageDeliveryDetails, userData);
+          }
         }
 
       } catch (error) {
@@ -125,23 +142,35 @@ export default function GoPage() {
     setIsSearching(true);
     setError(null);
 
+    let result: any = null;
     try {
-      const result = await getItemDetailsByUuid(uuid);
+      result = await getItemDetailsByUuid(uuid);
 
       if (result.success && result.data && result.type) {
         setItemType(result.type);
         setItemDetails(result.data);
         setSearchQuery(uuid);
+
+        if (result.type === 'delivery') {
+          const deliveryDetails = result.data as GoPageDeliveryDetails;
+
+          setIsOperatorAssigned(deliveryDetails.operator_uuids?.includes(user?.uuid) || deliveryDetails.operator_uuids === null || deliveryDetails.operator_uuids?.length === 0);
+        } else {
+          setIsOperatorAssigned(false);
+        }
       } else {
         setError(result.error || "Item not found");
         setItemDetails(null);
         setItemType(null);
+        return null;
       }
     } catch (error: any) {
       console.error("Error loading item details:", error);
       setError("Failed to load item details");
+      return null;
     } finally {
       setIsSearching(false);
+      return result;
     }
   };
 
@@ -165,6 +194,122 @@ export default function GoPage() {
         newSet.delete(bulkUuid);
         return newSet;
       });
+    }
+  };
+
+  // Accept delivery function (adapted from delivery page)
+  const handleAcceptDelivery = async (deliveryDetails: GoPageDeliveryDetails, customUser?: any) => {
+    if (!deliveryDetails) return;
+
+    setIsAcceptingDelivery(true);
+    setAcceptDeliveryError(null);
+    setAcceptDeliverySuccess(false);
+
+
+    try {
+      // THis is for operators only
+      if (!customUser && !user) {
+        setAcceptDeliveryError("User information is missing");
+        setShowAcceptStatusModal(true);
+        return;
+      }
+
+      const userDetails = customUser || user;
+      // Check if the user is an operator
+      if (!userDetails || !userDetails.uuid || userDetails.is_admin) {
+        setAcceptDeliveryError("You are not authorized to accept this delivery");
+        setShowAcceptStatusModal(true);
+        return;
+      }
+
+      // Check if the delivery status is IN_TRANSIT
+      if (deliveryDetails.status !== "IN_TRANSIT") {
+        setAcceptDeliveryError("This delivery cannot be accepted because it is not in transit");
+        setShowAcceptStatusModal(true);
+        console.warn("Delivery is not in transit:", deliveryDetails.status);
+        return;
+      }
+
+      // Check if the operator is assigned to this delivery
+      if (deliveryDetails.operator_uuids?.includes(userDetails?.uuid) ||
+        deliveryDetails.operator_uuids === null ||
+        deliveryDetails.operator_uuids?.length === 0) {
+
+        // Import delivery actions dynamically
+        const { updateDeliveryItem, updateInventoryItemBulksStatus, createWarehouseInventoryItems } = await import('../delivery/actions');
+
+        // Update delivery status to DELIVERED
+        const currentTimestamp = new Date().toISOString();
+        const updatedStatusHistory = {
+          ...(deliveryDetails.status_history || {}),
+          [currentTimestamp]: "DELIVERED"
+        };
+
+        const updatedFormData = {
+          status: "DELIVERED",
+          status_history: updatedStatusHistory
+        };
+
+        const result = await updateDeliveryItem(deliveryDetails.uuid, updatedFormData);
+
+        if (result.success && deliveryDetails.inventory_item?.uuid) {
+          // Update inventory item bulks status
+          if (deliveryDetails.inventory_bulks && deliveryDetails.inventory_bulks.length > 0) {
+            const bulkUuids = deliveryDetails.inventory_bulks.map(bulk => bulk.uuid);
+            await updateInventoryItemBulksStatus(bulkUuids, "IN_WAREHOUSE");
+          }
+
+          // Create warehouse inventory items if locations are available
+          if (deliveryDetails.locations && deliveryDetails.locations.length > 0 &&
+            deliveryDetails.inventory_bulks && deliveryDetails.inventory_bulks.length > 0) {
+            try {
+              if (!deliveryDetails.warehouse || !deliveryDetails.warehouse.uuid) {
+                setAcceptDeliveryError("Warehouse information is missing");
+                setShowAcceptStatusModal(true);
+                return;
+              }
+
+              await createWarehouseInventoryItems(
+                deliveryDetails.inventory_item.uuid,
+                deliveryDetails.warehouse.uuid,
+                deliveryDetails.uuid,
+                deliveryDetails.inventory_bulks.map(bulk => bulk.uuid),
+                deliveryDetails.locations,
+                deliveryDetails.location_codes || []
+              );
+            } catch (error) {
+              console.error("Error creating warehouse inventory items:", error);
+              setAcceptDeliveryError("Delivery accepted but failed to create warehouse items");
+              setShowAcceptStatusModal(true);
+              return;
+            }
+          }
+
+          setAcceptDeliverySuccess(true);
+          setShowAcceptStatusModal(true);
+
+          // Refresh the item details
+          // setTimeout(async () => {
+          //   await loadItemDetails(deliveryDetails.uuid);
+          //   setAcceptDeliverySuccess(false);
+          //   setShowAcceptStatusModal(false);
+          // }, 2000);
+
+        } else {
+          setAcceptDeliveryError("Failed to update delivery status");
+          setShowAcceptStatusModal(true);
+        }
+      } else {
+        setAcceptDeliveryError("You are not assigned to this delivery");
+        setShowAcceptStatusModal(true);
+        console.warn("User not assigned to this delivery:", user?.uuid, deliveryDetails.operator_uuids);
+      }
+    } catch (error) {
+      console.error("Error accepting delivery:", error);
+      setAcceptDeliveryError("Failed to accept delivery");
+      setShowAcceptStatusModal(true);
+    } finally {
+      setIsAcceptingDelivery(false);
     }
   };
 
@@ -224,16 +369,99 @@ export default function GoPage() {
       {/* Details Type */}
       <div className="flex items-center justify-between mb-4 gap-4">
         <h1 className="text-2xl font-bold">Delivery Details</h1>
-        <Button
-          variant="flat"
-          color="primary"
-          size="sm"
-          onPress={() => router.push(`/home/delivery?deliveryId=${details.uuid}`)}
-        >
-          View Delivery
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="flat"
+            color="success"
+            size="sm"
+            onPress={() => handleAcceptDelivery(details)}
+            isLoading={isAcceptingDelivery}
+            isDisabled={isAcceptingDelivery}
+            className={(details.status !== "IN_TRANSIT" || !isOperatorAssigned) ? "hidden" : ""}
+            startContent={!isAcceptingDelivery && <Icon icon="mdi:check" />}
+          >
+            {isAcceptingDelivery ? "Accepting..." : "Accept Delivery"}
+          </Button>
+          <Button
+            variant="flat"
+            color="primary"
+            size="sm"
+            onPress={() => router.push(`/home/delivery?deliveryId=${details.uuid}`)}
+          >
+            View Delivery
+          </Button>
+        </div>
       </div>
 
+      {/* Accept Delivery Status Modal */}
+      <Modal
+        isOpen={showAcceptStatusModal}
+        onClose={() => {
+          setShowAcceptStatusModal(false);
+          setAcceptDeliveryError(null);
+          setAcceptDeliverySuccess(false);
+
+          const searchQuery = searchParams.get("q") || "";
+          router.replace(`/home/search?q=${encodeURIComponent(searchQuery.trim())}`);
+        }}
+        placement="center"
+        backdrop="blur"
+        size="md"
+        classNames={{ backdrop: "bg-background/50" }}
+      >
+        <ModalContent>
+          <ModalHeader className="flex items-center gap-2">
+            {acceptDeliverySuccess ? (
+              <>
+                <Icon icon="mdi:check-circle" className="text-success" width={24} />
+                <span>Delivery Accepted Successfully</span>
+              </>
+            ) : (
+              <>
+                <Icon icon="mdi:alert-circle" className="text-danger" width={24} />
+                <span>Delivery Acceptance Failed</span>
+              </>
+            )}
+          </ModalHeader>
+          <ModalBody>
+            {acceptDeliverySuccess ? (
+              <div className="text-center py-4">
+                <div className="flex items-center justify-center w-16 h-16 bg-success-100 rounded-full mx-auto mb-4">
+                  <Icon icon="mdi:check-circle" className="text-success" width={32} />
+                </div>
+                <p className="text-default-700">
+                  The delivery has been marked as delivered and inventory items have been added to the warehouse.
+                </p>
+              </div>
+            ) : (
+              <div className="text-center py-4">
+                <div className="flex items-center justify-center w-16 h-16 bg-danger-100 rounded-full mx-auto mb-4">
+                  <Icon icon="mdi:alert-circle" className="text-danger" width={32} />
+                </div>
+                <p className="text-default-700">
+                  {acceptDeliveryError}
+                </p>
+              </div>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              color={acceptDeliverySuccess ? "success" : "danger"}
+              variant="solid"
+              onPress={() => {
+                setShowAcceptStatusModal(false);
+                setAcceptDeliveryError(null);
+                setAcceptDeliverySuccess(false);
+
+                const searchQuery = searchParams.get("q") || "";
+                router.replace(`/home/search?q=${encodeURIComponent(searchQuery.trim())}`);
+              }}
+            >
+              {acceptDeliverySuccess ? "Great!" : "Close"}
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
 
       {/* Header */}
       <Card className="bg-background">
@@ -604,289 +832,293 @@ export default function GoPage() {
       </div>
 
       {/* Operators */}
-      {details.operators && details.operators.length > 0 && (
-        <Card className="bg-background mt-4">
-          <CardHeader className="p-4 bg-danger-50/30">
-            <div className="flex items-center justify-between w-full">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center w-12 h-12 bg-danger-100 rounded-lg">
-                  <Icon icon="mdi:account-group" className="text-danger" width={22} />
-                </div>
-                <h3 className="text-lg font-semibold">Assigned Operators</h3>
-              </div>
-              <Chip size="sm" variant="flat" color="danger">
-                {details.operators.length}
-              </Chip>
-            </div>
-          </CardHeader>
-          <Divider />
-          <CardBody className="p-4 bg-danger-50/30">
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-              {details.operators.map((operator) => (
-                <div key={operator.uuid} className="flex items-center gap-3 p-3 bg-danger-50 border-2 border-danger-100 rounded-xl shadow-lg">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <Avatar
-                        name={operator.full_name}
-                        size="lg"
-                        src={operator.profile_image}
-                      />
-                      <div className="flex-1 flex flex-row sm:flex-col md:flex-row lg:flex-col gap-2">
-                        <p className="font-medium text-default-900">{operator.full_name}</p>
-                        <div className="flex items-center gap-2">
-                          <div className="sm:block md:hidden lg:block hidden">
-                            <Snippet
-                              symbol=""
-                              variant="flat"
-                              color="danger"
-                              size="sm"
-                              className="text-xs p-1 pl-2"
-                              classNames={{ copyButton: "bg-danger-100 hover:!bg-danger-200 text-sm p-0 h-6 w-6" }}
-                              codeString={operator.uuid}
-                              onCopy={() => copyToClipboard(operator.uuid)}
-                              checkIcon={<Icon icon="fluent:checkmark-16-filled" className="text-success" />}
-                              copyIcon={<Icon icon="fluent:copy-16-regular" className="text-danger-500" />}
-                            >
-                              {operator.uuid}
-                            </Snippet>
-                          </div>
-                          <div className="sm:hidden md:block lg:hidden">
-                            <Button
-                              size="sm"
-                              variant="flat"
-                              color="danger"
-                              isIconOnly
-                              onPress={() => copyToClipboard(operator.uuid)}
-                            >
-                              <Icon icon="fluent:copy-16-regular" className="text-danger-500 text-sm" />
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <p className="text-sm text-default-600">
-                      <Icon icon="mdi:email-outline" className="inline text-default-500 mr-1" width={16} />
-                      {operator.email}
-                    </p>
-                    {operator.phone_number && (
-                      <p className="text-sm text-default-600">
-                        <Icon icon="mdi:phone-outline" className="inline text-default-500 mr-1" width={16} />
-                        +63{operator.phone_number}
-                      </p>
-                    )}
+      {
+        details.operators && details.operators.length > 0 && (
+          <Card className="bg-background mt-4">
+            <CardHeader className="p-4 bg-danger-50/30">
+              <div className="flex items-center justify-between w-full">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-center w-12 h-12 bg-danger-100 rounded-lg">
+                    <Icon icon="mdi:account-group" className="text-danger" width={22} />
                   </div>
+                  <h3 className="text-lg font-semibold">Assigned Operators</h3>
                 </div>
-              ))}
-            </div>
-          </CardBody>
-        </Card>
-      )}
-
-      {/* Inventory Bulks - Using Accordion like inventory details */}
-      {details.inventory_bulks && details.inventory_bulks.length > 0 && (
-        <Card className="bg-background mt-4">
-          <CardHeader className="p-4 bg-primary-50/30">
-            <div className="flex items-center justify-between w-full">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center w-12 h-12 bg-primary-100 rounded-lg">
-                  <Icon icon="mdi:cube-outline" className="text-primary" width={22} />
-                </div>
-                <h3 className="text-lg font-semibold">Inventory Bulks</h3>
+                <Chip size="sm" variant="flat" color="danger">
+                  {details.operators.length}
+                </Chip>
               </div>
-              <Chip size="sm" variant="flat" color="primary">
-                {details.inventory_bulks.length}
-              </Chip>
-            </div>
-          </CardHeader>
-          <Divider />
-          <CardBody className="px-2 py-4 bg-primary-50/30">
-            <Accordion
-              selectionMode="multiple"
-              variant="splitted"
-              itemClasses={{
-                base: "p-0 bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
-                title: "font-normal text-lg font-semibold",
-                trigger: "p-4 data-[hover=true]:bg-default-100 h-18 flex items-center transition-colors",
-                indicator: "text-medium",
-                content: "text-small p-0",
-              }}
-              onSelectionChange={(keys) => {
-                // Load units for opened accordion items
-                if (keys instanceof Set) {
-                  keys.forEach(key => {
-                    const bulkIndex = parseInt(key.toString());
-                    if (details.inventory_bulks && details.inventory_bulks[bulkIndex]) {
-                      const bulk = details.inventory_bulks[bulkIndex];
-                      loadBulkUnits(bulk.uuid, false);
-                    }
-                  });
-                }
-              }}>
-              {details.inventory_bulks.map((bulk, index) => (
-                <AccordionItem
-                  key={index}
-                  title={
-                    <div className="flex items-center justify-between w-full">
-                      <div className="flex items-center gap-3">
-                        <div className="flex-1 flex flex-row xl:flex-col gap-2">
-                          <h3 className="text-lg font-semibold">
-                            Bulk #{index + 1}
-                          </h3>
+            </CardHeader>
+            <Divider />
+            <CardBody className="p-4 bg-danger-50/30">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                {details.operators.map((operator) => (
+                  <div key={operator.uuid} className="flex items-center gap-3 p-3 bg-danger-50 border-2 border-danger-100 rounded-xl shadow-lg">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <Avatar
+                          name={operator.full_name}
+                          size="lg"
+                          src={operator.profile_image}
+                        />
+                        <div className="flex-1 flex flex-row sm:flex-col md:flex-row lg:flex-col gap-2">
+                          <p className="font-medium text-default-900">{operator.full_name}</p>
                           <div className="flex items-center gap-2">
-                            <div className="xl:block hidden">
+                            <div className="sm:block md:hidden lg:block hidden">
                               <Snippet
                                 symbol=""
                                 variant="flat"
-                                color="primary"
+                                color="danger"
                                 size="sm"
                                 className="text-xs p-1 pl-2"
-                                classNames={{ copyButton: "bg-primary-100 hover:!bg-primary-200 text-sm p-0 h-6 w-6" }}
-                                codeString={bulk.uuid}
+                                classNames={{ copyButton: "bg-danger-100 hover:!bg-danger-200 text-sm p-0 h-6 w-6" }}
+                                codeString={operator.uuid}
+                                onCopy={() => copyToClipboard(operator.uuid)}
                                 checkIcon={<Icon icon="fluent:checkmark-16-filled" className="text-success" />}
-                                copyIcon={<Icon icon="fluent:copy-16-regular" className="text-primary-500" />}
-                                onCopy={() => copyToClipboard(bulk.uuid)}
+                                copyIcon={<Icon icon="fluent:copy-16-regular" className="text-danger-500" />}
                               >
-                                {bulk.uuid}
+                                {operator.uuid}
                               </Snippet>
                             </div>
-                            <Button
-                              size="sm"
-                              variant="flat"
-                              color="primary"
-                              isIconOnly
-                              className="xl:hidden"
-                              onPress={() => copyToClipboard(bulk.uuid)}
-                            >
-                              <Icon icon="fluent:copy-16-regular" className="text-primary-500 text-sm" />
-                            </Button>
+                            <div className="sm:hidden md:block lg:hidden">
+                              <Button
+                                size="sm"
+                                variant="flat"
+                                color="danger"
+                                isIconOnly
+                                onPress={() => copyToClipboard(operator.uuid)}
+                              >
+                                <Icon icon="fluent:copy-16-regular" className="text-danger-500 text-sm" />
+                              </Button>
+                            </div>
                           </div>
                         </div>
                       </div>
-                      <div className="items-center gap-2 ml-2 md hidden sm:flex md:hidden lg:flex">
-                        <Chip size="sm" color={getStatusColor(bulk.status || "AVAILABLE")} variant="flat">
-                          {bulk.status || "AVAILABLE"}
-                        </Chip>
-                        <Chip size="sm" variant="flat" color="default">
-                          {bulk.unit_value} {bulk.unit}
-                        </Chip>
-                        <Chip size="sm" variant="flat" color="default">
-                          {formatCurrency(bulk.cost)}
-                        </Chip>
-                      </div>
-                    </div>
-                  }
-                >
-                  <div className="space-y-4 p-4">
-                    {/* Bulk ID */}
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                      <div className="bg-primary-50 rounded-lg p-3 border border-primary-100">
-                        <p className="text-sm font-medium text-primary-700">Unit Value</p>
-                        <p className="text-primary-900">{bulk.unit_value} {bulk.unit}</p>
-                      </div>
-                      <div className="bg-primary-50 rounded-lg p-3 border border-primary-100">
-                        <p className="text-sm font-medium text-primary-700">Bulk Unit</p>
-                        <p className="text-primary-900">{bulk.bulk_unit}</p>
-                      </div>
-                      <div className="bg-primary-50 rounded-lg p-3 border border-primary-100">
-                        <p className="text-sm font-medium text-primary-700">Cost</p>
-                        <p className="text-primary-900">{formatCurrency(bulk.cost)}</p>
-                      </div>
-                      <div className="bg-primary-50 rounded-lg p-3 border border-primary-100">
-                        <p className="text-sm font-medium text-primary-700">Type</p>
-                        <p className="text-primary-900">{bulk.is_single_item ? "Single Item" : "Multiple Items"}</p>
-                      </div>
-                    </div>
-
-                    {/* Custom Properties */}
-                    {renderProperties(bulk.properties, "grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-2")}
-
-                    {/* Units */}
-                    <div>
-                      <h4 className="font-semibold text-default-900 mb-3">
-                        Units {loadingBulkUnits.has(bulk.uuid) ? "(Loading...)" :
-                          loadedBulkUnits.has(bulk.uuid) ? `(${loadedBulkUnits.get(bulk.uuid)?.length || 0})` : ""}
-                      </h4>
-
-                      <ListLoadingAnimation
-                        skeleton=
-                        {[...Array(3)].map((_, i) => (
-                          <Skeleton key={i} className="h-20 rounded-lg" />
-                        ))}
-                        containerClassName="space-y-3"
-                        condition={loadingBulkUnits.has(bulk.uuid) && !loadedBulkUnits.has(bulk.uuid)}
-                      >
-                        {loadedBulkUnits.get(bulk.uuid)?.map((unit: any) => (
-                          <div key={unit.uuid} className="p-3 bg-default-100 rounded-lg">
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex-1 flex flex-row xl:flex-col gap-2">
-                                <span className="text-lg font-semibold">{unit.name || unit.code}</span>
-                                <div className="flex items-center gap-2">
-                                  <div className="xl:block hidden">
-                                    <Snippet
-                                      symbol=""
-                                      variant="flat"
-                                      color="default"
-                                      size="sm"
-                                      className="text-xs p-1 pl-2"
-                                      classNames={{ copyButton: "bg-default-100 hover:!bg-default-200 text-sm p-0 h-6 w-6" }}
-                                      codeString={unit.uuid}
-                                      checkIcon={<Icon icon="fluent:checkmark-16-filled" className="text-success" />}
-                                      copyIcon={<Icon icon="fluent:copy-16-regular" className="text-default-500" />}
-                                      onCopy={() => copyToClipboard(unit.uuid)}
-                                    >
-                                      {unit.uuid}
-                                    </Snippet>
-                                  </div>
-                                  <Button
-                                    size="sm"
-                                    variant="flat"
-                                    color="default"
-                                    isIconOnly
-                                    className="xl:hidden"
-                                    onPress={() => copyToClipboard(unit.uuid)}
-                                  >
-                                    <Icon icon="fluent:copy-16-regular" className="text-default-500 text-sm" />
-                                  </Button>
-                                </div>
-                              </div>
-                              <div className="items-center gap-2 ml-2 md hidden sm:flex md:hidden lg:flex">
-                                <Chip size="sm" color={getStatusColor(unit.status || "AVAILABLE")} variant="flat">
-                                  {unit.status || "AVAILABLE"}
-                                </Chip>
-                              </div>
-                            </div>
-                            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-2">
-                              <div className="bg-default-50 rounded-lg p-3 border border-default-100">
-                                <p className="text-sm font-medium text-default-700">Code</p>
-                                <p className="text-default-900">{unit.code}</p>
-                              </div>
-                              <div className="bg-default-50 rounded-lg p-3 border border-default-100">
-                                <p className="text-sm font-medium text-default-700">Value</p>
-                                <p className="text-default-900">{unit.unit_value} {unit.unit}</p>
-                              </div>
-                              <div className="bg-default-50 rounded-lg p-3 border border-default-100">
-                                <p className="text-sm font-medium text-default-700">Cost</p>
-                                <p className="text-default-900">{formatCurrency(unit.cost)}</p>
-                              </div>
-                              <div className="bg-default-50 rounded-lg p-3 border border-default-100">
-                                <p className="text-sm font-medium text-default-700">Status</p>
-                                <p className="text-default-900">{unit.status || "AVAILABLE"}</p>
-                              </div>
-                            </div>
-                            {renderProperties(unit.properties, "grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-2")}
-                          </div>
-                        )) || [<p className="text-default-600 text-center py-4">No units found</p>]}
-                      </ListLoadingAnimation>
-
+                      <p className="text-sm text-default-600">
+                        <Icon icon="mdi:email-outline" className="inline text-default-500 mr-1" width={16} />
+                        {operator.email}
+                      </p>
+                      {operator.phone_number && (
+                        <p className="text-sm text-default-600">
+                          <Icon icon="mdi:phone-outline" className="inline text-default-500 mr-1" width={16} />
+                          +63{operator.phone_number}
+                        </p>
+                      )}
                     </div>
                   </div>
-                </AccordionItem>
-              ))}
-            </Accordion>
-          </CardBody>
-        </Card>
-      )}
-    </div>
+                ))}
+              </div>
+            </CardBody>
+          </Card>
+        )
+      }
+
+      {/* Inventory Bulks - Using Accordion like inventory details */}
+      {
+        details.inventory_bulks && details.inventory_bulks.length > 0 && (
+          <Card className="bg-background mt-4">
+            <CardHeader className="p-4 bg-primary-50/30">
+              <div className="flex items-center justify-between w-full">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-center w-12 h-12 bg-primary-100 rounded-lg">
+                    <Icon icon="mdi:cube-outline" className="text-primary" width={22} />
+                  </div>
+                  <h3 className="text-lg font-semibold">Inventory Bulks</h3>
+                </div>
+                <Chip size="sm" variant="flat" color="primary">
+                  {details.inventory_bulks.length}
+                </Chip>
+              </div>
+            </CardHeader>
+            <Divider />
+            <CardBody className="px-2 py-4 bg-primary-50/30">
+              <Accordion
+                selectionMode="multiple"
+                variant="splitted"
+                itemClasses={{
+                  base: "p-0 bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
+                  title: "font-normal text-lg font-semibold",
+                  trigger: "p-4 data-[hover=true]:bg-default-100 h-18 flex items-center transition-colors",
+                  indicator: "text-medium",
+                  content: "text-small p-0",
+                }}
+                onSelectionChange={(keys) => {
+                  // Load units for opened accordion items
+                  if (keys instanceof Set) {
+                    keys.forEach(key => {
+                      const bulkIndex = parseInt(key.toString());
+                      if (details.inventory_bulks && details.inventory_bulks[bulkIndex]) {
+                        const bulk = details.inventory_bulks[bulkIndex];
+                        loadBulkUnits(bulk.uuid, false);
+                      }
+                    });
+                  }
+                }}>
+                {details.inventory_bulks.map((bulk, index) => (
+                  <AccordionItem
+                    key={index}
+                    title={
+                      <div className="flex items-center justify-between w-full">
+                        <div className="flex items-center gap-3">
+                          <div className="flex-1 flex flex-row xl:flex-col gap-2">
+                            <h3 className="text-lg font-semibold">
+                              Bulk #{index + 1}
+                            </h3>
+                            <div className="flex items-center gap-2">
+                              <div className="xl:block hidden">
+                                <Snippet
+                                  symbol=""
+                                  variant="flat"
+                                  color="primary"
+                                  size="sm"
+                                  className="text-xs p-1 pl-2"
+                                  classNames={{ copyButton: "bg-primary-100 hover:!bg-primary-200 text-sm p-0 h-6 w-6" }}
+                                  codeString={bulk.uuid}
+                                  checkIcon={<Icon icon="fluent:checkmark-16-filled" className="text-success" />}
+                                  copyIcon={<Icon icon="fluent:copy-16-regular" className="text-primary-500" />}
+                                  onCopy={() => copyToClipboard(bulk.uuid)}
+                                >
+                                  {bulk.uuid}
+                                </Snippet>
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="flat"
+                                color="primary"
+                                isIconOnly
+                                className="xl:hidden"
+                                onPress={() => copyToClipboard(bulk.uuid)}
+                              >
+                                <Icon icon="fluent:copy-16-regular" className="text-primary-500 text-sm" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="items-center gap-2 ml-2 md hidden sm:flex md:hidden lg:flex">
+                          <Chip size="sm" color={getStatusColor(bulk.status || "AVAILABLE")} variant="flat">
+                            {bulk.status || "AVAILABLE"}
+                          </Chip>
+                          <Chip size="sm" variant="flat" color="default">
+                            {bulk.unit_value} {bulk.unit}
+                          </Chip>
+                          <Chip size="sm" variant="flat" color="default">
+                            {formatCurrency(bulk.cost)}
+                          </Chip>
+                        </div>
+                      </div>
+                    }
+                  >
+                    <div className="space-y-4 p-4">
+                      {/* Bulk ID */}
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="bg-primary-50 rounded-lg p-3 border border-primary-100">
+                          <p className="text-sm font-medium text-primary-700">Unit Value</p>
+                          <p className="text-primary-900">{bulk.unit_value} {bulk.unit}</p>
+                        </div>
+                        <div className="bg-primary-50 rounded-lg p-3 border border-primary-100">
+                          <p className="text-sm font-medium text-primary-700">Bulk Unit</p>
+                          <p className="text-primary-900">{bulk.bulk_unit}</p>
+                        </div>
+                        <div className="bg-primary-50 rounded-lg p-3 border border-primary-100">
+                          <p className="text-sm font-medium text-primary-700">Cost</p>
+                          <p className="text-primary-900">{formatCurrency(bulk.cost)}</p>
+                        </div>
+                        <div className="bg-primary-50 rounded-lg p-3 border border-primary-100">
+                          <p className="text-sm font-medium text-primary-700">Type</p>
+                          <p className="text-primary-900">{bulk.is_single_item ? "Single Item" : "Multiple Items"}</p>
+                        </div>
+                      </div>
+
+                      {/* Custom Properties */}
+                      {renderProperties(bulk.properties, "grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-2")}
+
+                      {/* Units */}
+                      <div>
+                        <h4 className="font-semibold text-default-900 mb-3">
+                          Units {loadingBulkUnits.has(bulk.uuid) ? "(Loading...)" :
+                            loadedBulkUnits.has(bulk.uuid) ? `(${loadedBulkUnits.get(bulk.uuid)?.length || 0})` : ""}
+                        </h4>
+
+                        <ListLoadingAnimation
+                          skeleton=
+                          {[...Array(3)].map((_, i) => (
+                            <Skeleton key={i} className="h-20 rounded-lg" />
+                          ))}
+                          containerClassName="space-y-3"
+                          condition={loadingBulkUnits.has(bulk.uuid) && !loadedBulkUnits.has(bulk.uuid)}
+                        >
+                          {loadedBulkUnits.get(bulk.uuid)?.map((unit: any) => (
+                            <div key={unit.uuid} className="p-3 bg-default-100 rounded-lg">
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex-1 flex flex-row xl:flex-col gap-2">
+                                  <span className="text-lg font-semibold">{unit.name || unit.code}</span>
+                                  <div className="flex items-center gap-2">
+                                    <div className="xl:block hidden">
+                                      <Snippet
+                                        symbol=""
+                                        variant="flat"
+                                        color="default"
+                                        size="sm"
+                                        className="text-xs p-1 pl-2"
+                                        classNames={{ copyButton: "bg-default-100 hover:!bg-default-200 text-sm p-0 h-6 w-6" }}
+                                        codeString={unit.uuid}
+                                        checkIcon={<Icon icon="fluent:checkmark-16-filled" className="text-success" />}
+                                        copyIcon={<Icon icon="fluent:copy-16-regular" className="text-default-500" />}
+                                        onCopy={() => copyToClipboard(unit.uuid)}
+                                      >
+                                        {unit.uuid}
+                                      </Snippet>
+                                    </div>
+                                    <Button
+                                      size="sm"
+                                      variant="flat"
+                                      color="default"
+                                      isIconOnly
+                                      className="xl:hidden"
+                                      onPress={() => copyToClipboard(unit.uuid)}
+                                    >
+                                      <Icon icon="fluent:copy-16-regular" className="text-default-500 text-sm" />
+                                    </Button>
+                                  </div>
+                                </div>
+                                <div className="items-center gap-2 ml-2 md hidden sm:flex md:hidden lg:flex">
+                                  <Chip size="sm" color={getStatusColor(unit.status || "AVAILABLE")} variant="flat">
+                                    {unit.status || "AVAILABLE"}
+                                  </Chip>
+                                </div>
+                              </div>
+                              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-2">
+                                <div className="bg-default-50 rounded-lg p-3 border border-default-100">
+                                  <p className="text-sm font-medium text-default-700">Code</p>
+                                  <p className="text-default-900">{unit.code}</p>
+                                </div>
+                                <div className="bg-default-50 rounded-lg p-3 border border-default-100">
+                                  <p className="text-sm font-medium text-default-700">Value</p>
+                                  <p className="text-default-900">{unit.unit_value} {unit.unit}</p>
+                                </div>
+                                <div className="bg-default-50 rounded-lg p-3 border border-default-100">
+                                  <p className="text-sm font-medium text-default-700">Cost</p>
+                                  <p className="text-default-900">{formatCurrency(unit.cost)}</p>
+                                </div>
+                                <div className="bg-default-50 rounded-lg p-3 border border-default-100">
+                                  <p className="text-sm font-medium text-default-700">Status</p>
+                                  <p className="text-default-900">{unit.status || "AVAILABLE"}</p>
+                                </div>
+                              </div>
+                              {renderProperties(unit.properties, "grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-2")}
+                            </div>
+                          )) || [<p className="text-default-600 text-center py-4">No units found</p>]}
+                        </ListLoadingAnimation>
+
+                      </div>
+                    </div>
+                  </AccordionItem>
+                ))}
+              </Accordion>
+            </CardBody>
+          </Card>
+        )
+      }
+    </div >
   );
 
   const renderInventoryDetails = (details: GoPageInventoryDetails) => (
@@ -1892,7 +2124,7 @@ export default function GoPage() {
                 placeholder="Enter UUID (delivery, inventory, or warehouse item)..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                disabled={isSearching || !searchQuery.trim()}
+                disabled={isSearching}
                 onKeyPress={handleKeyPress}
                 classNames={{
                   inputWrapper: "bg-default-100 border-2 border-default-200 hover:border-default-300 focus-within:!border-primary-500 !cursor-text rounded-lg",
@@ -2060,6 +2292,75 @@ export default function GoPage() {
           )}
         </AnimatePresence>
       </div >
+      {/* Accept Delivery Status Modal - place outside the main content */}
+      <Modal
+        isOpen={showAcceptStatusModal}
+        onClose={() => {
+          setShowAcceptStatusModal(false);
+          setAcceptDeliveryError(null);
+          setAcceptDeliverySuccess(false);
+
+          const searchQuery = searchParams.get("q") || "";
+          router.replace(`/home/search?q=${encodeURIComponent(searchQuery.trim())}`);
+        }}
+        placement="center"
+        backdrop="blur"
+        size="md"
+        classNames={{ backdrop: "bg-background/50" }}
+      >
+        <ModalContent>
+          <ModalHeader className="flex items-center gap-2">
+            {acceptDeliverySuccess ? (
+              <>
+                <Icon icon="mdi:check-circle" className="text-success" width={24} />
+                <span>Delivery Accepted Successfully</span>
+              </>
+            ) : (
+              <>
+                <Icon icon="mdi:alert-circle" className="text-danger" width={24} />
+                <span>Delivery Acceptance Failed</span>
+              </>
+            )}
+          </ModalHeader>
+          <ModalBody>
+            {acceptDeliverySuccess ? (
+              <div className="text-center py-4">
+                <div className="flex items-center justify-center w-16 h-16 bg-success-100 rounded-full mx-auto mb-4">
+                  <Icon icon="mdi:check-circle" className="text-success" width={32} />
+                </div>
+                <p className="text-default-700">
+                  The delivery has been marked as delivered and inventory items have been added to the warehouse.
+                </p>
+              </div>
+            ) : (
+              <div className="text-center py-4">
+                <div className="flex items-center justify-center w-16 h-16 bg-danger-100 rounded-full mx-auto mb-4">
+                  <Icon icon="mdi:alert-circle" className="text-danger" width={32} />
+                </div>
+                <p className="text-default-700">
+                  {acceptDeliveryError}
+                </p>
+              </div>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              color={acceptDeliverySuccess ? "success" : "danger"}
+              variant="solid"
+              onPress={() => {
+                setShowAcceptStatusModal(false);
+                setAcceptDeliveryError(null);
+                setAcceptDeliverySuccess(false);
+
+                const searchQuery = searchParams.get("q") || "";
+                router.replace(`/home/search?q=${encodeURIComponent(searchQuery.trim())}`);
+              }}
+            >
+              {acceptDeliverySuccess ? "Great!" : "Close"}
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </div >
   );
 }

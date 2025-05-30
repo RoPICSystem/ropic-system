@@ -4,11 +4,18 @@ import { motionTransition, popoverTransition } from '@/utils/anim';
 import { createClient } from "@/utils/supabase/client";
 import {
   Accordion, AccordionItem, Alert, Autocomplete, AutocompleteItem, Button, Checkbox,
-  Chip, DatePicker, form, Form, Input, Kbd, Modal, ModalBody, ModalContent, ModalFooter,
-  ModalHeader, NumberInput, Pagination, Popover, PopoverContent, PopoverTrigger,
-  ScrollShadow, Skeleton, Spinner, Switch, Table, TableBody, TableCell,
-  TableColumn, TableHeader, TableRow, Textarea, Tooltip, useDisclosure,
-  Select, SelectItem,
+  Chip, DatePicker,
+  Form, Input, Kbd, Modal, ModalBody, ModalContent, ModalFooter,
+  ModalHeader,
+  Pagination, Popover, PopoverContent, PopoverTrigger,
+  ScrollShadow, Skeleton, Spinner,
+  Tabs, Tab,
+  Textarea,
+  useDisclosure,
+  Card,
+  CardFooter,
+  CardBody,
+  CardHeader
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { getLocalTimeZone, parseDate, today } from '@internationalized/date';
@@ -16,9 +23,7 @@ import { format, parseISO } from "date-fns";
 import { AnimatePresence, motion } from 'framer-motion';
 import { useRouter, useSearchParams } from "next/navigation";
 import { QRCodeCanvas } from 'qrcode.react';
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, useMemo } from "react";
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { materialDark, materialLight } from 'react-syntax-highlighter/dist/cjs/styles/prism';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ShelfSelectorColorAssignment } from '@/components/shelf-selector-3d';
 import { formatCode, parseColumn } from '@/utils/floorplan';
@@ -27,31 +32,30 @@ import { formatCode, parseColumn } from '@/utils/floorplan';
 import CardList from '@/components/card-list';
 import {
   createDeliveryItem,
+  createWarehouseInventoryItems,
   DeliveryItem,
+  getBulkDetails,
   getDeliveryItems,
   getInventoryItemBulks,
   getInventoryItems,
   getOccupiedShelfLocations,
-  createWarehouseInventoryItems,
   getOperators,
   getWarehouses,
   Operator,
   suggestShelfLocations,
   updateDeliveryItem,
   updateInventoryItemBulksStatus,
-  updateInventoryItemStatus,
-  getBulkDetails
+  updateInventoryItemStatus
 } from "./actions";
 
 // Import the QR code scanner library
+import ListLoadingAnimation from '@/components/list-loading-animation';
+import LoadingAnimation from '@/components/loading-animation';
+import { getUserFromCookies } from '@/utils/supabase/server/user';
+import { copyToClipboard, formatDate, formatNumber, toNormalCase, toTitleCase } from '@/utils/tools';
 import jsQR from "jsqr";
 import { InventoryItem, InventoryItemBulk, InventoryItemUnit } from '../inventory/actions';
 import { Warehouse } from '../warehouses/actions';
-import { copyToClipboard, formatDate, formatNumber, toNormalCase, toSentenceCase, toTitleCase } from '@/utils/tools';
-import { BitMatrix } from 'jsqr/dist/BitMatrix';
-import { getUserFromCookies } from '@/utils/supabase/server/user';
-import LoadingAnimation from '@/components/loading-animation';
-import ListLoadingAnimation from '@/components/list-loading-animation';
 
 // Import the ShelfSelector3D component
 const ShelfSelector3D = lazy(() =>
@@ -106,9 +110,15 @@ export default function DeliveryPage() {
 
   // QR Code generation
   const [showAcceptDeliveryModal, setShowAcceptDeliveryModal] = useState(false);
-  const [deliveryJson, setDeliveryJson] = useState("");
-  const [jsonValidationError, setJsonValidationError] = useState("");
-  const [jsonValidationSuccess, setJsonValidationSuccess] = useState(false);
+  const [deliveryInput, setDeliveryInput] = useState("");
+  const [validationError, setValidationError] = useState("");
+  const [validationSuccess, setValidationSuccess] = useState(false);
+
+  // Add delivery acceptance states
+  const [isAcceptingDelivery, setIsAcceptingDelivery] = useState(false);
+  const [acceptDeliveryError, setAcceptDeliveryError] = useState<string | null>(null);
+  const [acceptDeliverySuccess, setAcceptDeliverySuccess] = useState(false);
+  const [showAcceptStatusModal, setShowAcceptStatusModal] = useState(false);
 
   // Warehouse options
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -172,10 +182,13 @@ export default function DeliveryPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalDeliveries, setTotalDeliveries] = useState(0);
 
-
   // Update operator selection state
   const [selectedOperators, setSelectedOperators] = useState<Operator[]>([]); // Changed from selectedOperator
 
+  // Add new state for tab management
+  const [acceptDeliveryTab, setAcceptDeliveryTab] = useState("paste-link");
+  const [availableDeliveries, setAvailableDeliveries] = useState<DeliveryItem[]>([]);
+  const [isLoadingAvailableDeliveries, setIsLoadingAvailableDeliveries] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState<Partial<DeliveryItem>>({
@@ -226,35 +239,17 @@ export default function DeliveryPage() {
     setOccupiedLocations([]);
   };
 
-  // Generate JSON for QR code
-  const generateDeliveryJson = (space: number = 0) => {
-    if (!selectedDeliveryId || !formData) return "{}";
+  // Generate URL for QR code 
+  const generateDeliveryUrl = () => {
+    if (!selectedDeliveryId || !formData) return "https://ropic.vercel.app/home/search";
 
-    // Only include specified keys
-    const output: Record<string, any> = {};
-
-    const keys: Array<keyof DeliveryItem> = [
-      "uuid",
-      "company_uuid",
-      "inventory_uuid",
-      "delivery_address",
-      "delivery_date",
-      "warehouse_uuid",
-    ];
-
-    keys.forEach((key) => {
-      const value = (formData as any)[key];
-      if (value !== undefined && value !== null && (typeof value !== 'object' || Array.isArray(value) && value.length > 0)) {
-        output[key] = value;
-      }
+    const baseUrl = "https://ropic.vercel.app/home/search";
+    const params = new URLSearchParams({
+      q: selectedDeliveryId,
+      deliveryAutoAccept: "true"
     });
 
-    // Include operator_uuid if assigned
-    if (formData.operator_uuids && formData.operator_uuids.length > 0) {
-      output.operator_uuids = formData.operator_uuids
-    }
-
-    return JSON.stringify(output, null, space);
+    return `${baseUrl}?${params.toString()}`;
   };
 
 
@@ -492,6 +487,47 @@ export default function DeliveryPage() {
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
+
+  // Add function to load available deliveries for acceptance
+  const loadAvailableDeliveries = async () => {
+    if (!user) return;
+
+    setIsLoadingAvailableDeliveries(true);
+    try {
+      const result = await getDeliveryItems(
+        user.company_uuid,
+        "", // search
+        "IN_TRANSIT", // only IN_TRANSIT deliveries
+        null, // warehouse
+        null, // operator
+        null, // inventory
+        null, // dateFrom
+        null, // dateTo
+        null, // year
+        null, // month
+        null, // week
+        null, // day
+        50, // limit - get more items for selection
+        0 // offset
+      );
+
+      // Filter deliveries that the current user can accept
+      const acceptableDeliveries = (result.data || []).filter((delivery: { operator_uuids: string | any[] | null; }) =>
+        delivery.operator_uuids?.includes(user.uuid) ||
+        delivery.operator_uuids === null ||
+        delivery.operator_uuids?.length === 0
+      );
+
+      setAvailableDeliveries(acceptableDeliveries);
+    } catch (error) {
+      console.error("Error loading available deliveries:", error);
+      setAvailableDeliveries([]);
+    } finally {
+      setIsLoadingAvailableDeliveries(false);
+    }
+  };
+
+
 
   // Handle location assignment for a specific bulk
   const handleAssignLocation = (bulkIndex: number) => {
@@ -1316,7 +1352,7 @@ export default function DeliveryPage() {
 
   /* QR Code Image Upload and Scanning */
 
-  // New function to handle QR code image upload and scanning
+  // Update image upload handler to auto-accept
   const handleQrImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1324,45 +1360,45 @@ export default function DeliveryPage() {
     setIsProcessingImage(true);
 
     try {
-      // Create an image from the file
       const img = new Image();
       const objectUrl = URL.createObjectURL(file);
 
-      img.onload = () => {
-        // Create canvas to process the image
+      img.onload = async () => {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
 
         if (!ctx) {
-          setJsonValidationError("Failed to process image");
+          setValidationError("Failed to process image");
           setIsProcessingImage(false);
           URL.revokeObjectURL(objectUrl);
           return;
         }
 
-        // Set canvas size to match image
         canvas.width = img.width;
         canvas.height = img.height;
-
-        // Draw image onto canvas
         ctx.drawImage(img, 0, 0);
 
-        // Get image data for QR processing
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-        // Process with jsQR
         const code = jsQR(imageData.data, imageData.width, imageData.height);
 
         if (code) {
-          // Set the extracted data to the textarea
-          setDeliveryJson(code.data);
+          // Extract UUID from the QR code data (URL or direct UUID)
+          let deliveryUuid = code.data;
 
-          // Automatically validate the code
-          setTimeout(() => {
-            handleDeliveryJsonValidation(code.data);
-          }, 300);
+          try {
+            const url = new URL(code.data);
+            const searchParams = new URLSearchParams(url.search);
+            const qParam = searchParams.get('q');
+            if (qParam) {
+              deliveryUuid = qParam;
+            }
+          } catch (error) {
+            // Not a URL, treat as UUID directly
+          }
+
+          await handleAcceptDelivery(deliveryUuid);
         } else {
-          setJsonValidationError("No QR code found in the image");
+          setValidationError("No QR code found in the image");
         }
 
         setIsProcessingImage(false);
@@ -1370,7 +1406,7 @@ export default function DeliveryPage() {
       };
 
       img.onerror = () => {
-        setJsonValidationError("Failed to load image");
+        setValidationError("Failed to load image");
         setIsProcessingImage(false);
         URL.revokeObjectURL(objectUrl);
       };
@@ -1378,50 +1414,109 @@ export default function DeliveryPage() {
       img.src = objectUrl;
     } catch (error) {
       console.error("Error processing QR image:", error);
-      setJsonValidationError("Failed to process the uploaded image");
+      setValidationError("Failed to process the uploaded image");
       setIsProcessingImage(false);
     }
   };
 
+
+  // Update the existing handleDeliveryJsonValidation function to work with paste link
+  const handlePasteLinkAccept = async (inputData = deliveryInput) => {
+    if (!inputData.trim()) return;
+
+    // Extract UUID from URL or use the input directly as UUID
+    let deliveryUuid = inputData.trim();
+
+    // If it's a URL, extract the UUID from query parameters
+    try {
+      const url = new URL(inputData);
+      const searchParams = new URLSearchParams(url.search);
+      const qParam = searchParams.get('q');
+      if (qParam) {
+        deliveryUuid = qParam;
+      }
+    } catch (error) {
+      // Not a valid URL, treat as UUID directly
+    }
+
+    await handleAcceptDelivery(deliveryUuid);
+  };
+
+  // Handle Enter key in paste link input
+  const handlePasteLinkKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handlePasteLinkAccept();
+    }
+  };
+
+
+  // Load available deliveries when modal opens and tab changes to deliverables
+  useEffect(() => {
+    if (showAcceptDeliveryModal && acceptDeliveryTab === "deliverables") {
+      // reset the input field
+      loadAvailableDeliveries();
+    }
+  }, [showAcceptDeliveryModal, acceptDeliveryTab]);
+
+
   // Function to automatically validate when text is pasted
-  const handleDeliveryJsonPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+  const handleDeliveryPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     const pastedText = e.clipboardData.getData('text');
 
     if (pastedText.trim()) {
       // Set the pasted text
-      setDeliveryJson(pastedText);
+      setDeliveryInput(pastedText);
 
-      // Wait for state to update then validate
+      // Validate instantly only when pasted
       setTimeout(() => {
-        handleDeliveryJsonValidation(pastedText);
+        handleDeliveryValidation(pastedText);
       }, 100);
     }
   };
 
-  const handleDeliveryJsonValidation = async (jsonData = deliveryJson) => {
+  const handleDeliveryValidation = async (inputData = deliveryInput) => {
     // Reset states
-    setJsonValidationError("");
-    setJsonValidationSuccess(false);
+    setValidationError("");
+    setValidationSuccess(false);
     setIsLoading(true);
 
     try {
-      // Parse the entered JSON
-      const parsedJson = JSON.parse(jsonData.trim());
+      // Extract UUID from URL or use the input directly as UUID
+      let deliveryUuid = inputData.trim();
 
-      // Find the delivery that matches this JSON
+      // If it's a URL, extract the UUID from query parameters
+      try {
+        const url = new URL(inputData);
+        const searchParams = new URLSearchParams(url.search);
+        const qParam = searchParams.get('q');
+        if (qParam) {
+          deliveryUuid = qParam;
+        }
+      } catch (error) {
+        // Not a valid URL, treat as UUID directly
+      }
+
+      // Find the delivery that matches this UUID
       const matchingDelivery = deliveryItems.find(
-        delivery => delivery.uuid === parsedJson.uuid
+        delivery => delivery.uuid === deliveryUuid
       );
 
       if (!matchingDelivery) {
-        setJsonValidationError("No matching delivery found with this code");
+        setAcceptDeliveryError("No matching delivery found with this UUID");
+        setShowAcceptDeliveryModal(false);
+        setDeliveryInput(""); // Reset input on error
+        setShowAcceptStatusModal(true);
         setIsLoading(false);
         return;
       }
 
       // Check if the delivery status is IN_TRANSIT
       if (matchingDelivery.status !== "IN_TRANSIT") {
-        setJsonValidationError("This delivery cannot be accepted because it is not in transit");
+        setAcceptDeliveryError("This delivery cannot be accepted because it is not in transit");
+        setShowAcceptDeliveryModal(false);
+        setDeliveryInput(""); // Reset input on error
+        setShowAcceptStatusModal(true);
         setIsLoading(false);
         return;
       }
@@ -1430,6 +1525,10 @@ export default function DeliveryPage() {
       if (matchingDelivery.operator_uuids?.includes(user?.uuid) ||
         matchingDelivery.operator_uuids === null ||
         matchingDelivery.operator_uuids?.length === 0) {
+
+        // Reset input on successful validation
+        setDeliveryInput("");
+
         // Set as the selected delivery
         handleSelectDelivery(matchingDelivery.uuid);
 
@@ -1453,12 +1552,6 @@ export default function DeliveryPage() {
           // Change status to IN_WAREHOUSE when delivery status is DELIVERED
           console.log("Updating inventory item status to IN_WAREHOUSE");
 
-          // const inventoryResult = await updateInventoryItemStatus(
-          //   matchingDelivery.inventory_uuid,
-          //   "IN_WAREHOUSE"
-          // );
-
-          // if (inventoryResult.success) {
           // Create warehouse inventory item records if location data is present
           if (matchingDelivery.locations?.length > 0 &&
             matchingDelivery.location_codes?.length > 0 &&
@@ -1478,51 +1571,159 @@ export default function DeliveryPage() {
               // Update status of the inventory item bulks
               await updateInventoryItemBulksStatus(matchingDelivery.inventory_item_bulk_uuids, "IN_WAREHOUSE");
 
-              setJsonValidationSuccess(true);
-
-              // Wait for a moment before closing the modal
-              setTimeout(() => {
-                setShowAcceptDeliveryModal(false);
-                setJsonValidationSuccess(false);
-                setDeliveryJson("");
-              }, 1000);
+              setAcceptDeliverySuccess(true);
+              setShowAcceptDeliveryModal(false);
+              setShowAcceptStatusModal(true);
 
               // Refresh delivery items to show updated status
               const refreshedItems = await getDeliveryItems(user?.company_uuid);
               setDeliveryItems(refreshedItems.data || []);
             } catch (error) {
               console.error("Error creating warehouse inventory items:", error);
-              setJsonValidationError("Delivery accepted but failed to create warehouse items");
+              setAcceptDeliveryError("Delivery accepted but failed to create warehouse items");
+              setShowAcceptDeliveryModal(false);
+              setShowAcceptStatusModal(true);
             }
           } else {
             console.warn("Delivery marked as DELIVERED but missing location or bulk data");
-            setJsonValidationError("Missing location data for delivery - please contact admin");
+            setAcceptDeliveryError("Missing location data for delivery - please contact admin");
+            setShowAcceptDeliveryModal(false);
+            setShowAcceptStatusModal(true);
           }
-          // } else {
-          //   console.error("Failed to update inventory status:", inventoryResult.error);
-          //   setJsonValidationError("Delivery accepted but failed to update inventory status");
-          // }
         }
       } else {
-        setJsonValidationError("You are not assigned to this delivery");
+        setAcceptDeliveryError("You are not assigned to this delivery");
+        setShowAcceptDeliveryModal(false);
+        setDeliveryInput(""); // Reset input on error
+        setShowAcceptStatusModal(true);
       }
     } catch (error) {
-      console.error("Error parsing delivery JSON:", error);
-      setJsonValidationError("Invalid delivery code format");
+      console.error("Error validating delivery:", error);
+      setAcceptDeliveryError("Invalid delivery UUID or URL format");
+      setShowAcceptDeliveryModal(false);
+      setDeliveryInput(""); // Reset input on error
+      setShowAcceptStatusModal(true);
     } finally {
       setIsLoading(false);
     }
   };
 
+
+
+
+  // Accept delivery function (similar to search page)
+  const handleAcceptDelivery = async (deliveryUuid?: string) => {
+    const targetDelivery = deliveryUuid ?
+      deliveryItems.find(d => d.uuid === deliveryUuid) :
+      deliveryItems.find(d => d.uuid === selectedDeliveryId);
+
+    if (!targetDelivery || !user) return;
+
+    setIsAcceptingDelivery(true);
+    setAcceptDeliveryError(null);
+    setAcceptDeliverySuccess(false);
+
+    try {
+      // Check if the user is an operator
+      if (user.is_admin) {
+        setAcceptDeliveryError("You are not authorized to accept this delivery");
+        setShowAcceptStatusModal(true);
+        return;
+      }
+
+      // Check if the delivery status is IN_TRANSIT
+      if (targetDelivery.status !== "IN_TRANSIT") {
+        setAcceptDeliveryError("This delivery cannot be accepted because it is not in transit");
+        setShowAcceptStatusModal(true);
+        return;
+      }
+
+      // Check if the operator is assigned to this delivery
+      if (targetDelivery.operator_uuids?.includes(user.uuid) ||
+        targetDelivery.operator_uuids === null ||
+        targetDelivery.operator_uuids?.length === 0) {
+
+        // Update delivery status to DELIVERED
+        const currentTimestamp = new Date().toISOString();
+        const updatedStatusHistory = {
+          ...(targetDelivery.status_history || {}),
+          [currentTimestamp]: "DELIVERED"
+        };
+
+        const updatedFormData = {
+          status: "DELIVERED",
+          status_history: updatedStatusHistory
+        };
+
+        const result = await updateDeliveryItem(targetDelivery.uuid, updatedFormData);
+
+        if (result.success && targetDelivery.inventory_uuid) {
+          // Update inventory item bulks status
+          if (targetDelivery.inventory_item_bulk_uuids && targetDelivery.inventory_item_bulk_uuids.length > 0) {
+            await updateInventoryItemBulksStatus(targetDelivery.inventory_item_bulk_uuids, "IN_WAREHOUSE");
+          }
+
+          // Create warehouse inventory items if locations are available
+          if (targetDelivery.locations && targetDelivery.locations.length > 0 &&
+            targetDelivery.inventory_item_bulk_uuids && targetDelivery.inventory_item_bulk_uuids.length > 0) {
+            try {
+              if (!targetDelivery.warehouse_uuid) {
+                setAcceptDeliveryError("Warehouse information is missing");
+                setShowAcceptStatusModal(true);
+                return;
+              }
+
+              await createWarehouseInventoryItems(
+                targetDelivery.inventory_uuid,
+                targetDelivery.warehouse_uuid,
+                targetDelivery.uuid,
+                targetDelivery.inventory_item_bulk_uuids,
+                targetDelivery.locations,
+                targetDelivery.location_codes || []
+              );
+            } catch (error) {
+              console.error("Error creating warehouse inventory items:", error);
+              setAcceptDeliveryError("Delivery accepted but failed to create warehouse items");
+              setShowAcceptStatusModal(true);
+              return;
+            }
+          }
+
+          setAcceptDeliverySuccess(true);
+          setShowAcceptStatusModal(true);
+
+          // Update selected delivery if it's the current one
+          if (selectedDeliveryId === targetDelivery.uuid) {
+            setFormData(prev => ({ ...prev, status: "DELIVERED" }));
+          }
+
+        } else {
+          setAcceptDeliveryError("Failed to update delivery status");
+          setShowAcceptStatusModal(true);
+        }
+      } else {
+        setAcceptDeliveryError("You are not assigned to this delivery");
+        setShowAcceptStatusModal(true);
+      }
+    } catch (error) {
+      console.error("Error accepting delivery:", error);
+      setAcceptDeliveryError("Failed to accept delivery");
+      setShowAcceptStatusModal(true);
+    } finally {
+      setIsAcceptingDelivery(false);
+    }
+  };
+
   // Add this useEffect to focus on the textarea when modal opens
   useEffect(() => {
-    if (showAcceptDeliveryModal && deliveryJsonTextareaRef.current) {
+    if (showAcceptDeliveryModal && acceptDeliveryTab === "paste-link") {
       // Short timeout to ensure the modal is rendered before focusing
       setTimeout(() => {
-        deliveryJsonTextareaRef.current?.focus();
+        const input = document.querySelector('[placeholder="Paste delivery UUID or URL here..."]') as HTMLInputElement;
+        input?.focus();
       }, 100);
     }
-  }, [showAcceptDeliveryModal]);
+  }, [showAcceptDeliveryModal, acceptDeliveryTab]);
 
 
   // Update the useEffect for URL params to remove assignOperator references
@@ -1679,7 +1880,7 @@ export default function DeliveryPage() {
       setLocations([]);
       setLocationCodes([]);
       setSelectedOperators([]);
-      setDeliveryJson("");
+      setDeliveryInput("");
 
       resetWarehouseLocation();
     }
@@ -2077,9 +2278,9 @@ export default function DeliveryPage() {
             </Button>
           ) : selectedDeliveryId ? (
             <Button color="primary" variant="shadow" onPress={() => setShowAcceptDeliveryModal(true)}
-              startContent={<Icon icon="mdi:qrcode-scan" />}
+              startContent={<Icon icon="mdi:check" />}
               isDisabled={isLoading || isLoadingItems}>
-              Accept Delivery
+              Accept Deliveries
             </Button>
           ) : null}
         </div>
@@ -3273,7 +3474,7 @@ export default function DeliveryPage() {
                             <div className="flex flex-col gap-4 pt-4 -mx-4">
                               <hr className="border-default-200" />
                               <h3 className="text-lg font-semibold w-full text-center">Quick Status Update</h3>
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 px-4">
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 px-4">
                                 <Button
                                   color="warning"
                                   variant="flat"
@@ -3294,16 +3495,17 @@ export default function DeliveryPage() {
                                   <Icon icon="mdi:truck-fast" className="mr-1" />
                                   In Transit
                                 </Button>
-                                <Button
+                                {/* <Button
                                   color="success"
                                   variant="flat"
                                   className="w-full"
-                                  isDisabled={formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading || isFloorConfigNotSet() || selectedBulks.length === 0 || locations.length < selectedBulks.length}
+                                  isDisabled
+                                  // isDisabled={formData.status === "DELIVERED" || formData.status === "CANCELLED" || isLoading || isFloorConfigNotSet() || selectedBulks.length === 0 || locations.length < selectedBulks.length}
                                   onPress={() => handleStatusChange("DELIVERED")}
                                 >
                                   <Icon icon="mdi:check-circle" className="mr-1" />
                                   Delivered
-                                </Button>
+                                </Button> */}
                                 <Button
                                   color="danger"
                                   variant="flat"
@@ -3418,10 +3620,10 @@ export default function DeliveryPage() {
                     color="primary"
                     variant="shadow"
                     className="mb-4"
+                    startContent={<Icon icon="mdi:check" />}
                     onPress={() => setShowAcceptDeliveryModal(true)}
                   >
-                    <Icon icon="mdi:qrcode-scan" className="mr-2" />
-                    Accept Delivery
+                    Accept Deliveries
                   </Button>
                 </div>
               </LoadingAnimation>
@@ -3432,21 +3634,32 @@ export default function DeliveryPage() {
       </div >
 
       {/* QR Code Modal */}
-      < Modal isOpen={showQrCode} onClose={() => setShowQrCode(false)
-      } placement="auto" backdrop="blur" size="lg" classNames={{ backdrop: "bg-background/50" }}>
+      <Modal isOpen={showQrCode} onClose={() => setShowQrCode(false)} placement="auto" backdrop="blur" size="lg" classNames={{ backdrop: "bg-background/50" }}>
         <ModalContent>
           <ModalHeader>Delivery QR Code</ModalHeader>
           <ModalBody className="flex flex-col items-center">
             <div className="bg-white rounded-xl overflow-hidden">
-              <QRCodeCanvas id="delivery-qrcode" value={generateDeliveryJson()} size={320} marginSize={4} level="L" />
+              <QRCodeCanvas id="delivery-qrcode" value={generateDeliveryUrl()} size={320} marginSize={4} level="L" />
             </div>
             <p className="text-center mt-4 text-default-600">
-              Scan this code to get delivery details
+              Scan this code to open the delivery details and auto-accept it
             </p>
-            <div className="mt-4 w-full bg-default-50 overflow-auto max-h-64 rounded-xl">
-              <SyntaxHighlighter language="json" style={window.resolveTheme === 'dark' ? materialDark : materialLight} customStyle={{ margin: 0, borderRadius: '0.5rem', fontSize: '0.75rem' }}>
-                {generateDeliveryJson(2)}
-              </SyntaxHighlighter>
+            <div className="mt-4 w-full bg-default-50 overflow-auto max-h-64 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-medium text-default-700">QR Code URL:</p>
+                <Button
+                  size="sm"
+                  variant="flat"
+                  color="default"
+                  isIconOnly
+                  onPress={() => copyToClipboard(generateDeliveryUrl())}
+                >
+                  <Icon icon="mdi:content-copy" className="text-default-500 text-sm" />
+                </Button>
+              </div>
+              <code className="text-xs text-default-600 break-all">
+                {generateDeliveryUrl()}
+              </code>
             </div>
           </ModalBody>
           <ModalFooter className="flex justify-end p-4 gap-4">
@@ -3467,76 +3680,471 @@ export default function DeliveryPage() {
             </Button>
           </ModalFooter>
         </ModalContent>
-      </Modal >
+      </Modal>
 
       {/* Accept Delivery Modal */}
-      < Modal isOpen={showAcceptDeliveryModal} onClose={() => { setShowAcceptDeliveryModal(false); setDeliveryJson(""); setJsonValidationError(""); setJsonValidationSuccess(false); }} isDismissable={!isLoading && !isProcessingImage} placement="auto" backdrop="blur" size="lg" classNames={{ backdrop: "bg-background/50" }}>
+      <Modal
+        isOpen={showAcceptDeliveryModal}
+        onClose={() => {
+          setShowAcceptDeliveryModal(false);
+          setDeliveryInput("");
+          setValidationError("");
+          setValidationSuccess(false);
+          setAcceptDeliveryTab("paste-link");
+        }}
+        isDismissable={!isLoading && !isProcessingImage && !isAcceptingDelivery}
+        scrollBehavior="inside"
+        placement="auto"
+        backdrop="blur"
+        size="lg"
+        classNames={{ backdrop: "bg-background/50" }}
+      >
         <ModalContent>
-          <ModalHeader>Accept Delivery</ModalHeader>
+          <ModalHeader>
+            <div className="flex flex-col">
+              <span>Accept Delivery</span>
+              <p className="text-sm text-default-500 font-normal">
+                Choose a method to accept a delivery:
+              </p>
+            </div>
+          </ModalHeader>
           <ModalBody className="flex flex-col items-center">
             <div className="w-full space-y-4">
-              <p className="text-default-700">
-                Scan the delivery QR code or enter the delivery code provided by the user:
-              </p>
-
-              {/* QR Code Image Upload */}
-              <div className="flex flex-col items-center w-full">
-                <input type="file" accept="image/*" onChange={handleQrImageUpload} className="hidden" ref={fileInputRef} />
-                <Button color="primary" variant="flat" className="w-full mb-4" onPress={() => fileInputRef.current?.click()}
-                  startContent={<Icon icon="mdi:camera" />} isLoading={isProcessingImage} isDisabled={isLoading || jsonValidationSuccess}>
-                  Upload QR Code Image
-                </Button>
-                <div className="w-full border-t border-default-200 my-4 relative">
-                  <span className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-content1 px-4 text-default-400 text-sm">
-                    OR
-                  </span>
-                </div>
-              </div>
-
-              <Textarea
-                ref={deliveryJsonTextareaRef}
-                label="Delivery Code"
-                placeholder="Paste the delivery JSON code here"
-                value={deliveryJson}
-                onChange={(e) => setDeliveryJson(e.target.value)}
-                onPaste={handleDeliveryJsonPaste}
-                minRows={4}
-                maxRows={6}
+              <Tabs
+                selectedKey={acceptDeliveryTab}
+                onSelectionChange={(key) => setAcceptDeliveryTab(key as string)}
+                variant="solid"
+                color="primary"
+                fullWidth
                 classNames={{
-                  base: "w-full",
-                  inputWrapper: `border-2 ${jsonValidationError ? 'border-danger' : jsonValidationSuccess ? 'border-success' : 'border-default-200'} hover:border-default-400 !transition-all duration-200`
+                  panel: "p-0",
+                  tabList: "border-2 border-default-200",
+                  tabContent: "text-default-700",
                 }}
-                isInvalid={!!jsonValidationError}
-                errorMessage={jsonValidationError}
-                startContent={<Icon icon="mdi:code-json" className="text-default-500 mt-[0.15rem]" />}
-              />
+              >
+                <Tab
+                  key="paste-link"
+                  title={
+                    <div className="flex items-center space-x-2 px-1">
+                      <Icon icon="mdi:link" className="text-base" />
+                      <span className="font-medium text-sm">Paste Link</span>
+                    </div>
+                  }
+                >
+                  <Card className="flex flex-col bg-background h-[500px]">
+                    {/* Header section */}
+                    <CardHeader className="space-y-4 flex-shrink-0">
+                      <div className="flex items-center space-x-3 mb-2">
+                        <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0">
+                          <Icon icon="mdi:clipboard-text" className="text-primary-600 text-sm" />
+                        </div>
+                        <div className="text-left">
+                          <h3 className="text-base font-semibold text-default-800">Paste Delivery Code</h3>
+                          <p className="text-xs text-default-600">
+                            Paste a delivery UUID or QR code URL to accept a delivery
+                          </p>
+                        </div>
+                      </div>
+                    </CardHeader>
 
-              {jsonValidationSuccess && (
-                <div className="flex items-center py-2 px-4 bg-success-50 rounded-xl">
-                  <Icon icon="mdi:check-circle" className="text-success text-xl mr-2" />
-                  <div>
-                    <p className="font-medium text-success">Delivery accepted successfully!</p>
-                  </div>
-                </div>
-              )}
+                    <CardBody className="flex flex-col flex-1 px-4 items-center justify-center">
+                      <div className="border-2 border-dashed border-default-300 hover:border-primary-400 transition-colors duration-200 rounded-xl p-6 text-center bg-primary-50 w-full">
+                        <div className="space-y-3">
+                          <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center mx-auto">
+                            <Icon icon="mdi:clipboard-text" className="text-primary-600 text-base" />
+                          </div>
+
+                          <div className="space-y-1">
+                            <h4 className="font-medium text-sm text-default-700">Paste delivery code or URL</h4>
+                            <p className="text-xs text-default-500">
+                              Enter a delivery UUID or QR code URL
+                            </p>
+                          </div>
+
+                          <div className="space-y-3 w-full">
+                            <Input
+                              placeholder="Paste delivery UUID or URL here..."
+                              value={deliveryInput}
+                              onChange={(e) => {
+                                setDeliveryInput(e.target.value);
+                                if (!e.target.value.trim()) {
+                                  setValidationError("");
+                                  setValidationSuccess(false);
+                                }
+                              }}
+                              onKeyDown={handlePasteLinkKeyDown}
+                              onPaste={handleDeliveryPaste}
+                              startContent={<Icon icon="mdi:link-variant" className="text-default-500" />}
+                              classNames={{
+                                ...inputStyle,
+                                inputWrapper: "border-2 border-default-200 hover:border-primary-400 focus-within:border-primary-500 !transition-all duration-200 h-12"
+                              }}
+                              isDisabled={isLoading || isAcceptingDelivery}
+                              autoFocus
+                              size="md"
+                            />
+
+                            <Button
+                              color="primary"
+                              className="w-full"
+                              onPress={() => handlePasteLinkAccept()}
+                              isLoading={isLoading || isAcceptingDelivery}
+                              isDisabled={!deliveryInput.trim()}
+                              variant="flat"
+                            >
+                              {isLoading || isAcceptingDelivery ? (
+                                <div className="flex items-center gap-2">
+                                  <Spinner size="sm" />
+                                  <span>Processing...</span>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  <Icon icon="mdi:check-circle" className="text-base" />
+                                  <span>Accept Delivery</span>
+                                </div>
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </CardBody>
+
+                    {/* Footer section */}
+                    <CardFooter>
+                      <div className="bg-default-50 rounded-xl p-3 border border-default-200 w-full">
+                        <div className="flex items-start gap-2">
+                          <Icon icon="mdi:information-outline" className="text-primary-500 text-sm mt-0.5 flex-shrink-0" />
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-default-700">How to use:</p>
+                            <ul className="text-xs text-default-600 space-y-0.5">
+                              <li>• Paste a delivery UUID directly</li>
+                              <li>• Paste a QR code URL from a delivery</li>
+                              <li>• Press Enter to accept the delivery</li>
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
+                    </CardFooter>
+                  </Card>
+                </Tab>
+
+                <Tab
+                  key="upload-image"
+                  title={
+                    <div className="flex items-center space-x-2 px-1">
+                      <Icon icon="mdi:camera" className="text-base" />
+                      <span className="font-medium text-sm">Upload Image</span>
+                    </div>
+                  }
+                >
+                  <Card className="flex flex-col bg-background h-[500px]">
+                    {/* Header section */}
+                    <CardHeader className="space-y-4 flex-shrink-0">
+                      <div className="flex items-center space-x-3 mb-2">
+                        <div className="w-8 h-8 bg-secondary-100 rounded-full flex items-center justify-center flex-shrink-0">
+                          <Icon icon="mdi:qrcode-scan" className="text-secondary-600 text-sm" />
+                        </div>
+                        <div className="text-left">
+                          <h3 className="text-base font-semibold text-default-800">Scan QR Code</h3>
+                          <p className="text-xs text-default-600">
+                            Upload an image containing a delivery QR code
+                          </p>
+                        </div>
+                      </div>
+                    </CardHeader>
+
+                    <CardBody className="flex flex-col flex-1 px-4 items-center justify-center">
+                      <div className="border-2 border-dashed border-default-300 hover:border-secondary-400 transition-colors duration-200 rounded-xl p-6 text-center bg-secondary-50">
+                        <input
+                          type="file"
+                          ref={fileInputRef}
+                          onChange={handleQrImageUpload}
+                          accept="image/*"
+                          className="hidden"
+                          disabled={isProcessingImage || isAcceptingDelivery}
+                        />
+
+                        <div className="space-y-3">
+                          <div className="w-8 h-8 bg-secondary-100 rounded-full flex items-center justify-center mx-auto">
+                            <Icon icon="mdi:upload" className="text-secondary-600 text-base" />
+                          </div>
+
+                          <div className="space-y-1">
+                            <h4 className="font-medium text-sm text-default-700">Choose an image file</h4>
+                            <p className="text-xs text-default-500">
+                              Supports JPG, PNG, WEBP and other common image formats
+                            </p>
+                          </div>
+
+                          <Button
+                            color="secondary"
+                            variant="flat"
+                            onPress={() => fileInputRef.current?.click()}
+                            isDisabled={isAcceptingDelivery}
+                          >
+                            {isProcessingImage ? (
+                              <div className="flex items-center gap-2">
+                                <Spinner size="sm" />
+                                <span>Scanning QR Code...</span>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <Icon icon="mdi:image-plus" className="text-base" />
+                                <span>Select Image</span>
+                              </div>
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    </CardBody>
+
+                    {/* Footer section */}
+                    <CardFooter>
+                      <div className="bg-default-50 rounded-xl p-3 border border-default-200 w-full">
+                        <div className="flex items-start gap-2">
+                          <Icon icon="mdi:lightbulb-outline" className="text-warning-500 text-sm mt-0.5 flex-shrink-0" />
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-default-700">Tips for best results:</p>
+                            <ul className="text-xs text-default-600 space-y-0.5">
+                              <li>• Ensure the QR code is clearly visible</li>
+                              <li>• Avoid blurry or low-quality images</li>
+                              <li>• Make sure the QR code takes up a good portion of the image</li>
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
+                    </CardFooter>
+                  </Card>
+                </Tab>
+
+                <Tab
+                  key="deliverables"
+                  title={
+                    <div className="flex items-center space-x-2 px-1">
+                      <Icon icon="mdi:truck-delivery" className="text-base" />
+                      <span className="font-medium text-sm">Deliverables</span>
+                    </div>
+                  }
+                >
+                  <Card className="flex flex-col bg-background h-[500px]">
+                    {/* Header section */}
+                    <CardHeader className="space-y-4 flex-shrink-0">
+                      <div className="flex items-center space-x-3 mb-2">
+                        <div className="w-8 h-8 bg-success-100 rounded-full flex items-center justify-center flex-shrink-0">
+                          <Icon icon="mdi:truck-check" className="text-success-600 text-sm" />
+                        </div>
+                        <div className="text-left">
+                          <h3 className="text-base font-semibold text-default-800">Available Deliveries</h3>
+                          <p className="text-xs text-default-600">
+                            Select from deliveries that are in transit and assigned to you
+                          </p>
+                        </div>
+                      </div>
+                    </CardHeader>
+
+                    <CardBody className="flex flex-col flex-1 px-4">
+                      <ScrollShadow className="h-full overflow-y-auto overflow-x-hidden">
+                        <ListLoadingAnimation
+                          condition={isLoadingAvailableDeliveries}
+                          containerClassName="space-y-2 p-1"
+                          skeleton={[...Array(3)].map((_, i) => (
+                            <div key={i} className="border border-default-200 rounded-xl p-3">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center space-x-3">
+                                  <Skeleton className="w-10 h-10 rounded-xl" />
+                                  <div className="space-y-1">
+                                    <Skeleton className="h-4 w-32 rounded-xl" />
+                                    <Skeleton className="h-3 w-24 rounded-xl" />
+                                    <div className="flex gap-1">
+                                      <Skeleton className="h-5 w-16 rounded-full" />
+                                      <Skeleton className="h-5 w-14 rounded-full" />
+                                    </div>
+                                  </div>
+                                </div>
+                                <Skeleton className="h-6 w-6 rounded-xl" />
+                              </div>
+                            </div>
+                          ))}
+                        >
+                          {availableDeliveries.length > 0 ?
+                            availableDeliveries.map(delivery => (
+                              <Button
+                                key={delivery.uuid}
+                                variant="flat"
+                                color="default"
+                                className="w-full justify-start p-0 h-auto bg-background hover:bg-success-50 border border-default-200 hover:border-success-300 transition-all duration-200"
+                                onPress={() => {
+                                  setShowAcceptDeliveryModal(false);
+                                  handleAcceptDelivery(delivery.uuid);
+                                }}
+                                isDisabled={isAcceptingDelivery}
+                              >
+                                <div className="flex items-center justify-between w-full p-3">
+                                  <div className="flex items-center space-x-3">
+                                    <div className="w-10 h-10 bg-primary-100 rounded-xl flex items-center justify-center shadow-sm">
+                                      <Icon icon="mdi:package-variant" className="text-primary-600 text-base" />
+                                    </div>
+                                    <div className="flex flex-col items-start space-y-1">
+                                      <span className="font-semibold text-left text-default-800 text-sm">
+                                        {inventoryItems.find(i => i.uuid === delivery.inventory_uuid)?.name || 'Unknown Item'}
+                                      </span>
+                                      <p className="text-xs text-default-600 text-left max-w-40 truncate">
+                                        {delivery.delivery_address}
+                                      </p>
+                                      <div className="flex items-center space-x-1">
+                                        <Chip size="sm" variant="flat" color="primary" className="text-xs h-5">
+                                          <div className="flex items-center gap-1">
+                                            <Icon icon="mdi:calendar" className="text-xs" />
+                                            {formatDate(delivery.delivery_date)}
+                                          </div>
+                                        </Chip>
+                                        <Chip size="sm" variant="flat" color="secondary" className="text-xs h-5">
+                                          <div className="flex items-center gap-1">
+                                            <Icon icon="mdi:cube-outline" className="text-xs" />
+                                            {delivery.inventory_item_bulk_uuids?.length || 0} bulks
+                                          </div>
+                                        </Chip>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center">
+                                    <Icon icon="mdi:chevron-right" className="text-default-400 text-base" />
+                                  </div>
+                                </div>
+                              </Button>
+                            ))
+                            : (
+                              [<div key="no-deliveries" className="text-center py-8 space-y-3 h-56 flex flex-col items-center justify-center">
+                                <div className="w-12 h-12 bg-default-100 rounded-full flex items-center justify-center mx-auto">
+                                  <Icon icon="mdi:truck-remove" className="text-default-500 text-lg" />
+                                </div>
+                                <div className="space-y-1">
+                                  <h4 className="font-semibold text-default-700 text-sm">No deliveries available</h4>
+                                  <p className="text-xs text-default-500 max-w-sm mx-auto">
+                                    Only in transit deliveries assigned to you will appear here for acceptance
+                                  </p>
+                                </div>
+                              </div>]
+                            )}
+                        </ListLoadingAnimation>
+                      </ScrollShadow>
+                    </CardBody>
+                    {/* Footer section */}
+                    <CardFooter>
+                      <div className="w-full space-y-3">
+                        {/* {availableDeliveries.length > 0 && ( */}
+                        <div className="bg-default-50 rounded-xl p-3 border border-default-200">
+                          <div className="flex items-start gap-2">
+                            <Icon icon="mdi:information-outline" className="text-primary-500 text-sm mt-0.5 flex-shrink-0" />
+                            <div className="space-y-1">
+                              <p className="text-xs font-medium text-default-700">Quick acceptance:</p>
+                              <p className="text-xs text-default-600">
+                                Click on any delivery item above to instantly accept and mark it as delivered
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        {/* )} */}
+
+                        <Button
+                          key="refresh-button"
+                          variant="flat"
+                          color="primary"
+                          className="w-full"
+                          onPress={() => loadAvailableDeliveries()}
+                          startContent={isLoadingAvailableDeliveries ? <Spinner size="sm" color="primary" /> : <Icon icon="mdi:refresh" className="text-base" />}
+                        >
+                          Refresh
+                        </Button>
+                      </div>
+                    </CardFooter>
+                  </Card>
+                </Tab>
+              </Tabs>
             </div>
           </ModalBody>
-          <ModalFooter className="flex justify-end p-4 gap-4">
-            <Button color="default" onPress={() => {
-              setShowAcceptDeliveryModal(false);
-              setDeliveryJson("");
-              setJsonValidationError("");
-              setJsonValidationSuccess(false);
-            }} isDisabled={isLoading || isProcessingImage}>
+          <ModalFooter className="flex justify-end gap-4">
+            <Button
+              color="default"
+              onPress={() => {
+                setShowAcceptDeliveryModal(false);
+                setDeliveryInput("");
+                setValidationError("");
+                setValidationSuccess(false);
+                setAcceptDeliveryTab("paste-link");
+              }}
+              isDisabled={isLoading || isProcessingImage || isAcceptingDelivery}
+            >
               Cancel
-            </Button>
-            <Button {...isLoading ? {} : { startContent: <Icon icon="mdi:check" className="mr-1" /> }} color="primary" variant="shadow" onPress={(e) => handleDeliveryJsonValidation()} isLoading={isLoading || isProcessingImage}
-              isDisabled={jsonValidationSuccess || isLoading || isProcessingImage || !deliveryJson.trim()}>
-              Validate & Accept
             </Button>
           </ModalFooter>
         </ModalContent>
-      </Modal >
+      </Modal>
+
+      {/* Accept Delivery Status Modal */}
+      <Modal
+        isOpen={showAcceptStatusModal}
+        onClose={() => {
+          setShowAcceptStatusModal(false);
+          setAcceptDeliveryError(null);
+          setAcceptDeliverySuccess(false);
+        }}
+        placement="center"
+        backdrop="blur"
+        size="md"
+        classNames={{ backdrop: "bg-background/50" }}
+      >
+        <ModalContent>
+          <ModalHeader className="flex items-center gap-2">
+            {acceptDeliverySuccess ? (
+              <>
+                <Icon icon="mdi:check-circle" className="text-success" width={24} />
+                <span>Delivery Accepted Successfully</span>
+              </>
+            ) : (
+              <>
+                <Icon icon="mdi:alert-circle" className="text-danger" width={24} />
+                <span>Delivery Acceptance Failed</span>
+              </>
+            )}
+          </ModalHeader>
+          <ModalBody>
+            {acceptDeliverySuccess ? (
+              <div className="text-center py-4">
+                <div className="flex items-center justify-center w-16 h-16 bg-success-100 rounded-full mx-auto mb-4">
+                  <Icon icon="mdi:check-circle" className="text-success" width={32} />
+                </div>
+                <p className="text-default-700">
+                  The delivery has been marked as delivered and inventory items have been added to the warehouse.
+                </p>
+              </div>
+            ) : (
+              <div className="text-center py-4">
+                <div className="flex items-center justify-center w-16 h-16 bg-danger-100 rounded-full mx-auto mb-4">
+                  <Icon icon="mdi:alert-circle" className="text-danger" width={32} />
+                </div>
+                <p className="text-default-700">
+                  {acceptDeliveryError}
+                </p>
+              </div>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              color={acceptDeliverySuccess ? "success" : "danger"}
+              variant="solid"
+              onPress={() => {
+                setShowAcceptStatusModal(false);
+                setAcceptDeliveryError(null);
+                setAcceptDeliverySuccess(false);
+              }}
+              className="w-full"
+            >
+              {acceptDeliverySuccess ? "Great!" : "Close"}
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
 
       {/* Modal for the 3D shelf selector */}
       < Modal isOpen={isOpen} onClose={handleCancelLocation} placement='auto' classNames={{ backdrop: "bg-background/50", wrapper: 'overflow-hidden' }} backdrop="blur" size="5xl" >
