@@ -2,7 +2,7 @@
 
 import CardList from '@/components/card-list'
 import LoadingAnimation from '@/components/loading-animation'
-import { motionTransition } from '@/utils/anim'
+import { motionTransition, motionTransitionScale } from '@/utils/anim'
 import { getUserCompanyDetails } from '@/utils/supabase/server/companies'
 import { getUserFromCookies, getUserProfile } from '@/utils/supabase/server/user'
 import {
