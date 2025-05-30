@@ -1,7 +1,7 @@
 "use client";
 
 import CardList from "@/components/card-list";
-import { motionTransition } from '@/utils/anim';
+import { motionTransition, motionTransitionScale } from '@/utils/anim';
 import { createClient } from "@/utils/supabase/client";
 import {
   Button,
@@ -383,253 +383,255 @@ export default function NotificationsPage() {
 
 
   return (
-    <div className="container mx-auto p-2 max-w-5xl">
-      <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
-        <div className="flex flex-col w-full xl:text-left text-center">
-          <h1 className="text-2xl font-bold">Notifications</h1>
-          {loading ? (
-            <div className="text-default-500 flex xl:justify-start justify-center items-center">
-              <p className='my-auto mr-1'>Loading notification data</p>
-              <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default"/>
-            </div>
-          ) : (
-          <p className="text-default-500">Track changes across your system</p>
-          )}
-        </div>
-        <div className="flex gap-4 xl:mt-0 mt-4 text-center">
-          {user?.is_admin && (
+    <motion.div {...motionTransitionScale}>
+      <div className="container mx-auto p-2 max-w-5xl">
+        <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
+          <div className="flex flex-col w-full xl:text-left text-center">
+            <h1 className="text-2xl font-bold">Notifications</h1>
+            {loading ? (
+              <div className="text-default-500 flex xl:justify-start justify-center items-center">
+                <p className='my-auto mr-1'>Loading notification data</p>
+                <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
+              </div>
+            ) : (
+              <p className="text-default-500">Track changes across your system</p>
+            )}
+          </div>
+          <div className="flex gap-4 xl:mt-0 mt-4 text-center">
+            {user?.is_admin && (
+              <Button
+                color="danger"
+                variant="shadow"
+                onPress={() => setShowAdminOnly(!showAdminOnly)}
+              >
+                <div className="w-32">
+                  <AnimatePresence>
+                    {showAdminOnly ? (
+                      <motion.div
+                        {...motionTransition}
+                        key="show-user-only"
+                      >
+                        <div className="w-32 flex items-center gap-2 justify-center">
+                          Show all
+                          <Icon icon={showAdminOnly ? "mdi:eye" : "mdi:eye-off"} width={18} />
+                        </div>
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        {...motionTransition}
+                        key="hide-user-only"
+                      >
+                        <div className="w-32 flex items-center gap-2 justify-center">
+                          Admin only
+                          <Icon icon={showAdminOnly ? "mdi:eye" : "mdi:eye-off"} width={18} />
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </Button>
+            )}
+
             <Button
-              color="danger"
+              color="primary"
               variant="shadow"
-              onPress={() => setShowAdminOnly(!showAdminOnly)}
+              onPress={handleMarkAllAsRead}
+              isDisabled={!filteredNotifications.some(n => !n.read)}
             >
-              <div className="w-32">
+              <Icon icon="mdi:check-all" className="mr-2" />
+              Mark all as read
+            </Button>
+          </div>
+        </div>
+
+        <CardList className="bg-background flex flex-col">
+          <div>
+            {/* Fixed header */}
+            <div className="sticky -top-4 z-20 w-full bg-background/80 border-b border-default-200 backdrop-blur-lg shadow-sm rounded-t-2xl p-4">
+              <div className="flex flex-col xl:flex-row justify-between gap-4">
+                <Input
+                  placeholder="Search notifications..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  startContent={<Icon icon="mdi:magnify" />}
+                  isClearable
+                  onClear={() => setSearchQuery("")}
+                  className="xl:max-w-xs"
+                />
+
+                <Tabs
+                  selectedKey={selectedTab}
+                  onSelectionChange={key => setSelectedTab(key as string)}
+                  color="primary"
+                  variant="underlined"
+                  classNames={{
+                    tabList: "gap-4",
+                    cursor: "bg-primary",
+                  }}
+                >
+                  <Tab key="all" title="All" />
+                  <Tab key="inventory" title="Inventory" />
+                  <Tab key="warehouse" title="Warehouses" />
+                  <Tab key="delivery" title="Deliveries" />
+                  <Tab key="profile" title="Users" />
+                  <Tab key="company" title="Companies" />
+                </Tabs>
+
+              </div>
+            </div>
+
+            {/* Scrollable content */}
+            <div className="flex-1 overflow-y-auto">
+              <div className="p-4 overflow-hidden">
+
                 <AnimatePresence>
-                  {showAdminOnly ? (
+                  {loading && (
                     <motion.div
-                      {...motionTransition}
-                      key="show-user-only"
-                    >
-                      <div className="w-32 flex items-center gap-2 justify-center">
-                        Show all
-                        <Icon icon={showAdminOnly ? "mdi:eye" : "mdi:eye-off"} width={18} />
-                      </div>
-                    </motion.div>
-                  ) : (
-                    <motion.div
-                      {...motionTransition}
-                      key="hide-user-only"
-                    >
-                      <div className="w-32 flex items-center gap-2 justify-center">
-                        Admin only
-                        <Icon icon={showAdminOnly ? "mdi:eye" : "mdi:eye-off"} width={18} />
+                      {...motionTransition}>
+                      <div className="space-y-4 h-full relative">
+                        {[...Array(10)].map((_, i) => (
+                          <Skeleton key={i} className="w-full min-h-28 rounded-xl" />
+                        ))}
+                        <div className="absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-background to-transparent pointer-events-none" />
+                        <div className="py-4 flex absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
+                          <Spinner />
+                        </div>
                       </div>
                     </motion.div>
                   )}
                 </AnimatePresence>
-              </div>
-            </Button>
-          )}
-
-          <Button
-            color="primary"
-            variant="shadow"
-            onPress={handleMarkAllAsRead}
-            isDisabled={!filteredNotifications.some(n => !n.read)}
-          >
-            <Icon icon="mdi:check-all" className="mr-2" />
-            Mark all as read
-          </Button>
-        </div>
-      </div>
-
-      <CardList className="bg-background flex flex-col">
-        <div>
-          {/* Fixed header */}
-          <div className="sticky -top-4 z-20 w-full bg-background/80 border-b border-default-200 backdrop-blur-lg shadow-sm rounded-t-2xl p-4">
-            <div className="flex flex-col xl:flex-row justify-between gap-4">
-              <Input
-                placeholder="Search notifications..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                startContent={<Icon icon="mdi:magnify" />}
-                isClearable
-                onClear={() => setSearchQuery("")}
-                className="xl:max-w-xs"
-              />
-
-              <Tabs
-                selectedKey={selectedTab}
-                onSelectionChange={key => setSelectedTab(key as string)}
-                color="primary"
-                variant="underlined"
-                classNames={{
-                  tabList: "gap-4",
-                  cursor: "bg-primary",
-                }}
-              >
-                <Tab key="all" title="All" />
-                <Tab key="inventory" title="Inventory" />
-                <Tab key="warehouse" title="Warehouses" />
-                <Tab key="delivery" title="Deliveries" />
-                <Tab key="profile" title="Users" />
-                <Tab key="company" title="Companies" />
-              </Tabs>
-
-            </div>
-          </div>
-
-          {/* Scrollable content */}
-          <div className="flex-1 overflow-y-auto">
-            <div className="p-4 overflow-hidden">
-
-              <AnimatePresence>
-                {loading && (
-                  <motion.div
-                    {...motionTransition}>
-                    <div className="space-y-4 h-full relative">
-                      {[...Array(10)].map((_, i) => (
-                        <Skeleton key={i} className="w-full min-h-28 rounded-xl" />
-                      ))}
-                      <div className="absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-background to-transparent pointer-events-none" />
-                      <div className="py-4 flex absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
-                        <Spinner />
+                <AnimatePresence>
+                  {!loading && filteredNotifications.length === 0 && (
+                    <motion.div
+                      {...motionTransition}
+                    >
+                      <div className="flex flex-col items-center justify-center h-[300px] p-32">
+                        <Icon icon="mdi:bell-off" className="text-5xl text-default-300" />
+                        <p className="mt-4 text-default-500">No notifications found</p>
                       </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-              <AnimatePresence>
-                {!loading && filteredNotifications.length === 0 && (
-                  <motion.div
-                    {...motionTransition}
-                  >
-                    <div className="flex flex-col items-center justify-center h-[300px] p-32">
-                      <Icon icon="mdi:bell-off" className="text-5xl text-default-300" />
-                      <p className="mt-4 text-default-500">No notifications found</p>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
 
-              <AnimatePresence>
-                {!loading && filteredNotifications.length > 0 && (
-                  <motion.div
-                    {...motionTransition}>
-                    <div className="space-y-4">
-                      {filteredNotifications.map((notification) => (
+                <AnimatePresence>
+                  {!loading && filteredNotifications.length > 0 && (
+                    <motion.div
+                      {...motionTransition}>
+                      <div className="space-y-4">
+                        {filteredNotifications.map((notification) => (
 
-                        <Card
-                          className={`${notification.read ? 'bg-default-50' : 'bg-default-100'} overflow-hidden ${notification.is_admin_only ? 'border border-warning' : ''}`}
-                        >
-                          <CardBody>
-                            <div className="flex items-start gap-4">
-                              <div className={`p-3 rounded-full h-12 w-12 bg-${getNotificationColor(notification.type, notification.is_admin_only)}-100 text-${getNotificationColor(notification.type, notification.is_admin_only)}-500`}>
-                                <Icon
-                                  icon={getNotificationIcon(notification.type, notification.action)}
-                                  width={24}
-                                  height={24}
-                                />
-                              </div>
-
-                              <div className="flex-1">
-                                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center">
-                                  <div className="font-medium text-lg flex items-center gap-2">
-                                    {notification.type.charAt(0).toUpperCase() + notification.type.slice(1)} {notification.action}
-
-                                    {notification.is_admin_only && (
-                                      <Chip color="warning" variant="flat">Admin Only</Chip>
-                                    )}
-                                  </div>
-
-                                  <div className="flex items-center gap-2 text-sm text-default-500">
-                                    <span>{formatDistanceToNow(new Date(notification.created_at), { addSuffix: true })}</span>
-
-                                    {!notification.read && (
-                                      <Chip
-                                        color="primary"
-                                        size="sm"
-                                        variant="flat"
-                                      >
-                                        New
-                                      </Chip>
-                                    )}
-                                  </div>
+                          <Card
+                            className={`${notification.read ? 'bg-default-50' : 'bg-default-100'} overflow-hidden ${notification.is_admin_only ? 'border border-warning' : ''}`}
+                          >
+                            <CardBody>
+                              <div className="flex items-start gap-4">
+                                <div className={`p-3 rounded-full h-12 w-12 bg-${getNotificationColor(notification.type, notification.is_admin_only)}-100 text-${getNotificationColor(notification.type, notification.is_admin_only)}-500`}>
+                                  <Icon
+                                    icon={getNotificationIcon(notification.type, notification.action)}
+                                    width={24}
+                                    height={24}
+                                  />
                                 </div>
 
-                                <p className="mt-1">
-                                  {getNotificationDetails(notification)}
-                                </p>
+                                <div className="flex-1">
+                                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center">
+                                    <div className="font-medium text-lg flex items-center gap-2">
+                                      {notification.type.charAt(0).toUpperCase() + notification.type.slice(1)} {notification.action}
 
-                                <div className="flex justify-end mt-2">
-                                  {!notification.read && (
+                                      {notification.is_admin_only && (
+                                        <Chip color="warning" variant="flat">Admin Only</Chip>
+                                      )}
+                                    </div>
+
+                                    <div className="flex items-center gap-2 text-sm text-default-500">
+                                      <span>{formatDistanceToNow(new Date(notification.created_at), { addSuffix: true })}</span>
+
+                                      {!notification.read && (
+                                        <Chip
+                                          color="primary"
+                                          size="sm"
+                                          variant="flat"
+                                        >
+                                          New
+                                        </Chip>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <p className="mt-1">
+                                    {getNotificationDetails(notification)}
+                                  </p>
+
+                                  <div className="flex justify-end mt-2">
+                                    {!notification.read && (
+                                      <Button
+                                        size="sm"
+                                        variant="light"
+                                        color="primary"
+                                        onPress={() => handleMarkAsRead(notification.id)}
+                                      >
+                                        Mark as read
+                                      </Button>
+                                    )}
+
                                     <Button
                                       size="sm"
                                       variant="light"
-                                      color="primary"
-                                      onPress={() => handleMarkAsRead(notification.id)}
+                                      onPress={() => {
+                                        // Navigate to the relevant page based on notification type
+                                        const entityId = notification.entity_id;
+                                        switch (notification.type) {
+                                          case 'inventory':
+                                            window.location.href = `/home/inventory?itemId=${entityId}`;
+                                            break;
+                                          case 'delivery':
+                                            window.location.href = `/home/delivery?deliveryId=${entityId}`;
+                                            break;
+                                          case 'warehouse':
+                                            window.location.href = `/home/warehouses?warehouseId=${entityId}`;
+                                            break;
+                                          case 'profile':
+                                            window.location.href = `/home/users?userId=${entityId}`;
+                                            break;
+                                          case 'company':
+                                            window.location.href = `/home/companies?companyId=${entityId}`;
+                                            break;
+                                        }
+                                      }}
                                     >
-                                      Mark as read
+                                      View details
                                     </Button>
-                                  )}
-
-                                  <Button
-                                    size="sm"
-                                    variant="light"
-                                    onPress={() => {
-                                      // Navigate to the relevant page based on notification type
-                                      const entityId = notification.entity_id;
-                                      switch (notification.type) {
-                                        case 'inventory':
-                                          window.location.href = `/home/inventory?itemId=${entityId}`;
-                                          break;
-                                        case 'delivery':
-                                          window.location.href = `/home/delivery?deliveryId=${entityId}`;
-                                          break;
-                                        case 'warehouse':
-                                          window.location.href = `/home/warehouses?warehouseId=${entityId}`;
-                                          break;
-                                        case 'profile':
-                                          window.location.href = `/home/users?userId=${entityId}`;
-                                          break;
-                                        case 'company':
-                                          window.location.href = `/home/companies?companyId=${entityId}`;
-                                          break;
-                                      }
-                                    }}
-                                  >
-                                    View details
-                                  </Button>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          </CardBody>
-                        </Card>
-                      ))}
+                            </CardBody>
+                          </Card>
+                        ))}
 
-                      {totalPages > 1 && (
-                        <div className="flex justify-center mt-6">
-                          <Pagination
-                            total={totalPages}
-                            initialPage={1}
-                            page={page}
-                            onChange={setPage}
-                            classNames={{
-                              cursor: "bg-primary",
-                            }}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                        {totalPages > 1 && (
+                          <div className="flex justify-center mt-6">
+                            <Pagination
+                              total={totalPages}
+                              initialPage={1}
+                              page={page}
+                              onChange={setPage}
+                              classNames={{
+                                cursor: "bg-primary",
+                              }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
 
+              </div>
             </div>
           </div>
-        </div>
 
-      </CardList>
-    </div>
+        </CardList>
+      </div>
+    </motion.div>
   );
 }

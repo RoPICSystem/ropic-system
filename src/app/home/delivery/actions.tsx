@@ -109,8 +109,6 @@ export async function updateDeliveryItem(
 ) {
   const supabase = await createClient();
 
-  console.log("Updating delivery item with UUID:", formData);
-
   try {
     // Update the delivery item
     const { data, error } = await supabase
@@ -491,8 +489,6 @@ export async function createWarehouseInventoryItems(
       .eq("inventory_uuid", inventoryUuid)
       .in("uuid", bulkUuids);
 
-    console.log("bulks", bulks, "bulksError", bulksError);
-
     if (bulksError) throw bulksError;
 
     // Check if this inventory item already exists in the warehouse
@@ -575,8 +571,6 @@ export async function createWarehouseInventoryItems(
         })
         .select()
         .single();
-
-      console.log("warehouseBulk", warehouseBulk, "whBulkError", whBulkError);
 
       if (whBulkError) throw whBulkError;
 

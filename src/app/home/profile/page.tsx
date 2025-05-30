@@ -443,13 +443,13 @@ export default function ProfilePage() {
               </div>
             </LoadingAnimation>
 
-            <LoadingAnimation
+            {/* <LoadingAnimation
               condition={isLoading}
               className="w-full"
               skeleton={
                 <div className="flex items-center justify-between">
-                  <Skeleton className="h-5 w-[40%] rounded-xl" /> {/* Change password */}
-                  <Skeleton className="h-10 w-10 rounded-xl" /> {/* Button */}
+                  <Skeleton className="h-5 w-[40%] rounded-xl" /> 
+                  <Skeleton className="h-10 w-10 rounded-xl" /> 
                 </div>
               }>
               <div className="flex items-center justify-between">
@@ -461,7 +461,7 @@ export default function ProfilePage() {
                   <ChevronRightIcon className="w-4 h-4" />
                 </Button>
               </div>
-            </LoadingAnimation>
+            </LoadingAnimation> */}
           </CardList>
 
         </div>

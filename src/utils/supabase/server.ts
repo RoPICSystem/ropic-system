@@ -15,7 +15,7 @@ export async function createClient(): Promise<SupabaseClient<any, "public", any>
   
   // Return cached client if it exists for this session
   if (clientCache.has(cacheKey)) {
-    console.log('Using cached client')
+    // console.log('Using cached client')
     return clientCache.get(cacheKey)
   }
   
@@ -58,7 +58,7 @@ export async function createAdminClient(): Promise<SupabaseClient<any, "public",
   
   // Return cached admin client if it exists for this session
   if (adminClientCache.has(cacheKey)) {
-    console.log('Using cached admin client')
+    // console.log('Using cached admin client')
     return adminClientCache.get(cacheKey)
   }
   

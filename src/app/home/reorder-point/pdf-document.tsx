@@ -738,7 +738,6 @@ export const generatePdfBlob = async (props: ReorderPointPDFProps) => {
   try {
     // Convert RoPIC logo URL to base64
     const ropicLogoUrl = 'https://ropic.vercel.app/logo.png';
-    console.log('Converting RoPIC logo URL to base64:', ropicLogoUrl);
     const ropicLogoBase64 = await convertImageToBase64(ropicLogoUrl);
 
     if (ropicLogoBase64) {
@@ -750,7 +749,6 @@ export const generatePdfBlob = async (props: ReorderPointPDFProps) => {
 
     // Convert company logo URL to base64 if provided and crop to square
     if (props.companyLogoUrl && !props.companyLogoBase64) {
-      console.log('Converting company logo URL to base64 and cropping to square:', props.companyLogoUrl);
       const base64Image = await convertImageToBase64(props.companyLogoUrl, true); // Enable square cropping
 
       if (base64Image) {

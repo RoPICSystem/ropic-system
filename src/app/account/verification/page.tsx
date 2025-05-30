@@ -67,8 +67,6 @@ export default function VerificationRequestedPage() {
         return parseFloat(val.replace('%', ''));
       });
       setPrimaryValue(`rgba(${hslToRgb(primaryHsl[0], primaryHsl[1], primaryHsl[2]).join(',')}, 1)`);
-
-      console.log('Primary HSL:', primaryHsl);
     }, 100);
   };
 

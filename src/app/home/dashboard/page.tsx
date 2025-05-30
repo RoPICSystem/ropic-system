@@ -46,7 +46,7 @@ import {
 } from "recharts";
 import { getUserFromCookies } from "@/utils/supabase/server/user";
 import { AnimatePresence, motion } from "framer-motion";
-import { motionTransition } from "@/utils/anim";
+import { motionTransition, motionTransitionScale } from "@/utils/anim";
 import LoadingAnimation from "@/components/loading-animation";
 import { herouiColorOpacity, herouiColor } from "@/utils/colors";
 
@@ -413,237 +413,481 @@ export default function DashboardPage() {
   const lowStockItems = !loading && dashboardData?.reorderPointItems;
 
   return (
-    <div className="container mx-auto p-2 max-w-5xl">
-      {/* Header section */}
-      <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
-        <div className="flex flex-col w-full xl:text-left text-center">
-          <h1 className="text-2xl font-bold">Dashboard</h1>
-          {loading ? (
-            <div className="text-default-500 flex xl:justify-start justify-center items-center">
-              <p className='my-auto mr-1'>Loading dashboard data</p>
-              <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
+    <motion.div {...motionTransitionScale}>
+      <div className="container mx-auto p-2 max-w-5xl">
+        {/* Header section */}
+        <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
+          <div className="flex flex-col w-full xl:text-left text-center">
+            <h1 className="text-2xl font-bold">Dashboard</h1>
+            {loading ? (
+              <div className="text-default-500 flex xl:justify-start justify-center items-center">
+                <p className='my-auto mr-1'>Loading dashboard data</p>
+                <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
+              </div>
+            ) : (
+              <p className="text-default-500">Welcome to RoPIC System!</p>
+            )}
+          </div>
+          <div className="flex gap-4 xl:mt-0 mt-4 text-center items-center" >
+
+            <div className="flex flex-0 items-center gap-2 text-default-500 w-32">
+              <Icon icon="fluent:calendar-20-filled" width={20} height={20} />
+              {format(new Date(), 'MMMM d, yyyy')}
             </div>
-          ) : (
-            <p className="text-default-500">Welcome to RoPIC System!</p>
-          )}
-        </div>
-        <div className="flex gap-4 xl:mt-0 mt-4 text-center items-center" >
-          
-          <div className="flex flex-0 items-center gap-2 text-default-500 w-32">
-            <Icon icon="fluent:calendar-20-filled" width={20} height={20} />
-            {format(new Date(), 'MMMM d, yyyy')}
+            <Button
+              color="primary"
+              variant="shadow"
+              startContent={(!loading && <Icon icon="fluent:arrow-sync-16-filled" />)}
+              onPress={() => loadDashboardData()}
+              isLoading={loading}
+            >
+              Refresh
+            </Button>
           </div>
-          <Button
-            color="primary"
-            variant="shadow"
-            startContent={(!loading && <Icon icon="fluent:arrow-sync-16-filled" />)}
-            onPress={() => loadDashboardData()}
-            isLoading={loading}
-          >
-            Refresh
-          </Button>
         </div>
-      </div>
 
-      {/* Error message */}
-      {error && (
-        <Card className="mb-6">
-          <div className="flex items-center gap-2 text-danger p-4">
-            <Icon icon="fluent:error-circle-20-filled" width={24} height={24} />
-            <p>{error}</p>
-          </div>
-        </Card>
-      )}
+        {/* Error message */}
+        {error && (
+          <Card className="mb-6">
+            <div className="flex items-center gap-2 text-danger p-4">
+              <Icon icon="fluent:error-circle-20-filled" width={24} height={24} />
+              <p>{error}</p>
+            </div>
+          </Card>
+        )}
 
-      <div>
-        {/* Reorder Point Alert Section - New Addition */}
-        <AnimatePresence>
-          {!loading && lowStockItems.length > 0 && (
-            <motion.div {...motionTransition}>
-              <Card className="mb-6 bg-warning-50 border border-warning-200">
-                <CardHeader className="px-4 py-3">
-                  <div className="flex items-center justify-between w-full">
-                    <div className="flex items-center gap-2">
-                      <Icon icon="fluent:warning-24-filled" className="text-warning-600" width={20} height={20} />
-                      <h2 className="text-lg font-semibold">Reorder Alert</h2>
+        <div>
+          {/* Reorder Point Alert Section - New Addition */}
+          <AnimatePresence>
+            {!loading && lowStockItems.length > 0 && (
+              <motion.div {...motionTransition}>
+                <Card className="mb-6 bg-warning-50 border border-warning-200">
+                  <CardHeader className="px-4 py-3">
+                    <div className="flex items-center justify-between w-full">
+                      <div className="flex items-center gap-2">
+                        <Icon icon="fluent:warning-24-filled" className="text-warning-600" width={20} height={20} />
+                        <h2 className="text-lg font-semibold">Reorder Alert</h2>
+                      </div>
+                      <span>
+                        {lowStockItems.length} Items
+                      </span>
                     </div>
-                    <span>
-                      {lowStockItems.length} Items
-                    </span>
-                  </div>
-                </CardHeader>
-                <Divider />
-                <CardBody className="p-4">
-                  <Table aria-label="Items that need reordering">
-                    <TableHeader>
-                      <TableColumn>ITEM</TableColumn>
-                      <TableColumn>CURRENT STOCK</TableColumn>
-                      <TableColumn>REORDER POINT</TableColumn>
-                      <TableColumn>STATUS</TableColumn>
-                    </TableHeader>
-                    <TableBody>
-                      {lowStockItems.slice(0, 3).map((item: any) => (
-                        <TableRow key={item.uuid}>
-                          <TableCell>{item.name}</TableCell>
-                          <TableCell>{item.current_stock}</TableCell>
-                          <TableCell>{item.reorder_point}</TableCell>
-                          <TableCell>
-                            <Chip
-                              color={item.current_stock === 0 ? "danger" : "warning"}
-                              size="sm"
-                            >
-                              {item.current_stock === 0 ? "Out of Stock" : "Low Stock"}
-                            </Chip>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                  </CardHeader>
+                  <Divider />
+                  <CardBody className="p-4">
+                    <Table aria-label="Items that need reordering">
+                      <TableHeader>
+                        <TableColumn>ITEM</TableColumn>
+                        <TableColumn>CURRENT STOCK</TableColumn>
+                        <TableColumn>REORDER POINT</TableColumn>
+                        <TableColumn>STATUS</TableColumn>
+                      </TableHeader>
+                      <TableBody>
+                        {lowStockItems.slice(0, 3).map((item: any) => (
+                          <TableRow key={item.uuid}>
+                            <TableCell>{item.name}</TableCell>
+                            <TableCell>{item.current_stock}</TableCell>
+                            <TableCell>{item.reorder_point}</TableCell>
+                            <TableCell>
+                              <Chip
+                                color={item.current_stock === 0 ? "danger" : "warning"}
+                                size="sm"
+                              >
+                                {item.current_stock === 0 ? "Out of Stock" : "Low Stock"}
+                              </Chip>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
 
-                  {lowStockItems.length > 3 && (
-                    <div className="text-center text-xs text-warning-600 mt-2">
-                      +{lowStockItems.length - 3} more items need reordering
+                    {lowStockItems.length > 3 && (
+                      <div className="text-center text-xs text-warning-600 mt-2">
+                        +{lowStockItems.length - 3} more items need reordering
+                      </div>
+                    )}
+
+                    <Button
+                      as={Link}
+                      href="/home/reorder-point"
+                      color="warning"
+                      variant="flat"
+                      className="w-full mt-4"
+                      startContent={<Icon icon="fluent:arrow-sync-16-filled" />}
+                    >
+                      View All Reorder Points
+                    </Button>
+                  </CardBody>
+                </Card>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Top Inventory Items Card */}
+          {renderInventoryStats()}
+
+          {/* Quick Actions Section */}
+          <Card className="mt-4 bg-background">
+            <LoadingAnimation
+              condition={loading}
+              skeleton={
+                <>
+                  <CardHeader className="flex justify-between px-4">
+                    <div className="flex gap-2 items-center">
+                      <div>
+                        <Skeleton className="h-6 w-32 rounded-full mb-1" />
+                      </div>
                     </div>
+                  </CardHeader>
+                  <Divider />
+                  <CardBody className="p-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:sm:grid-cols-4 gap-4">
+                      <Skeleton className="h-16 rounded-xl" />
+                      <Skeleton className="h-16 rounded-xl" />
+                      <Skeleton className="h-16 rounded-xl" />
+                      <Skeleton className="h-16 rounded-xl" />
+                    </div>
+                  </CardBody>
+                </>
+              }>
+              <CardHeader className="px-4 py-3">
+                <h2 className="text-lg font-semibold">Quick Actions</h2>
+              </CardHeader>
+              <Divider />
+              <div className="p-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:sm:grid-cols-4 gap-4">
+                  <Button
+                    color="secondary"
+                    variant="flat"
+                    className="h-16 text-left justify-start"
+                    startContent={<Icon icon="fluent:vehicle-truck-24-filled" width={20} height={20} className="mr-2" />}
+                    as={Link}
+                    href="/home/delivery"
+                  >
+                    <div>
+                      <p>
+                        {user?.is_admin ? "Manage Deliveries" : "View Deliveries"}
+                      </p>
+                      <p className="text-xs opacity-70">
+                        {user?.is_admin ? "Schedule a new delivery" : "Show all deliveries"}
+                      </p>
+                    </div>
+                  </Button>
+
+                  <Button
+                    color="success"
+                    variant="flat"
+                    className="h-16 text-left justify-start"
+                    startContent={<Icon icon="fluent:box-checkmark-20-filled" width={20} height={20} className="mr-2" />}
+                    as={Link}
+                    href={user?.is_admin ? "/home/inventory" : "/home/warehouse-items"}
+                  >
+                    <div>
+                      <p>
+                        {user?.is_admin ? "Manage Inventory" : "View Warehouse"}
+                      </p>
+                      <p className="text-xs opacity-70">
+                        {user?.is_admin ? "Create new inventory" : "Show items in warehouse"}
+                      </p>
+                    </div>
+                  </Button>
+
+                  {user?.is_admin ? (
+                    <Button
+                      color="danger"
+                      variant="flat"
+                      className="h-16 text-left justify-start"
+                      startContent={<Icon icon="fluent:building-shop-24-filled" width={20} height={20} className="mr-2" />}
+                      as={Link}
+                      href="/home/warehouses"
+                    >
+                      <div>
+                        <p>Manage Warehouses</p>
+                        <p className="text-xs opacity-70">View or add warehouses</p>
+                      </div>
+                    </Button>
+                  ) : (
+                    <Button
+                      color="danger"
+                      variant="flat"
+                      className="h-16 text-left justify-start"
+                      startContent={
+                        <Icon icon="heroicons:bell-alert-20-solid" width={20} height={20} className="mr-2" />}
+                      as={Link}
+                      href="/home/notifications"
+                    >
+                      <div>
+                        <p>View Notifications</p>
+                        <p className="text-xs opacity-70">Show all notifications</p>
+                      </div>
+                    </Button>
                   )}
 
                   <Button
-                    as={Link}
-                    href="/home/reorder-point"
                     color="warning"
                     variant="flat"
-                    className="w-full mt-4"
-                    startContent={<Icon icon="fluent:arrow-sync-16-filled" />}
-                  >
-                    View All Reorder Points
-                  </Button>
-                </CardBody>
-              </Card>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Top Inventory Items Card */}
-        {renderInventoryStats()}
-
-        {/* Quick Actions Section */}
-        <Card className="mt-4 bg-background">
-          <LoadingAnimation
-            condition={loading}
-            skeleton={
-              <>
-                <CardHeader className="flex justify-between px-4">
-                  <div className="flex gap-2 items-center">
-                    <div>
-                      <Skeleton className="h-6 w-32 rounded-full mb-1" />
-                    </div>
-                  </div>
-                </CardHeader>
-                <Divider />
-                <CardBody className="p-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:sm:grid-cols-4 gap-4">
-                    <Skeleton className="h-16 rounded-xl" />
-                    <Skeleton className="h-16 rounded-xl" />
-                    <Skeleton className="h-16 rounded-xl" />
-                    <Skeleton className="h-16 rounded-xl" />
-                  </div>
-                </CardBody>
-              </>
-            }>
-            <CardHeader className="px-4 py-3">
-              <h2 className="text-lg font-semibold">Quick Actions</h2>
-            </CardHeader>
-            <Divider />
-            <div className="p-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:sm:grid-cols-4 gap-4">
-                <Button
-                  color="secondary"
-                  variant="flat"
-                  className="h-16 text-left justify-start"
-                  startContent={<Icon icon="fluent:vehicle-truck-24-filled" width={20} height={20} className="mr-2" />}
-                  as={Link}
-                  href="/home/delivery"
-                >
-                  <div>
-                    <p>
-                      {user?.is_admin ? "Manage Deliveries" : "View Deliveries"}
-                    </p>
-                    <p className="text-xs opacity-70">
-                      {user?.is_admin ? "Schedule a new delivery" : "Show all deliveries"}
-                    </p>
-                  </div>
-                </Button>
-
-                <Button
-                  color="success"
-                  variant="flat"
-                  className="h-16 text-left justify-start"
-                  startContent={<Icon icon="fluent:box-checkmark-20-filled" width={20} height={20} className="mr-2" />}
-                  as={Link}
-                  href={user?.is_admin ? "/home/inventory" : "/home/warehouse-items"}
-                >
-                  <div>
-                    <p>
-                      {user?.is_admin ? "Manage Inventory" : "View Warehouse"}
-                    </p>
-                    <p className="text-xs opacity-70">
-                      {user?.is_admin ? "Create new inventory" : "Show items in warehouse"}
-                    </p>
-                  </div>
-                </Button>
-
-                {user?.is_admin ? (
-                  <Button
-                    color="danger"
-                    variant="flat"
                     className="h-16 text-left justify-start"
-                    startContent={<Icon icon="fluent:building-shop-24-filled" width={20} height={20} className="mr-2" />}
+                    startContent={<Icon icon="fluent:gauge-24-filled" width={20} height={20} className="mr-2" />}
                     as={Link}
-                    href="/home/warehouses"
+                    href="/home/reorder-point"
                   >
                     <div>
-                      <p>Manage Warehouses</p>
-                      <p className="text-xs opacity-70">View or add warehouses</p>
+                      <p>Reorder Point</p>
+                      <p className="text-xs opacity-70">Monitor stock levels</p>
                     </div>
                   </Button>
-                ) : (
-                  <Button
-                    color="danger"
-                    variant="flat"
-                    className="h-16 text-left justify-start"
-                    startContent={
-                      <Icon icon="heroicons:bell-alert-20-solid" width={20} height={20} className="mr-2" />}
-                    as={Link}
-                    href="/home/notifications"
-                  >
-                    <div>
-                      <p>View Notifications</p>
-                      <p className="text-xs opacity-70">Show all notifications</p>
-                    </div>
-                  </Button>
-                )}
-
-                <Button
-                  color="warning"
-                  variant="flat"
-                  className="h-16 text-left justify-start"
-                  startContent={<Icon icon="fluent:gauge-24-filled" width={20} height={20} className="mr-2" />}
-                  as={Link}
-                  href="/home/reorder-point"
-                >
-                  <div>
-                    <p>Reorder Point</p>
-                    <p className="text-xs opacity-70">Monitor stock levels</p>
-                  </div>
-                </Button>
+                </div>
               </div>
-            </div>
-          </LoadingAnimation>
-        </Card>
+            </LoadingAnimation>
+          </Card>
 
-        <div className="mt-4">
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 mt-6">
-            {/* Delivery Status Distribution Chart */}
-            <Card className="lg:col-span-3 bg-background">
+          <div className="mt-4">
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 mt-6">
+              {/* Delivery Status Distribution Chart */}
+              <Card className="lg:col-span-3 bg-background">
+                <LoadingAnimation
+                  condition={loading}
+                  skeleton={
+                    <>
+                      <CardHeader className="px-4 py-3 flex justify-between items-center">
+                        <div>
+                          <Skeleton className="h-6 w-48 rounded-md mb-1" />
+                          <Skeleton className="h-4 w-64 rounded-md" />
+                        </div>
+                        <Skeleton className="h-6 w-20 rounded-md" />
+                      </CardHeader>
+                      <Divider />
+                      <div>
+                        <div className="h-[325px]">
+                          <div className="h-full flex items-center justify-center">
+                            <div className="w-full px-6 mx-10">
+                              <div className="flex items-end justify-between h-[240px] mb-4">
+                                {[...Array(5)].map((_, i) => (
+                                  <Skeleton key={i} className={`w-12 rounded-t-md`} style={{ height: `${Math.max(20, Math.random() * 200)}px` }} />
+                                ))}
+                              </div>
+                              <div className="flex justify-between">
+                                {[...Array(5)].map((_, i) => (
+                                  <Skeleton key={i} className="h-5 w-16 rounded-md" />
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  }>
+                  <CardHeader className="px-4 py-3 flex justify-between items-center">
+                    <div>
+                      <h2 className="text-lg font-semibold">Delivery Status Distribution</h2>
+                      <p className="text-xs text-default-500">Breakdown of current delivery statuses</p>
+                    </div>
+                    <Badge color="primary" variant="flat">
+                      {dashboardData?.deliveryCounts?.total || 0} Total
+                    </Badge>
+                  </CardHeader>
+                  <Divider />
+                  <div>
+                    <div className="h-[325px]">
+                      {deliveryStatusData.length > 0 && deliveryStatusData.some(d => d.value > 0) ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart
+                            data={deliveryStatusData}
+                            margin={{ left: -60, right: 0, top: 30, bottom: 0 }}
+                            barSize={48}
+                            barGap={8}
+                            className="delivery-status-chart"
+                          >
+                            <defs>
+                              {deliveryStatusData.map((entry, index) => (
+                                <linearGradient
+                                  id={`colorGradient-${index}`}
+                                  key={`gradient-${index}`}
+                                  x1="0" y1="0" x2="0" y2="1"
+                                >
+                                  <stop offset="0%" stopColor={entry.color} stopOpacity={0.9} />
+                                  <stop offset="95%" stopColor={entry.color} stopOpacity={0.6} />
+                                </linearGradient>
+                              ))}
+                              <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+                                <feDropShadow dx="0" dy="3" stdDeviation="3" floodOpacity="0.1" />
+                              </filter>
+                            </defs>
+                            <XAxis
+                              dataKey="name"
+                              angle={0}
+                              textAnchor="middle"
+                              height={60}
+                              tick={{
+                                fill: 'hsl(var(--heroui-default-500))',
+                                fontSize: 12,
+                                fontWeight: 500
+                              }}
+                              tickMargin={15}
+                              axisLine={{ stroke: 'hsl(var(--heroui-default-200))', strokeWidth: 1 }}
+                              tickLine={false}
+                              padding={{ left: 40, right: 40 }}
+                            />
+                            <YAxis
+                              hide={false}
+                              axisLine={false}
+                              tickLine={false}
+                              tick={{
+                                fill: 'hsl(var(--heroui-default-400))',
+                                fontSize: 12
+                              }}
+                              tickFormatter={(val) => val > 0 ? val : ''}
+                              orientation="left"
+                              tickMargin={-25}
+                            />
+                            <CartesianGrid
+                              strokeDasharray="3 3"
+                              vertical={false}
+                              stroke="hsl(var(--heroui-default-200))"
+                              opacity={0.5}
+                            />
+                            <RechartsTooltip
+                              cursor={{ fill: 'hsl(var(--heroui-default-100))', opacity: 0.3 }}
+                              contentStyle={{
+                                backgroundColor: `${herouiColorOpacity('default-50', 0.9, 'hex')}`,
+                                borderRadius: '12px',
+                                border: 'none',
+                                padding: '10px 14px',
+                                boxShadow: '0 4px 14px rgba(0, 0, 0, 0.15)',
+                              }}
+                              itemStyle={{
+                                color: `${herouiColor('default-800', 'hex')}`,
+                                padding: '4px 0',
+                              }}
+                            />
+                            <Bar
+                              dataKey="value"
+                              radius={[4, 4, 0, 0]}
+                              filter="url(#shadow)"
+                              animationDuration={1500}
+                              animationEasing="ease-in-out"
+                            >
+                              {deliveryStatusData.map((entry, index) => (
+                                <Cell
+                                  key={`cell-${index}`}
+                                  fill={`url(#colorGradient-${index})`}
+                                  stroke={entry.color}
+                                  strokeWidth={1}
+                                />
+                              ))}
+                              <LabelList
+                                dataKey="value"
+                                position="top"
+                                formatter={(val: number) => val > 0 ? val.toString() : ''}
+                                style={{
+                                  fill: 'hsl(var(--heroui-default-600))',
+                                  fontSize: 13,
+                                  fontWeight: 600
+                                }}
+                              />
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="h-full flex items-center justify-center text-default-500">
+                          <div className="text-center">
+                            <Icon icon="fluent:box-dismiss-24-filled" className="mx-auto text-5xl text-default-300" />
+                            <p className="mt-2">No delivery data available</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </LoadingAnimation>
+              </Card>
+
+              {/* Latest Notifications */}
+              <Card className="lg:col-span-2 bg-background">
+                <LoadingAnimation
+                  condition={loading}
+                  skeleton={
+                    <>
+                      <CardHeader className="px-4 py-3 flex justify-between items-center">
+                        <Skeleton className="h-6 w-48 rounded-md" />
+                      </CardHeader>
+                      <Divider />
+                      <div className="p-4">
+                        <div className="space-y-3 max-h-[330px]">
+                          {[...Array(4)].map((_, i) => (
+                            <Card key={i} className="border-none shadow-sm">
+                              <CardBody className="p-3">
+                                <div className="flex items-start gap-3">
+                                  <Skeleton className="h-10 w-10 rounded-full flex-shrink-0" />
+                                  <div className="w-full">
+                                    <div className="flex items-center justify-between">
+                                      <Skeleton className="h-5 w-1/2 rounded-md" />
+                                      <Skeleton className="h-5 w-12 rounded-md" />
+                                    </div>
+                                    <Skeleton className="h-4 w-3/4 mt-1 rounded-md" />
+                                  </div>
+                                </div>
+                              </CardBody>
+                            </Card>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  }>
+                  <CardHeader className="px-4 py-3 flex justify-between items-center">
+                    <h2 className="text-lg font-semibold">Latest Notifications</h2>
+                  </CardHeader>
+                  <Divider />
+                  <div className="p-4">
+                    {dashboardData?.notifications?.length > 0 ? (
+                      <div className="space-y-3 overflow-hidden max-h-[330px]">
+                        {dashboardData.notifications.map((notification: any) => (
+                          <Card
+                            key={notification.id}
+                            className={`${notification.read ? 'bg-default-50' : 'bg-default-100'} border-none shadow-sm`}
+                          >
+                            <CardBody className="p-3">
+                              <div className="flex items-start gap-3">
+                                <div className={`rounded-full p-2 flex-shrink-0 h-10 w-10 mt-1 ${getNotificationIconBg(notification.type)}`}>
+                                  <Icon icon={getNotificationIcon(notification.type, notification.action)} width={24} height={24} />
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2 justify-between">
+                                    <p className="font-medium text-sm">
+                                      {formatNotificationAction(notification.action)} {notification.entity_name}
+                                    </p>
+                                    {!notification.read && (
+                                      <Chip size="sm" color="primary" variant="flat">New</Chip>
+                                    )}
+                                  </div>
+                                  <div className="text-xs text-default-500 mt-1">
+                                    by {notification.user_name} • {formatNotificationTime(notification.created_at)}
+                                  </div>
+                                </div>
+                              </div>
+                            </CardBody>
+                          </Card>
+                        ))}
+
+                        <Button as={Link} variant="flat" href="/home/notifications" className="w-full mt-4">
+                          View all
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="py-10 text-center text-default-500">
+                        <Icon icon="fluent:alert-24-regular" className="mx-auto text-4xl text-default-300" />
+                        <p className="mt-2">No recent notifications</p>
+                      </div>
+                    )}
+                  </div>
+                </LoadingAnimation>
+              </Card>
+            </div>
+
+
+            {/* Warehouse Items Distribution Card */}
+
+
+            <Card className="mt-4 bg-background">
               <LoadingAnimation
                 condition={loading}
                 skeleton={
@@ -656,20 +900,127 @@ export default function DashboardPage() {
                       <Skeleton className="h-6 w-20 rounded-md" />
                     </CardHeader>
                     <Divider />
-                    <div>
-                      <div className="h-[325px]">
-                        <div className="h-full flex items-center justify-center">
-                          <div className="w-full px-6 mx-10">
-                            <div className="flex items-end justify-between h-[240px] mb-4">
-                              {[...Array(5)].map((_, i) => (
-                                <Skeleton key={i} className={`w-12 rounded-t-md`} style={{ height: `${Math.max(20, Math.random() * 200)}px` }} />
+                    <CardBody className="p-4">
+                      <div className="space-y-3">
+                        {[...Array(5)].map((_, i) => (
+                          <div key={i} className="space-y-1">
+                            <div className="flex justify-between items-center">
+                              <Skeleton className="h-5 w-32 rounded-md" />
+                              <Skeleton className="h-4 w-24 rounded-md" />
+                            </div>
+                            <Skeleton className="h-2 w-full rounded-md" />
+                          </div>
+                        ))}
+                      </div>
+                    </CardBody>
+                  </>
+                }>
+                <CardHeader className="px-4 py-3 flex justify-between items-center">
+                  <div>
+                    <h2 className="text-lg font-semibold">Warehouse Items Distribution</h2>
+                    <p className="text-xs text-default-500">Items stored across warehouses</p>
+                  </div>
+                  <Badge color="primary" variant="flat">
+                    {dashboardData?.warehouseStats?.total_count || 0} Total
+                  </Badge>
+                </CardHeader>
+                <Divider />
+                <CardBody className="p-4">
+                  {dashboardData?.warehouseStats?.by_warehouse?.length > 0 ? (
+                    <div className="space-y-4">
+                      {dashboardData.warehouseStats.by_warehouse.map((warehouse: any) => (
+                        <div key={warehouse.warehouse_uuid} className="space-y-1">
+                          <div className="flex justify-between items-center">
+                            <span className="font-medium">{warehouse.warehouse_name}</span>
+                            <span className="text-sm text-default-500">
+                              {warehouse.item_count} items ({((warehouse.item_count / dashboardData.warehouseStats.total_count) * 100).toFixed(1)}%)
+                            </span>
+                          </div>
+                          <Progress
+                            value={(warehouse.item_count / dashboardData.warehouseStats.total_count) * 100}
+                            color="success"
+                            showValueLabel={false}
+                            size="sm"
+                            className="h-2"
+                            maxValue={100}
+                          />
+                        </div>
+                      ))}
+
+                      {user?.is_admin && (
+                        <Button
+                          as={Link}
+                          href="/home/warehouse-items"
+                          variant="flat"
+                          color="success"
+                          className="w-full mt-2"
+                        >
+                          View All Warehouse Items
+                        </Button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="py-6 text-center text-default-500">
+                      <Icon icon="fluent:building-shop-24-regular" className="mx-auto text-4xl text-default-300" />
+                      <p className="mt-2">No warehouse items found</p>
+                    </div>
+                  )}
+                </CardBody>
+              </LoadingAnimation>
+            </Card>
+
+
+            {/* Delivery Performance Chart */}
+            <Card className="mt-4 bg-background">
+              <LoadingAnimation
+                condition={loading}
+                skeleton={
+                  <>
+                    <CardHeader className="px-4 py-3 flex justify-between items-center">
+                      <div>
+                        <Skeleton className="h-6 w-48 rounded-md mb-1" />
+                        <Skeleton className="h-4 w-64 rounded-md" />
+                      </div>
+                      <Skeleton className="h-6 w-20 rounded-md" />
+                    </CardHeader>
+                    <Divider />
+                    <div className="p-4">
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div className="h-72">
+                          <div className="h-full flex items-center justify-center">
+                            <div className="relative w-full h-full flex items-center justify-center">
+                              <Skeleton className="h-[180px] w-[180px] rounded-full absolute" />
+                              <Skeleton className="h-[120px] w-[120px] rounded-full absolute" />
+                              {[...Array(3)].map((_, i) => (
+                                <Skeleton key={i} className="absolute h-5 w-16 rounded-md" style={{ transform: `rotate(${i * 120}deg) translateX(100px)` }} />
                               ))}
                             </div>
-                            <div className="flex justify-between">
-                              {[...Array(5)].map((_, i) => (
-                                <Skeleton key={i} className="h-5 w-16 rounded-md" />
-                              ))}
+                          </div>
+                        </div>
+
+                        <div className="space-y-6">
+                          <div>
+                            <div className="flex justify-between items-center mb-2">
+                              <Skeleton className="h-5 w-32 rounded-md" />
+                              <Skeleton className="h-5 w-16 rounded-md" />
                             </div>
+                            <Skeleton className="h-8 w-full rounded-md" />
+                          </div>
+
+                          <div className="mb-6">
+                            <div className="flex justify-between items-center mb-2">
+                              <Skeleton className="h-5 w-32 rounded-md" />
+                              <Skeleton className="h-5 w-16 rounded-md" />
+                            </div>
+                            <Skeleton className="h-8 w-full rounded-md" />
+                          </div>
+
+                          <div>
+                            <div className="flex justify-between items-center mb-2">
+                              <Skeleton className="h-5 w-32 rounded-md" />
+                              <Skeleton className="h-5 w-16 rounded-md" />
+                            </div>
+                            <Skeleton className="h-8 w-full rounded-md" />
                           </div>
                         </div>
                       </div>
@@ -678,655 +1029,306 @@ export default function DashboardPage() {
                 }>
                 <CardHeader className="px-4 py-3 flex justify-between items-center">
                   <div>
-                    <h2 className="text-lg font-semibold">Delivery Status Distribution</h2>
-                    <p className="text-xs text-default-500">Breakdown of current delivery statuses</p>
+                    <h2 className="text-lg font-semibold">Delivery Performance Analysis</h2>
+                    <p className="text-xs text-default-500">Daily, weekly, and monthly completion rates</p>
                   </div>
-                  <Badge color="primary" variant="flat">
-                    {dashboardData?.deliveryCounts?.total || 0} Total
+                  <Badge color="secondary" variant="flat">
+                    Target: 95%
                   </Badge>
                 </CardHeader>
                 <Divider />
-                <div>
-                  <div className="h-[325px]">
-                    {deliveryStatusData.length > 0 && deliveryStatusData.some(d => d.value > 0) ? (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart
-                          data={deliveryStatusData}
-                          margin={{ left: -60, right: 0, top: 30, bottom: 0 }}
-                          barSize={48}
-                          barGap={8}
-                          className="delivery-status-chart"
-                        >
-                          <defs>
-                            {deliveryStatusData.map((entry, index) => (
-                              <linearGradient
-                                id={`colorGradient-${index}`}
-                                key={`gradient-${index}`}
-                                x1="0" y1="0" x2="0" y2="1"
-                              >
-                                <stop offset="0%" stopColor={entry.color} stopOpacity={0.9} />
-                                <stop offset="95%" stopColor={entry.color} stopOpacity={0.6} />
+                <div className="p-4">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div className="h-72">
+                      {performanceData.length > 0 && performanceData.some(p => p.value > 0) ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <defs>
+                              {performanceData.map((entry, index) => (
+                                <radialGradient
+                                  id={`pieGradient-${index}`}
+                                  key={`pie-gradient-${index}`}
+                                  cx="50%" cy="50%" r="50%" fx="50%" fy="50%"
+                                >
+                                  <stop offset="0%" stopColor={entry.color} stopOpacity={0.9} />
+                                  <stop offset="75%" stopColor={entry.color} stopOpacity={0.7} />
+                                  <stop offset="100%" stopColor={entry.color} stopOpacity={0.8} />
+                                </radialGradient>
+                              ))}
+                              <filter id="pieDropShadow" x="-20%" y="-20%" width="140%" height="140%">
+                                <feDropShadow dx="0" dy="3" stdDeviation="5" floodOpacity="0.12" />
+                              </filter>
+                              <linearGradient id="centerGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                                <stop offset="0%" stopColor="hsl(var(--heroui-primary-50))" stopOpacity="0.7" />
+                                <stop offset="100%" stopColor="hsl(var(--heroui-primary-50))" stopOpacity="0.2" />
                               </linearGradient>
-                            ))}
-                            <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-                              <feDropShadow dx="0" dy="3" stdDeviation="3" floodOpacity="0.1" />
-                            </filter>
-                          </defs>
-                          <XAxis
-                            dataKey="name"
-                            angle={0}
-                            textAnchor="middle"
-                            height={60}
-                            tick={{
-                              fill: 'hsl(var(--heroui-default-500))',
-                              fontSize: 12,
-                              fontWeight: 500
-                            }}
-                            tickMargin={15}
-                            axisLine={{ stroke: 'hsl(var(--heroui-default-200))', strokeWidth: 1 }}
-                            tickLine={false}
-                            padding={{ left: 40, right: 40 }}
-                          />
-                          <YAxis
-                            hide={false}
-                            axisLine={false}
-                            tickLine={false}
-                            tick={{
-                              fill: 'hsl(var(--heroui-default-400))',
-                              fontSize: 12
-                            }}
-                            tickFormatter={(val) => val > 0 ? val : ''}
-                            orientation="left"
-                            tickMargin={-25}
-                          />
-                          <CartesianGrid
-                            strokeDasharray="3 3"
-                            vertical={false}
-                            stroke="hsl(var(--heroui-default-200))"
-                            opacity={0.5}
-                          />
-                          <RechartsTooltip
-                            cursor={{ fill: 'hsl(var(--heroui-default-100))', opacity: 0.3 }}
-                            contentStyle={{
-                              backgroundColor: `${herouiColorOpacity('default-50', 0.9, 'hex')}`,
-                              borderRadius: '12px',
-                              border: 'none',
-                              padding: '10px 14px',
-                              boxShadow: '0 4px 14px rgba(0, 0, 0, 0.15)',
-                            }}
-                            itemStyle={{
-                              color: `${herouiColor('default-800', 'hex')}`,
-                              padding: '4px 0',
-                            }}
-                          />
-                          <Bar
-                            dataKey="value"
-                            radius={[4, 4, 0, 0]}
-                            filter="url(#shadow)"
-                            animationDuration={1500}
-                            animationEasing="ease-in-out"
-                          >
-                            {deliveryStatusData.map((entry, index) => (
-                              <Cell
-                                key={`cell-${index}`}
-                                fill={`url(#colorGradient-${index})`}
-                                stroke={entry.color}
-                                strokeWidth={1}
-                              />
-                            ))}
-                            <LabelList
+                            </defs>
+                            <Pie
+                              data={performanceData}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={68}
+                              outerRadius={105}
+                              paddingAngle={3}
                               dataKey="value"
-                              position="top"
-                              formatter={(val: number) => val > 0 ? val.toString() : ''}
-                              style={{
-                                fill: 'hsl(var(--heroui-default-600))',
-                                fontSize: 13,
-                                fontWeight: 600
+                              stroke="rgba(255,255,255,0.6)"
+                              strokeWidth={1.5}
+                              animationDuration={2000}
+                              filter="url(#pieDropShadow)"
+                            >
+                              {performanceData.map((entry, index) => (
+                                <Cell
+                                  key={`cell-${index}`}
+                                  fill={`url(#pieGradient-${index})`}
+                                />
+                              ))}
+                              <Label
+                                content={({ viewBox }) => {
+                                  const { cx, cy } = viewBox as { cx: number, cy: number };
+                                  const averageValue = performanceData.reduce((sum, entry) => sum + entry.value, 0) / performanceData.length;
+
+                                  return (
+                                    <g>
+                                      <circle
+                                        cx={cx}
+                                        cy={cy}
+                                        r={60}
+                                        fill="url(#centerGradient)"
+                                        filter="url(#pieDropShadow)"
+                                      />
+                                      <text
+                                        x={cx}
+                                        y={cy - 8}
+                                        textAnchor="middle"
+                                        dominantBaseline="central"
+                                        className="text-2xl font-bold"
+                                        fill="hsl(var(--heroui-default-700))"
+                                      >
+                                        {Math.round(averageValue)}%
+                                      </text>
+                                      <text
+                                        x={cx}
+                                        y={cy + 18}
+                                        textAnchor="middle"
+                                        dominantBaseline="central"
+                                        className="text-xs tracking-wide uppercase"
+                                        fill="hsl(var(--heroui-default-500))"
+                                      >
+                                        Average Rate
+                                      </text>
+                                    </g>
+                                  );
+                                }}
+                              />
+                            </Pie>
+                            <Legend
+                              layout="horizontal"
+                              verticalAlign="bottom"
+                              align="center"
+                              iconType="circle"
+                              iconSize={8}
+                              wrapperStyle={{
+                                paddingTop: 15,
+                              }}
+                              formatter={(value) => (
+                                <span style={{
+                                  color: 'hsl(var(--heroui-default-700))',
+                                  fontSize: '12px',
+                                  padding: '0 6px',
+                                  fontWeight: 500
+                                }}>
+                                  {value}
+                                </span>
+                              )}
+                            />
+                            <RechartsTooltip
+                              formatter={(value: number) => [`${value}%`, 'Completion Rate']}
+                              contentStyle={{
+                                backgroundColor: `${herouiColorOpacity('default-50', 0.9, 'hex')}`,
+                                borderRadius: '14px',
+                                border: 'none',
+                                padding: '12px 16px',
+                                boxShadow: '0 6px 18px rgba(0, 0, 0, 0.12)',
+                              }}
+                              itemStyle={{
+                                color: `${herouiColor('default-800', 'hex')}`,
+                                padding: '6px 0',
+                                fontSize: '13px'
+                              }}
+                              labelStyle={{
+                                fontWeight: 600,
+                                marginBottom: '8px'
                               }}
                             />
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    ) : (
-                      <div className="h-full flex items-center justify-center text-default-500">
-                        <div className="text-center">
-                          <Icon icon="fluent:box-dismiss-24-filled" className="mx-auto text-5xl text-default-300" />
-                          <p className="mt-2">No delivery data available</p>
+                          </PieChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="h-full flex items-center justify-center text-default-500">
+                          <div className="text-center">
+                            <Icon icon="fluent:data-pie-24-regular" className="mx-auto text-5xl text-default-300" />
+                            <p className="mt-2">No performance data available</p>
+                          </div>
                         </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-6">
+                      <div>
+                        <div className="flex justify-between items-center mb-2">
+                          <p className="text-sm font-medium">Daily Performance</p>
+                          <Badge color={dashboardData?.deliveryPerformance?.daily >= 90 ? "success" : "warning"}>
+                            {dashboardData?.deliveryPerformance?.daily_completed || 0} / {dashboardData?.deliveryPerformance?.daily_total || 0}
+                          </Badge>
+                        </div>
+                        <Progress
+                          value={dashboardData?.deliveryPerformance?.daily || 0}
+                          color={dashboardData?.deliveryPerformance?.daily >= 90 ? "success" : "warning"}
+                          showValueLabel={true}
+                          size="lg"
+                        />
                       </div>
-                    )}
+
+                      <div className="mb-6">
+                        <div className="flex justify-between items-center mb-2">
+                          <p className="text-sm font-medium">Weekly Performance</p>
+                          <Badge color={dashboardData?.deliveryPerformance?.weekly >= 90 ? "success" : "warning"}>
+                            {dashboardData?.deliveryPerformance?.weekly_completed || 0} / {dashboardData?.deliveryPerformance?.weekly_total || 0}
+                          </Badge>
+                        </div>
+                        <Progress
+                          value={dashboardData?.deliveryPerformance?.weekly || 0}
+                          color={dashboardData?.deliveryPerformance?.weekly >= 90 ? "success" : "warning"}
+                          showValueLabel={true}
+                          size="lg"
+                        />
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between items-center mb-2">
+                          <p className="text-sm font-medium">Monthly Performance</p>
+                          <Badge color={dashboardData?.deliveryPerformance?.monthly >= 90 ? "success" : "warning"}>
+                            {dashboardData?.deliveryPerformance?.monthly_completed || 0} / {dashboardData?.deliveryPerformance?.monthly_total || 0}
+                          </Badge>
+                        </div>
+                        <Progress
+                          value={dashboardData?.deliveryPerformance?.monthly || 0}
+                          color={dashboardData?.deliveryPerformance?.monthly >= 90 ? "success" : "warning"}
+                          showValueLabel={true}
+                          size="lg"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
               </LoadingAnimation>
             </Card>
 
-            {/* Latest Notifications */}
-            <Card className="lg:col-span-2 bg-background">
+            {/* Revenue Comparison Card */}
+            <Card className="mt-4 bg-background">
               <LoadingAnimation
                 condition={loading}
                 skeleton={
                   <>
-                    <CardHeader className="px-4 py-3 flex justify-between items-center">
-                      <Skeleton className="h-6 w-48 rounded-md" />
+                    <CardHeader className="px-4 py-3">
+                      <div>
+                        <Skeleton className="h-6 w-48 rounded-md mb-1" />
+                        <Skeleton className="h-4 w-64 rounded-md" />
+                      </div>
                     </CardHeader>
                     <Divider />
                     <div className="p-4">
-                      <div className="space-y-3 max-h-[330px]">
-                        {[...Array(4)].map((_, i) => (
-                          <Card key={i} className="border-none shadow-sm">
-                            <CardBody className="p-3">
-                              <div className="flex items-start gap-3">
-                                <Skeleton className="h-10 w-10 rounded-full flex-shrink-0" />
-                                <div className="w-full">
-                                  <div className="flex items-center justify-between">
-                                    <Skeleton className="h-5 w-1/2 rounded-md" />
-                                    <Skeleton className="h-5 w-12 rounded-md" />
-                                  </div>
-                                  <Skeleton className="h-4 w-3/4 mt-1 rounded-md" />
-                                </div>
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div className="lg:col-span-2 h-60">
+                          <div className="h-full flex items-center justify-center">
+                            <div className="w-full px-12">
+                              <div className="flex items-end justify-around mb-4 h-[180px]">
+                                {[...Array(2)].map((_, i) => (
+                                  <Skeleton key={i} className="w-24 rounded-t-md" style={{ height: `${100 + (i * 50)}px` }} />
+                                ))}
                               </div>
+                              <div className="flex items-end justify-around ">
+                                {[...Array(2)].map((_, i) => (
+                                  <Skeleton key={i} className="h-5 w-20 rounded-md" />
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col justify-center">
+                          <Card className="bg-default-50 mb-4">
+                            <CardBody>
+                              <Skeleton className="h-4 w-24 rounded-md mb-2" />
+                              <Skeleton className="h-8 w-40 rounded-md" />
                             </CardBody>
                           </Card>
-                        ))}
+
+                          <Card className="bg-default-50">
+                            <CardBody>
+                              <Skeleton className="h-4 w-24 rounded-md mb-2" />
+                              <Skeleton className="h-8 w-40 rounded-md" />
+                            </CardBody>
+                          </Card>
+                        </div>
                       </div>
                     </div>
                   </>
                 }>
-                <CardHeader className="px-4 py-3 flex justify-between items-center">
-                  <h2 className="text-lg font-semibold">Latest Notifications</h2>
+                <CardHeader className="px-4 py-3">
+                  <div>
+                    <h2 className="text-lg font-semibold">Monthly Revenue Comparison</h2>
+                    <p className="text-xs text-default-500">Current vs. previous month revenue</p>
+                  </div>
                 </CardHeader>
                 <Divider />
                 <div className="p-4">
-                  {dashboardData?.notifications?.length > 0 ? (
-                    <div className="space-y-3 overflow-hidden max-h-[330px]">
-                      {dashboardData.notifications.map((notification: any) => (
-                        <Card
-                          key={notification.id}
-                          className={`${notification.read ? 'bg-default-50' : 'bg-default-100'} border-none shadow-sm`}
-                        >
-                          <CardBody className="p-3">
-                            <div className="flex items-start gap-3">
-                              <div className={`rounded-full p-2 flex-shrink-0 h-10 w-10 mt-1 ${getNotificationIconBg(notification.type)}`}>
-                                <Icon icon={getNotificationIcon(notification.type, notification.action)} width={24} height={24} />
-                              </div>
-                              <div>
-                                <div className="flex items-center gap-2 justify-between">
-                                  <p className="font-medium text-sm">
-                                    {formatNotificationAction(notification.action)} {notification.entity_name}
-                                  </p>
-                                  {!notification.read && (
-                                    <Chip size="sm" color="primary" variant="flat">New</Chip>
-                                  )}
-                                </div>
-                                <div className="text-xs text-default-500 mt-1">
-                                  by {notification.user_name} • {formatNotificationTime(notification.created_at)}
-                                </div>
-                              </div>
-                            </div>
-                          </CardBody>
-                        </Card>
-                      ))}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="lg:col-span-2 h-60">
+                      {monthlyRevenueData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={monthlyRevenueData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                            <XAxis dataKey="name" />
+                            <YAxis />
+                            <RechartsTooltip formatter={(value) => [`₱${value}`, 'Revenue']} />
+                            <Legend />
+                            <Bar dataKey="value" name="Revenue" fill="#f59e0b" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="h-full flex items-center justify-center text-default-500">
+                          <div className="text-center">
+                            <Icon icon="fluent:money-24-regular" className="mx-auto text-5xl text-default-300" />
+                            <p className="mt-2">No revenue data available</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
 
-                      <Button as={Link} variant="flat" href="/home/notifications" className="w-full mt-4">
-                        View all
-                      </Button>
+                    <div className="flex flex-col justify-center">
+                      <Card className="bg-default-50 mb-4">
+                        <CardBody>
+                          <p className="text-sm text-default-500">Current Month</p>
+                          <p className="text-2xl font-bold">₱{parseFloat(dashboardData?.monthlyRevenue?.current_month || 0).toLocaleString()}</p>
+                        </CardBody>
+                      </Card>
+
+                      <Card className="bg-default-50">
+                        <CardBody>
+                          <p className="text-sm text-default-500">Previous Month</p>
+                          <p className="text-2xl font-bold">₱{parseFloat(dashboardData?.monthlyRevenue?.previous_month || 0).toLocaleString()}</p>
+                        </CardBody>
+                      </Card>
                     </div>
-                  ) : (
-                    <div className="py-10 text-center text-default-500">
-                      <Icon icon="fluent:alert-24-regular" className="mx-auto text-4xl text-default-300" />
-                      <p className="mt-2">No recent notifications</p>
-                    </div>
-                  )}
+                  </div>
                 </div>
               </LoadingAnimation>
             </Card>
           </div>
 
 
-          {/* Warehouse Items Distribution Card */}
-
-
-          <Card className="mt-4 bg-background">
-            <LoadingAnimation
-              condition={loading}
-              skeleton={
-                <>
-                  <CardHeader className="px-4 py-3 flex justify-between items-center">
-                    <div>
-                      <Skeleton className="h-6 w-48 rounded-md mb-1" />
-                      <Skeleton className="h-4 w-64 rounded-md" />
-                    </div>
-                    <Skeleton className="h-6 w-20 rounded-md" />
-                  </CardHeader>
-                  <Divider />
-                  <CardBody className="p-4">
-                    <div className="space-y-3">
-                      {[...Array(5)].map((_, i) => (
-                        <div key={i} className="space-y-1">
-                          <div className="flex justify-between items-center">
-                            <Skeleton className="h-5 w-32 rounded-md" />
-                            <Skeleton className="h-4 w-24 rounded-md" />
-                          </div>
-                          <Skeleton className="h-2 w-full rounded-md" />
-                        </div>
-                      ))}
-                    </div>
-                  </CardBody>
-                </>
-              }>
-              <CardHeader className="px-4 py-3 flex justify-between items-center">
-                <div>
-                  <h2 className="text-lg font-semibold">Warehouse Items Distribution</h2>
-                  <p className="text-xs text-default-500">Items stored across warehouses</p>
-                </div>
-                <Badge color="primary" variant="flat">
-                  {dashboardData?.warehouseStats?.total_count || 0} Total
-                </Badge>
-              </CardHeader>
-              <Divider />
-              <CardBody className="p-4">
-                {dashboardData?.warehouseStats?.by_warehouse?.length > 0 ? (
-                  <div className="space-y-4">
-                    {dashboardData.warehouseStats.by_warehouse.map((warehouse: any) => (
-                      <div key={warehouse.warehouse_uuid} className="space-y-1">
-                        <div className="flex justify-between items-center">
-                          <span className="font-medium">{warehouse.warehouse_name}</span>
-                          <span className="text-sm text-default-500">
-                            {warehouse.item_count} items ({((warehouse.item_count / dashboardData.warehouseStats.total_count) * 100).toFixed(1)}%)
-                          </span>
-                        </div>
-                        <Progress
-                          value={(warehouse.item_count / dashboardData.warehouseStats.total_count) * 100}
-                          color="success"
-                          showValueLabel={false}
-                          size="sm"
-                          className="h-2"
-                          maxValue={100}
-                        />
-                      </div>
-                    ))}
-
-                    {user?.is_admin && (
-                      <Button
-                        as={Link}
-                        href="/home/warehouse-items"
-                        variant="flat"
-                        color="success"
-                        className="w-full mt-2"
-                      >
-                        View All Warehouse Items
-                      </Button>
-                    )}
-                  </div>
-                ) : (
-                  <div className="py-6 text-center text-default-500">
-                    <Icon icon="fluent:building-shop-24-regular" className="mx-auto text-4xl text-default-300" />
-                    <p className="mt-2">No warehouse items found</p>
-                  </div>
-                )}
-              </CardBody>
-            </LoadingAnimation>
-          </Card>
-
-
-          {/* Delivery Performance Chart */}
-          <Card className="mt-4 bg-background">
-            <LoadingAnimation
-              condition={loading}
-              skeleton={
-                <>
-                  <CardHeader className="px-4 py-3 flex justify-between items-center">
-                    <div>
-                      <Skeleton className="h-6 w-48 rounded-md mb-1" />
-                      <Skeleton className="h-4 w-64 rounded-md" />
-                    </div>
-                    <Skeleton className="h-6 w-20 rounded-md" />
-                  </CardHeader>
-                  <Divider />
-                  <div className="p-4">
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      <div className="h-72">
-                        <div className="h-full flex items-center justify-center">
-                          <div className="relative w-full h-full flex items-center justify-center">
-                            <Skeleton className="h-[180px] w-[180px] rounded-full absolute" />
-                            <Skeleton className="h-[120px] w-[120px] rounded-full absolute" />
-                            {[...Array(3)].map((_, i) => (
-                              <Skeleton key={i} className="absolute h-5 w-16 rounded-md" style={{ transform: `rotate(${i * 120}deg) translateX(100px)` }} />
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="space-y-6">
-                        <div>
-                          <div className="flex justify-between items-center mb-2">
-                            <Skeleton className="h-5 w-32 rounded-md" />
-                            <Skeleton className="h-5 w-16 rounded-md" />
-                          </div>
-                          <Skeleton className="h-8 w-full rounded-md" />
-                        </div>
-
-                        <div className="mb-6">
-                          <div className="flex justify-between items-center mb-2">
-                            <Skeleton className="h-5 w-32 rounded-md" />
-                            <Skeleton className="h-5 w-16 rounded-md" />
-                          </div>
-                          <Skeleton className="h-8 w-full rounded-md" />
-                        </div>
-
-                        <div>
-                          <div className="flex justify-between items-center mb-2">
-                            <Skeleton className="h-5 w-32 rounded-md" />
-                            <Skeleton className="h-5 w-16 rounded-md" />
-                          </div>
-                          <Skeleton className="h-8 w-full rounded-md" />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              }>
-              <CardHeader className="px-4 py-3 flex justify-between items-center">
-                <div>
-                  <h2 className="text-lg font-semibold">Delivery Performance Analysis</h2>
-                  <p className="text-xs text-default-500">Daily, weekly, and monthly completion rates</p>
-                </div>
-                <Badge color="secondary" variant="flat">
-                  Target: 95%
-                </Badge>
-              </CardHeader>
-              <Divider />
-              <div className="p-4">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <div className="h-72">
-                    {performanceData.length > 0 && performanceData.some(p => p.value > 0) ? (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <defs>
-                            {performanceData.map((entry, index) => (
-                              <radialGradient
-                                id={`pieGradient-${index}`}
-                                key={`pie-gradient-${index}`}
-                                cx="50%" cy="50%" r="50%" fx="50%" fy="50%"
-                              >
-                                <stop offset="0%" stopColor={entry.color} stopOpacity={0.9} />
-                                <stop offset="75%" stopColor={entry.color} stopOpacity={0.7} />
-                                <stop offset="100%" stopColor={entry.color} stopOpacity={0.8} />
-                              </radialGradient>
-                            ))}
-                            <filter id="pieDropShadow" x="-20%" y="-20%" width="140%" height="140%">
-                              <feDropShadow dx="0" dy="3" stdDeviation="5" floodOpacity="0.12" />
-                            </filter>
-                            <linearGradient id="centerGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                              <stop offset="0%" stopColor="hsl(var(--heroui-primary-50))" stopOpacity="0.7" />
-                              <stop offset="100%" stopColor="hsl(var(--heroui-primary-50))" stopOpacity="0.2" />
-                            </linearGradient>
-                          </defs>
-                          <Pie
-                            data={performanceData}
-                            cx="50%"
-                            cy="50%"
-                            innerRadius={68}
-                            outerRadius={105}
-                            paddingAngle={3}
-                            dataKey="value"
-                            stroke="rgba(255,255,255,0.6)"
-                            strokeWidth={1.5}
-                            animationDuration={2000}
-                            filter="url(#pieDropShadow)"
-                          >
-                            {performanceData.map((entry, index) => (
-                              <Cell
-                                key={`cell-${index}`}
-                                fill={`url(#pieGradient-${index})`}
-                              />
-                            ))}
-                            <Label
-                              content={({ viewBox }) => {
-                                const { cx, cy } = viewBox as { cx: number, cy: number };
-                                const averageValue = performanceData.reduce((sum, entry) => sum + entry.value, 0) / performanceData.length;
-
-                                return (
-                                  <g>
-                                    <circle
-                                      cx={cx}
-                                      cy={cy}
-                                      r={60}
-                                      fill="url(#centerGradient)"
-                                      filter="url(#pieDropShadow)"
-                                    />
-                                    <text
-                                      x={cx}
-                                      y={cy - 8}
-                                      textAnchor="middle"
-                                      dominantBaseline="central"
-                                      className="text-2xl font-bold"
-                                      fill="hsl(var(--heroui-default-700))"
-                                    >
-                                      {Math.round(averageValue)}%
-                                    </text>
-                                    <text
-                                      x={cx}
-                                      y={cy + 18}
-                                      textAnchor="middle"
-                                      dominantBaseline="central"
-                                      className="text-xs tracking-wide uppercase"
-                                      fill="hsl(var(--heroui-default-500))"
-                                    >
-                                      Average Rate
-                                    </text>
-                                  </g>
-                                );
-                              }}
-                            />
-                          </Pie>
-                          <Legend
-                            layout="horizontal"
-                            verticalAlign="bottom"
-                            align="center"
-                            iconType="circle"
-                            iconSize={8}
-                            wrapperStyle={{
-                              paddingTop: 15,
-                            }}
-                            formatter={(value) => (
-                              <span style={{
-                                color: 'hsl(var(--heroui-default-700))',
-                                fontSize: '12px',
-                                padding: '0 6px',
-                                fontWeight: 500
-                              }}>
-                                {value}
-                              </span>
-                            )}
-                          />
-                          <RechartsTooltip
-                            formatter={(value: number) => [`${value}%`, 'Completion Rate']}
-                            contentStyle={{
-                              backgroundColor: `${herouiColorOpacity('default-50', 0.9, 'hex')}`,
-                              borderRadius: '14px',
-                              border: 'none',
-                              padding: '12px 16px',
-                              boxShadow: '0 6px 18px rgba(0, 0, 0, 0.12)',
-                            }}
-                            itemStyle={{
-                              color: `${herouiColor('default-800', 'hex')}`,
-                              padding: '6px 0',
-                              fontSize: '13px'
-                            }}
-                            labelStyle={{
-                              fontWeight: 600,
-                              marginBottom: '8px'
-                            }}
-                          />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    ) : (
-                      <div className="h-full flex items-center justify-center text-default-500">
-                        <div className="text-center">
-                          <Icon icon="fluent:data-pie-24-regular" className="mx-auto text-5xl text-default-300" />
-                          <p className="mt-2">No performance data available</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-6">
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <p className="text-sm font-medium">Daily Performance</p>
-                        <Badge color={dashboardData?.deliveryPerformance?.daily >= 90 ? "success" : "warning"}>
-                          {dashboardData?.deliveryPerformance?.daily_completed || 0} / {dashboardData?.deliveryPerformance?.daily_total || 0}
-                        </Badge>
-                      </div>
-                      <Progress
-                        value={dashboardData?.deliveryPerformance?.daily || 0}
-                        color={dashboardData?.deliveryPerformance?.daily >= 90 ? "success" : "warning"}
-                        showValueLabel={true}
-                        size="lg"
-                      />
-                    </div>
-
-                    <div className="mb-6">
-                      <div className="flex justify-between items-center mb-2">
-                        <p className="text-sm font-medium">Weekly Performance</p>
-                        <Badge color={dashboardData?.deliveryPerformance?.weekly >= 90 ? "success" : "warning"}>
-                          {dashboardData?.deliveryPerformance?.weekly_completed || 0} / {dashboardData?.deliveryPerformance?.weekly_total || 0}
-                        </Badge>
-                      </div>
-                      <Progress
-                        value={dashboardData?.deliveryPerformance?.weekly || 0}
-                        color={dashboardData?.deliveryPerformance?.weekly >= 90 ? "success" : "warning"}
-                        showValueLabel={true}
-                        size="lg"
-                      />
-                    </div>
-
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <p className="text-sm font-medium">Monthly Performance</p>
-                        <Badge color={dashboardData?.deliveryPerformance?.monthly >= 90 ? "success" : "warning"}>
-                          {dashboardData?.deliveryPerformance?.monthly_completed || 0} / {dashboardData?.deliveryPerformance?.monthly_total || 0}
-                        </Badge>
-                      </div>
-                      <Progress
-                        value={dashboardData?.deliveryPerformance?.monthly || 0}
-                        color={dashboardData?.deliveryPerformance?.monthly >= 90 ? "success" : "warning"}
-                        showValueLabel={true}
-                        size="lg"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </LoadingAnimation>
-          </Card>
-
-          {/* Revenue Comparison Card */}
-          <Card className="mt-4 bg-background">
-            <LoadingAnimation
-              condition={loading}
-              skeleton={
-                <>
-                  <CardHeader className="px-4 py-3">
-                    <div>
-                      <Skeleton className="h-6 w-48 rounded-md mb-1" />
-                      <Skeleton className="h-4 w-64 rounded-md" />
-                    </div>
-                  </CardHeader>
-                  <Divider />
-                  <div className="p-4">
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                      <div className="lg:col-span-2 h-60">
-                        <div className="h-full flex items-center justify-center">
-                          <div className="w-full px-12">
-                            <div className="flex items-end justify-around mb-4 h-[180px]">
-                              {[...Array(2)].map((_, i) => (
-                                <Skeleton key={i} className="w-24 rounded-t-md" style={{ height: `${100 + (i * 50)}px` }} />
-                              ))}
-                            </div>
-                            <div className="flex items-end justify-around ">
-                              {[...Array(2)].map((_, i) => (
-                                <Skeleton key={i} className="h-5 w-20 rounded-md" />
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col justify-center">
-                        <Card className="bg-default-50 mb-4">
-                          <CardBody>
-                            <Skeleton className="h-4 w-24 rounded-md mb-2" />
-                            <Skeleton className="h-8 w-40 rounded-md" />
-                          </CardBody>
-                        </Card>
-
-                        <Card className="bg-default-50">
-                          <CardBody>
-                            <Skeleton className="h-4 w-24 rounded-md mb-2" />
-                            <Skeleton className="h-8 w-40 rounded-md" />
-                          </CardBody>
-                        </Card>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              }>
-              <CardHeader className="px-4 py-3">
-                <div>
-                  <h2 className="text-lg font-semibold">Monthly Revenue Comparison</h2>
-                  <p className="text-xs text-default-500">Current vs. previous month revenue</p>
-                </div>
-              </CardHeader>
-              <Divider />
-              <div className="p-4">
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  <div className="lg:col-span-2 h-60">
-                    {monthlyRevenueData.length > 0 ? (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={monthlyRevenueData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                          <XAxis dataKey="name" />
-                          <YAxis />
-                          <RechartsTooltip formatter={(value) => [`₱${value}`, 'Revenue']} />
-                          <Legend />
-                          <Bar dataKey="value" name="Revenue" fill="#f59e0b" />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    ) : (
-                      <div className="h-full flex items-center justify-center text-default-500">
-                        <div className="text-center">
-                          <Icon icon="fluent:money-24-regular" className="mx-auto text-5xl text-default-300" />
-                          <p className="mt-2">No revenue data available</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex flex-col justify-center">
-                    <Card className="bg-default-50 mb-4">
-                      <CardBody>
-                        <p className="text-sm text-default-500">Current Month</p>
-                        <p className="text-2xl font-bold">₱{parseFloat(dashboardData?.monthlyRevenue?.current_month || 0).toLocaleString()}</p>
-                      </CardBody>
-                    </Card>
-
-                    <Card className="bg-default-50">
-                      <CardBody>
-                        <p className="text-sm text-default-500">Previous Month</p>
-                        <p className="text-2xl font-bold">₱{parseFloat(dashboardData?.monthlyRevenue?.previous_month || 0).toLocaleString()}</p>
-                      </CardBody>
-                    </Card>
-                  </div>
-                </div>
-              </div>
-            </LoadingAnimation>
-          </Card>
         </div>
-
-
       </div>
-    </div>
+    </motion.div>
   );
 }
 

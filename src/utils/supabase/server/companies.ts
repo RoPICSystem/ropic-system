@@ -19,8 +19,6 @@ export async function getExistingCompanies() {
       { user_id: user.id }
     )
 
-    console.log('Fetched companies:', data)
-
     if (error) {
       console.error('Error fetching companies:', error)
       return { error: error.message }

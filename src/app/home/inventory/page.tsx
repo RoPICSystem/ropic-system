@@ -2,7 +2,7 @@
 
 import CardList from "@/components/card-list";
 import LoadingAnimation from '@/components/loading-animation';
-import { motionTransition } from "@/utils/anim";
+import { motionTransition, motionTransitionScale } from "@/utils/anim";
 import { createClient } from "@/utils/supabase/client";
 import { getUserFromCookies } from '@/utils/supabase/server/user';
 import {
@@ -473,37 +473,37 @@ export default function InventoryPage() {
     setInventoryForm(prev => {
       // When fundamental item details change, reset properties
       if (field === 'name' || field === 'unit') {
-        return { 
-          ...prev, 
+        return {
+          ...prev,
           [field]: value,
           properties: {} // This is clearing properties unexpectedly
         };
       }
       return { ...prev, [field]: value };
     });
-  
+
     // If unit changed, update all bulks and units and reset their properties
     if (field === 'unit') {
-      setBulkItems(prev => prev.map(bulk => ({ 
-        ...bulk, 
-        unit: value, 
+      setBulkItems(prev => prev.map(bulk => ({
+        ...bulk,
+        unit: value,
         properties: {} // This is clearing bulk properties
       })));
-      setUnitItems(prev => prev.map(unit => ({ 
-        ...unit, 
-        unit: value, 
+      setUnitItems(prev => prev.map(unit => ({
+        ...unit,
+        unit: value,
         properties: {} // This is clearing unit properties
       })));
     }
-  
+
     // If name changed, reset properties for all bulks and units
     if (field === 'name') {
-      setBulkItems(prev => prev.map(bulk => ({ 
-        ...bulk, 
+      setBulkItems(prev => prev.map(bulk => ({
+        ...bulk,
         properties: {} // This is clearing bulk properties
       })));
-      setUnitItems(prev => prev.map(unit => ({ 
-        ...unit, 
+      setUnitItems(prev => prev.map(unit => ({
+        ...unit,
         properties: {} // This is clearing unit properties
       })));
     }
@@ -1258,20 +1258,21 @@ export default function InventoryPage() {
   };
 
   return (
-    <div className="container mx-auto p-2 max-w-5xl">
-      <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
-        <div className="flex flex-col w-full xl:text-left text-center">
-          <h1 className="text-2xl font-bold">Inventory Management</h1>
-          {isLoadingItems ? (
-            <div className="text-default-500 flex xl:justify-start justify-center items-center">
-              <p className='my-auto mr-1'>Loading inventory data</p>
-              <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
-            </div>
-          ) : (
-            <p className="text-default-500">Manage your inventory items efficiently.</p>
-          )}
-        </div>
-        <div className="flex gap-4 xl:mt-0 mt-4 text-center">
+    <motion.div {...motionTransitionScale}>
+      <div className="container mx-auto p-2 max-w-5xl">
+        <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
+          <div className="flex flex-col w-full xl:text-left text-center">
+            <h1 className="text-2xl font-bold">Inventory Management</h1>
+            {isLoadingItems ? (
+              <div className="text-default-500 flex xl:justify-start justify-center items-center">
+                <p className='my-auto mr-1'>Loading inventory data</p>
+                <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
+              </div>
+            ) : (
+              <p className="text-default-500">Manage your inventory items efficiently.</p>
+            )}
+          </div>
+          <div className="flex gap-4 xl:mt-0 mt-4 text-center">
             <Button
               color="primary"
               variant="shadow"
@@ -1281,1112 +1282,1113 @@ export default function InventoryPage() {
             >
               New Item
             </Button>
+          </div>
         </div>
-      </div>
 
-      <div className="flex flex-col xl:flex-row gap-4">
-        {/* Left side: Item List */}
-        <div className={`xl:w-1/3 shadow-xl shadow-primary/10 
+        <div className="flex flex-col xl:flex-row gap-4">
+          {/* Left side: Item List */}
+          <div className={`xl:w-1/3 shadow-xl shadow-primary/10 
           xl:min-h-[calc(100vh-6.5rem)] 2xl:min-h-[calc(100vh-9rem)] min-h-[42rem] 
           xl:min-w-[350px] w-full rounded-2xl overflow-hidden bg-background border 
           border-default-200 backdrop-blur-lg xl:sticky top-0 self-start max-h-[calc(100vh-2rem)]`}
-        >
-          <div className="flex flex-col h-full">
-            <div className="p-4 sticky top-0 z-20 bg-background/80 border-b border-default-200 backdrop-blur-lg shadow-sm">
+          >
+            <div className="flex flex-col h-full">
+              <div className="p-4 sticky top-0 z-20 bg-background/80 border-b border-default-200 backdrop-blur-lg shadow-sm">
 
-              <h2 className="text-xl font-semibold mb-4 w-full text-center">Inventory Items</h2>
-              <Input
-                placeholder="Search items..."
-                value={searchQuery}
-                onChange={(e) => handleSearch(e.target.value, 1)}
-                isClearable
-                onClear={() => handleSearch("", 1)}
-                startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
-              />
-            </div>
-            <div className="h-full absolute w-full">
-              <div className={`space-y-4 p-4 mt-1 pt-32 h-full relative ${(user && !isLoadingItems) && "overflow-y-auto"}`}>
-                <ListLoadingAnimation
-                  condition={!user || isLoadingItems}
-                  containerClassName="space-y-4"
-                  skeleton={[...Array(10)].map((_, i) => (
-                    <Skeleton key={i} className="w-full min-h-[7.5rem] rounded-xl" />
-                  ))}
-                >
-                  {inventoryItems.map((item) => (
-                    <Button
-                      key={item.uuid}
-                      onPress={() => handleSelectItem(item.uuid)}
-                      variant="shadow"
-                      className={`w-full min-h-[7.5rem] !transition-all duration-200 rounded-xl p-0 ${selectedItemId === item.uuid ?
-                        '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' :
-                        '!bg-default-100/50 shadow-none hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
-                    >
-                      <div className="w-full flex flex-col h-full">
-                        <div className="flex-grow flex flex-col justify-center px-3">
-                          <div className="flex items-center justify-between">
-                            <span className="font-semibold">
-                              {item.name}
-                            </span>
-                            <Chip color="default" variant={selectedItemId === item.uuid ? "shadow" : "flat"} size="sm">
-                              {item.inventory_item_bulks_length || 0} bulk(s)
+                <h2 className="text-xl font-semibold mb-4 w-full text-center">Inventory Items</h2>
+                <Input
+                  placeholder="Search items..."
+                  value={searchQuery}
+                  onChange={(e) => handleSearch(e.target.value, 1)}
+                  isClearable
+                  onClear={() => handleSearch("", 1)}
+                  startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
+                />
+              </div>
+              <div className="h-full absolute w-full">
+                <div className={`space-y-4 p-4 mt-1 pt-32 h-full relative ${(user && !isLoadingItems) && "overflow-y-auto"}`}>
+                  <ListLoadingAnimation
+                    condition={!user || isLoadingItems}
+                    containerClassName="space-y-4"
+                    skeleton={[...Array(10)].map((_, i) => (
+                      <Skeleton key={i} className="w-full min-h-[7.5rem] rounded-xl" />
+                    ))}
+                  >
+                    {inventoryItems.map((item) => (
+                      <Button
+                        key={item.uuid}
+                        onPress={() => handleSelectItem(item.uuid)}
+                        variant="shadow"
+                        className={`w-full min-h-[7.5rem] !transition-all duration-200 rounded-xl p-0 ${selectedItemId === item.uuid ?
+                          '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' :
+                          '!bg-default-100/50 shadow-none hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
+                      >
+                        <div className="w-full flex flex-col h-full">
+                          <div className="flex-grow flex flex-col justify-center px-3">
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold">
+                                {item.name}
+                              </span>
+                              <Chip color="default" variant={selectedItemId === item.uuid ? "shadow" : "flat"} size="sm">
+                                {item.inventory_item_bulks_length || 0} bulk(s)
+                              </Chip>
+                            </div>
+                            {item.description && (
+                              <div className={`w-full mt-1 text-sm ${selectedItemId === item.uuid ? 'text-default-800 ' : 'text-default-600'} text-start text-ellipsis overflow-hidden whitespace-nowrap`}>
+                                {item.description}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Footer - always at the bottom */}
+                          <div className={`flex items-center gap-2 border-t ${selectedItemId === item.uuid ? 'border-primary-300' : 'border-default-100'} p-3`}>
+                            <Chip
+                              color={selectedItemId === item.uuid ? "default" : "primary"}
+                              variant={selectedItemId === item.uuid ? "shadow" : "flat"}
+                              size="sm"
+                            >
+                              {formatDate(item.created_at.toString())}
                             </Chip>
                           </div>
-                          {item.description && (
-                            <div className={`w-full mt-1 text-sm ${selectedItemId === item.uuid ? 'text-default-800 ' : 'text-default-600'} text-start text-ellipsis overflow-hidden whitespace-nowrap`}>
-                              {item.description}
-                            </div>
-                          )}
                         </div>
+                      </Button>
+                    ))}
+                  </ListLoadingAnimation>
 
-                        {/* Footer - always at the bottom */}
-                        <div className={`flex items-center gap-2 border-t ${selectedItemId === item.uuid ? 'border-primary-300' : 'border-default-100'} p-3`}>
-                          <Chip
-                            color={selectedItemId === item.uuid ? "default" : "primary"}
-                            variant={selectedItemId === item.uuid ? "shadow" : "flat"}
-                            size="sm"
-                          >
-                            {formatDate(item.created_at.toString())}
-                          </Chip>
-                        </div>
+                  {/* Add pagination */}
+                  {inventoryItems.length > 0 && (
+                    <div className="flex flex-col items-center pt-2 pb-4 px-2">
+                      <div className="text-sm text-default-500 mb-2">
+                        Showing {(page - 1) * rowsPerPage + 1} to {Math.min(page * rowsPerPage, totalItems)} of {totalItems} {totalItems === 1 ? 'item' : 'items'}
                       </div>
-                    </Button>
-                  ))}
-                </ListLoadingAnimation>
-
-                {/* Add pagination */}
-                {inventoryItems.length > 0 && (
-                  <div className="flex flex-col items-center pt-2 pb-4 px-2">
-                    <div className="text-sm text-default-500 mb-2">
-                      Showing {(page - 1) * rowsPerPage + 1} to {Math.min(page * rowsPerPage, totalItems)} of {totalItems} {totalItems === 1 ? 'item' : 'items'}
+                      <Pagination
+                        total={totalPages}
+                        initialPage={1}
+                        page={page}
+                        onChange={handlePageChange}
+                        color="primary"
+                        size="sm"
+                        showControls
+                      />
                     </div>
-                    <Pagination
-                      total={totalPages}
-                      initialPage={1}
-                      page={page}
-                      onChange={handlePageChange}
-                      color="primary"
-                      size="sm"
-                      showControls
-                    />
-                  </div>
-                )}
+                  )}
 
-                {/* Empty state and loading animations */}
+                  {/* Empty state and loading animations */}
+                  <AnimatePresence>
+                    {(!user || isLoadingItems) && (
+                      <motion.div
+                        className="absolute inset-0 flex items-center justify-center"
+                        initial={{ opacity: 0, filter: "blur(8px)" }}
+                        animate={{ opacity: 1, filter: "blur(0px)" }}
+                        exit={{ opacity: 0, filter: "blur(8px)" }}
+                        transition={{ duration: 0.3, delay: 0.3 }}
+                      >
+                        <div className="absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-background to-transparent pointer-events-none" />
+                        <div className="py-4 flex absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
+                          <Spinner />
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {/* No items found state */}
                 <AnimatePresence>
-                  {(!user || isLoadingItems) && (
+                  {user && !isLoadingItems && inventoryItems.length === 0 && (
                     <motion.div
-                      className="absolute inset-0 flex items-center justify-center"
+                      className="xl:h-full h-[42rem] absolute w-full"
                       initial={{ opacity: 0, filter: "blur(8px)" }}
                       animate={{ opacity: 1, filter: "blur(0px)" }}
                       exit={{ opacity: 0, filter: "blur(8px)" }}
-                      transition={{ duration: 0.3, delay: 0.3 }}
+                      transition={{ duration: 0.3 }}
                     >
-                      <div className="absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-background to-transparent pointer-events-none" />
-                      <div className="py-4 flex absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
-                        <Spinner />
+                      <div className="py-4 flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
+                        <Icon icon="mdi:package-variant" className="text-5xl text-default-300" />
+                        <p className="text-default-500 mt-2">No inventory items found</p>
+                        <Button
+                          color="primary"
+                          variant="light"
+                          size="sm"
+                          className="mt-4"
+                          onPress={handleNewItem}
+                          startContent={<Icon icon="mdi:plus" className="text-default-500" />}>
+                          Create New Item
+                        </Button>
                       </div>
                     </motion.div>
                   )}
                 </AnimatePresence>
               </div>
-
-              {/* No items found state */}
-              <AnimatePresence>
-                {user && !isLoadingItems && inventoryItems.length === 0 && (
-                  <motion.div
-                    className="xl:h-full h-[42rem] absolute w-full"
-                    initial={{ opacity: 0, filter: "blur(8px)" }}
-                    animate={{ opacity: 1, filter: "blur(0px)" }}
-                    exit={{ opacity: 0, filter: "blur(8px)" }}
-                    transition={{ duration: 0.3 }}
-                  >
-                    <div className="py-4 flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
-                      <Icon icon="mdi:package-variant" className="text-5xl text-default-300" />
-                      <p className="text-default-500 mt-2">No inventory items found</p>
-                      <Button
-                        color="primary"
-                        variant="light"
-                        size="sm"
-                        className="mt-4"
-                        onPress={handleNewItem}
-                        startContent={<Icon icon="mdi:plus" className="text-default-500" />}>
-                        Create New Item
-                      </Button>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
             </div>
           </div>
-        </div>
 
-        {/* Right side: Inventory Form */}
-        <div className="xl:w-2/3">
-          <Form id="inventoryForm" onSubmit={handleSubmit} className="items-stretch space-y-4">
-            <CardList>
-              <LoadingAnimation
-                condition={isLoading}
-                skeleton={
-                  <div className="space-y-4">
-                    <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" />
+          {/* Right side: Inventory Form */}
+          <div className="xl:w-2/3">
+            <Form id="inventoryForm" onSubmit={handleSubmit} className="items-stretch space-y-4">
+              <CardList>
+                <LoadingAnimation
+                  condition={isLoading}
+                  skeleton={
                     <div className="space-y-4">
-                      <Skeleton className="h-16 w-full rounded-xl" />
-                      <div className="flex items-center justify-between gap-4">
-                        <Skeleton className="h-16 w-1/2 rounded-xl" />
-                        <Skeleton className="h-16 w-1/2 rounded-xl" />
+                      <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" />
+                      <div className="space-y-4">
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                        <div className="flex items-center justify-between gap-4">
+                          <Skeleton className="h-16 w-1/2 rounded-xl" />
+                          <Skeleton className="h-16 w-1/2 rounded-xl" />
+                        </div>
+                        <Skeleton className="h-28 w-full rounded-xl" />
                       </div>
-                      <Skeleton className="h-28 w-full rounded-xl" />
-                    </div>
 
-                    <div className="p-4 border-2 border-default-200 rounded-xl bg-default-50">
-                      <div className="flex justify-between items-center mb-4">
-                        <Skeleton className="h-6 w-32 rounded-full" />
-                        <Skeleton className="h-8 w-16 rounded-lg" />
+                      <div className="p-4 border-2 border-default-200 rounded-xl bg-default-50">
+                        <div className="flex justify-between items-center mb-4">
+                          <Skeleton className="h-6 w-32 rounded-full" />
+                          <Skeleton className="h-8 w-16 rounded-lg" />
+                        </div>
+                        <Skeleton className="h-48 w-full rounded-xl bg-transparent" />
                       </div>
-                      <Skeleton className="h-48 w-full rounded-xl bg-transparent" />
                     </div>
-                  </div>
-                }>
-                <div>
-                  <h2 className="text-xl font-semibold mb-4 w-full text-center">
-                    {selectedItemId ? "Edit Inventory Item" : "Create Inventory Item"}
-                  </h2>
-
-                  <div className="space-y-4">
-                    {inventoryForm.uuid && (
-                      <Input
-                        label="Inventory Identifier"
-                        value={inventoryForm.uuid}
-                        isReadOnly
-                        classNames={inputStyle}
-                        startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
-                        endContent={
-                          <Button
-                            variant="flat"
-                            color="default"
-                            isIconOnly
-                            onPress={() => copyToClipboard(inventoryForm.uuid || "")}
-                          >
-                            <Icon icon="mdi:content-copy" className="text-default-500" />
-                          </Button>
-                        }
-                      />
-                    )}
-
-                    <div className="flex items-center justify-between gap-4">
-                      <Input
-                        label="Item Name"
-                        value={inventoryForm.name}
-                        onChange={(e) => {
-                          setInventoryForm({ ...inventoryForm, name: e.target.value })
-                          updateAllUnits('name', e.target.value);
-                        }}
-                        isRequired
-                        placeholder="Enter item name"
-                        classNames={inputStyle}
-                        startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
-                      />
-
-                      <Autocomplete
-                        label="Item Unit"
-                        placeholder="Select unit"
-                        selectedKey={inventoryForm.unit}
-                        onSelectionChange={(key) => handleInventoryFormChange('unit', key)}
-                        startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.1rem]" />}
-                        isRequired
-                        inputProps={autoCompleteStyle}
-                      >
-                        {unitOptions.map((unit) => (
-                          <AutocompleteItem key={unit}>{unit}</AutocompleteItem>
-                        ))}
-                      </Autocomplete>
-                    </div>
-
-                    <Textarea
-                      label="Description"
-                      value={inventoryForm.description}
-                      onChange={(e) => setInventoryForm({ ...inventoryForm, description: e.target.value })}
-                      placeholder="Enter item description (optional)"
-                      classNames={inputStyle}
-                      startContent={<Icon icon="mdi:text-box" className="text-default-500 mt-[0.1rem]" />}
-                    />
-
-                    <div className="mt-6">
-                      <CustomProperties
-                        properties={inventoryForm.properties || {}}
-                        onPropertiesChange={handleInventoryPropertiesChange}
-                        isDisabled={!user || isLoadingItems}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </LoadingAnimation>
-
-              <LoadingAnimation
-                condition={isLoading}
-                skeleton={
-
+                  }>
                   <div>
-                    <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" />
+                    <h2 className="text-xl font-semibold mb-4 w-full text-center">
+                      {selectedItemId ? "Edit Inventory Item" : "Create Inventory Item"}
+                    </h2>
+
                     <div className="space-y-4">
-                      <div className="flex justify-between items-center mb-4">
-                        <Skeleton className="h-6 w-20 rounded-xl" />
-                        <Skeleton className="h-8 w-28 rounded-xl" />
+                      {inventoryForm.uuid && (
+                        <Input
+                          label="Inventory Identifier"
+                          value={inventoryForm.uuid}
+                          isReadOnly
+                          classNames={inputStyle}
+                          startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
+                          endContent={
+                            <Button
+                              variant="flat"
+                              color="default"
+                              isIconOnly
+                              onPress={() => copyToClipboard(inventoryForm.uuid || "")}
+                            >
+                              <Icon icon="mdi:content-copy" className="text-default-500" />
+                            </Button>
+                          }
+                        />
+                      )}
+
+                      <div className="flex items-center justify-between gap-4">
+                        <Input
+                          label="Item Name"
+                          value={inventoryForm.name}
+                          onChange={(e) => {
+                            setInventoryForm({ ...inventoryForm, name: e.target.value })
+                            updateAllUnits('name', e.target.value);
+                          }}
+                          isRequired
+                          placeholder="Enter item name"
+                          classNames={inputStyle}
+                          startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
+                        />
+
+                        <Autocomplete
+                          label="Item Unit"
+                          placeholder="Select unit"
+                          selectedKey={inventoryForm.unit}
+                          onSelectionChange={(key) => handleInventoryFormChange('unit', key)}
+                          startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.1rem]" />}
+                          isRequired
+                          inputProps={autoCompleteStyle}
+                        >
+                          {unitOptions.map((unit) => (
+                            <AutocompleteItem key={unit}>{unit}</AutocompleteItem>
+                          ))}
+                        </Autocomplete>
+                      </div>
+
+                      <Textarea
+                        label="Description"
+                        value={inventoryForm.description}
+                        onChange={(e) => setInventoryForm({ ...inventoryForm, description: e.target.value })}
+                        placeholder="Enter item description (optional)"
+                        classNames={inputStyle}
+                        startContent={<Icon icon="mdi:text-box" className="text-default-500 mt-[0.1rem]" />}
+                      />
+
+                      <div className="mt-6">
+                        <CustomProperties
+                          properties={inventoryForm.properties || {}}
+                          onPropertiesChange={handleInventoryPropertiesChange}
+                          isDisabled={!user || isLoadingItems}
+                        />
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <div className="p-4 border-2 border-default-200 rounded-xl space-y-4">
-                        <div className="flex justify-between items-center mb-8">
+                  </div>
+                </LoadingAnimation>
+
+                <LoadingAnimation
+                  condition={isLoading}
+                  skeleton={
+
+                    <div>
+                      <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" />
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center mb-4">
+                          <Skeleton className="h-6 w-20 rounded-xl" />
+                          <Skeleton className="h-8 w-28 rounded-xl" />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="p-4 border-2 border-default-200 rounded-xl space-y-4">
+                          <div className="flex justify-between items-center mb-8">
+                            <Skeleton className="h-6 w-40 rounded-full" />
+                            <div className="flex items-center gap-4">
+                              <Skeleton className="h-5 w-16 rounded-full" />
+                              <Skeleton className="h-5 w-5 rounded-full" />
+                            </div>
+                          </div>
+                          <Skeleton className="h-16 w-full rounded-xl" />
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <Skeleton className="h-16 w-full rounded-xl" />
+                            <Skeleton className="h-16 w-full rounded-xl" />
+                          </div>
+
+                          <Skeleton className="h-16 w-full rounded-xl" />
+
+
+                          <div className="p-4 border-2 border-default-200 rounded-xl bg-default-50">
+                            <div className="flex justify-between items-center mb-4">
+                              <Skeleton className="h-6 w-32 rounded-full" />
+                              <Skeleton className="h-8 w-16 rounded-lg" />
+                            </div>
+                            <Skeleton className="h-48 w-full rounded-xl bg-transparent" />
+                          </div>
+
+                          <div className="p-4 border-2 border-default-200 rounded-xl space-y-2">
+                            <div className="flex justify-between items-center mb-4">
+                              <Skeleton className="h-6 w-40 rounded-full" />
+                              <Skeleton className="h-5 w-5 rounded-full" />
+                            </div>
+                            <div className="p-4 border-2 border-default-200 rounded-xl space-y-4">
+                              <div className="flex justify-between items-center mb-8">
+                                <Skeleton className="h-6 w-32 rounded-full" />
+                                <div className="flex items-center gap-4">
+                                  <Skeleton className="h-5 w-16 rounded-full" />
+                                  <Skeleton className="h-5 w-5 rounded-full" />
+                                </div>
+                              </div>
+                              <Skeleton className="h-16 w-full rounded-xl" />
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <Skeleton className="h-16 w-full rounded-xl" />
+                                <Skeleton className="h-16 w-full rounded-xl" />
+                                <Skeleton className="h-16 w-full rounded-xl" />
+                                <Skeleton className="h-16 w-full rounded-xl" />
+                              </div>
+
+
+                              <div className="p-4 border-2 border-default-200 rounded-xl bg-default-50">
+                                <div className="flex justify-between items-center mb-4">
+                                  <Skeleton className="h-6 w-32 rounded-full" />
+                                  <Skeleton className="h-8 w-16 rounded-lg" />
+                                </div>
+                                <Skeleton className="h-48 w-full rounded-xl bg-transparent" />
+                              </div>
+                            </div>
+
+                            <div className="p-4 border-2 border-default-200 rounded-xl flex justify-between">
+                              <Skeleton className="h-6 w-40 rounded-full" />
+                              <div className="flex items-center gap-4">
+                                <Skeleton className="h-5 w-16 rounded-full" />
+                                <Skeleton className="h-5 w-5 rounded-full" />
+                              </div>
+                            </div>
+
+                            <div className="p-4 border-2 border-default-200 rounded-xl flex justify-between">
+                              <Skeleton className="h-6 w-40 rounded-full" />
+                              <div className="flex items-center gap-4">
+                                <Skeleton className="h-5 w-16 rounded-full" />
+                                <Skeleton className="h-5 w-5 rounded-full" />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="p-4 border-2 border-default-200 rounded-xl flex justify-between">
                           <Skeleton className="h-6 w-40 rounded-full" />
                           <div className="flex items-center gap-4">
                             <Skeleton className="h-5 w-16 rounded-full" />
                             <Skeleton className="h-5 w-5 rounded-full" />
                           </div>
                         </div>
-                        <Skeleton className="h-16 w-full rounded-xl" />
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <Skeleton className="h-16 w-full rounded-xl" />
-                          <Skeleton className="h-16 w-full rounded-xl" />
-                        </div>
-
-                        <Skeleton className="h-16 w-full rounded-xl" />
-
-
-                        <div className="p-4 border-2 border-default-200 rounded-xl bg-default-50">
-                          <div className="flex justify-between items-center mb-4">
-                            <Skeleton className="h-6 w-32 rounded-full" />
-                            <Skeleton className="h-8 w-16 rounded-lg" />
-                          </div>
-                          <Skeleton className="h-48 w-full rounded-xl bg-transparent" />
-                        </div>
-
-                        <div className="p-4 border-2 border-default-200 rounded-xl space-y-2">
-                          <div className="flex justify-between items-center mb-4">
-                            <Skeleton className="h-6 w-40 rounded-full" />
+                        <div className="p-4 border-2 border-default-200 rounded-xl flex justify-between">
+                          <Skeleton className="h-6 w-40 rounded-full" />
+                          <div className="flex items-center gap-4">
+                            <Skeleton className="h-5 w-16 rounded-full" />
                             <Skeleton className="h-5 w-5 rounded-full" />
                           </div>
-                          <div className="p-4 border-2 border-default-200 rounded-xl space-y-4">
-                            <div className="flex justify-between items-center mb-8">
-                              <Skeleton className="h-6 w-32 rounded-full" />
-                              <div className="flex items-center gap-4">
-                                <Skeleton className="h-5 w-16 rounded-full" />
-                                <Skeleton className="h-5 w-5 rounded-full" />
-                              </div>
-                            </div>
-                            <Skeleton className="h-16 w-full rounded-xl" />
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <Skeleton className="h-16 w-full rounded-xl" />
-                              <Skeleton className="h-16 w-full rounded-xl" />
-                              <Skeleton className="h-16 w-full rounded-xl" />
-                              <Skeleton className="h-16 w-full rounded-xl" />
-                            </div>
-
-
-                            <div className="p-4 border-2 border-default-200 rounded-xl bg-default-50">
-                              <div className="flex justify-between items-center mb-4">
-                                <Skeleton className="h-6 w-32 rounded-full" />
-                                <Skeleton className="h-8 w-16 rounded-lg" />
-                              </div>
-                              <Skeleton className="h-48 w-full rounded-xl bg-transparent" />
-                            </div>
-                          </div>
-
-                          <div className="p-4 border-2 border-default-200 rounded-xl flex justify-between">
-                            <Skeleton className="h-6 w-40 rounded-full" />
-                            <div className="flex items-center gap-4">
-                              <Skeleton className="h-5 w-16 rounded-full" />
-                              <Skeleton className="h-5 w-5 rounded-full" />
-                            </div>
-                          </div>
-
-                          <div className="p-4 border-2 border-default-200 rounded-xl flex justify-between">
-                            <Skeleton className="h-6 w-40 rounded-full" />
-                            <div className="flex items-center gap-4">
-                              <Skeleton className="h-5 w-16 rounded-full" />
-                              <Skeleton className="h-5 w-5 rounded-full" />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="p-4 border-2 border-default-200 rounded-xl flex justify-between">
-                        <Skeleton className="h-6 w-40 rounded-full" />
-                        <div className="flex items-center gap-4">
-                          <Skeleton className="h-5 w-16 rounded-full" />
-                          <Skeleton className="h-5 w-5 rounded-full" />
-                        </div>
-                      </div>
-
-                      <div className="p-4 border-2 border-default-200 rounded-xl flex justify-between">
-                        <Skeleton className="h-6 w-40 rounded-full" />
-                        <div className="flex items-center gap-4">
-                          <Skeleton className="h-5 w-16 rounded-full" />
-                          <Skeleton className="h-5 w-5 rounded-full" />
                         </div>
                       </div>
                     </div>
-                  </div>
 
-                }>
-                <div>
-                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Bulk Items</h2>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center mb-4">
-                      <div className="flex items-center gap-2">
-                        {bulkItems.length > 0 && (
-                          <Chip color="default" variant="flat" size="sm">
-                            {bulkItems.length} bulk{bulkItems.length > 1 ? "s" : ""}
-                          </Chip>
-                        )}
-                        {unitItems.length > 0 && (
-                          <Chip color="default" variant="flat" size="sm">
-                            {unitItems.length} unit{unitItems.length > 1 ? "s" : ""}
-                          </Chip>
-                        )}
-                        {calculateTotalInventoryUnits() > 0 && (
-                          <Chip color="default" variant="flat" size="sm">
-                            {formatNumber(calculateTotalInventoryUnits())} {inventoryForm.unit}
-                          </Chip>
-                        )}
+                  }>
+                  <div>
+                    <h2 className="text-xl font-semibold mb-4 w-full text-center">Bulk Items</h2>
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center mb-4">
+                        <div className="flex items-center gap-2">
+                          {bulkItems.length > 0 && (
+                            <Chip color="default" variant="flat" size="sm">
+                              {bulkItems.length} bulk{bulkItems.length > 1 ? "s" : ""}
+                            </Chip>
+                          )}
+                          {unitItems.length > 0 && (
+                            <Chip color="default" variant="flat" size="sm">
+                              {unitItems.length} unit{unitItems.length > 1 ? "s" : ""}
+                            </Chip>
+                          )}
+                          {calculateTotalInventoryUnits() > 0 && (
+                            <Chip color="default" variant="flat" size="sm">
+                              {formatNumber(calculateTotalInventoryUnits())} {inventoryForm.unit}
+                            </Chip>
+                          )}
+                        </div>
+
+                        <Button
+                          color="primary"
+                          variant="shadow"
+                          size="sm"
+                          onPress={handleAddBulk}
+                          startContent={<Icon icon="mdi:plus" />}
+                        >
+                          Add Bulk
+                        </Button>
                       </div>
 
-                      <Button
-                        color="primary"
-                        variant="shadow"
-                        size="sm"
-                        onPress={handleAddBulk}
-                        startContent={<Icon icon="mdi:plus" />}
-                      >
-                        Add Bulk
-                      </Button>
-                    </div>
-
-                    {/* Bulk items content */}
-                    <div>
-                      <AnimatePresence>
-                        {bulkItems.length === 0 ? (
-                          <motion.div {...motionTransition}>
-                            <div className="py-8 h-48 text-center text-default-500 border border-dashed border-default-300 rounded-lg justify-center flex flex-col items-center">
-                              <Icon icon="mdi:package-variant-closed" className="mx-auto mb-2 opacity-50" width={40} height={40} />
-                              <p>No bulk items added yet</p>
-                              <Button
-                                color="primary"
-                                variant="light"
-                                size="sm"
-                                className="mt-3"
-                                onPress={handleAddBulk}
-                              >
-                                Add your first bulk item
-                              </Button>
-                            </div>
-                          </motion.div>
-                        ) : null}
-                      </AnimatePresence>
-
-                      <AnimatePresence>
-                        {!isLoading && bulkItems.length > 0 && (
-                          <motion.div {...motionTransition} className="-m-4">
-                            <Accordion
-                              selectionMode="multiple"
-                              variant="splitted"
-                              selectedKeys={expandedBulks}
-                              onSelectionChange={(keys) => setExpandedBulks(keys as Set<string>)}
-                              itemClasses={{
-                                base: "p-0 bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
-                                title: "font-normal text-lg font-semibold",
-                                trigger: "p-4 data-[hover=true]:bg-default-100 h-14 flex items-center transition-colors",
-                                indicator: "text-medium",
-                                content: "text-small p-0",
-                              }}>
-                              {bulkItems.map((bulk, index) => (
-                                <AccordionItem
-                                  key={bulk.id}
-                                  aria-label={`Bulk ${bulk.id}`}
-                                  className={`${index === 0 ? 'mt-4' : ''} mx-2`}
-                                  title={
-                                    <div className="flex justify-between items-center w-full">
-                                      <div className="flex items-center gap-2">
-                                        <span className="font-medium">Bulk {bulk.id}</span>
-                                      </div>
-                                      <div className="flex gap-2">
-                                        {bulk.unit && bulk.unit !== "" && bulk.unit_value! > 0 && (
-                                          <Chip color="primary" variant="flat" size="sm">
-                                            {formatNumber(bulk.unit_value || 0)} {bulk.unit}
-                                          </Chip>
-                                        )}
-                                        {bulk.bulk_unit && (
-                                          <Chip color="secondary" variant="flat" size="sm">
-                                            {bulk.bulk_unit}
-                                          </Chip>
-                                        )}
-                                        {bulk.status && bulk.status !== "AVAILABLE" && (
-                                          <Chip color="warning" variant="flat" size="sm">
-                                            {bulk.status}
-                                          </Chip>
-                                        )}
-                                      </div>
-                                    </div>
-                                  }
+                      {/* Bulk items content */}
+                      <div>
+                        <AnimatePresence>
+                          {bulkItems.length === 0 ? (
+                            <motion.div {...motionTransition}>
+                              <div className="py-8 h-48 text-center text-default-500 border border-dashed border-default-300 rounded-lg justify-center flex flex-col items-center">
+                                <Icon icon="mdi:package-variant-closed" className="mx-auto mb-2 opacity-50" width={40} height={40} />
+                                <p>No bulk items added yet</p>
+                                <Button
+                                  color="primary"
+                                  variant="light"
+                                  size="sm"
+                                  className="mt-3"
+                                  onPress={handleAddBulk}
                                 >
-                                  <div>
-                                    {bulk.uuid && (
-                                      <Input
-                                        label="Bulk Identifier"
-                                        value={bulk.uuid}
-                                        isReadOnly
-                                        classNames={{ inputWrapper: inputStyle.inputWrapper, base: "p-4 pb-0" }}
-                                        startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
-                                        endContent={
-                                          <Button
-                                            variant="flat"
-                                            color="default"
-                                            isIconOnly
-                                            onPress={() => copyToClipboard(bulk.uuid || "")}
-                                          >
-                                            <Icon icon="mdi:content-copy" className="text-default-500" />
-                                          </Button>
-                                        }
-                                      />
-                                    )}
+                                  Add your first bulk item
+                                </Button>
+                              </div>
+                            </motion.div>
+                          ) : null}
+                        </AnimatePresence>
 
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pb-0">
-                                      <NumberInput
-                                        label="Unit Value"
-                                        placeholder="0"
-                                        value={bulk.unit_value || 0}
-                                        onValueChange={(value) => handleBulkChange(bulk.id, 'unit_value', value)}
-                                        isRequired
-                                        isDisabled={!isBulkEditable(bulk)}
-                                        minValue={0}
-                                        classNames={inputStyle}
-                                        endContent={
-                                          <div className="absolute right-10 bottom-2">
-                                            {inventoryForm.unit && (
-                                              <Chip
-                                                color="primary"
-                                                variant="flat"
-                                                size="sm"
-                                              >
-                                                {inventoryForm.unit}
-                                              </Chip>
-                                            )}
-                                          </div>
+                        <AnimatePresence>
+                          {!isLoading && bulkItems.length > 0 && (
+                            <motion.div {...motionTransition} className="-m-4">
+                              <Accordion
+                                selectionMode="multiple"
+                                variant="splitted"
+                                selectedKeys={expandedBulks}
+                                onSelectionChange={(keys) => setExpandedBulks(keys as Set<string>)}
+                                itemClasses={{
+                                  base: "p-0 bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
+                                  title: "font-normal text-lg font-semibold",
+                                  trigger: "p-4 data-[hover=true]:bg-default-100 h-14 flex items-center transition-colors",
+                                  indicator: "text-medium",
+                                  content: "text-small p-0",
+                                }}>
+                                {bulkItems.map((bulk, index) => (
+                                  <AccordionItem
+                                    key={bulk.id}
+                                    aria-label={`Bulk ${bulk.id}`}
+                                    className={`${index === 0 ? 'mt-4' : ''} mx-2`}
+                                    title={
+                                      <div className="flex justify-between items-center w-full">
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-medium">Bulk {bulk.id}</span>
+                                        </div>
+                                        <div className="flex gap-2">
+                                          {bulk.unit && bulk.unit !== "" && bulk.unit_value! > 0 && (
+                                            <Chip color="primary" variant="flat" size="sm">
+                                              {formatNumber(bulk.unit_value || 0)} {bulk.unit}
+                                            </Chip>
+                                          )}
+                                          {bulk.bulk_unit && (
+                                            <Chip color="secondary" variant="flat" size="sm">
+                                              {bulk.bulk_unit}
+                                            </Chip>
+                                          )}
+                                          {bulk.status && bulk.status !== "AVAILABLE" && (
+                                            <Chip color="warning" variant="flat" size="sm">
+                                              {bulk.status}
+                                            </Chip>
+                                          )}
+                                        </div>
+                                      </div>
+                                    }
+                                  >
+                                    <div>
+                                      {bulk.uuid && (
+                                        <Input
+                                          label="Bulk Identifier"
+                                          value={bulk.uuid}
+                                          isReadOnly
+                                          classNames={{ inputWrapper: inputStyle.inputWrapper, base: "p-4 pb-0" }}
+                                          startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
+                                          endContent={
+                                            <Button
+                                              variant="flat"
+                                              color="default"
+                                              isIconOnly
+                                              onPress={() => copyToClipboard(bulk.uuid || "")}
+                                            >
+                                              <Icon icon="mdi:content-copy" className="text-default-500" />
+                                            </Button>
+                                          }
+                                        />
+                                      )}
 
-                                        }
-                                        startContent={<Icon icon="mdi:numeric" className="text-default-500 mb-[0.1rem]" width={16} />}
-                                      />
-
-                                      <NumberInput
-                                        label="Total Cost"
-                                        placeholder="0.00"
-                                        value={bulk.cost || 0}
-                                        onValueChange={(value) => handleBulkChange(bulk.id, 'cost', value)}
-                                        isRequired
-                                        isDisabled={!isBulkEditable(bulk)}
-                                        minValue={0}
-                                        classNames={inputStyle}
-                                        startContent={
-                                          <div className="flex items-center">
-                                            <Icon icon="mdi:currency-php" className="text-default-500 mb-[0.2rem]" />
-                                          </div>
-                                        }
-                                      />
-
-                                    </div>
-
-                                    <Autocomplete
-                                      label="Bulk Unit"
-                                      placeholder="Select bulk unit"
-                                      selectedKey={bulk.bulk_unit || ""}
-                                      onSelectionChange={(key) => handleBulkChange(bulk.id, 'bulk_unit', key)}
-                                      isRequired
-                                      isDisabled={!isBulkEditable(bulk)}
-                                      inputProps={autoCompleteStyle}
-                                      classNames={{ base: "p-4 pb-0" }}
-                                      startContent={<Icon icon="mdi:cube-outline"
-                                        className="text-default-500 -mb-[0.1rem]" width={24} />}
-                                    >
-                                      {bulkUnitOptions.map((unit) => (
-                                        <AutocompleteItem key={unit}>{unit}</AutocompleteItem>
-                                      ))}
-                                    </Autocomplete>
-
-                                    <div className="p-4 pb-0">
-                                      <CustomProperties
-                                        properties={bulk.properties || {}}
-                                        onPropertiesChange={(properties) => handleBulkPropertiesChange(bulk.id, properties)}
-                                        onInheritFrom={() => handleInheritBulkProperties(bulk.id)}
-                                        showInheritButton={true}
-                                        isDisabled={!isBulkEditable(bulk)}
-                                      />
-                                    </div>
-
-                                    <div className="flex items-center">
-                                      <Switch
-                                        isSelected={bulk.is_single_item}
-                                        onValueChange={(value) => handleBulkChange(bulk.id, 'is_single_item', value)}
-                                        color="primary"
-                                        isDisabled={!isBulkEditable(bulk)}
-                                        className="p-4"
-                                      />
-                                      <span className="ml-2">This is a single large item (e.g., mother roll)</span>
-                                    </div>
-
-                                    <div className="overflow-hidden px-4 pb-4">
-                                      <AnimatePresence>
-                                        {bulk.is_single_item && (
-                                          <motion.div
-                                            {...motionTransition}
-                                          >
-                                            <div className="border-2 border-default-200 rounded-xl p-4">
-                                              <div className="flex justify-between items-center">
-                                                <h3 className="text-lg font-semibold">Single Item Details</h3>
-                                                <Tooltip
-                                                  content="For single items, these details will be used for the automatically generated unit">
-                                                  <span>
-                                                    <Icon icon="mdi:information-outline" className="text-default-500" width={16} height={16} />
-                                                  </span>
-                                                </Tooltip>
-                                              </div>
-
-                                              {unitItems.find(u => u.bulkId === bulk.id)?.uuid && (
-                                                <Input
-                                                  label="Item Unit Identifier"
-                                                  value={unitItems.find(u => u.bulkId === bulk.id)?.uuid || ""}
-                                                  isReadOnly
-                                                  className="mt-4"
-                                                  classNames={{ inputWrapper: inputStyle.inputWrapper }}
-                                                  startContent={<Icon icon="mdi:cube-outline" className="text-default-500 mb-[0.2rem]" />}
-                                                  endContent={
-                                                    <Button
-                                                      variant="flat"
-                                                      color="default"
-                                                      isIconOnly
-                                                      onPress={() => copyToClipboard(unitItems.find(u => u.bulkId === bulk.id)?.uuid || "")}
-                                                    >
-                                                      <Icon icon="mdi:content-copy" className="text-default-500" />
-                                                    </Button>
-                                                  }
-                                                />
-                                              )}
-
-                                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                                                <Input
-                                                  label="Item Code"
-                                                  placeholder="Enter code"
-                                                  value={
-                                                    unitItems.find(u => u.bulkId === bulk.id)?.code || ""
-                                                  }
-                                                  onChange={(e) => {
-                                                    // Find existing unit or create one
-                                                    let unit = unitItems.find(u => u.bulkId === bulk.id);
-                                                    if (unit) {
-                                                      handleUnitChange(unit.id, 'code', e.target.value);
-                                                    } else {
-                                                      // Create a single unit for this bulk with inherited unit
-                                                      const newUnit = {
-                                                        id: nextUnitId,
-                                                        bulkId: bulk.id,
-                                                        company_uuid: user.company_uuid,
-                                                        code: e.target.value,
-                                                        unit_value: bulk.unit_value || 0,
-                                                        unit: bulk.unit || "", // Always inherit from bulk
-                                                        name: "",
-                                                        cost: bulk.cost || 0,
-                                                        properties: {},
-                                                        isNew: true
-                                                      };
-                                                      setUnitItems([...unitItems, newUnit]);
-                                                      setNextUnitId(nextUnitId + 1);
-                                                    }
-                                                  }}
-                                                  isDisabled={!isBulkEditable(bulk)}
-                                                  isRequired
-                                                  classNames={inputStyle}
-                                                  startContent={<Icon icon="mdi:barcode" className="text-default-500 mb-[0.2rem]" />}
-                                                />
-
-                                                <Input
-                                                  label="Item Name"
-                                                  placeholder="Enter name"
-                                                  value={
-                                                    unitItems.find(u => u.bulkId === bulk.id)?.name || inventoryForm.name
-                                                  }
-                                                  onChange={(e) => {
-                                                    // Find existing unit or create one
-                                                    let unit = unitItems.find(u => u.bulkId === bulk.id);
-                                                    if (unit) {
-                                                      handleUnitChange(unit.id, 'name', e.target.value);
-                                                    } else {
-                                                      // Create a single unit for this bulk
-                                                      const newUnit = {
-                                                        id: nextUnitId,
-                                                        bulkId: bulk.id,
-                                                        company_uuid: user.company_uuid,
-                                                        code: "",
-                                                        unit_value: bulk.unit_value || 0,
-                                                        unit: bulk.unit || "", // Always inherit from bulk
-                                                        name: e.target.value,
-                                                        cost: bulk.cost || 0,
-                                                        properties: {},
-                                                        isNew: true
-                                                      };
-                                                      setUnitItems([...unitItems, newUnit]);
-                                                      setNextUnitId(nextUnitId + 1);
-                                                    }
-                                                  }}
-                                                  isDisabled={!isBulkEditable(bulk)}
-                                                  isRequired
-                                                  classNames={inputStyle}
-                                                  startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
-                                                />
-                                              </div>
-
-
-                                            </div>
-                                          </motion.div>
-                                        )}
-
-                                      </AnimatePresence>
-                                      <AnimatePresence>
-
-                                        {!bulk.is_single_item && (
-                                          <motion.div
-                                            {...motionTransition}
-                                          >
-                                            <div className="border-2 border-default-200 rounded-xl">
-                                              <div className="flex justify-between items-center p-4 pb-0">
-                                                <h3 className="text-lg font-semibold">Units in this Bulk</h3>
-                                                <Button
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pb-0">
+                                        <NumberInput
+                                          label="Unit Value"
+                                          placeholder="0"
+                                          value={bulk.unit_value || 0}
+                                          onValueChange={(value) => handleBulkChange(bulk.id, 'unit_value', value)}
+                                          isRequired
+                                          isDisabled={!isBulkEditable(bulk)}
+                                          minValue={0}
+                                          classNames={inputStyle}
+                                          endContent={
+                                            <div className="absolute right-10 bottom-2">
+                                              {inventoryForm.unit && (
+                                                <Chip
                                                   color="primary"
                                                   variant="flat"
                                                   size="sm"
-                                                  onPress={() => handleAddUnit(bulk.id)}
-                                                  startContent={<Icon icon="mdi:plus" />}
-                                                  isDisabled={!isBulkEditable(bulk)}
                                                 >
-                                                  Add Unit
+                                                  {inventoryForm.unit}
+                                                </Chip>
+                                              )}
+                                            </div>
+
+                                          }
+                                          startContent={<Icon icon="mdi:numeric" className="text-default-500 mb-[0.1rem]" width={16} />}
+                                        />
+
+                                        <NumberInput
+                                          label="Total Cost"
+                                          placeholder="0.00"
+                                          value={bulk.cost || 0}
+                                          onValueChange={(value) => handleBulkChange(bulk.id, 'cost', value)}
+                                          isRequired
+                                          isDisabled={!isBulkEditable(bulk)}
+                                          minValue={0}
+                                          classNames={inputStyle}
+                                          startContent={
+                                            <div className="flex items-center">
+                                              <Icon icon="mdi:currency-php" className="text-default-500 mb-[0.2rem]" />
+                                            </div>
+                                          }
+                                        />
+
+                                      </div>
+
+                                      <Autocomplete
+                                        label="Bulk Unit"
+                                        placeholder="Select bulk unit"
+                                        selectedKey={bulk.bulk_unit || ""}
+                                        onSelectionChange={(key) => handleBulkChange(bulk.id, 'bulk_unit', key)}
+                                        isRequired
+                                        isDisabled={!isBulkEditable(bulk)}
+                                        inputProps={autoCompleteStyle}
+                                        classNames={{ base: "p-4 pb-0" }}
+                                        startContent={<Icon icon="mdi:cube-outline"
+                                          className="text-default-500 -mb-[0.1rem]" width={24} />}
+                                      >
+                                        {bulkUnitOptions.map((unit) => (
+                                          <AutocompleteItem key={unit}>{unit}</AutocompleteItem>
+                                        ))}
+                                      </Autocomplete>
+
+                                      <div className="p-4 pb-0">
+                                        <CustomProperties
+                                          properties={bulk.properties || {}}
+                                          onPropertiesChange={(properties) => handleBulkPropertiesChange(bulk.id, properties)}
+                                          onInheritFrom={() => handleInheritBulkProperties(bulk.id)}
+                                          showInheritButton={true}
+                                          isDisabled={!isBulkEditable(bulk)}
+                                        />
+                                      </div>
+
+                                      <div className="flex items-center">
+                                        <Switch
+                                          isSelected={bulk.is_single_item}
+                                          onValueChange={(value) => handleBulkChange(bulk.id, 'is_single_item', value)}
+                                          color="primary"
+                                          isDisabled={!isBulkEditable(bulk)}
+                                          className="p-4"
+                                        />
+                                        <span className="ml-2">This is a single large item (e.g., mother roll)</span>
+                                      </div>
+
+                                      <div className="overflow-hidden px-4 pb-4">
+                                        <AnimatePresence>
+                                          {bulk.is_single_item && (
+                                            <motion.div
+                                              {...motionTransition}
+                                            >
+                                              <div className="border-2 border-default-200 rounded-xl p-4">
+                                                <div className="flex justify-between items-center">
+                                                  <h3 className="text-lg font-semibold">Single Item Details</h3>
+                                                  <Tooltip
+                                                    content="For single items, these details will be used for the automatically generated unit">
+                                                    <span>
+                                                      <Icon icon="mdi:information-outline" className="text-default-500" width={16} height={16} />
+                                                    </span>
+                                                  </Tooltip>
+                                                </div>
+
+                                                {unitItems.find(u => u.bulkId === bulk.id)?.uuid && (
+                                                  <Input
+                                                    label="Item Unit Identifier"
+                                                    value={unitItems.find(u => u.bulkId === bulk.id)?.uuid || ""}
+                                                    isReadOnly
+                                                    className="mt-4"
+                                                    classNames={{ inputWrapper: inputStyle.inputWrapper }}
+                                                    startContent={<Icon icon="mdi:cube-outline" className="text-default-500 mb-[0.2rem]" />}
+                                                    endContent={
+                                                      <Button
+                                                        variant="flat"
+                                                        color="default"
+                                                        isIconOnly
+                                                        onPress={() => copyToClipboard(unitItems.find(u => u.bulkId === bulk.id)?.uuid || "")}
+                                                      >
+                                                        <Icon icon="mdi:content-copy" className="text-default-500" />
+                                                      </Button>
+                                                    }
+                                                  />
+                                                )}
+
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                                                  <Input
+                                                    label="Item Code"
+                                                    placeholder="Enter code"
+                                                    value={
+                                                      unitItems.find(u => u.bulkId === bulk.id)?.code || ""
+                                                    }
+                                                    onChange={(e) => {
+                                                      // Find existing unit or create one
+                                                      let unit = unitItems.find(u => u.bulkId === bulk.id);
+                                                      if (unit) {
+                                                        handleUnitChange(unit.id, 'code', e.target.value);
+                                                      } else {
+                                                        // Create a single unit for this bulk with inherited unit
+                                                        const newUnit = {
+                                                          id: nextUnitId,
+                                                          bulkId: bulk.id,
+                                                          company_uuid: user.company_uuid,
+                                                          code: e.target.value,
+                                                          unit_value: bulk.unit_value || 0,
+                                                          unit: bulk.unit || "", // Always inherit from bulk
+                                                          name: "",
+                                                          cost: bulk.cost || 0,
+                                                          properties: {},
+                                                          isNew: true
+                                                        };
+                                                        setUnitItems([...unitItems, newUnit]);
+                                                        setNextUnitId(nextUnitId + 1);
+                                                      }
+                                                    }}
+                                                    isDisabled={!isBulkEditable(bulk)}
+                                                    isRequired
+                                                    classNames={inputStyle}
+                                                    startContent={<Icon icon="mdi:barcode" className="text-default-500 mb-[0.2rem]" />}
+                                                  />
+
+                                                  <Input
+                                                    label="Item Name"
+                                                    placeholder="Enter name"
+                                                    value={
+                                                      unitItems.find(u => u.bulkId === bulk.id)?.name || inventoryForm.name
+                                                    }
+                                                    onChange={(e) => {
+                                                      // Find existing unit or create one
+                                                      let unit = unitItems.find(u => u.bulkId === bulk.id);
+                                                      if (unit) {
+                                                        handleUnitChange(unit.id, 'name', e.target.value);
+                                                      } else {
+                                                        // Create a single unit for this bulk
+                                                        const newUnit = {
+                                                          id: nextUnitId,
+                                                          bulkId: bulk.id,
+                                                          company_uuid: user.company_uuid,
+                                                          code: "",
+                                                          unit_value: bulk.unit_value || 0,
+                                                          unit: bulk.unit || "", // Always inherit from bulk
+                                                          name: e.target.value,
+                                                          cost: bulk.cost || 0,
+                                                          properties: {},
+                                                          isNew: true
+                                                        };
+                                                        setUnitItems([...unitItems, newUnit]);
+                                                        setNextUnitId(nextUnitId + 1);
+                                                      }
+                                                    }}
+                                                    isDisabled={!isBulkEditable(bulk)}
+                                                    isRequired
+                                                    classNames={inputStyle}
+                                                    startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
+                                                  />
+                                                </div>
+
+
+                                              </div>
+                                            </motion.div>
+                                          )}
+
+                                        </AnimatePresence>
+                                        <AnimatePresence>
+
+                                          {!bulk.is_single_item && (
+                                            <motion.div
+                                              {...motionTransition}
+                                            >
+                                              <div className="border-2 border-default-200 rounded-xl">
+                                                <div className="flex justify-between items-center p-4 pb-0">
+                                                  <h3 className="text-lg font-semibold">Units in this Bulk</h3>
+                                                  <Button
+                                                    color="primary"
+                                                    variant="flat"
+                                                    size="sm"
+                                                    onPress={() => handleAddUnit(bulk.id)}
+                                                    startContent={<Icon icon="mdi:plus" />}
+                                                    isDisabled={!isBulkEditable(bulk)}
+                                                  >
+                                                    Add Unit
+                                                  </Button>
+                                                </div>
+
+                                                <AnimatePresence>
+                                                  {unitItems.filter(unit => unit.bulkId === bulk.id).length === 0 && (
+                                                    <motion.div
+                                                      {...motionTransition}
+                                                    >
+                                                      <div className="py-4 m-4 h-48 text-center text-default-500 border border-dashed border-default-200 rounded-lg justify-center flex flex-col items-center">
+                                                        <Icon icon="ant-design:product-filled" className="mx-auto mb-2 opacity-50" width={40} height={40} />
+                                                        <p className="text-sm">No units added to this bulk yet</p>
+                                                        <Button
+                                                          color="primary"
+                                                          variant="light"
+                                                          size="sm"
+                                                          className="mt-2"
+                                                          onPress={() => handleAddUnit(bulk.id)}
+                                                        >
+                                                          Add your first unit
+                                                        </Button>
+                                                      </div>
+                                                    </motion.div>
+                                                  )}
+                                                </AnimatePresence>
+                                                <AnimatePresence>
+                                                  {unitItems.filter(unit => unit.bulkId === bulk.id).length > 0 && (
+                                                    <motion.div
+                                                      {...motionTransition}
+                                                    >
+                                                      <Accordion
+                                                        selectionMode="multiple"
+                                                        variant="splitted"
+                                                        selectedKeys={expandedUnits}
+                                                        onSelectionChange={(keys) => setExpandedUnits(keys as Set<string>)}
+                                                        itemClasses={
+                                                          {
+                                                            base: "p-0 w-full bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
+                                                            title: "font-normal text-lg font-semibold",
+                                                            trigger: "p-4 data-[hover=true]:bg-default-100 h-14 flex items-center transition-colors",
+                                                            indicator: "text-medium",
+                                                            content: "text-small p-0",
+                                                          }
+                                                        }
+                                                        className="p-4 overflow-hidden"
+                                                      >
+                                                        {unitItems
+                                                          .filter(unit => unit.bulkId === bulk.id)
+                                                          .map((unit) => (
+                                                            <AccordionItem
+                                                              key={unit.id}
+                                                              title={
+                                                                <div className="flex justify-between items-center w-full">
+                                                                  <div className="flex items-center gap-2">
+                                                                    <span>
+                                                                      {unit.name ?
+                                                                        `${unit.name}` :
+                                                                        `Unit ${unit.id}`}
+                                                                    </span>
+                                                                  </div>
+                                                                  {unit.unit_value! > 0 && unit.unit && unit.unit !== "" &&
+                                                                    <Chip size="sm" color="primary" variant="flat">
+                                                                      {formatNumber(unit.unit_value || 0)} {unit.unit}
+                                                                    </Chip>
+                                                                  }
+                                                                </div>
+                                                              }
+                                                            >
+                                                              <div className="">
+                                                                {unit.uuid && (
+                                                                  <Input
+                                                                    label="Item Unit Identifier"
+                                                                    value={unit.uuid}
+                                                                    isReadOnly
+                                                                    classNames={{ inputWrapper: inputStyle.inputWrapper, base: "p-4 pb-0" }}
+                                                                    startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
+                                                                    endContent={
+                                                                      <Button
+                                                                        variant="flat"
+                                                                        color="default"
+                                                                        isIconOnly
+                                                                        onPress={() => copyToClipboard(unit.uuid || "")}
+                                                                      >
+                                                                        <Icon icon="mdi:content-copy" className="text-default-500" />
+                                                                      </Button>
+                                                                    }
+                                                                  />
+                                                                )}
+
+                                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 my-4 py-0">
+                                                                  <Input
+                                                                    label="Item Code"
+                                                                    placeholder="Enter code"
+                                                                    value={unit.code || ""}
+                                                                    onChange={(e) => handleUnitChange(unit.id, 'code', e.target.value)}
+                                                                    isDisabled={!isBulkEditable(bulk)}
+                                                                    isRequired
+                                                                    classNames={inputStyle}
+                                                                    startContent={<Icon icon="mdi:barcode" className="text-default-500 mb-[0.2rem]" />}
+                                                                  />
+
+                                                                  <Input
+                                                                    label="Item Name"
+                                                                    placeholder="Enter name"
+                                                                    value={unit.name || inventoryForm.name}
+                                                                    onChange={(e) => handleUnitChange(unit.id, 'name', e.target.value)}
+                                                                    isDisabled={!isBulkEditable(bulk)}
+                                                                    isRequired
+                                                                    classNames={inputStyle}
+                                                                    startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
+                                                                  />
+
+                                                                  <NumberInput
+                                                                    label="Unit Value"
+                                                                    placeholder="0"
+                                                                    value={unit.unit_value || 0}
+                                                                    onValueChange={(value) => handleUnitChange(unit.id, 'unit_value', value)}
+                                                                    isDisabled={!isBulkEditable(bulk)}
+                                                                    isRequired
+                                                                    minValue={0}
+                                                                    classNames={inputStyle}
+                                                                    endContent={
+                                                                      <div className="absolute right-10 bottom-2">
+                                                                        {unit.unit && unit.unit !== "" &&
+                                                                          <Chip
+                                                                            color="primary"
+                                                                            variant="flat"
+                                                                            size="sm"
+                                                                          >
+                                                                            {unit.unit}
+                                                                          </Chip>
+                                                                        }
+                                                                      </div>
+                                                                    }
+                                                                    startContent={<Icon icon="mdi:numeric" className="text-default-500 mb-[0.2rem] w-6" />}
+                                                                  />
+
+                                                                  <NumberInput
+                                                                    label="Cost"
+                                                                    placeholder="0.00"
+                                                                    value={unit.cost || 0}
+                                                                    onValueChange={(value) => handleUnitChange(unit.id, 'cost', value)}
+                                                                    isDisabled={!isBulkEditable(bulk)}
+                                                                    isRequired
+                                                                    minValue={0}
+                                                                    classNames={{
+                                                                      inputWrapper: `${inputStyle.inputWrapper} md:col-span-2`
+                                                                    }}
+                                                                    startContent={
+                                                                      <div className="flex items-center">
+                                                                        <Icon icon="mdi:currency-php" className="text-default-500 mb-[0.2rem]" />
+                                                                      </div>
+                                                                    }
+                                                                  />
+                                                                </div>
+
+                                                                <div className="p-4 pt-0">
+                                                                  <CustomProperties
+                                                                    properties={unit.properties || {}}
+                                                                    onPropertiesChange={(properties) => handleUnitPropertiesChange(unit.id, properties)}
+                                                                    onInheritFrom={() => handleInheritUnitProperties(unit.id)}
+                                                                    showInheritButton={true}
+                                                                    isDisabled={!isBulkEditable(bulk)}
+                                                                  />
+                                                                </div>
+
+                                                                <div className="flex justify-end gap-2 bg-default-100/50 p-4">
+                                                                  <Popover
+                                                                    isOpen={duplicatePopoverOpen && itemToDuplicate?.type === 'unit' && itemToDuplicate.id === unit.id}
+                                                                    onOpenChange={(open) => {
+                                                                      setDuplicatePopoverOpen(open);
+                                                                      if (open) {
+                                                                        setItemToDuplicate({ type: 'unit', id: unit.id });
+                                                                        setDuplicateCount(1);
+                                                                      }
+                                                                    }}
+                                                                  >
+                                                                    <PopoverTrigger>
+                                                                      <Button
+                                                                        color="secondary"
+                                                                        variant="flat"
+                                                                        size="sm"
+                                                                        isDisabled={!isBulkEditable(bulk)}
+                                                                        {...(isBulkEditable(bulk) ? {
+                                                                          onPress: () => {
+                                                                            setDuplicatePopoverOpen(true);
+                                                                            setItemToDuplicate({ type: 'bulk', id: bulk.id });
+                                                                            setDuplicateCount(1);
+                                                                          }
+                                                                        } : {})}
+                                                                      >
+                                                                        <Icon icon="ion:duplicate" width={14} height={14} />
+                                                                        Duplicate
+                                                                      </Button>
+                                                                    </PopoverTrigger>
+                                                                    <PopoverContent className="w-56">
+                                                                      <div className="p-2 space-y-3">
+                                                                        <div className="text-sm font-medium">Duplicate Unit</div>
+                                                                        <NumberInput
+                                                                          label="Number of copies"
+                                                                          value={duplicateCount}
+                                                                          onValueChange={setDuplicateCount}
+                                                                          minValue={1}
+                                                                          maxValue={10}
+                                                                          classNames={{
+                                                                            inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200"
+                                                                          }}
+                                                                        />
+                                                                        <div className="flex justify-end gap-2 mt-2">
+
+                                                                          <Button
+                                                                            size="sm"
+                                                                            variant="flat"
+                                                                            onPress={() => setDuplicatePopoverOpen(false)}
+                                                                          >
+                                                                            Cancel
+                                                                          </Button>
+                                                                          <Button
+                                                                            size="sm"
+                                                                            color="primary"
+                                                                            variant="shadow"
+                                                                            onPress={() => {
+                                                                              handleDuplicateUnit(unit.id, duplicateCount);
+                                                                              setDuplicatePopoverOpen(false);
+                                                                            }}
+                                                                          >
+                                                                            Duplicate
+                                                                          </Button>
+                                                                        </div>
+                                                                      </div>
+                                                                    </PopoverContent>
+                                                                  </Popover>
+
+                                                                  <Button
+                                                                    color="danger"
+                                                                    variant="flat"
+                                                                    size="sm"
+                                                                    onPress={() => handleDeleteUnit(unit.id)}
+                                                                    startContent={<Icon icon="mdi:delete" width={16} height={16} />}
+                                                                    isDisabled={!isBulkEditable(bulk)}
+                                                                  >
+                                                                    Remove
+                                                                  </Button>
+                                                                </div>
+                                                              </div>
+                                                            </AccordionItem>
+                                                          ))}
+                                                      </Accordion>
+                                                    </motion.div>
+                                                  )}
+                                                </AnimatePresence>
+
+                                              </div>
+                                            </motion.div>
+                                          )}
+                                        </AnimatePresence>
+                                      </div>
+
+                                      <div className="flex justify-end gap-2 bg-default-100/50 p-4">
+                                        <Popover
+                                          isOpen={duplicatePopoverOpen && itemToDuplicate?.type === 'bulk' && itemToDuplicate.id === bulk.id}
+                                          onOpenChange={(open) => {
+                                            setDuplicatePopoverOpen(open);
+                                            if (open) {
+                                              setItemToDuplicate({ type: 'bulk', id: bulk.id });
+                                              setDuplicateCount(1);
+                                            }
+                                          }}
+                                        >
+                                          <PopoverTrigger>
+                                            <Button
+                                              color="secondary"
+                                              variant="flat"
+                                              size="sm"
+                                              isDisabled={!isBulkEditable(bulk)}
+                                            >
+                                              <Icon icon="ion:duplicate" width={14} height={14} />
+                                              Duplicate
+                                            </Button>
+                                          </PopoverTrigger>
+                                          <PopoverContent className="w-56">
+                                            <div className="p-2 space-y-3">
+                                              <div className="text-sm font-medium">Duplicate Bulk</div>
+                                              <NumberInput
+                                                label="Number of copies"
+                                                value={duplicateCount}
+                                                onValueChange={setDuplicateCount}
+                                                minValue={1}
+                                                maxValue={10}
+                                                classNames={{
+                                                  inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200"
+                                                }}
+                                              />
+                                              <div className="flex justify-end gap-2 mt-2">
+                                                <Button
+                                                  size="sm"
+                                                  variant="flat"
+                                                  onPress={() => setDuplicatePopoverOpen(false)}
+                                                >
+                                                  Cancel
+                                                </Button>
+                                                <Button
+                                                  size="sm"
+                                                  color="primary"
+                                                  variant="shadow"
+                                                  onPress={() => {
+                                                    handleDuplicateBulk(bulk.id, duplicateCount);
+                                                    setDuplicatePopoverOpen(false);
+                                                  }}
+                                                >
+                                                  Duplicate
                                                 </Button>
                                               </div>
-
-                                              <AnimatePresence>
-                                                {unitItems.filter(unit => unit.bulkId === bulk.id).length === 0 && (
-                                                  <motion.div
-                                                    {...motionTransition}
-                                                  >
-                                                    <div className="py-4 m-4 h-48 text-center text-default-500 border border-dashed border-default-200 rounded-lg justify-center flex flex-col items-center">
-                                                      <Icon icon="ant-design:product-filled" className="mx-auto mb-2 opacity-50" width={40} height={40} />
-                                                      <p className="text-sm">No units added to this bulk yet</p>
-                                                      <Button
-                                                        color="primary"
-                                                        variant="light"
-                                                        size="sm"
-                                                        className="mt-2"
-                                                        onPress={() => handleAddUnit(bulk.id)}
-                                                      >
-                                                        Add your first unit
-                                                      </Button>
-                                                    </div>
-                                                  </motion.div>
-                                                )}
-                                              </AnimatePresence>
-                                              <AnimatePresence>
-                                                {unitItems.filter(unit => unit.bulkId === bulk.id).length > 0 && (
-                                                  <motion.div
-                                                    {...motionTransition}
-                                                  >
-                                                    <Accordion
-                                                      selectionMode="multiple"
-                                                      variant="splitted"
-                                                      selectedKeys={expandedUnits}
-                                                      onSelectionChange={(keys) => setExpandedUnits(keys as Set<string>)}
-                                                      itemClasses={
-                                                        {
-                                                          base: "p-0 w-full bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
-                                                          title: "font-normal text-lg font-semibold",
-                                                          trigger: "p-4 data-[hover=true]:bg-default-100 h-14 flex items-center transition-colors",
-                                                          indicator: "text-medium",
-                                                          content: "text-small p-0",
-                                                        }
-                                                      }
-                                                      className="p-4 overflow-hidden"
-                                                    >
-                                                      {unitItems
-                                                        .filter(unit => unit.bulkId === bulk.id)
-                                                        .map((unit) => (
-                                                          <AccordionItem
-                                                            key={unit.id}
-                                                            title={
-                                                              <div className="flex justify-between items-center w-full">
-                                                                <div className="flex items-center gap-2">
-                                                                  <span>
-                                                                    {unit.name ?
-                                                                      `${unit.name}` :
-                                                                      `Unit ${unit.id}`}
-                                                                  </span>
-                                                                </div>
-                                                                {unit.unit_value! > 0 && unit.unit && unit.unit !== "" &&
-                                                                  <Chip size="sm" color="primary" variant="flat">
-                                                                    {formatNumber(unit.unit_value || 0)} {unit.unit}
-                                                                  </Chip>
-                                                                }
-                                                              </div>
-                                                            }
-                                                          >
-                                                            <div className="">
-                                                              {unit.uuid && (
-                                                                <Input
-                                                                  label="Item Unit Identifier"
-                                                                  value={unit.uuid}
-                                                                  isReadOnly
-                                                                  classNames={{ inputWrapper: inputStyle.inputWrapper, base: "p-4 pb-0" }}
-                                                                  startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
-                                                                  endContent={
-                                                                    <Button
-                                                                      variant="flat"
-                                                                      color="default"
-                                                                      isIconOnly
-                                                                      onPress={() => copyToClipboard(unit.uuid || "")}
-                                                                    >
-                                                                      <Icon icon="mdi:content-copy" className="text-default-500" />
-                                                                    </Button>
-                                                                  }
-                                                                />
-                                                              )}
-
-                                                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 my-4 py-0">
-                                                                <Input
-                                                                  label="Item Code"
-                                                                  placeholder="Enter code"
-                                                                  value={unit.code || ""}
-                                                                  onChange={(e) => handleUnitChange(unit.id, 'code', e.target.value)}
-                                                                  isDisabled={!isBulkEditable(bulk)}
-                                                                  isRequired
-                                                                  classNames={inputStyle}
-                                                                  startContent={<Icon icon="mdi:barcode" className="text-default-500 mb-[0.2rem]" />}
-                                                                />
-
-                                                                <Input
-                                                                  label="Item Name"
-                                                                  placeholder="Enter name"
-                                                                  value={unit.name || inventoryForm.name}
-                                                                  onChange={(e) => handleUnitChange(unit.id, 'name', e.target.value)}
-                                                                  isDisabled={!isBulkEditable(bulk)}
-                                                                  isRequired
-                                                                  classNames={inputStyle}
-                                                                  startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
-                                                                />
-
-                                                                <NumberInput
-                                                                  label="Unit Value"
-                                                                  placeholder="0"
-                                                                  value={unit.unit_value || 0}
-                                                                  onValueChange={(value) => handleUnitChange(unit.id, 'unit_value', value)}
-                                                                  isDisabled={!isBulkEditable(bulk)}
-                                                                  isRequired
-                                                                  minValue={0}
-                                                                  classNames={inputStyle}
-                                                                  endContent={
-                                                                    <div className="absolute right-10 bottom-2">
-                                                                      {unit.unit && unit.unit !== "" &&
-                                                                        <Chip
-                                                                          color="primary"
-                                                                          variant="flat"
-                                                                          size="sm"
-                                                                        >
-                                                                          {unit.unit}
-                                                                        </Chip>
-                                                                      }
-                                                                    </div>
-                                                                  }
-                                                                  startContent={<Icon icon="mdi:numeric" className="text-default-500 mb-[0.2rem] w-6" />}
-                                                                />
-
-                                                                <NumberInput
-                                                                  label="Cost"
-                                                                  placeholder="0.00"
-                                                                  value={unit.cost || 0}
-                                                                  onValueChange={(value) => handleUnitChange(unit.id, 'cost', value)}
-                                                                  isDisabled={!isBulkEditable(bulk)}
-                                                                  isRequired
-                                                                  minValue={0}
-                                                                  classNames={{
-                                                                    inputWrapper: `${inputStyle.inputWrapper} md:col-span-2`
-                                                                  }}
-                                                                  startContent={
-                                                                    <div className="flex items-center">
-                                                                      <Icon icon="mdi:currency-php" className="text-default-500 mb-[0.2rem]" />
-                                                                    </div>
-                                                                  }
-                                                                />
-                                                              </div>
-
-                                                              <div className="p-4 pt-0">
-                                                                <CustomProperties
-                                                                  properties={unit.properties || {}}
-                                                                  onPropertiesChange={(properties) => handleUnitPropertiesChange(unit.id, properties)}
-                                                                  onInheritFrom={() => handleInheritUnitProperties(unit.id)}
-                                                                  showInheritButton={true}
-                                                                  isDisabled={!isBulkEditable(bulk)}
-                                                                />
-                                                              </div>
-
-                                                              <div className="flex justify-end gap-2 bg-default-100/50 p-4">
-                                                                <Popover
-                                                                  isOpen={duplicatePopoverOpen && itemToDuplicate?.type === 'unit' && itemToDuplicate.id === unit.id}
-                                                                  onOpenChange={(open) => {
-                                                                    setDuplicatePopoverOpen(open);
-                                                                    if (open) {
-                                                                      setItemToDuplicate({ type: 'unit', id: unit.id });
-                                                                      setDuplicateCount(1);
-                                                                    }
-                                                                  }}
-                                                                >
-                                                                  <PopoverTrigger>
-                                                                    <Button
-                                                                      color="secondary"
-                                                                      variant="flat"
-                                                                      size="sm"
-                                                                      isDisabled={!isBulkEditable(bulk)}
-                                                                      {...(isBulkEditable(bulk) ? {
-                                                                        onPress: () => {
-                                                                          setDuplicatePopoverOpen(true);
-                                                                          setItemToDuplicate({ type: 'bulk', id: bulk.id });
-                                                                          setDuplicateCount(1);
-                                                                        }
-                                                                      } : {})}
-                                                                    >
-                                                                      <Icon icon="ion:duplicate" width={14} height={14} />
-                                                                      Duplicate
-                                                                    </Button>
-                                                                  </PopoverTrigger>
-                                                                  <PopoverContent className="w-56">
-                                                                    <div className="p-2 space-y-3">
-                                                                      <div className="text-sm font-medium">Duplicate Unit</div>
-                                                                      <NumberInput
-                                                                        label="Number of copies"
-                                                                        value={duplicateCount}
-                                                                        onValueChange={setDuplicateCount}
-                                                                        minValue={1}
-                                                                        maxValue={10}
-                                                                        classNames={{
-                                                                          inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200"
-                                                                        }}
-                                                                      />
-                                                                      <div className="flex justify-end gap-2 mt-2">
-
-                                                                        <Button
-                                                                          size="sm"
-                                                                          variant="flat"
-                                                                          onPress={() => setDuplicatePopoverOpen(false)}
-                                                                        >
-                                                                          Cancel
-                                                                        </Button>
-                                                                        <Button
-                                                                          size="sm"
-                                                                          color="primary"
-                                                                          variant="shadow"
-                                                                          onPress={() => {
-                                                                            handleDuplicateUnit(unit.id, duplicateCount);
-                                                                            setDuplicatePopoverOpen(false);
-                                                                          }}
-                                                                        >
-                                                                          Duplicate
-                                                                        </Button>
-                                                                      </div>
-                                                                    </div>
-                                                                  </PopoverContent>
-                                                                </Popover>
-
-                                                                <Button
-                                                                  color="danger"
-                                                                  variant="flat"
-                                                                  size="sm"
-                                                                  onPress={() => handleDeleteUnit(unit.id)}
-                                                                  startContent={<Icon icon="mdi:delete" width={16} height={16} />}
-                                                                  isDisabled={!isBulkEditable(bulk)}
-                                                                >
-                                                                  Remove
-                                                                </Button>
-                                                              </div>
-                                                            </div>
-                                                          </AccordionItem>
-                                                        ))}
-                                                    </Accordion>
-                                                  </motion.div>
-                                                )}
-                                              </AnimatePresence>
-
                                             </div>
-                                          </motion.div>
-                                        )}
-                                      </AnimatePresence>
+                                          </PopoverContent>
+                                        </Popover>
+
+                                        <Button
+                                          color="danger"
+                                          variant="flat"
+                                          size="sm"
+                                          onPress={() => handleDeleteBulk(bulk.id)}
+                                          startContent={<Icon icon="mdi:delete" width={16} height={16} />}
+                                          isDisabled={!isBulkEditable(bulk)}
+                                        >
+                                          Remove
+                                        </Button>
+                                      </div>
+
                                     </div>
-
-                                    <div className="flex justify-end gap-2 bg-default-100/50 p-4">
-                                      <Popover
-                                        isOpen={duplicatePopoverOpen && itemToDuplicate?.type === 'bulk' && itemToDuplicate.id === bulk.id}
-                                        onOpenChange={(open) => {
-                                          setDuplicatePopoverOpen(open);
-                                          if (open) {
-                                            setItemToDuplicate({ type: 'bulk', id: bulk.id });
-                                            setDuplicateCount(1);
-                                          }
-                                        }}
-                                      >
-                                        <PopoverTrigger>
-                                          <Button
-                                            color="secondary"
-                                            variant="flat"
-                                            size="sm"
-                                            isDisabled={!isBulkEditable(bulk)}
-                                          >
-                                            <Icon icon="ion:duplicate" width={14} height={14} />
-                                            Duplicate
-                                          </Button>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-56">
-                                          <div className="p-2 space-y-3">
-                                            <div className="text-sm font-medium">Duplicate Bulk</div>
-                                            <NumberInput
-                                              label="Number of copies"
-                                              value={duplicateCount}
-                                              onValueChange={setDuplicateCount}
-                                              minValue={1}
-                                              maxValue={10}
-                                              classNames={{
-                                                inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200"
-                                              }}
-                                            />
-                                            <div className="flex justify-end gap-2 mt-2">
-                                              <Button
-                                                size="sm"
-                                                variant="flat"
-                                                onPress={() => setDuplicatePopoverOpen(false)}
-                                              >
-                                                Cancel
-                                              </Button>
-                                              <Button
-                                                size="sm"
-                                                color="primary"
-                                                variant="shadow"
-                                                onPress={() => {
-                                                  handleDuplicateBulk(bulk.id, duplicateCount);
-                                                  setDuplicatePopoverOpen(false);
-                                                }}
-                                              >
-                                                Duplicate
-                                              </Button>
-                                            </div>
-                                          </div>
-                                        </PopoverContent>
-                                      </Popover>
-
-                                      <Button
-                                        color="danger"
-                                        variant="flat"
-                                        size="sm"
-                                        onPress={() => handleDeleteBulk(bulk.id)}
-                                        startContent={<Icon icon="mdi:delete" width={16} height={16} />}
-                                        isDisabled={!isBulkEditable(bulk)}
-                                      >
-                                        Remove
-                                      </Button>
-                                    </div>
-
-                                  </div>
-                                </AccordionItem>
-                              ))}
-                            </Accordion>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
+                                  </AccordionItem>
+                                ))}
+                              </Accordion>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </LoadingAnimation>
+                </LoadingAnimation>
 
-              {/* Action buttons section */}
-              <motion.div {...motionTransition}>
-                <div className="flex flex-col gap-4">
-                  <AnimatePresence>
-                    {error && (
-                      <motion.div {...motionTransition}>
-                        <Alert color="danger" variant="flat" onClose={() => setError(null)}>
-                          {error}
-                        </Alert>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-
-                  <LoadingAnimation
-                    condition={!user || isLoading}
-                    skeleton={
-                      <div className="flex flex-col md:flex-row justify-center items-center gap-4">
-                        <Skeleton className="h-10 w-full rounded-xl" />
-                        <Skeleton className="h-10 w-full rounded-xl" />
-                      </div>
-                    }>
-                    <div className="flex flex-col md:flex-row justify-center items-center gap-4">
-                      {selectedItemId && (
-                        <Button
-                          color="danger"
-                          variant="flat"
-                          className="w-full"
-                          onPress={handleDeleteItem}
-                          isDisabled={isLoading}
-                        >
-                          <Icon icon="mdi:delete" className="mr-1" />
-                          Delete Item
-                        </Button>
+                {/* Action buttons section */}
+                <motion.div {...motionTransition}>
+                  <div className="flex flex-col gap-4">
+                    <AnimatePresence>
+                      {error && (
+                        <motion.div {...motionTransition}>
+                          <Alert color="danger" variant="flat" onClose={() => setError(null)}>
+                            {error}
+                          </Alert>
+                        </motion.div>
                       )}
-                      <Button
-                        type="submit"
-                        color="primary"
-                        variant="shadow"
-                        className="w-full"
-                        isLoading={isLoading}
-                        isDisabled={!inventoryForm.name || !inventoryForm.unit}
-                      >
-                        <Icon icon="mdi:content-save" className="mr-1" />
-                        {selectedItemId ? "Update Item" : "Save Item"}
-                      </Button>
-                    </div>
-                  </LoadingAnimation>
-                </div>
-              </motion.div>
-            </CardList>
-          </Form>
-        </div>
-      </div>
+                    </AnimatePresence>
 
-      <Modal
-        isOpen={deleteModal.isOpen}
-        onClose={deleteModal.onClose}
-        backdrop="blur"
-        classNames={{
-          backdrop: "bg-background/50"
-        }}
-      >
-        <ModalContent>
-          <ModalHeader>Confirm Deletion</ModalHeader>
-          <ModalBody>
-            Are you sure you want to delete this {itemToDelete?.type}? This action cannot be undone.
-          </ModalBody>
-          <ModalFooter className="flex justify-end p-4 gap-4">
-            <Button variant="flat" onPress={deleteModal.onClose} isDisabled={isLoading}>
-              Cancel
-            </Button>
-            <Button color="danger" variant="shadow" onPress={executeDelete} isLoading={isLoading}>
-              <Icon icon="mdi:delete" className="mr-1" />
-              Delete
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
-    </div>
+                    <LoadingAnimation
+                      condition={!user || isLoading}
+                      skeleton={
+                        <div className="flex flex-col md:flex-row justify-center items-center gap-4">
+                          <Skeleton className="h-10 w-full rounded-xl" />
+                          <Skeleton className="h-10 w-full rounded-xl" />
+                        </div>
+                      }>
+                      <div className="flex flex-col md:flex-row justify-center items-center gap-4">
+                        {selectedItemId && (
+                          <Button
+                            color="danger"
+                            variant="flat"
+                            className="w-full"
+                            onPress={handleDeleteItem}
+                            isDisabled={isLoading}
+                          >
+                            <Icon icon="mdi:delete" className="mr-1" />
+                            Delete Item
+                          </Button>
+                        )}
+                        <Button
+                          type="submit"
+                          color="primary"
+                          variant="shadow"
+                          className="w-full"
+                          isLoading={isLoading}
+                          isDisabled={!inventoryForm.name || !inventoryForm.unit}
+                        >
+                          <Icon icon="mdi:content-save" className="mr-1" />
+                          {selectedItemId ? "Update Item" : "Save Item"}
+                        </Button>
+                      </div>
+                    </LoadingAnimation>
+                  </div>
+                </motion.div>
+              </CardList>
+            </Form>
+          </div>
+        </div>
+
+        <Modal
+          isOpen={deleteModal.isOpen}
+          onClose={deleteModal.onClose}
+          backdrop="blur"
+          classNames={{
+            backdrop: "bg-background/50"
+          }}
+        >
+          <ModalContent>
+            <ModalHeader>Confirm Deletion</ModalHeader>
+            <ModalBody>
+              Are you sure you want to delete this {itemToDelete?.type}? This action cannot be undone.
+            </ModalBody>
+            <ModalFooter className="flex justify-end p-4 gap-4">
+              <Button variant="flat" onPress={deleteModal.onClose} isDisabled={isLoading}>
+                Cancel
+              </Button>
+              <Button color="danger" variant="shadow" onPress={executeDelete} isLoading={isLoading}>
+                <Icon icon="mdi:delete" className="mr-1" />
+                Delete
+              </Button>
+            </ModalFooter>
+          </ModalContent>
+        </Modal>
+      </div>
+    </motion.div>
   );
 }

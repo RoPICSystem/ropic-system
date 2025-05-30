@@ -211,8 +211,6 @@ export async function getWarehouses(
       p_offset: offset
     });
 
-    console.log('getWarehouses data:', data, error);
-
     if (error) {
       return { 
         success: false,

@@ -107,19 +107,6 @@ export async function getWarehouseInventoryItems(
   try {
     const currentPage = Math.floor(offset / limit) + 1;
 
-    console.log("Fetching warehouse inventory items with params:", {
-      companyUuid,
-      warehouseUuid,
-      search,
-      status,
-      year,
-      month,
-      week,
-      day,
-      limit,
-      offset
-    });
-
     const { data, error } = await supabase.rpc('get_warehouse_inventory_items', {
       p_company_uuid: companyUuid || null,
       p_warehouse_uuid: warehouseUuid || null,
@@ -133,7 +120,6 @@ export async function getWarehouseInventoryItems(
       p_offset: offset
     });
 
-    console.log("Warehouse Inventory Items Data:", data, error);
     if (error) {
       throw error;
     }

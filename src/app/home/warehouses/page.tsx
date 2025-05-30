@@ -2,7 +2,7 @@
 
 import CardList from '@/components/card-list';
 import { FloorConfig } from '@/components/shelf-selector-3d';
-import { motionTransition } from '@/utils/anim';
+import { motionTransition, motionTransitionScale } from '@/utils/anim';
 import {
   Barangay,
   CityMunicipality,
@@ -577,587 +577,589 @@ export default function WarehousePage() {
   };
 
   return (
-    <div className="container mx-auto p-2 max-w-5xl">
-      <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
-        <div className="flex flex-col w-full xl:text-left text-center">
-          <h1 className="text-2xl font-bold">Warehouse Management</h1>
-          {(isAddressLoading || detailLoading || listLoading) ? (
-            <div className="text-default-500 flex items-center justify-center xl:justify-start">
-              <p className='my-auto mr-1'>Loading warehouses data</p>
-              <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
-            </div>
-          ) : (
-            <p className="text-default-500">Manage your warehouses efficiently.</p>
-          )}
-        </div>
-        <div className="flex gap-4 xl:mt-0 mt-4 text-center">
-          <Button
-            color="primary"
-            variant="shadow"
-            onPress={handleAddWarehouse}
-            startContent={<Icon icon="mdi:plus" width={20} height={20} />}
-            isDisabled={isAddressLoading || detailLoading || listLoading}>
-            New Warehouse
-          </Button>
-        </div>
-      </div>
-
-
-      <div className="flex flex-col xl:flex-row gap-4">
-        {/* Left side: Warehouse List */}
-        <div className={`xl:w-1/3 shadow-xl shadow-primary/10 
-          xl:min-h-[calc(100vh-6.5rem)] 2xl:min-h-[calc(100vh-9rem)] min-h-[42rem] 
-          xl:min-w-[350px] w-full rounded-2xl overflow-hidden bg-background border 
-          border-default-200 backdrop-blur-lg xl:sticky top-0 self-start max-h-[calc(100vh-2rem)]`}
-        >
-          <div className="flex flex-col h-full">
-            <div className="p-4 sticky top-0 z-20 bg-background/80 border-b border-default-200 backdrop-blur-lg shadow-sm">
-              <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouses</h2>
-              <Input
-                placeholder="Search warehouses..."
-                value={search}
-                onChange={(e) => handleSearch(e.target.value)}
-                isClearable
-                onClear={() => handleSearch("")}
-                startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
-              />
-
-            </div>
-            <div className="h-full absolute w-full">
-              <div className={`space-y-4 p-4 mt-1 pt-32 h-full relative ${!listLoading && "overflow-y-auto"}`}>
-                <ListLoadingAnimation
-                  condition={listLoading}
-                  containerClassName="space-y-4"
-                  skeleton={[...Array(10)].map((_, i) => (
-                    <Skeleton key={i} className="w-full min-h-28 rounded-xl" />
-                  ))}
-                >
-                  {warehouses.map((warehouse) => (
-                    <Button
-                      key={warehouse.uuid}
-                      onPress={() => { if (warehouse.uuid) handleSelectWarehouse(warehouse.uuid) }}
-                      variant="shadow"
-                      className={`w-full min-h-28 !transition-all duration-200 rounded-xl px-0 py-4 ${selectedWarehouseId === warehouse.uuid ?
-                        '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' :
-                        '!bg-default-100/50 shadow-none hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
-                    >
-                      <div className="w-full flex justify-between items-start px-0">
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between px-4">
-                            <span className="font-semibold">{warehouse.name}</span>
-                          </div>
-                          {warehouse.address?.fullAddress && (
-                            <div className={`text-sm mx-4 ${selectedWarehouseId === warehouse.uuid ? 'text-default-800 ' : 'text-default-600'} line-clamp-2 text-start overflow-hidden`}>
-                              {(() => {
-                                const cleanText = (text: string) => text.replace(/\s*\([^)]*\)/g, '');
-                                const addressText = `${cleanText(warehouse.address.municipality.desc)}, ${cleanText(warehouse.address.barangay.desc)}, ${cleanText(warehouse.address.street)}`;
-                                return addressText.length > 40 ? `${addressText.substring(0, 37)}...` : addressText;
-                              })()}
-                            </div>
-                          )}
-                          <div className={`flex items-center gap-2 mt-3 border-t ${selectedWarehouseId === warehouse.uuid ? 'border-primary-300' : 'border-default-100'
-                            } px-4 pt-4`}>
-                            {(warehouse.warehouse_layout && warehouse.warehouse_layout.length > 0) ? (
-                              <>
-                                <Chip color="secondary" variant={selectedWarehouseId === warehouse.uuid ? "shadow" : "flat"} size="sm">
-                                  <div className="flex items-center">
-                                    <Icon icon="material-symbols:warehouse-rounded" className="mr-1" />
-                                    {warehouse.warehouse_layout?.length ?? 0} floor{(warehouse.warehouse_layout?.length ?? 0) > 1 ? 's' : ''}
-                                  </div>
-                                </Chip>
-                                <Chip color="warning" variant={selectedWarehouseId === warehouse.uuid ? "shadow" : "flat"} size="sm">
-                                  <div className="flex items-center">
-                                    <Icon icon="tabler:layout-2-filled" className="mr-1" />
-                                    {warehouse.warehouse_layout?.[0]?.matrix.length ?? 0} × {warehouse.warehouse_layout?.[0]?.matrix[0].length ?? 0}
-                                  </div>
-                                </Chip>
-                              </>
-                            ) : (
-                              <Chip color="danger" variant={selectedWarehouseId === warehouse.uuid ? "shadow" : "flat"} size="sm">
-                                <div className="flex items-center">
-                                  <Icon icon="material-symbols:warehouse-rounded" className="mr-1" />
-                                  No layout
-                                </div>
-                              </Chip>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </Button>
-                  ))}
-                </ListLoadingAnimation>
-                <AnimatePresence>
-                  {listLoading && (
-                    <motion.div
-                      className="absolute inset-0 flex items-center justify-center"
-                      initial={{ opacity: 0, filter: "blur(8px)" }}
-                      animate={{ opacity: 1, filter: "blur(0px)" }}
-                      exit={{ opacity: 0, filter: "blur(8px)" }}
-                      transition={{ duration: 0.3, delay: 0.3 }}
-                    >
-                      <div className="absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-background to-transparent pointer-events-none" />
-                      <div className="py-4 flex absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
-                        <Spinner />
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+    <motion.div {...motionTransitionScale}>
+      <div className="container mx-auto p-2 max-w-5xl">
+        <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
+          <div className="flex flex-col w-full xl:text-left text-center">
+            <h1 className="text-2xl font-bold">Warehouse Management</h1>
+            {(isAddressLoading || detailLoading || listLoading) ? (
+              <div className="text-default-500 flex items-center justify-center xl:justify-start">
+                <p className='my-auto mr-1'>Loading warehouses data</p>
+                <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
               </div>
-
-
-              {/* Add pagination */}
-              {warehouses.length > 0 && (
-                <div className="flex flex-col items-center pt-2 pb-4 px-2">
-                  <div className="text-sm text-default-500 mb-2">
-                    Showing {(page - 1) * rowsPerPage + 1} to {Math.min(page * rowsPerPage, totalWarehouses)} of {totalWarehouses} {totalWarehouses === 1 ? 'warehouse' : 'warehousess'}
-                  </div>
-                  <Pagination
-                    total={totalPages}
-                    initialPage={1}
-                    page={page}
-                    onChange={handlePageChange}
-                    color="primary"
-                    size="sm"
-                    showControls
-                  />
-                </div>
-              )}
-
-              <AnimatePresence>
-                {!listLoading && warehouses.length === 0 && (
-                  <motion.div
-                    className="xl:h-full h-[42rem] absolute w-full"
-                    initial={{ opacity: 0, filter: "blur(8px)" }}
-                    animate={{ opacity: 1, filter: "blur(0px)" }}
-                    exit={{ opacity: 0, filter: "blur(8px)" }}
-                    transition={{ duration: 0.3 }}
-                  >
-                    <div className="py-4 flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
-                      <Icon icon="material-symbols:warehouse-rounded" className="text-5xl text-default-300" />
-                      <p className="text-default-500 mt-2">No warehouses found.</p>
-                      <Button
-                        color="primary"
-                        variant="light"
-                        size="sm"
-                        className="mt-4"
-                        onPress={handleAddWarehouse}
-                        startContent={<Icon icon="mdi:plus" width={20} height={20} />}
-                      >
-                        Add Warehouse
-                      </Button>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {!listLoading && warehouses.length === 0 && (
-                <div className="xl:h-full h-[42rem] absolute w-full">
-                  <div className="py-4 flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
-                    <Icon icon="material-symbols:warehouse-rounded" className="text-5xl text-default-300" />
-                    <p className="text-default-500 mt-2">No warehouses found.</p>
-                  </div>
-                </div>
-              )}
-            </div>
+            ) : (
+              <p className="text-default-500">Manage your warehouses efficiently.</p>
+            )}
+          </div>
+          <div className="flex gap-4 xl:mt-0 mt-4 text-center">
+            <Button
+              color="primary"
+              variant="shadow"
+              onPress={handleAddWarehouse}
+              startContent={<Icon icon="mdi:plus" width={20} height={20} />}
+              isDisabled={isAddressLoading || detailLoading || listLoading}>
+              New Warehouse
+            </Button>
           </div>
         </div>
 
 
-        {/* Right side: Warehouse Form */}
-        <div className="xl:w-2/3">
-          <Form id="warehouseForm" onSubmit={handleSubmitWarehouse} className="items-stretch space-y-4">
-            <CardList>
+        <div className="flex flex-col xl:flex-row gap-4">
+          {/* Left side: Warehouse List */}
+          <div className={`xl:w-1/3 shadow-xl shadow-primary/10 
+          xl:min-h-[calc(100vh-6.5rem)] 2xl:min-h-[calc(100vh-9rem)] min-h-[42rem] 
+          xl:min-w-[350px] w-full rounded-2xl overflow-hidden bg-background border 
+          border-default-200 backdrop-blur-lg xl:sticky top-0 self-start max-h-[calc(100vh-2rem)]`}
+          >
+            <div className="flex flex-col h-full">
+              <div className="p-4 sticky top-0 z-20 bg-background/80 border-b border-default-200 backdrop-blur-lg shadow-sm">
+                <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouses</h2>
+                <Input
+                  placeholder="Search warehouses..."
+                  value={search}
+                  onChange={(e) => handleSearch(e.target.value)}
+                  isClearable
+                  onClear={() => handleSearch("")}
+                  startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
+                />
 
-              <LoadingAnimation
-                condition={detailLoading}
-                skeleton={
-                  <div>
-                    <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" /> {/* Section Title */}
-                    <div className="space-y-4">
-                      <Skeleton className="h-16 w-full rounded-xl" />
-                      <Skeleton className="h-16 w-full rounded-xl" />
-                    </div>
-                  </div>}>
-                <div>
-                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouse Information</h2>
-                  <div className="space-y-4"><AnimatePresence>
-                    {currentWarehouse?.uuid && (
-                      <motion.div {...motionTransition}>
-                        <Input
-                          label="Warehouse Identifier"
-                          value={currentWarehouse?.uuid || ""}
-                          isReadOnly
-                          classNames={inputStyle}
-                          startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
-                          endContent={
-                            currentWarehouse?.uuid ? (
-                              <Button
-                                variant="flat"
-                                color="default"
-                                isIconOnly
-                                onPress={() => copyToClipboard(currentWarehouse.uuid || "")}
-                              >
-                                <Icon icon="mdi:content-copy" className="text-default-500" />
-                              </Button>
-                            ) : undefined
-                          }
-                        />
+              </div>
+              <div className="h-full absolute w-full">
+                <div className={`space-y-4 p-4 mt-1 pt-32 h-full relative ${!listLoading && "overflow-y-auto"}`}>
+                  <ListLoadingAnimation
+                    condition={listLoading}
+                    containerClassName="space-y-4"
+                    skeleton={[...Array(10)].map((_, i) => (
+                      <Skeleton key={i} className="w-full min-h-28 rounded-xl" />
+                    ))}
+                  >
+                    {warehouses.map((warehouse) => (
+                      <Button
+                        key={warehouse.uuid}
+                        onPress={() => { if (warehouse.uuid) handleSelectWarehouse(warehouse.uuid) }}
+                        variant="shadow"
+                        className={`w-full min-h-28 !transition-all duration-200 rounded-xl px-0 py-4 ${selectedWarehouseId === warehouse.uuid ?
+                          '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' :
+                          '!bg-default-100/50 shadow-none hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
+                      >
+                        <div className="w-full flex justify-between items-start px-0">
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between px-4">
+                              <span className="font-semibold">{warehouse.name}</span>
+                            </div>
+                            {warehouse.address?.fullAddress && (
+                              <div className={`text-sm mx-4 ${selectedWarehouseId === warehouse.uuid ? 'text-default-800 ' : 'text-default-600'} line-clamp-2 text-start overflow-hidden`}>
+                                {(() => {
+                                  const cleanText = (text: string) => text.replace(/\s*\([^)]*\)/g, '');
+                                  const addressText = `${cleanText(warehouse.address.municipality.desc)}, ${cleanText(warehouse.address.barangay.desc)}, ${cleanText(warehouse.address.street)}`;
+                                  return addressText.length > 40 ? `${addressText.substring(0, 37)}...` : addressText;
+                                })()}
+                              </div>
+                            )}
+                            <div className={`flex items-center gap-2 mt-3 border-t ${selectedWarehouseId === warehouse.uuid ? 'border-primary-300' : 'border-default-100'
+                              } px-4 pt-4`}>
+                              {(warehouse.warehouse_layout && warehouse.warehouse_layout.length > 0) ? (
+                                <>
+                                  <Chip color="secondary" variant={selectedWarehouseId === warehouse.uuid ? "shadow" : "flat"} size="sm">
+                                    <div className="flex items-center">
+                                      <Icon icon="material-symbols:warehouse-rounded" className="mr-1" />
+                                      {warehouse.warehouse_layout?.length ?? 0} floor{(warehouse.warehouse_layout?.length ?? 0) > 1 ? 's' : ''}
+                                    </div>
+                                  </Chip>
+                                  <Chip color="warning" variant={selectedWarehouseId === warehouse.uuid ? "shadow" : "flat"} size="sm">
+                                    <div className="flex items-center">
+                                      <Icon icon="tabler:layout-2-filled" className="mr-1" />
+                                      {warehouse.warehouse_layout?.[0]?.matrix.length ?? 0} × {warehouse.warehouse_layout?.[0]?.matrix[0].length ?? 0}
+                                    </div>
+                                  </Chip>
+                                </>
+                              ) : (
+                                <Chip color="danger" variant={selectedWarehouseId === warehouse.uuid ? "shadow" : "flat"} size="sm">
+                                  <div className="flex items-center">
+                                    <Icon icon="material-symbols:warehouse-rounded" className="mr-1" />
+                                    No layout
+                                  </div>
+                                </Chip>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </Button>
+                    ))}
+                  </ListLoadingAnimation>
+                  <AnimatePresence>
+                    {listLoading && (
+                      <motion.div
+                        className="absolute inset-0 flex items-center justify-center"
+                        initial={{ opacity: 0, filter: "blur(8px)" }}
+                        animate={{ opacity: 1, filter: "blur(0px)" }}
+                        exit={{ opacity: 0, filter: "blur(8px)" }}
+                        transition={{ duration: 0.3, delay: 0.3 }}
+                      >
+                        <div className="absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-background to-transparent pointer-events-none" />
+                        <div className="py-4 flex absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
+                          <Spinner />
+                        </div>
                       </motion.div>
                     )}
                   </AnimatePresence>
-                    <Input
-                      name="name"
-                      label="Warehouse Name"
-                      classNames={inputStyle}
-                      placeholder="Enter warehouse name"
-                      value={currentWarehouse?.name || ""}
-                      onChange={(e) => setCurrentWarehouse(prev => ({ ...prev, name: e.target.value }))}
-                      isRequired
-                    />
-                  </div>
                 </div>
-              </LoadingAnimation>
 
 
-              <LoadingAnimation
-                condition={detailLoading}
-                skeleton={
-                  <div>
-                    <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" /> {/* Section Title */}
-                    <div className="space-y-4">
-                      <Skeleton className="h-16 w-full rounded-xl" />
+                {/* Add pagination */}
+                {warehouses.length > 0 && (
+                  <div className="flex flex-col items-center pt-2 pb-4 px-2">
+                    <div className="text-sm text-default-500 mb-2">
+                      Showing {(page - 1) * rowsPerPage + 1} to {Math.min(page * rowsPerPage, totalWarehouses)} of {totalWarehouses} {totalWarehouses === 1 ? 'warehouse' : 'warehousess'}
                     </div>
-                  </div>}>
-                <div>
-                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouse Information</h2>
-                  <div className="space-y-4">
-                    <Input
-                      name="name"
-                      label="Warehouse Name"
-                      classNames={inputStyle}
-                      placeholder="Enter warehouse name"
-                      value={currentWarehouse?.name || ""}
-                      onChange={(e) => setCurrentWarehouse(prev => ({ ...prev, name: e.target.value }))}
-                      isRequired
+                    <Pagination
+                      total={totalPages}
+                      initialPage={1}
+                      page={page}
+                      onChange={handlePageChange}
+                      color="primary"
+                      size="sm"
+                      showControls
                     />
                   </div>
-                </div>
-              </LoadingAnimation>
+                )}
 
-
-              {/* Location Details */}
-              <LoadingAnimation
-                condition={isAddressLoading}
-                skeleton={
-                  <div>
-                    <Skeleton className="h-6 w-36 rounded-xl mb-4 mx-auto" /> {/* "Location Details" title */}
-                    <div className="space-y-4">
-                      <Skeleton className="h-16 w-full rounded-xl" />
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <Skeleton className="h-16 w-full rounded-xl" />
-                        <Skeleton className="h-16 w-full rounded-xl" />
+                <AnimatePresence>
+                  {!listLoading && warehouses.length === 0 && (
+                    <motion.div
+                      className="xl:h-full h-[42rem] absolute w-full"
+                      initial={{ opacity: 0, filter: "blur(8px)" }}
+                      animate={{ opacity: 1, filter: "blur(0px)" }}
+                      exit={{ opacity: 0, filter: "blur(8px)" }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <div className="py-4 flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
+                        <Icon icon="material-symbols:warehouse-rounded" className="text-5xl text-default-300" />
+                        <p className="text-default-500 mt-2">No warehouses found.</p>
+                        <Button
+                          color="primary"
+                          variant="light"
+                          size="sm"
+                          className="mt-4"
+                          onPress={handleAddWarehouse}
+                          startContent={<Icon icon="mdi:plus" width={20} height={20} />}
+                        >
+                          Add Warehouse
+                        </Button>
                       </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <Skeleton className="h-16 w-full rounded-xl" />
-                        <Skeleton className="h-16 w-full rounded-xl" />
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <Skeleton className="h-16 w-full rounded-xl" />
-                        <Skeleton className="h-16 w-full rounded-xl" />
-                      </div>
-
-                      <Skeleton className="h-16 w-full rounded-xl" />
+                {!listLoading && warehouses.length === 0 && (
+                  <div className="xl:h-full h-[42rem] absolute w-full">
+                    <div className="py-4 flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
+                      <Icon icon="material-symbols:warehouse-rounded" className="text-5xl text-default-300" />
+                      <p className="text-default-500 mt-2">No warehouses found.</p>
                     </div>
-                  </div>}>
-                <div className="space-y-4">
-                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Location Details</h2>
-                  <Input
-                    label="Country"
-                    defaultValue="PHILIPPINES"
-                    isReadOnly
-                    isRequired
-                    classNames={inputStyle}
-                  />
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Autocomplete
-                      label="Region"
-                      isRequired
-                      inputProps={autoCompleteStyle}
-                      classNames={{ clearButton: "text-default-800" }}
-                      selectedKey={selectedRegion}
-                      onSelectionChange={(e) => handleRegionChange(`${e}`)}
-                    >
-                      {regions.map(region => (
-                        <AutocompleteItem key={region.regCode}>
-                          {region.regDesc}
-                        </AutocompleteItem>
-                      ))}
-                    </Autocomplete>
-
-                    <Autocomplete
-                      label="Province"
-                      isRequired
-                      inputProps={autoCompleteStyle}
-                      classNames={{ clearButton: "text-default-800" }}
-                      selectedKey={selectedProvince}
-                      onSelectionChange={(e) => handleProvinceChange(`${e}`)}
-                      isDisabled={!selectedRegion}
-                    >
-                      {provinces.map(province => (
-                        <AutocompleteItem key={province.provCode}>
-                          {province.provDesc}
-                        </AutocompleteItem>
-                      ))}
-                    </Autocomplete>
                   </div>
+                )}
+              </div>
+            </div>
+          </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Autocomplete
-                      label="Municipality/City"
-                      isRequired
-                      inputProps={autoCompleteStyle}
-                      classNames={{ clearButton: "text-default-800" }}
-                      selectedKey={selectedCityMunicipality}
-                      onSelectionChange={(e) => handleCityMunicipalityChange(`${e}`)}
-                      isDisabled={!selectedProvince}
-                    >
-                      {cityMunicipalities.map(city => (
-                        <AutocompleteItem key={city.citymunCode}>
-                          {city.citymunDesc}
-                        </AutocompleteItem>
-                      ))}
-                    </Autocomplete>
 
-                    <Autocomplete
-                      label="Barangay"
-                      isRequired
-                      inputProps={autoCompleteStyle}
-                      classNames={{ clearButton: "text-default-800" }}
-                      selectedKey={selectedBarangay}
-                      onSelectionChange={(e) => setSelectedBarangay(`${e}`)}
-                      isDisabled={!selectedCityMunicipality}
-                    >
-                      {barangays.map(barangay => (
-                        <AutocompleteItem key={barangay.brgyCode}>
-                          {barangay.brgyDesc}
-                        </AutocompleteItem>
-                      ))}
-                    </Autocomplete>
-                  </div>
+          {/* Right side: Warehouse Form */}
+          <div className="xl:w-2/3">
+            <Form id="warehouseForm" onSubmit={handleSubmitWarehouse} className="items-stretch space-y-4">
+              <CardList>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Input
-                      label="Street Address"
-                      placeholder="Enter street name, building number, etc."
-                      value={inputStreetAddress}
-                      onChange={(e) => setInputStreetAddress(e.target.value)}
-                      isRequired
-                      classNames={inputStyle}
-                    />
-
-                    <Input
-                      label="Postal Code"
-                      placeholder="Enter postal code"
-                      value={inputPostalCode}
-                      onChange={(e) => setInputPostalCode(e.target.value)}
-                      isRequired
-                      classNames={inputStyle}
-                    />
-                  </div>
-
-                  <Textarea
-                    label="Full Address"
-                    placeholder="Complete address"
-                    value={manualFullAddress}
-                    onChange={(e) => setManualFullAddress(e.target.value)}
-                    isRequired
-                    maxRows={5}
-                    minRows={1}
-                    classNames={inputStyle}
-                    isReadOnly
-                    startContent={<Icon icon="mdi:map-marker" className="text-default-500 pb-[0.1rem]" />}
-                  />
-                </div>
-              </LoadingAnimation>
-
-              {/* Warehouse Layout */}
-              <div>
                 <LoadingAnimation
                   condition={detailLoading}
                   skeleton={
                     <div>
                       <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" /> {/* Section Title */}
                       <div className="space-y-4">
-                        <Skeleton className="h-32 w-full rounded-xl" /> {/* Layout Preview */}
-                        <div className="flex justify-end items-center gap-2">
-                          <Skeleton className="h-10 w-24 rounded-xl" />
-                          <Skeleton className="h-10 w-32 rounded-xl" />
-                        </div>
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                        <Skeleton className="h-16 w-full rounded-xl" />
                       </div>
-                    </div>
-                  }>
-                  <div className="space-y-4">
-                    <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouse Layout</h2>
-                    <div className="mb-4">
-                      {renderLayoutPreview()}
-                    </div>
-                    <div className="flex justify-end items-center gap-2">
-                      <Button
-                        color="primary"
-                        variant="flat"
-                        onPress={() => openLayoutEditor(selectedWarehouseId || '', 'editor')}
-                        startContent={<Icon icon="mdi:edit" className="w-4 h-4" />}
-                        isDisabled={!selectedWarehouseId}
-                      >
-                        Edit Layout
-                      </Button>
-                      <Button
-                        color="secondary"
-                        variant="flat"
-                        onPress={() => openLayoutEditor(selectedWarehouseId || '', 'preview')}
-                        startContent={<Icon icon="mdi:eye" className="w-4 h-4" />}
-                        isDisabled={!selectedWarehouseId}
-                      >
-                        View 3D Layout
-                      </Button>
+                    </div>}>
+                  <div>
+                    <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouse Information</h2>
+                    <div className="space-y-4"><AnimatePresence>
+                      {currentWarehouse?.uuid && (
+                        <motion.div {...motionTransition}>
+                          <Input
+                            label="Warehouse Identifier"
+                            value={currentWarehouse?.uuid || ""}
+                            isReadOnly
+                            classNames={inputStyle}
+                            startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
+                            endContent={
+                              currentWarehouse?.uuid ? (
+                                <Button
+                                  variant="flat"
+                                  color="default"
+                                  isIconOnly
+                                  onPress={() => copyToClipboard(currentWarehouse.uuid || "")}
+                                >
+                                  <Icon icon="mdi:content-copy" className="text-default-500" />
+                                </Button>
+                              ) : undefined
+                            }
+                          />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                      <Input
+                        name="name"
+                        label="Warehouse Name"
+                        classNames={inputStyle}
+                        placeholder="Enter warehouse name"
+                        value={currentWarehouse?.name || ""}
+                        onChange={(e) => setCurrentWarehouse(prev => ({ ...prev, name: e.target.value }))}
+                        isRequired
+                      />
                     </div>
                   </div>
                 </LoadingAnimation>
-              </div>
 
-              {/* Additional Information (only when warehouse is selected) */}
-              <div {...(selectedWarehouseId && currentWarehouse?.created_at ? {} : { className: '!min-h-0 !p-0 !h-0 collapse border-none z-0' })}>
 
                 <LoadingAnimation
                   condition={detailLoading}
                   skeleton={
                     <div>
                       <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" /> {/* Section Title */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <Skeleton className="h-16 w-full rounded-xl" />
+                      <div className="space-y-4">
                         <Skeleton className="h-16 w-full rounded-xl" />
                       </div>
+                    </div>}>
+                  <div>
+                    <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouse Information</h2>
+                    <div className="space-y-4">
+                      <Input
+                        name="name"
+                        label="Warehouse Name"
+                        classNames={inputStyle}
+                        placeholder="Enter warehouse name"
+                        value={currentWarehouse?.name || ""}
+                        onChange={(e) => setCurrentWarehouse(prev => ({ ...prev, name: e.target.value }))}
+                        isRequired
+                      />
                     </div>
-                  }>
-                  <AnimatePresence>
-                    {selectedWarehouseId && currentWarehouse?.created_at && (
-                      <motion.div
-                        {...motionTransition}>
-                        <div className="">
-                          <h2 className="text-xl font-semibold mb-4 w-full text-center">Additional Information</h2>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <Input
-                              label="Created"
-                              value={formatDate(currentWarehouse.created_at)}
-                              isReadOnly
-                              classNames={inputStyle}
-                              startContent={<Icon icon="mdi:calendar" className="text-default-500 pb-[0.1rem]" />}
-                            />
-
-                            <Input
-                              label="Last Updated"
-                              value={formatDate(currentWarehouse.updated_at || new Date().toISOString())}
-                              isReadOnly
-                              classNames={inputStyle}
-                              startContent={<Icon icon="mdi:calendar-clock" className="text-default-500 pb-[0.1rem]" />}
-                            />
-                          </div>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </LoadingAnimation>
-              </div>
-
-              {/* Action Buttons */}
-              <div>
-                <LoadingAnimation
-                  condition={detailLoading}
-                  skeleton={
-                    <div className="flex justify-center items-center gap-4">
-                      <Skeleton className="h-10 w-full rounded-xl" />
-                      <Skeleton className="h-10 w-full rounded-xl" />
-                    </div>
-                  }>
-                  <div className="flex justify-center items-center gap-4">
-                    {selectedWarehouseId && (
-                      <Button
-                        color="danger"
-                        variant="flat"
-                        className="w-full"
-                        onPress={handleDeleteWarehouseClick}
-                        isDisabled={isSubmitting}
-                      >
-                        <Icon icon="mdi:delete" className="mr-1" />
-                        Delete Warehouse
-                      </Button>
-                    )}
-                    <Button
-                      type="submit"
-                      color="primary"
-                      variant="shadow"
-                      className="w-full"
-                      isLoading={isSubmitting}
-                      isDisabled={!currentWarehouse?.name || !manualFullAddress || isSubmitting}
-                    >
-                      <Icon icon="mdi:content-save" className="mr-1" />
-                      {selectedWarehouseId ? "Update Warehouse" : "Save Warehouse"}
-                    </Button>
                   </div>
                 </LoadingAnimation>
-              </div>
+
+
+                {/* Location Details */}
+                <LoadingAnimation
+                  condition={isAddressLoading}
+                  skeleton={
+                    <div>
+                      <Skeleton className="h-6 w-36 rounded-xl mb-4 mx-auto" /> {/* "Location Details" title */}
+                      <div className="space-y-4">
+                        <Skeleton className="h-16 w-full rounded-xl" />
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                        </div>
+
+                        <Skeleton className="h-16 w-full rounded-xl" />
+                      </div>
+                    </div>}>
+                  <div className="space-y-4">
+                    <h2 className="text-xl font-semibold mb-4 w-full text-center">Location Details</h2>
+                    <Input
+                      label="Country"
+                      defaultValue="PHILIPPINES"
+                      isReadOnly
+                      isRequired
+                      classNames={inputStyle}
+                    />
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <Autocomplete
+                        label="Region"
+                        isRequired
+                        inputProps={autoCompleteStyle}
+                        classNames={{ clearButton: "text-default-800" }}
+                        selectedKey={selectedRegion}
+                        onSelectionChange={(e) => handleRegionChange(`${e}`)}
+                      >
+                        {regions.map(region => (
+                          <AutocompleteItem key={region.regCode}>
+                            {region.regDesc}
+                          </AutocompleteItem>
+                        ))}
+                      </Autocomplete>
+
+                      <Autocomplete
+                        label="Province"
+                        isRequired
+                        inputProps={autoCompleteStyle}
+                        classNames={{ clearButton: "text-default-800" }}
+                        selectedKey={selectedProvince}
+                        onSelectionChange={(e) => handleProvinceChange(`${e}`)}
+                        isDisabled={!selectedRegion}
+                      >
+                        {provinces.map(province => (
+                          <AutocompleteItem key={province.provCode}>
+                            {province.provDesc}
+                          </AutocompleteItem>
+                        ))}
+                      </Autocomplete>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <Autocomplete
+                        label="Municipality/City"
+                        isRequired
+                        inputProps={autoCompleteStyle}
+                        classNames={{ clearButton: "text-default-800" }}
+                        selectedKey={selectedCityMunicipality}
+                        onSelectionChange={(e) => handleCityMunicipalityChange(`${e}`)}
+                        isDisabled={!selectedProvince}
+                      >
+                        {cityMunicipalities.map(city => (
+                          <AutocompleteItem key={city.citymunCode}>
+                            {city.citymunDesc}
+                          </AutocompleteItem>
+                        ))}
+                      </Autocomplete>
+
+                      <Autocomplete
+                        label="Barangay"
+                        isRequired
+                        inputProps={autoCompleteStyle}
+                        classNames={{ clearButton: "text-default-800" }}
+                        selectedKey={selectedBarangay}
+                        onSelectionChange={(e) => setSelectedBarangay(`${e}`)}
+                        isDisabled={!selectedCityMunicipality}
+                      >
+                        {barangays.map(barangay => (
+                          <AutocompleteItem key={barangay.brgyCode}>
+                            {barangay.brgyDesc}
+                          </AutocompleteItem>
+                        ))}
+                      </Autocomplete>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <Input
+                        label="Street Address"
+                        placeholder="Enter street name, building number, etc."
+                        value={inputStreetAddress}
+                        onChange={(e) => setInputStreetAddress(e.target.value)}
+                        isRequired
+                        classNames={inputStyle}
+                      />
+
+                      <Input
+                        label="Postal Code"
+                        placeholder="Enter postal code"
+                        value={inputPostalCode}
+                        onChange={(e) => setInputPostalCode(e.target.value)}
+                        isRequired
+                        classNames={inputStyle}
+                      />
+                    </div>
+
+                    <Textarea
+                      label="Full Address"
+                      placeholder="Complete address"
+                      value={manualFullAddress}
+                      onChange={(e) => setManualFullAddress(e.target.value)}
+                      isRequired
+                      maxRows={5}
+                      minRows={1}
+                      classNames={inputStyle}
+                      isReadOnly
+                      startContent={<Icon icon="mdi:map-marker" className="text-default-500 pb-[0.1rem]" />}
+                    />
+                  </div>
+                </LoadingAnimation>
+
+                {/* Warehouse Layout */}
+                <div>
+                  <LoadingAnimation
+                    condition={detailLoading}
+                    skeleton={
+                      <div>
+                        <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" /> {/* Section Title */}
+                        <div className="space-y-4">
+                          <Skeleton className="h-32 w-full rounded-xl" /> {/* Layout Preview */}
+                          <div className="flex justify-end items-center gap-2">
+                            <Skeleton className="h-10 w-24 rounded-xl" />
+                            <Skeleton className="h-10 w-32 rounded-xl" />
+                          </div>
+                        </div>
+                      </div>
+                    }>
+                    <div className="space-y-4">
+                      <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouse Layout</h2>
+                      <div className="mb-4">
+                        {renderLayoutPreview()}
+                      </div>
+                      <div className="flex justify-end items-center gap-2">
+                        <Button
+                          color="primary"
+                          variant="flat"
+                          onPress={() => openLayoutEditor(selectedWarehouseId || '', 'editor')}
+                          startContent={<Icon icon="mdi:edit" className="w-4 h-4" />}
+                          isDisabled={!selectedWarehouseId}
+                        >
+                          Edit Layout
+                        </Button>
+                        <Button
+                          color="secondary"
+                          variant="flat"
+                          onPress={() => openLayoutEditor(selectedWarehouseId || '', 'preview')}
+                          startContent={<Icon icon="mdi:eye" className="w-4 h-4" />}
+                          isDisabled={!selectedWarehouseId}
+                        >
+                          View 3D Layout
+                        </Button>
+                      </div>
+                    </div>
+                  </LoadingAnimation>
+                </div>
+
+                {/* Additional Information (only when warehouse is selected) */}
+                <div {...(selectedWarehouseId && currentWarehouse?.created_at ? {} : { className: '!min-h-0 !p-0 !h-0 collapse border-none z-0' })}>
+
+                  <LoadingAnimation
+                    condition={detailLoading}
+                    skeleton={
+                      <div>
+                        <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" /> {/* Section Title */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                        </div>
+                      </div>
+                    }>
+                    <AnimatePresence>
+                      {selectedWarehouseId && currentWarehouse?.created_at && (
+                        <motion.div
+                          {...motionTransition}>
+                          <div className="">
+                            <h2 className="text-xl font-semibold mb-4 w-full text-center">Additional Information</h2>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              <Input
+                                label="Created"
+                                value={formatDate(currentWarehouse.created_at)}
+                                isReadOnly
+                                classNames={inputStyle}
+                                startContent={<Icon icon="mdi:calendar" className="text-default-500 pb-[0.1rem]" />}
+                              />
+
+                              <Input
+                                label="Last Updated"
+                                value={formatDate(currentWarehouse.updated_at || new Date().toISOString())}
+                                isReadOnly
+                                classNames={inputStyle}
+                                startContent={<Icon icon="mdi:calendar-clock" className="text-default-500 pb-[0.1rem]" />}
+                              />
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </LoadingAnimation>
+                </div>
+
+                {/* Action Buttons */}
+                <div>
+                  <LoadingAnimation
+                    condition={detailLoading}
+                    skeleton={
+                      <div className="flex justify-center items-center gap-4">
+                        <Skeleton className="h-10 w-full rounded-xl" />
+                        <Skeleton className="h-10 w-full rounded-xl" />
+                      </div>
+                    }>
+                    <div className="flex justify-center items-center gap-4">
+                      {selectedWarehouseId && (
+                        <Button
+                          color="danger"
+                          variant="flat"
+                          className="w-full"
+                          onPress={handleDeleteWarehouseClick}
+                          isDisabled={isSubmitting}
+                        >
+                          <Icon icon="mdi:delete" className="mr-1" />
+                          Delete Warehouse
+                        </Button>
+                      )}
+                      <Button
+                        type="submit"
+                        color="primary"
+                        variant="shadow"
+                        className="w-full"
+                        isLoading={isSubmitting}
+                        isDisabled={!currentWarehouse?.name || !manualFullAddress || isSubmitting}
+                      >
+                        <Icon icon="mdi:content-save" className="mr-1" />
+                        {selectedWarehouseId ? "Update Warehouse" : "Save Warehouse"}
+                      </Button>
+                    </div>
+                  </LoadingAnimation>
+                </div>
 
 
 
 
-            </CardList>
-          </Form>
+              </CardList>
+            </Form>
+          </div>
         </div>
+
+        {/* Delete Confirmation Modal */}
+        <Modal
+          isOpen={deleteModal.isOpen}
+          onClose={deleteModal.onClose}
+          size="sm"
+          backdrop="blur"
+          classNames={{
+            backdrop: "bg-background/50"
+          }}>
+          <ModalContent>
+            <ModalHeader>Confirm Deletion</ModalHeader>
+            <ModalBody>
+              <p>Are you sure you want to delete this warehouse? This action cannot be undone.</p>
+            </ModalBody>
+            <ModalFooter>
+              <Button variant="flat" onPress={deleteModal.onClose} isDisabled={isSubmitting}>
+                Cancel
+              </Button>
+              <Button
+                color="danger"
+                variant="shadow"
+                onPress={handleDeleteWarehouse}
+                isLoading={isSubmitting}
+              >
+                Delete
+              </Button>
+            </ModalFooter>
+          </ModalContent>
+        </Modal>
+
+        {/* Layout Editor Modal */}
+        <WarehouseLayoutEditorModal
+          isOpen={isLayoutEditorOpen}
+          onClose={() => setIsLayoutEditorOpen(false)}
+          warehouseId={selectedWarehouseId || ''}
+          initialLayout={warehouseLayout}
+          openedTab={selectedTab}
+          onSave={handleLayoutSaved}
+        />
       </div>
-
-      {/* Delete Confirmation Modal */}
-      <Modal
-        isOpen={deleteModal.isOpen}
-        onClose={deleteModal.onClose}
-        size="sm"
-        backdrop="blur"
-        classNames={{
-          backdrop: "bg-background/50"
-        }}>
-        <ModalContent>
-          <ModalHeader>Confirm Deletion</ModalHeader>
-          <ModalBody>
-            <p>Are you sure you want to delete this warehouse? This action cannot be undone.</p>
-          </ModalBody>
-          <ModalFooter>
-            <Button variant="flat" onPress={deleteModal.onClose} isDisabled={isSubmitting}>
-              Cancel
-            </Button>
-            <Button
-              color="danger"
-              variant="shadow"
-              onPress={handleDeleteWarehouse}
-              isLoading={isSubmitting}
-            >
-              Delete
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
-
-      {/* Layout Editor Modal */}
-      <WarehouseLayoutEditorModal
-        isOpen={isLayoutEditorOpen}
-        onClose={() => setIsLayoutEditorOpen(false)}
-        warehouseId={selectedWarehouseId || ''}
-        initialLayout={warehouseLayout}
-        openedTab={selectedTab}
-        onSave={handleLayoutSaved}
-      />
-    </div>
+    </motion.div>
   );
 }

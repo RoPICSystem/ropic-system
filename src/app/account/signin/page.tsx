@@ -47,7 +47,6 @@ export default function SigninPage() {
       });
       setPrimaryValue(`rgba(${hslToRgb(primaryHsl[0], primaryHsl[1], primaryHsl[2]).join(',')}, 1)`);
 
-      console.log('Primary HSL:', primaryHsl);
     }, 100);
   };
 

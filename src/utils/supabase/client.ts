@@ -7,7 +7,7 @@ let cachedAdminClient: ReturnType<typeof createBrowserClient> | null = null
 
 export function createClient(): SupabaseClient<any, "public", any> {
   if (cachedClient) {
-    console.log('Using cached client')
+    // console.log('Using cached client')
     return cachedClient
   }
   
@@ -22,7 +22,7 @@ export function createClient(): SupabaseClient<any, "public", any> {
 
 export function createAdminClient(): SupabaseClient<any, "public", any> {
   if (cachedAdminClient) {
-    console.log('Using cached admin client')
+    // console.log('Using cached admin client')
     return cachedAdminClient
   }
   

@@ -118,7 +118,7 @@ export default function SearchPage() {
         const uuid = query;
 
         if (uuid) {
-          const resultLoadItemDetails = await loadItemDetails(uuid);
+          const resultLoadItemDetails = await loadItemDetails(uuid, userData);
 
 
           // Auto-accept delivery if parameter is set and item is a delivery
@@ -138,9 +138,11 @@ export default function SearchPage() {
     initPage();
   }, [router, searchParams]);
 
-  const loadItemDetails = async (uuid: string) => {
+  const loadItemDetails = async (uuid: string, customUser?: any) => {
     setIsSearching(true);
     setError(null);
+
+    const userData = customUser || user; // Use provided user or current user state
 
     let result: any = null;
     try {
@@ -148,7 +150,7 @@ export default function SearchPage() {
 
       if (result.success && result.data && result.type) {
         // Check if user is trying to access inventory details without admin privileges
-        if (result.type === 'inventory' && user && user.is_admin === false) {
+        if (result.type === 'inventory' && userData && userData.is_admin === false) {
           setError("Access denied: Only administrators can view inventory item details");
           setItemDetails(null);
           setItemType(null);
@@ -162,7 +164,7 @@ export default function SearchPage() {
         if (result.type === 'delivery') {
           const deliveryDetails = result.data as GoPageDeliveryDetails;
 
-          setIsOperatorAssigned(deliveryDetails.operator_uuids?.includes(user?.uuid) || deliveryDetails.operator_uuids === null || deliveryDetails.operator_uuids?.length === 0);
+          setIsOperatorAssigned(deliveryDetails.operator_uuids?.includes(userData?.uuid) || deliveryDetails.operator_uuids === null || deliveryDetails.operator_uuids?.length === 0);
         } else {
           setIsOperatorAssigned(false);
         }
@@ -295,13 +297,6 @@ export default function SearchPage() {
 
           setAcceptDeliverySuccess(true);
           setShowAcceptStatusModal(true);
-
-          // Refresh the item details
-          // setTimeout(async () => {
-          //   await loadItemDetails(deliveryDetails.uuid);
-          //   setAcceptDeliverySuccess(false);
-          //   setShowAcceptStatusModal(false);
-          // }, 2000);
 
         } else {
           setAcceptDeliveryError("Failed to update delivery status");
@@ -687,16 +682,16 @@ export default function SearchPage() {
 
       {/* Related Information */}
       <div className={`grid grid-cols-1 ${user && user.is_admin ? 'lg:grid-cols-2' : ''} gap-4`}>
-        {/* Inventory Item - Only show for admin users */}
+        {/* Original Inventory Item - Only show for admin users */}
         {details.inventory_item && user && user.is_admin && (
-          <Card className="bg-background mt-4">
+          <Card className="bg-background">
             <CardHeader className="p-4 bg-secondary-50/30">
               <div className="flex items-center gap-3">
                 <div className="flex items-center justify-center sm:w-16 sm:h-16 lg:w-12 lg:h-12 xl:w-16 xl:h-16 w-12 h-12 bg-secondary-100 rounded-lg">
                   <Icon icon="mdi:package-variant" className="text-secondary" width={22} />
                 </div>
                 <div className="flex-1 flex flex-row sm:flex-col lg:flex-row xl:flex-col gap-2">
-                  <h3 className="text-lg font-semibold">Inventory Item</h3>
+                  <h3 className="text-lg font-semibold">Original Inventory</h3>
                   <div className="flex items-center gap-2">
                     <div
                       className="sm:block lg:hidden xl:block hidden">
@@ -765,7 +760,7 @@ export default function SearchPage() {
           </Card>
         )}
 
-        {/* Warehouse */}
+        {/* Warehouse Info */}
         {details.warehouse && (
           <Card className="bg-background mt-4">
             <CardHeader className="p-4 bg-success-50/30">
@@ -2101,8 +2096,6 @@ export default function SearchPage() {
     </div>
   );
 
-
-  console.log("Rendering search page with item details:", itemDetails);
 
   return (
     <div className="container mx-auto p-2 max-w-5xl">

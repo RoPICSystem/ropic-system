@@ -65,8 +65,6 @@ export function Providers({ children }: { children: React.ReactNode }) {
           async (payload: any) => {
             const { data, error } = await getUserProfile();
 
-            console.log("Profile subscription payload:", payload);
-
             if (error) {
               console.error("Error fetching profile subscription:", error);
               return;

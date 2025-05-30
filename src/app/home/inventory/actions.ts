@@ -229,10 +229,6 @@ export async function createInventoryItem(
         singleItemBulkMap.set(i, true);
       }
     }
-
-    console.log("Created bulk UUIDs:", createdBulkUuids);
-    console.log("Single item bulks by index:", [...singleItemBulkMap.entries()]);
-
     // Track which units we've already created for single-item bulks
     const processedSingleItemBulks = new Set();
 
@@ -243,16 +239,12 @@ export async function createInventoryItem(
 
       // Skip if we've already created a unit for this single-item bulk
       if (bulkIndex !== null && singleItemBulkMap.has(bulkIndex) && processedSingleItemBulks.has(bulkIndex)) {
-        console.log(`Skipping duplicate unit for single-item bulk at index ${bulkIndex}`);
         continue;
       }
 
       const bulkUuid = bulkIndex !== null && bulkIndex >= 0 && bulkIndex < createdBulkUuids.length
         ? createdBulkUuids[bulkIndex]
         : null;
-
-      console.log(`Creating unit with bulk index: ${bulkIndex}, bulk UUID: ${bulkUuid}`);
-      console.log("Unit details:", unit);
 
       const { error: unitError } = await supabase
         .from("inventory_item_unit")
