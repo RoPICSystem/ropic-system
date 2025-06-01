@@ -310,6 +310,7 @@ export default function InventoryPage() {
     // Clear form when no item is selected
     if (!selectedItemId) {
       resetForm();
+      setIsLoading(false);
       return;
     }
 
