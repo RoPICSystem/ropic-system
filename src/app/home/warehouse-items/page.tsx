@@ -90,6 +90,16 @@ export default function WarehouseItemsPage() {
   const qrCodeModal = useDisclosure();
   const locationModal = useDisclosure();
 
+  // Add new state for QR code data
+  const [qrCodeData, setQrCodeData] = useState<{
+    url: string;
+    title: string;
+    description: string;
+  }>({
+    url: "",
+    title: "",
+    description: ""
+  });
 
   // Form state
   const [formData, setFormData] = useState<Partial<WarehouseInventoryItemComplete>>();
@@ -429,6 +439,46 @@ export default function WarehouseItemsPage() {
   };
 
 
+  // Generate URL for QR code 
+  const generateDeliveryUrl = (q: string, itemAutoMarkAsUsed: boolean = false) => {
+    if (!selectedItemId || !formData) return "https://ropic.vercel.app/home/search";
+
+    const baseUrl = "https://ropic.vercel.app/home/search";
+    const params = new URLSearchParams({
+      q,
+      ...(itemAutoMarkAsUsed && { itemAutoMarkAsUsed: "true" })
+    });
+
+    return `${baseUrl}?${params.toString()}`;
+  };
+
+
+  // Handle showing QR code for warehouse item
+  const handleShowWarehouseItemQR = () => {
+    if (!selectedItemId || !formData) return;
+
+    setQrCodeData({
+      url: generateDeliveryUrl(selectedItemId),
+      title: "Warehouse Item QR Code",
+      description: `Scan this code to view details for ${formData.name || 'this warehouse item'}`
+    });
+    qrCodeModal.onOpen();
+  };
+
+  // Handle showing QR code for bulk item
+  const handleShowBulkQR = (bulkId: string, bulkName?: string) => {
+    if (!selectedItemId || !formData) return;
+
+    setQrCodeData({
+      url: generateDeliveryUrl(bulkId, true),
+      title: "Bulk Item QR Code",
+      description: `Scan this code to view details for ${bulkName || 'this bulk item'} in ${formData.name || 'warehouse item'}`
+    });
+    qrCodeModal.onOpen();
+  };
+
+
+
   const filteredOccupiedLocations = useMemo(() => {
     return occupiedLocations.filter(loc =>
       !shelfColorAssignments.some(
@@ -721,7 +771,7 @@ export default function WarehouseItemsPage() {
 
 
   return (
-    <motion.div {...motionTransitionScale}>
+    <motion.div {...motionTransition}>
       <div className="container mx-auto p-2 max-w-5xl">
         <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
           <div className="flex flex-col w-full xl:text-left text-center">
@@ -1246,7 +1296,7 @@ export default function WarehouseItemsPage() {
                                   itemClasses={{
                                     base: "p-0 bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
                                     title: "font-normal text-lg font-semibold",
-                                    trigger: "p-4 data-[hover=true]:bg-default-100 h-14 flex items-center transition-colors",
+                                    trigger: "p-4 data-[hover=true]:bg-default-100 flex items-center transition-colors",
                                     indicator: "text-medium",
                                     content: "text-small p-0",
                                   }}
@@ -1263,7 +1313,7 @@ export default function WarehouseItemsPage() {
                                               {bulk.is_single_item ? "Single Item" : `Bulk ${bulk.bulk_unit || ''}`}
                                             </span>
                                           </div>
-                                          <div className="flex gap-2">
+                                          <div className="flex gap-2 flex-wrap justify-end">
                                             <Chip color="primary" variant="flat" size="sm">
                                               {formatNumber(bulk.unit_value)} {bulk.unit}
                                             </Chip>
@@ -1564,10 +1614,9 @@ export default function WarehouseItemsPage() {
                                         </div>
 
 
-                                        {/* <div className="p-4 pb-0"> */}
                                         <div className="flex justify-end gap-2 bg-default-100/50 p-4">
                                           {bulk.location && (
-                                            <div className="flex justify-end gap-2">
+                                            <div className="flex flex-wrap justify-end gap-2">
                                               <Button
                                                 color="secondary"
                                                 variant="flat"
@@ -1589,6 +1638,16 @@ export default function WarehouseItemsPage() {
                                               </Button>
 
                                               <Button
+                                                color="primary"
+                                                variant="flat"
+                                                size="sm"
+                                                onPress={() => handleShowBulkQR(bulk.uuid, bulk.is_single_item ? "Single Item" : `Bulk ${bulk.bulk_unit || ''}`)}
+                                                startContent={<Icon icon="mdi:qrcode" />}
+                                              >
+                                                Show QR
+                                              </Button>
+
+                                              <Button
                                                 color="warning"
                                                 variant="flat"
                                                 size="sm"
@@ -1603,9 +1662,7 @@ export default function WarehouseItemsPage() {
                                                 Mark as Used
                                               </Button>
                                             </div>
-
                                           )}
-
                                         </div>
                                       </div>
                                     </AccordionItem>
@@ -1663,7 +1720,7 @@ export default function WarehouseItemsPage() {
                       <Button
                         color="primary"
                         variant="shadow"
-                        className="flex-1 basis-0"
+                        className="w-full"
                         onPress={() => handleViewBulkLocation(null)}
                         isDisabled={!selectedItemId || isLoading}
                       >
@@ -1676,8 +1733,8 @@ export default function WarehouseItemsPage() {
                       <Button
                         color="secondary"
                         variant="shadow"
-                        className="flex-1 basis-0"
-                        onPress={qrCodeModal.onOpen}
+                        className="w-full"
+                        onPress={handleShowWarehouseItemQR}
                         isDisabled={!selectedItemId || isLoading}
                       >
                         <div className="flex items-center gap-2">
@@ -1731,7 +1788,8 @@ export default function WarehouseItemsPage() {
 
         {/* Modal for QR Code */}
         <Modal
-          isOpen={qrCodeModal.isOpen} onClose={qrCodeModal.onClose}
+          isOpen={qrCodeModal.isOpen}
+          onClose={qrCodeModal.onClose}
           placement="auto"
           backdrop="blur"
           size="lg"
@@ -1740,32 +1798,36 @@ export default function WarehouseItemsPage() {
           }}
         >
           <ModalContent>
-            <ModalHeader>Item QR Code</ModalHeader>
+            <ModalHeader>{qrCodeData.title}</ModalHeader>
             <ModalBody className="flex flex-col items-center">
               <div className="bg-white rounded-xl overflow-hidden">
                 <QRCodeCanvas
-                  id="qrcode"
-                  value={generateItemJson()}
+                  id="warehouse-item-qrcode"
+                  value={qrCodeData.url}
                   size={320}
                   marginSize={4}
                   level="L"
                 />
               </div>
               <p className="text-center mt-4 text-default-600">
-                Scan this code to get warehouse item details
+                {qrCodeData.description}
               </p>
-              <div className="mt-4 w-full bg-default overflow-auto max-h-64 bg-default-50 rounded-xl">
-                <SyntaxHighlighter
-                  language="json"
-                  style={window.resolveTheme === 'dark' ? materialDark : materialLight}
-                  customStyle={{
-                    margin: 0,
-                    borderRadius: '0.5rem',
-                    fontSize: '0.75rem',
-                  }}
-                >
-                  {generateItemJson(2)}
-                </SyntaxHighlighter>
+              <div className="mt-4 w-full bg-default-50 overflow-auto max-h-64 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium text-default-700">QR Code URL:</p>
+                  <Button
+                    size="sm"
+                    variant="flat"
+                    color="default"
+                    isIconOnly
+                    onPress={() => copyToClipboard(qrCodeData.url)}
+                  >
+                    <Icon icon="mdi:content-copy" className="text-default-500 text-sm" />
+                  </Button>
+                </div>
+                <code className="text-xs text-default-600 break-all">
+                  {qrCodeData.url}
+                </code>
               </div>
             </ModalBody>
             <ModalFooter className="flex justify-end p-4 gap-4">
@@ -1778,17 +1840,15 @@ export default function WarehouseItemsPage() {
                 color="primary"
                 variant="shadow"
                 onPress={() => {
-                  // Create an image from the QR code and download it
-                  const canvas = document.querySelector('canvas');
-                  if (canvas) {
-                    const pngUrl = canvas.toDataURL('image/png');
-                    const downloadLink = document.createElement('a');
-                    downloadLink.href = pngUrl;
-                    downloadLink.download = `warehouse-item-${formData?.uuid || ''}.png`;
-                    document.body.appendChild(downloadLink);
-                    downloadLink.click();
-                    document.body.removeChild(downloadLink);
-                  }
+                  const canvas = document.getElementById('warehouse-item-qrcode') as HTMLCanvasElement;
+                  const pngUrl = canvas.toDataURL('image/png');
+                  const downloadLink = document.createElement('a');
+                  downloadLink.href = pngUrl;
+                  downloadLink.download = `warehouse-item-${formData?.uuid || 'item'}-${new Date().toISOString().split('T')[0]}.png`;
+                  document.body.appendChild(downloadLink);
+                  downloadLink.click();
+                  document.body.removeChild(downloadLink);
+                  qrCodeModal.onClose();
                 }}
               >
                 <Icon icon="mdi:download" className="mr-1" />

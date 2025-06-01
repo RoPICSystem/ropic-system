@@ -354,7 +354,7 @@ export default function CompanyEditPage() {
     regions, provinces, cityMunicipalities, barangays]);
 
   return (
-    <motion.div {...motionTransitionScale}>
+    <motion.div {...motionTransition}>
       <div className="container mx-auto max-w-5xl p-2">
         <Form onSubmit={handleSubmit}>
           <div className="space-y-4 w-full">

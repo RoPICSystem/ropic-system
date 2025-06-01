@@ -298,7 +298,7 @@ export default function ProfileEditPage() {
     regions, provinces, cityMunicipalities, barangays]);
 
   return (
-    <motion.div {...motionTransitionScale}>
+    <motion.div {...motionTransition}>
       <div className="container mx-auto max-w-5xl p-2">
         <Form className="space-y-4" onSubmit={handleSubmit}
           onInvalid={(error) => {

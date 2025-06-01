@@ -81,7 +81,7 @@ export default function ProfilePage() {
   }, [])
 
   return (
-    <motion.div {...motionTransitionScale}>
+    <motion.div {...motionTransition}>
       <div className="container mx-auto max-w-5xl p-2">
         <div className="space-y-4 items-center w-full">
           <div className="space-y-4 w-full">

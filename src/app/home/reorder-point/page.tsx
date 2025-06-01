@@ -27,7 +27,8 @@ import {
   DatePicker,
   DateRangePicker,
   Tabs,
-  Tab
+  Tab,
+  Alert
 } from "@heroui/react";
 import { CalendarDate } from "@internationalized/date";
 import { Icon } from "@iconify/react";
@@ -803,7 +804,7 @@ export default function ReorderPointPage() {
   }, [warehouses]);
 
   return (
-    <motion.div {...motionTransitionScale}>
+    <motion.div {...motionTransition}>
       <div className="container mx-auto p-2 max-w-5xl">
         <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
           <div className="flex flex-col w-full xl:text-left text-center">
@@ -2146,36 +2147,48 @@ export default function ReorderPointPage() {
                   </div>
 
 
-                  <div className="w-full flex gap-2 flex-row">
-                    <Button
-                      color="primary"
-                      variant="shadow"
-                      className="flex-1 basis-0"
-                      onPress={() => {
-                        setCustomSafetyStock(formData.custom_safety_stock !== null ? formData.custom_safety_stock ?? 0 : formData.safety_stock ?? 0);
-                        setSafetyStockNotes(formData.notes || "");
-                        customSafetyStockModal.onOpen();
-                      }}
-                      isDisabled={isLoading || !formData.inventory_uuid || !formData.warehouse_uuid}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Icon icon="mdi:shield-edit" />
-                        <span>Customize Safety Stock</span>
-                      </div>
-                    </Button>
+                  <div className="flex flex-col gap-4">
+                    <AnimatePresence>
+                      {error && (
+                        <motion.div {...motionTransition}>
+                          <Alert color="danger" variant="flat" onClose={() => setError(null)}>
+                            {error}
+                          </Alert>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
 
-                    <Button
-                      color="secondary"
-                      variant="shadow"
-                      className="flex-1 basis-0"
-                      onPress={handleRecalculateReorderPoints}
-                      isLoading={isLoading}
-                    >
-                      <div className="flex items-center gap-2">
-                        {!isLoading && <Icon icon="mdi:refresh" />}
-                        <span>Recalculate</span>
-                      </div>
-                    </Button>
+                    <div className="flex flex-col md:flex-row justify-center items-center gap-4">
+                      <Button
+                        color="primary"
+                        variant="shadow"
+                        className="w-full"
+                        onPress={() => {
+                          setCustomSafetyStock(formData.custom_safety_stock !== null ? formData.custom_safety_stock ?? 0 : formData.safety_stock ?? 0);
+                          setSafetyStockNotes(formData.notes || "");
+                          customSafetyStockModal.onOpen();
+                        }}
+                        isDisabled={isLoading || !formData.inventory_uuid || !formData.warehouse_uuid}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Icon icon="mdi:shield-edit" />
+                          <span>Custom Safety Stock</span>
+                        </div>
+                      </Button>
+
+                      <Button
+                        color="secondary"
+                        variant="shadow"
+                        className="w-full"
+                        onPress={handleRecalculateReorderPoints}
+                        isLoading={isLoading}
+                      >
+                        <div className="flex items-center gap-2">
+                          {!isLoading && <Icon icon="mdi:refresh" />}
+                          <span>Recalculate</span>
+                        </div>
+                      </Button>
+                    </div>
                   </div>
                 </CardList>
               </div>

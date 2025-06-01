@@ -389,14 +389,16 @@ export async function getBulkUnitsDetails(bulkUuid: string, isWarehouseBulk: boo
   }
 }
 
+
 /**
  * Detect item type and get details based on UUID
  */
 export async function getItemDetailsByUuid(uuid: string): Promise<{
   success: boolean;
-  type?: 'delivery' | 'inventory' | 'warehouse_inventory';
+  type?: 'delivery' | 'inventory' | 'warehouse_inventory' | 'warehouse_bulk';
   data?: GoPageDeliveryDetails | GoPageInventoryDetails | GoPageWarehouseDetails;
   error?: string;
+  warehouseBulkUuid?: string; // Add this for warehouse bulk identification
 }> {
   const supabase = await createClient();
 
@@ -454,6 +456,25 @@ export async function getItemDetailsByUuid(uuid: string): Promise<{
       };
     }
 
+    // Check warehouse inventory item bulk
+    const { data: warehouseBulkCheck, error: warehouseBulkCheckError } = await supabase
+      .from("warehouse_inventory_item_bulk")
+      .select("uuid, warehouse_inventory_uuid")
+      .eq("uuid", uuid)
+      .single();
+
+    if (!warehouseBulkCheckError && warehouseBulkCheck) {
+      // Get the warehouse inventory item details for this bulk
+      const result = await getWarehouseItemDetails(warehouseBulkCheck.warehouse_inventory_uuid);
+      return {
+        success: result.success,
+        type: 'warehouse_bulk',
+        data: result.data,
+        error: result.error,
+        warehouseBulkUuid: uuid // Store the bulk UUID for highlighting
+      };
+    }
+
     return {
       success: false,
       error: "Item not found in any table"
@@ -463,7 +484,55 @@ export async function getItemDetailsByUuid(uuid: string): Promise<{
     console.error("Error detecting item type:", error);
     return {
       success: false,
-      error: `Failed to detect item type: ${error.message || "Unknown error"}`,
+      error: `Failed to detect item type: \n${error.message || "Unknown error"}`,
+    };
+  }
+}
+
+
+/**
+ * Updates the status of a warehouse inventory item bulk
+ */
+export async function updateWarehouseBulkStatus(bulkUuid: string, status: string) {
+  const supabase = await createClient();
+
+  try {
+    // First, get the current status of the bulk
+    const { data: currentBulk, error: fetchError } = await supabase
+      .from("warehouse_inventory_item_bulk")
+      .select("status")
+      .eq("uuid", bulkUuid)
+      .single();
+
+    if (fetchError) {
+      throw fetchError;
+    }
+
+    // Check if the new status is the same as the current status
+    if (currentBulk.status === status) {
+      throw new Error(`Status is already set to "${status}". No update needed.`);
+    }
+
+    const { data, error } = await supabase
+      .from("warehouse_inventory_item_bulk")
+      .update({ status: status })
+      .eq("uuid", bulkUuid)
+      .select()
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return {
+      success: true,
+      data: data
+    };
+  } catch (error: any) {
+    console.error("Error updating warehouse bulk status:", error);
+    return {
+      success: false,
+      error: `Failed to update warehouse bulk status: ${error.message || "Unknown error"}`,
     };
   }
 }

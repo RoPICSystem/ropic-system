@@ -577,7 +577,7 @@ export default function WarehousePage() {
   };
 
   return (
-    <motion.div {...motionTransitionScale}>
+    <motion.div {...motionTransition}>
       <div className="container mx-auto p-2 max-w-5xl">
         <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
           <div className="flex flex-col w-full xl:text-left text-center">

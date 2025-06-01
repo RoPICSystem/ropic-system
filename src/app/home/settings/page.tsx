@@ -8,7 +8,7 @@ import {
   Switch
 } from "@heroui/react";
 import { useRouter } from 'next/navigation';
-import { motionTransitionScale } from "@/utils/anim";
+import { motionTransition } from "@/utils/anim";
 import { motion } from "framer-motion";
 
 export default function SettingsPage() {
@@ -16,7 +16,7 @@ export default function SettingsPage() {
 
 
   return (
-    <motion.div {...motionTransitionScale}>
+    <motion.div {...motionTransition}>
       <div className="container mx-auto max-w-5xl p-2">
         <div className="space-y-4">
           {/* Header section */}

@@ -39,6 +39,7 @@ import LoadingAnimation from "@/components/loading-animation";
 import {
   getItemDetailsByUuid,
   getBulkUnitsDetails,
+  updateWarehouseBulkStatus,
   GoPageDeliveryDetails,
   GoPageInventoryDetails,
   GoPageWarehouseDetails,
@@ -55,7 +56,7 @@ export default function SearchPage() {
   const [isSearching, setIsSearching] = useState(false);
 
   // Item details states
-  const [itemType, setItemType] = useState<'delivery' | 'inventory' | 'warehouse_inventory' | null>(null);
+  const [itemType, setItemType] = useState<'delivery' | 'inventory' | 'warehouse_inventory' | 'warehouse_bulk' | null>(null);
   const [itemDetails, setItemDetails] = useState<GoPageDeliveryDetails | GoPageInventoryDetails | GoPageWarehouseDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,14 +67,21 @@ export default function SearchPage() {
   const [loadedBulkUnits, setLoadedBulkUnits] = useState<Map<string, any[]>>(new Map());
   const [loadingBulkUnits, setLoadingBulkUnits] = useState<Set<string>>(new Set());
 
-  // Add delivery acceptance states
+  // Delivery acceptance states
   const [isAcceptingDelivery, setIsAcceptingDelivery] = useState(false);
   const [acceptDeliveryError, setAcceptDeliveryError] = useState<string | null>(null);
   const [acceptDeliverySuccess, setAcceptDeliverySuccess] = useState(false);
   const [isOperatorAssigned, setIsOperatorAssigned] = useState<boolean>(false);
 
-  // Add modal state
+  // Modal state
   const [showAcceptStatusModal, setShowAcceptStatusModal] = useState(false);
+
+  // State for warehouse bulk handling
+  const [targetWarehouseBulkUuid, setTargetWarehouseBulkUuid] = useState<string | null>(null);
+  const [showAutoMarkStatusModal, setShowAutoMarkStatusModal] = useState(false);
+  const [autoMarkSuccess, setAutoMarkSuccess] = useState(false);
+  const [autoMarkError, setAutoMarkError] = useState<string | null>(null);
+
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -103,27 +111,41 @@ export default function SearchPage() {
   // Load user and check for UUID in URL
   useEffect(() => {
     const initPage = async () => {
+      setIsLoading(true);
+      setError(null);
+
       try {
         const userData = await getUserFromCookies();
         if (!userData) {
-          router.push("/auth/login");
+          router.push('/auth/login');
           return;
         }
+
         setUser(userData);
 
-        // Check for UUID parameters
-        const isDeliveryAutoAccept = searchParams.get("deliveryAutoAccept") === "true";
         const query = searchParams.get("q");
+        const isDeliveryAutoAccept = searchParams.get("deliveryAutoAccept") === "true";
+        const isItemAutoMarkAsUsed = searchParams.get("itemAutoMarkAsUsed") === "true";
 
         const uuid = query;
 
         if (uuid) {
           const resultLoadItemDetails = await loadItemDetails(uuid, userData);
 
-
           // Auto-accept delivery if parameter is set and item is a delivery
           if (isDeliveryAutoAccept && resultLoadItemDetails && resultLoadItemDetails.type === 'delivery') {
             await handleAcceptDelivery(resultLoadItemDetails.data as GoPageDeliveryDetails, userData);
+          }
+
+          // Auto-mark warehouse bulk as used if parameter is set and item is a warehouse bulk
+          if (isItemAutoMarkAsUsed && resultLoadItemDetails && resultLoadItemDetails.type === 'warehouse_bulk') {
+            await handleAutoMarkWarehouseBulk(resultLoadItemDetails.warehouseBulkUuid!, userData);
+          }
+
+          // Set target bulk UUID for highlighting if it's a warehouse bulk
+          if (resultLoadItemDetails && resultLoadItemDetails.type === 'warehouse_bulk') {
+            setTargetWarehouseBulkUuid(resultLoadItemDetails.warehouseBulkUuid!);
+            await loadBulkUnits(resultLoadItemDetails.warehouseBulkUuid!, true);  
           }
         }
 
@@ -313,6 +335,39 @@ export default function SearchPage() {
       setShowAcceptStatusModal(true);
     } finally {
       setIsAcceptingDelivery(false);
+    }
+  };
+
+  // Add new function to handle auto-marking warehouse bulk as used
+  const handleAutoMarkWarehouseBulk = async (bulkUuid: string, userDetails: any) => {
+    setIsLoading(true);
+    setAutoMarkError(null);
+    setAutoMarkSuccess(false);
+
+    try {
+      // Update the bulk status to USED
+      const result = await updateWarehouseBulkStatus(bulkUuid, "USED");
+
+      if (result.success) {
+        setAutoMarkSuccess(true);
+        setShowAutoMarkStatusModal(true);
+
+        // Refresh the page data to show updated status
+        const query = searchParams.get("q");
+        if (query) {
+          await loadItemDetails(query);
+        }
+      } else {
+        setAutoMarkError(result.error || "Failed to mark item as used");
+        setShowAutoMarkStatusModal(true);
+      }
+
+    } catch (error) {
+      console.error("Error marking warehouse bulk as used:", error);
+      setAutoMarkError("An unexpected error occurred");
+      setShowAutoMarkStatusModal(true);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -1840,37 +1895,38 @@ export default function SearchPage() {
 
       {/* Warehouse Bulks with Units - Using Accordion */}
       <Card className="bg-background mt-4">
-        <CardHeader className="p-4 bg-success-50/30">
+        <CardHeader className="p-4 bg-danger-50/30">
           <div className="flex items-center justify-between w-full">
             <div className="flex items-center gap-3">
-              <div className="flex items-center justify-center w-12 h-12 bg-success-100 rounded-lg">
-                <Icon icon="mdi:cube-outline" className="text-success" width={22} />
+              <div className="flex items-center justify-center w-12 h-12 bg-danger-100 rounded-lg">
+                <Icon icon="mdi:cube-outline" className="text-danger" width={22} />
               </div>
               <h3 className="text-lg font-semibold">Storage Bulks</h3>
             </div>
-            <Chip size="sm" variant="flat" color="success">
+            <Chip size="sm" variant="flat" color="danger">
               {details.bulks.length}
             </Chip>
           </div>
         </CardHeader>
         <Divider />
-        <CardBody className="px-2 py-4 bg-success-50/30">
+        <CardBody className="px-2 py-4 bg-danger-50/30">
           <Accordion
             selectionMode="multiple"
             variant="splitted"
+            defaultExpandedKeys={targetWarehouseBulkUuid ? [targetWarehouseBulkUuid] : []}
             itemClasses={{
-              base: "p-0 bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
+              base: "p-0 bg-transparent rounded-xl overflow-hidden border-2 border-danger-50",
               title: "font-normal text-lg font-semibold",
-              trigger: "p-4 data-[hover=true]:bg-default-100 h-18 flex items-center transition-colors",
+              trigger: "p-4 data-[hover=true]:bg-danger-50 h-18 flex items-center transition-colors",
               indicator: "text-medium",
               content: "text-small p-0",
             }}
             onSelectionChange={(keys) => {
               // Load units for opened accordion items
               if (keys instanceof Set) {
-                keys.forEach(key => {
-                  const bulkIndex = parseInt(key.toString());
-                  if (details.bulks && details.bulks[bulkIndex]) {
+                keys.forEach((key) => {
+                  const bulkIndex = details.bulks.findIndex(bulk => bulk.uuid === key);
+                  if (bulkIndex !== -1 && details.bulks[bulkIndex]) {
                     const bulk = details.bulks[bulkIndex];
                     loadBulkUnits(bulk.uuid, true);
                   }
@@ -1880,26 +1936,30 @@ export default function SearchPage() {
           >
             {details.bulks.map((bulk, index) => (
               <AccordionItem
-                key={index}
+                key={bulk.uuid}
                 title={
                   <div className="flex items-center justify-between w-full">
                     <div className="flex items-center gap-3">
                       <div className="flex-1 flex flex-row xl:flex-col gap-2">
-                        <h3 className="text-lg font-semibold">
-                          Bulk #{index + 1} - {bulk.location_code}
+                        <h3 className={`text-lg font-semibold ${targetWarehouseBulkUuid === bulk.uuid ? 'text-danger' : ''
+                          }`}>
+                          Bulk #{index + 1}
+                          {targetWarehouseBulkUuid === bulk.uuid && (
+                            <span className="ml-2 text-danger">← Target</span>
+                          )}
                         </h3>
                         <div className="flex items-center gap-2">
                           <div className="xl:block hidden">
                             <Snippet
                               symbol=""
                               variant="flat"
-                              color="success"
+                              color="danger"
                               size="sm"
                               className="text-xs p-1 pl-2"
-                              classNames={{ copyButton: "bg-success-100 hover:!bg-success-200 text-sm p-0 h-6 w-6" }}
+                              classNames={{ copyButton: "bg-danger-100 hover:!bg-danger-200 text-sm p-0 h-6 w-6" }}
                               codeString={bulk.uuid}
-                              checkIcon={<Icon icon="fluent:checkmark-16-filled" className="text-success" />}
-                              copyIcon={<Icon icon="fluent:copy-16-regular" className="text-success-500" />}
+                              checkIcon={<Icon icon="fluent:checkmark-16-filled" className="text-danger" />}
+                              copyIcon={<Icon icon="fluent:copy-16-regular" className="text-danger-500" />}
                               onCopy={() => copyToClipboard(bulk.uuid)}
                             >
                               {bulk.uuid}
@@ -1908,12 +1968,12 @@ export default function SearchPage() {
                           <Button
                             size="sm"
                             variant="flat"
-                            color="success"
+                            color="danger"
                             isIconOnly
                             className="xl:hidden"
                             onPress={() => copyToClipboard(bulk.uuid)}
                           >
-                            <Icon icon="fluent:copy-16-regular" className="text-success-500 text-sm" />
+                            <Icon icon="fluent:copy-16-regular" className="text-danger-500 text-sm" />
                           </Button>
                         </div>
                       </div>
@@ -1935,26 +1995,26 @@ export default function SearchPage() {
                 <div className="space-y-4 p-4">
                   {/* Bulk Details */}
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div className="bg-success-50 rounded-lg p-3 border border-success-100">
-                      <p className="text-sm font-medium text-success-700">Unit Value</p>
-                      <p className="text-success-900">{bulk.unit_value} {bulk.unit}</p>
+                    <div className="bg-danger-50 rounded-lg p-3 border border-danger-100">
+                      <p className="text-sm font-medium text-danger-700">Unit Value</p>
+                      <p className="text-danger-900">{bulk.unit_value} {bulk.unit}</p>
                     </div>
-                    <div className="bg-success-50 rounded-lg p-3 border border-success-100">
-                      <p className="text-sm font-medium text-success-700">Bulk Unit</p>
-                      <p className="text-success-900">{bulk.bulk_unit}</p>
+                    <div className="bg-danger-50 rounded-lg p-3 border border-danger-100">
+                      <p className="text-sm font-medium text-danger-700">Bulk Unit</p>
+                      <p className="text-danger-900">{bulk.bulk_unit}</p>
                     </div>
-                    <div className="bg-success-50 rounded-lg p-3 border border-success-100">
-                      <p className="text-sm font-medium text-success-700">Cost</p>
-                      <p className="text-success-900">{formatCurrency(bulk.cost)}</p>
+                    <div className="bg-danger-50 rounded-lg p-3 border border-danger-100">
+                      <p className="text-sm font-medium text-danger-700">Cost</p>
+                      <p className="text-danger-900">{formatCurrency(bulk.cost)}</p>
                     </div>
-                    <div className="bg-success-50 rounded-lg p-3 border border-success-100">
-                      <p className="text-sm font-medium text-success-700">Type</p>
-                      <p className="text-success-900">{bulk.is_single_item ? "Single Item" : "Multiple Items"}</p>
+                    <div className="bg-danger-50 rounded-lg p-3 border border-danger-100">
+                      <p className="text-sm font-medium text-danger-700">Type</p>
+                      <p className="text-danger-900">{bulk.is_single_item ? "Single Item" : "Multiple Items"}</p>
                     </div>
                   </div>
 
                   {/* Location Details */}
-                  {bulk.location && (
+                  {(bulk.location) && (
                     <Card className="bg-primary-50 border-2 border-primary-100">
                       <CardBody className="p-4">
                         <div className="flex items-center gap-3 mb-3">
@@ -2234,7 +2294,7 @@ export default function SearchPage() {
           )}
 
           {/* Item Warehouse Invenrtory Details */}
-          {itemDetails && itemType && itemType === 'warehouse_inventory' && (
+          {itemDetails && itemType && (itemType === 'warehouse_inventory' || itemType === 'warehouse_bulk') && (
             <motion.div
               key="warehouse-details"
               {...motionTransition}
@@ -2261,8 +2321,8 @@ export default function SearchPage() {
                     Enter any UUID from your delivery items, inventory items, or warehouse items to view comprehensive details.
                   </p>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-2xl mx-auto">
-                    <div className="text-center">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-2xl mx-auto px-4">
+                    <div className="text-center max-w-xs mx-auto">
                       <div className="w-12 h-12 bg-warning-100 rounded-lg flex items-center justify-center mx-auto mb-2">
                         <Icon icon="mdi:truck-delivery" className="text-warning" width={24} />
                       </div>
@@ -2270,7 +2330,7 @@ export default function SearchPage() {
                       <p className="text-sm text-default-600">View delivery details, operators, locations</p>
                     </div>
 
-                    <div className="text-center">
+                    <div className="text-center max-w-xs mx-auto">
                       <div className="w-12 h-12 bg-secondary-100 rounded-lg flex items-center justify-center mx-auto mb-2">
                         <Icon icon="mdi:package-variant" className="text-secondary" width={24} />
                       </div>
@@ -2278,12 +2338,12 @@ export default function SearchPage() {
                       <p className="text-sm text-default-600">View bulks, units, delivery history {user && !user.is_admin && "(Admin only)"}</p>
                     </div>
 
-                    <div className="text-center">
+                    <div className="text-center max-w-xs mx-auto">
                       <div className="w-12 h-12 bg-success-100 rounded-lg flex items-center justify-center mx-auto mb-2">
                         <Icon icon="mdi:warehouse" className="text-success" width={24} />
                       </div>
                       <p className="font-medium text-default-900">Warehouse Inventory Items</p>
-                      <p className="text-sm text-default-600">View storage locations, units</p>
+                      <p className="text-sm text-default-600">View storage locations, bulks and units. You can search by warehouse bulk UUID also.</p>
                     </div>
                   </div>
                 </CardBody>
@@ -2292,6 +2352,7 @@ export default function SearchPage() {
           )}
         </AnimatePresence>
       </div >
+
       {/* Accept Delivery Status Modal - place outside the main content */}
       <Modal
         isOpen={showAcceptStatusModal}
@@ -2357,6 +2418,56 @@ export default function SearchPage() {
               }}
             >
               {acceptDeliverySuccess ? "Great!" : "Close"}
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Auto Mark Status Modal */}
+      <Modal
+        isOpen={showAutoMarkStatusModal}
+        backdrop="blur"
+        size="md"
+        classNames={{ backdrop: "bg-background/50" }}
+        onClose={() => {
+          setShowAutoMarkStatusModal(false)
+          setAutoMarkError("");
+          setAutoMarkSuccess(false);
+
+          const searchQuery = searchParams.get("q") || "";
+          router.replace(`/home/search?q=${encodeURIComponent(searchQuery.trim())}`);
+        }}>
+        <ModalContent>
+          <ModalHeader>
+            <h3 className="text-lg font-semibold">
+              {autoMarkSuccess ? "Success" : "Error"}
+            </h3>
+          </ModalHeader>
+          <ModalBody>
+            {autoMarkSuccess ? (
+              <div className="flex items-center gap-3">
+                <Icon icon="mdi:check-circle" className="w-6 h-6" />
+                <p>Item has been successfully marked as used.</p>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3">
+                <Icon icon="mdi:alert-circle" className="w-6 h-6" />
+                <p>{autoMarkError}</p>
+              </div>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              color="primary"
+              onPress={() => {
+                setShowAutoMarkStatusModal(false)
+                setAutoMarkError("");
+                setAutoMarkSuccess(false);
+
+                const searchQuery = searchParams.get("q") || "";
+                router.replace(`/home/search?q=${encodeURIComponent(searchQuery.trim())}`);
+              }}>
+              OK
             </Button>
           </ModalFooter>
         </ModalContent>
