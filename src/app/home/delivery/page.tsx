@@ -3980,7 +3980,7 @@ export default function DeliveryPage() {
                                         <Skeleton className="h-3 w-32 rounded-xl" />
                                       </div>
                                     </div>
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2 flex-wrap justify-end">
                                       <Skeleton className="h-6 w-20 rounded-xl" />
                                       <Skeleton className="h-8 w-24 rounded-xl" />
                                     </div>
@@ -4128,7 +4128,7 @@ export default function DeliveryPage() {
                                               <Skeleton className="h-3 w-32 rounded-xl" />
                                             </div>
                                           </div>
-                                          <div className="flex items-center gap-2">
+                                          <div className="flex items-center gap-2 flex-wrap justify-end">
                                             <Skeleton className="h-6 w-20 rounded-xl" />
                                             <Skeleton className="h-8 w-24 rounded-xl" />
                                           </div>
@@ -4194,12 +4194,11 @@ export default function DeliveryPage() {
                                                   </Chip>
                                                 )}
                                                 {selectedBulks.includes(bulk.uuid) && (
-                                                  <div className="flex items-center">
+                                                  <div className="flex flex-wrap justify-end items-center gap-2">
                                                     <Chip
                                                       size="sm"
                                                       color={locationCodes[selectedBulks.indexOf(bulk.uuid)] ? "success" : "warning"}
                                                       variant="flat"
-                                                      className="mr-2"
                                                     >
                                                       {locationCodes[selectedBulks.indexOf(bulk.uuid)] || "No location"}
                                                     </Chip>
@@ -4278,7 +4277,7 @@ export default function DeliveryPage() {
                                                                 <span className="text-default-500">Bulk ID:</span>
                                                                 <span className="ml-2 font-mono text-xs">{details.uuid}</span>
                                                               </div>
-                                                              <div className="grid grid-cols-2 gap-3">
+                                                              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                                                                 <div>
                                                                   <span className="text-default-500">Unit Value:</span>
                                                                   <span className="ml-2">{formatNumber(details.unit_value)} {details.unit}</span>
@@ -4303,7 +4302,7 @@ export default function DeliveryPage() {
                                                                     <Icon icon="mdi:tag-multiple" className="text-default-500" width={16} />
                                                                     <span className="text-sm font-medium">Bulk Properties</span>
                                                                   </div>
-                                                                  <div className="grid grid-cols-2 gap-3 text-sm">
+                                                                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 text-sm">
                                                                     {Object.entries(details.properties).map(([key, value]) => (
                                                                       <div key={key}>
                                                                         <span className="text-default-500">{toTitleCase(toNormalCase(key))}:</span>
@@ -4355,7 +4354,7 @@ export default function DeliveryPage() {
                                                                         <span className="text-default-500">Unit ID:</span>
                                                                         <span className="ml-2 font-mono text-xs">{unit.uuid}</span>
                                                                       </div>
-                                                                      <div className="grid grid-cols-2 gap-3">
+                                                                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                                                                         <div>
                                                                           <span className="text-default-500">Code:</span>
                                                                           <span className="ml-2 font-mono">{unit.code || 'N/A'}</span>

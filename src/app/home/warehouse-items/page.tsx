@@ -472,7 +472,7 @@ export default function WarehouseItemsPage() {
     setQrCodeData({
       url: generateDeliveryUrl(bulkId, true),
       title: "Bulk Item QR Code",
-      description: `Scan this code to view details for ${bulkName || 'this bulk item'} in ${formData.name || 'warehouse item'}`
+      description: `Scan this code to view details for ${bulkName || 'this bulk item'} in ${formData.name || 'warehouse item'}. This will mark the bulk as USED automatically.`
     });
     qrCodeModal.onOpen();
   };

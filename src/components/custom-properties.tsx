@@ -141,7 +141,7 @@ export default function CustomProperties({
       <CardBody className="p-4">
         <div className="flex justify-between items-center mb-4">
           <h4 className="text-lg font-semibold">Custom Properties</h4>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             {showInheritButton && onInheritFrom && (
               <Button
                 size="sm"

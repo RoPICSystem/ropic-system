@@ -1698,7 +1698,7 @@ export default function InventoryPage() {
                                 itemClasses={{
                                   base: "p-0 bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
                                   title: "font-normal text-lg font-semibold",
-                                  trigger: "p-4 data-[hover=true]:bg-default-100 h-14 flex items-center transition-colors",
+                                  trigger: "p-4 data-[hover=true]:bg-default-100 flex items-center transition-colors",
                                   indicator: "text-medium",
                                   content: "text-small p-0",
                                 }}>
