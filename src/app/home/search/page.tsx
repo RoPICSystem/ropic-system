@@ -82,6 +82,10 @@ export default function SearchPage() {
   // Add ref to track processed auto-actions
   const processedAutoActions = useRef<Set<string>>(new Set());
 
+  const [showAcceptDeliveryLoadingModal, setShowAcceptDeliveryLoadingModal] = useState(false);
+  const [showAutoMarkLoadingModal, setShowAutoMarkLoadingModal] = useState(false);
+
+
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -107,7 +111,7 @@ export default function SearchPage() {
     );
   };
 
-   // Load user and check for UUID in URL
+  // Load user and check for UUID in URL
   useEffect(() => {
     const initPage = async () => {
       setIsLoading(true);
@@ -136,21 +140,21 @@ export default function SearchPage() {
           const autoMarkKey = `warehouse-${uuid}-autoMark`;
 
           // Auto-accept delivery if parameter is set and item is a delivery
-          if (isDeliveryAutoAccept && 
-              resultLoadItemDetails && 
-              resultLoadItemDetails.type === 'delivery' &&
-              !processedAutoActions.current.has(autoAcceptKey)) {
-            
+          if (isDeliveryAutoAccept &&
+            resultLoadItemDetails &&
+            resultLoadItemDetails.type === 'delivery' &&
+            !processedAutoActions.current.has(autoAcceptKey)) {
+
             processedAutoActions.current.add(autoAcceptKey);
             await handleAcceptDelivery(resultLoadItemDetails.data as GoPageDeliveryDetails, userData);
           }
 
           // Auto-mark warehouse bulk as used if parameter is set and item is a warehouse bulk
-          if (isItemAutoMarkAsUsed && 
-              resultLoadItemDetails && 
-              resultLoadItemDetails.type === 'warehouse_bulk' &&
-              !processedAutoActions.current.has(autoMarkKey)) {
-            
+          if (isItemAutoMarkAsUsed &&
+            resultLoadItemDetails &&
+            resultLoadItemDetails.type === 'warehouse_bulk' &&
+            !processedAutoActions.current.has(autoMarkKey)) {
+
             processedAutoActions.current.add(autoMarkKey);
             await handleAutoMarkWarehouseBulk(resultLoadItemDetails.warehouseBulkUuid!, userData);
           }
@@ -158,7 +162,7 @@ export default function SearchPage() {
           // Set target bulk UUID for highlighting if it's a warehouse bulk
           if (resultLoadItemDetails && resultLoadItemDetails.type === 'warehouse_bulk') {
             setTargetWarehouseBulkUuid(resultLoadItemDetails.warehouseBulkUuid!);
-            await loadBulkUnits(resultLoadItemDetails.warehouseBulkUuid!, true);  
+            await loadBulkUnits(resultLoadItemDetails.warehouseBulkUuid!, true);
           }
         }
 
@@ -251,11 +255,13 @@ export default function SearchPage() {
     setIsAcceptingDelivery(true);
     setAcceptDeliveryError(null);
     setAcceptDeliverySuccess(false);
+    setShowAcceptDeliveryLoadingModal(true); // Show loading modal
 
     try {
       // THis is for operators only
       if (!customUser && !user) {
         setAcceptDeliveryError("User information is missing");
+        setShowAcceptDeliveryLoadingModal(false);
         setShowAcceptStatusModal(true);
         return;
       }
@@ -264,6 +270,7 @@ export default function SearchPage() {
       // Check if the user is an operator
       if (!userDetails || !userDetails.uuid || userDetails.is_admin) {
         setAcceptDeliveryError("You are not authorized to accept this delivery");
+        setShowAcceptDeliveryLoadingModal(false);
         setShowAcceptStatusModal(true);
         return;
       }
@@ -275,6 +282,7 @@ export default function SearchPage() {
         } else {
           setAcceptDeliveryError("This delivery cannot be accepted because it is not in transit");
         }
+        setShowAcceptDeliveryLoadingModal(false);
         setShowAcceptStatusModal(true);
         console.warn("Delivery is not in transit:", deliveryDetails.status);
         return;
@@ -312,6 +320,7 @@ export default function SearchPage() {
             try {
               if (!deliveryDetails.warehouse || !deliveryDetails.warehouse.uuid) {
                 setAcceptDeliveryError("Warehouse information is missing");
+                setShowAcceptDeliveryLoadingModal(false);
                 setShowAcceptStatusModal(true);
                 return;
               }
@@ -327,26 +336,31 @@ export default function SearchPage() {
             } catch (error) {
               console.error("Error creating warehouse inventory items:", error);
               setAcceptDeliveryError("Delivery accepted but failed to create warehouse items");
+              setShowAcceptDeliveryLoadingModal(false);
               setShowAcceptStatusModal(true);
               return;
             }
           }
 
           setAcceptDeliverySuccess(true);
+          setShowAcceptDeliveryLoadingModal(false);
           setShowAcceptStatusModal(true);
 
         } else {
           setAcceptDeliveryError("Failed to update delivery status");
+          setShowAcceptDeliveryLoadingModal(false);
           setShowAcceptStatusModal(true);
         }
       } else {
         setAcceptDeliveryError("You are not assigned to this delivery");
+        setShowAcceptDeliveryLoadingModal(false);
         setShowAcceptStatusModal(true);
         console.warn("User not assigned to this delivery:", user?.uuid, deliveryDetails.operator_uuids);
       }
     } catch (error) {
       console.error("Error accepting delivery:", error);
       setAcceptDeliveryError("Failed to accept delivery");
+      setShowAcceptDeliveryLoadingModal(false);
       setShowAcceptStatusModal(true);
     } finally {
       setIsAcceptingDelivery(false);
@@ -358,6 +372,7 @@ export default function SearchPage() {
     setIsLoading(true);
     setAutoMarkError(null);
     setAutoMarkSuccess(false);
+    setShowAutoMarkLoadingModal(true); // Show loading modal
 
     try {
       // Update the bulk status to USED
@@ -365,6 +380,7 @@ export default function SearchPage() {
 
       if (result.success) {
         setAutoMarkSuccess(true);
+        setShowAutoMarkLoadingModal(false);
         setShowAutoMarkStatusModal(true);
 
         // Refresh the page data to show updated status
@@ -374,12 +390,14 @@ export default function SearchPage() {
         }
       } else {
         setAutoMarkError(result.message || "Failed to mark item as used");
+        setShowAutoMarkLoadingModal(false);
         setShowAutoMarkStatusModal(true);
       }
 
     } catch (error) {
       console.error("Error marking warehouse bulk as used:", error);
       setAutoMarkError("An unexpected error occurred");
+      setShowAutoMarkLoadingModal(false);
       setShowAutoMarkStatusModal(true);
     } finally {
       setIsLoading(false);
@@ -2485,6 +2503,70 @@ export default function SearchPage() {
               OK
             </Button>
           </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+       {/* Accept Delivery Loading Modal */}
+      <Modal
+        isOpen={showAcceptDeliveryLoadingModal}
+        backdrop="blur"
+        size="md"
+        hideCloseButton
+        isDismissable={false}
+        classNames={{ backdrop: "bg-background/50" }}
+      >
+        <ModalContent>
+          <ModalHeader className="flex items-center gap-2">
+            <Icon icon="mdi:truck-delivery" className="text-warning" width={24} />
+            <span>Processing Delivery</span>
+          </ModalHeader>
+          <ModalBody className="text-center py-8">
+            <div className="flex flex-col items-center gap-4">
+              <div className="flex items-center justify-center w-16 h-16 bg-warning-100 rounded-full">
+                <Spinner size="lg" color="warning" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-default-900 mb-2">
+                  Accepting Delivery
+                </h3>
+                <p className="text-default-600">
+                  Please wait while we process the delivery acceptance and update warehouse inventory...
+                </p>
+              </div>
+            </div>
+          </ModalBody>
+        </ModalContent>
+      </Modal>
+
+      {/* Auto Mark Loading Modal */}
+      <Modal
+        isOpen={showAutoMarkLoadingModal}
+        backdrop="blur"
+        size="md"
+        hideCloseButton
+        isDismissable={false}
+        classNames={{ backdrop: "bg-background/50" }}
+      >
+        <ModalContent>
+          <ModalHeader className="flex items-center gap-2">
+            <Icon icon="mdi:cube-outline" className="text-danger" width={24} />
+            <span>Processing Item</span>
+          </ModalHeader>
+          <ModalBody className="text-center py-8">
+            <div className="flex flex-col items-center gap-4">
+              <div className="flex items-center justify-center w-16 h-16 bg-danger-100 rounded-full">
+                <Spinner size="lg" color="danger" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-default-900 mb-2">
+                  Marking Item as Used
+                </h3>
+                <p className="text-default-600">
+                  Please wait while we update the warehouse bulk status...
+                </p>
+              </div>
+            </div>
+          </ModalBody>
         </ModalContent>
       </Modal>
     </div >
