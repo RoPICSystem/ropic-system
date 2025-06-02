@@ -5,7 +5,7 @@ import { createClient } from "@/utils/supabase/server";
 import { console } from "inspector";
 import { revalidatePath } from "next/cache";
 
-type StatusHistory = Record<string, string>; // Example: { "available": "2025-05-22T10:00:00.000Z", "used": "2025-05-23T14:30:00.000Z" }
+export type StatusHistory = Record<string, string>; // Example: { "available": "2025-05-22T10:00:00.000Z", "used": "2025-05-23T14:30:00.000Z" }
 
 export interface WarehouseInventoryItem {
   uuid: string;
@@ -358,7 +358,6 @@ export async function updateWarehouseInventoryItem(uuid: string, updates: Partia
   }
 }
 
-
 export async function markWarehouseBulkAsUsed(
   uuid: string
 ): Promise<{ success: boolean; message: string }> {
@@ -367,100 +366,126 @@ export async function markWarehouseBulkAsUsed(
   const timestamp = new Date().toISOString();
 
   try {
-    // 1. Find all bulks associated with the main warehouse_inventory_item
-    const { data: bulksToUpdate, error: fetchBulksError } = await supabase
+    // 1. Find the warehouse inventory item and all its bulks
+    const { data: bulkData, error: fetchBulksError } = await supabase
       .from('warehouse_inventory_item_bulk')
-      .select('uuid, status_history') // Select status_history to update it
+      .select('uuid, status_history, warehouse_inventory_uuid')
       .eq('uuid', uuid);
 
     if (fetchBulksError) {
-      console.error('Error fetching warehouse item bulks:', fetchBulksError);
-      return { success: false, message: `Failed to fetch item bulks: ${fetchBulksError.message}` };
+      console.error('Error fetching warehouse item bulk:', fetchBulksError);
+      return { success: false, message: `Failed to fetch item bulk: ${fetchBulksError.message}` };
     }
 
-    if (!bulksToUpdate || bulksToUpdate.length === 0) {
-      return { success: true, message: 'No associated bulks found to mark as used.' };
+    if (!bulkData || bulkData.length === 0) {
+      return { success: false, message: 'Bulk not found.' };
     }
 
-    const updatedBulkUuids: string[] = [];
+    const bulk = bulkData[0];
+    const warehouseInventoryUuid = bulk.warehouse_inventory_uuid;
 
-    // 2. Update each bulk's status and status_history
-    for (const bulk of bulksToUpdate) {
-      const currentBulkStatusHistory: StatusHistory =
-        bulk.status_history && typeof bulk.status_history === 'object' && !Array.isArray(bulk.status_history)
-          ? (bulk.status_history as StatusHistory)
-          : {};
+    // 2. Update the specific bulk's status and status_history
+    const currentBulkStatusHistory: StatusHistory =
+      bulk.status_history && typeof bulk.status_history === 'object' && !Array.isArray(bulk.status_history)
+        ? (bulk.status_history as StatusHistory)
+        : {};
 
-      const updatedBulkStatusHistory: StatusHistory = {
-        ...currentBulkStatusHistory,
-        [timestamp]: newStatus,
-      };
+    const updatedBulkStatusHistory: StatusHistory = {
+      ...currentBulkStatusHistory,
+      [timestamp]: newStatus,
+    };
 
-      const { error: updateBulkError } = await supabase
-        .from('warehouse_inventory_item_bulk')
-        .update({
-          status: newStatus,
-          status_history: updatedBulkStatusHistory,
-          updated_at: timestamp,
-        })
-        .eq('uuid', bulk.uuid);
+    const { error: updateBulkError } = await supabase
+      .from('warehouse_inventory_item_bulk')
+      .update({
+        status: newStatus,
+        status_history: updatedBulkStatusHistory,
+        updated_at: timestamp,
+      })
+      .eq('uuid', uuid);
 
-      if (updateBulkError) {
-        console.error(`Error updating bulk ${bulk.uuid}:`, updateBulkError);
-        // Consider how to handle partial failures. For now, returning on first error.
-        return { success: false, message: `Failed to update bulk ${bulk.uuid}: ${updateBulkError.message}` };
-      }
-      updatedBulkUuids.push(bulk.uuid);
+    if (updateBulkError) {
+      console.error(`Error updating bulk ${uuid}:`, updateBulkError);
+      return { success: false, message: `Failed to update bulk: ${updateBulkError.message}` };
     }
 
-    // 3. Find and update all units associated with these bulks
-    if (updatedBulkUuids.length > 0) {
-      const { data: unitsToUpdate, error: fetchUnitsError } = await supabase
-        .from('warehouse_inventory_item_unit')
-        .select('uuid, status_history') // Select status_history to update it
-        .in('warehouse_inventory_bulk_uuid', updatedBulkUuids);
+    // 3. Find and update all units associated with this bulk
+    const { data: unitsToUpdate, error: fetchUnitsError } = await supabase
+      .from('warehouse_inventory_item_unit')
+      .select('uuid, status_history')
+      .eq('warehouse_inventory_bulk_uuid', uuid);
 
-      if (fetchUnitsError) {
-        console.error('Error fetching warehouse item units:', fetchUnitsError);
-        return { success: false, message: `Failed to fetch item units: ${fetchUnitsError.message}` };
-      }
+    if (fetchUnitsError) {
+      console.error('Error fetching warehouse item units:', fetchUnitsError);
+      return { success: false, message: `Failed to fetch item units: ${fetchUnitsError.message}` };
+    }
 
-      if (unitsToUpdate && unitsToUpdate.length > 0) {
-        for (const unit of unitsToUpdate) {
-          const currentUnitStatusHistory: StatusHistory =
-            unit.status_history && typeof unit.status_history === 'object' && !Array.isArray(unit.status_history)
-              ? (unit.status_history as StatusHistory)
-              : {};
+    if (unitsToUpdate && unitsToUpdate.length > 0) {
+      for (const unit of unitsToUpdate) {
+        const currentUnitStatusHistory: StatusHistory =
+          unit.status_history && typeof unit.status_history === 'object' && !Array.isArray(unit.status_history)
+            ? (unit.status_history as StatusHistory)
+            : {};
 
-          const updatedUnitStatusHistory: StatusHistory = {
-            ...currentUnitStatusHistory,
-            [timestamp]: newStatus,
-          };
+        const updatedUnitStatusHistory: StatusHistory = {
+          ...currentUnitStatusHistory,
+          [timestamp]: newStatus,
+        };
 
-          const { error: updateUnitError } = await supabase
-            .from('warehouse_inventory_item_unit')
-            .update({
-              status: newStatus,
-              status_history: updatedUnitStatusHistory,
-              updated_at: timestamp,
-            })
-            .eq('uuid', unit.uuid);
+        const { error: updateUnitError } = await supabase
+          .from('warehouse_inventory_item_unit')
+          .update({
+            status: newStatus,
+            status_history: updatedUnitStatusHistory,
+            updated_at: timestamp,
+          })
+          .eq('uuid', unit.uuid);
 
-          if (updateUnitError) {
-            console.error(`Error updating unit ${unit.uuid}:`, updateUnitError);
-            // Consider how to handle partial failures. For now, returning on first error.
-            return { success: false, message: `Failed to update unit ${unit.uuid}: ${updateUnitError.message}` };
-          }
+        if (updateUnitError) {
+          console.error(`Error updating unit ${unit.uuid}:`, updateUnitError);
+          return { success: false, message: `Failed to update unit ${unit.uuid}: ${updateUnitError.message}` };
         }
       }
     }
 
-    // 4. Revalidate relevant paths
-    revalidatePath('/home/warehouse-items');
+    // 4. Check all bulks for this warehouse inventory item to determine main item status
+    const { data: allBulks, error: fetchAllBulksError } = await supabase
+      .from('warehouse_inventory_item_bulk')
+      .select('status')
+      .eq('warehouse_inventory_uuid', warehouseInventoryUuid);
 
-    return { success: true, message: 'Associated item bulks and units marked as used successfully.' };
+    if (fetchAllBulksError) {
+      console.error('Error fetching all bulks for warehouse inventory item:', fetchAllBulksError);
+      return { success: false, message: `Failed to fetch all bulks: ${fetchAllBulksError.message}` };
+    }
+
+    // 5. Determine the status of the main warehouse inventory item
+    const allBulksAreUsed = allBulks && allBulks.every(b => b.status === 'USED');
+    const mainItemStatus = allBulksAreUsed ? 'USED' : 'AVAILABLE';
+
+    // 6. Update the main warehouse inventory item status
+    const { error: updateMainItemError } = await supabase
+      .from('warehouse_inventory_items')
+      .update({
+        status: mainItemStatus,
+        updated_at: timestamp,
+      })
+      .eq('uuid', warehouseInventoryUuid);
+
+    if (updateMainItemError) {
+      console.error('Error updating main warehouse inventory item:', updateMainItemError);
+      return { success: false, message: `Failed to update main item: ${updateMainItemError.message}` };
+    }
+
+    // 7. Revalidate relevant paths
+    // revalidatePath('/home/warehouse-items');
+
+    return { 
+      success: true, 
+      message: `Bulk marked as used successfully. Main item status set to ${mainItemStatus}.` 
+    };
   } catch (error: any) {
-    console.error('Unexpected error marking item components as used:', error);
+    console.error('Unexpected error marking bulk as used:', error);
     return { success: false, message: error.message || 'An unexpected error occurred.' };
   }
 }

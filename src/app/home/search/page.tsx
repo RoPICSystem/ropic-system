@@ -1,52 +1,49 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
 import {
-  Card,
-  CardBody,
-  CardHeader,
-  Input,
-  Button,
-  Chip,
-  Divider,
-  Skeleton,
-  Avatar,
-  Progress,
-  Badge,
-  Spacer,
   Accordion,
   AccordionItem,
-  Spinner,
-  CardFooter,
   Alert,
-  Snippet,
-  Tooltip,
+  Avatar,
+  Button,
+  Card,
+  CardBody,
+  CardFooter,
+  CardHeader,
+  Chip,
+  Divider,
+  Input,
   Modal,
   ModalBody,
   ModalContent,
   ModalFooter,
   ModalHeader,
+  Skeleton,
+  Snippet,
+  Spinner
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { AnimatePresence, motion } from "framer-motion";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 
-import { getProfileImagePath, getUserFromCookies } from "@/utils/supabase/server/user";
-import { copyToClipboard, formatDate, formatNumber } from "@/utils/tools";
 import { motionTransition, motionTransitionScale } from "@/utils/anim";
-import LoadingAnimation from "@/components/loading-animation";
+import { getUserFromCookies } from "@/utils/supabase/server/user";
+import { copyToClipboard, formatDate } from "@/utils/tools";
 
+import { updateDeliveryItem, updateInventoryItemBulksStatus, createWarehouseInventoryItems } from "../delivery/actions";
+
+import CardList from "@/components/card-list";
+import ListLoadingAnimation from "@/components/list-loading-animation";
+import { format, parseISO } from "date-fns";
+import { markWarehouseBulkAsUsed } from "../warehouse-items/actions";
 import {
-  getItemDetailsByUuid,
   getBulkUnitsDetails,
-  updateWarehouseBulkStatus,
+  getItemDetailsByUuid,
   GoPageDeliveryDetails,
   GoPageInventoryDetails,
   GoPageWarehouseDetails,
 } from "./actions";
-import CardList from "@/components/card-list";
-import { format, parseISO } from "date-fns";
-import ListLoadingAnimation from "@/components/list-loading-animation";
 
 export default function SearchPage() {
   const router = useRouter();
@@ -82,6 +79,8 @@ export default function SearchPage() {
   const [autoMarkSuccess, setAutoMarkSuccess] = useState(false);
   const [autoMarkError, setAutoMarkError] = useState<string | null>(null);
 
+  // Add ref to track processed auto-actions
+  const processedAutoActions = useRef<Set<string>>(new Set());
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -108,7 +107,7 @@ export default function SearchPage() {
     );
   };
 
-  // Load user and check for UUID in URL
+   // Load user and check for UUID in URL
   useEffect(() => {
     const initPage = async () => {
       setIsLoading(true);
@@ -132,13 +131,27 @@ export default function SearchPage() {
         if (uuid) {
           const resultLoadItemDetails = await loadItemDetails(uuid, userData);
 
+          // Create unique keys for auto-actions to prevent duplicates
+          const autoAcceptKey = `delivery-${uuid}-autoAccept`;
+          const autoMarkKey = `warehouse-${uuid}-autoMark`;
+
           // Auto-accept delivery if parameter is set and item is a delivery
-          if (isDeliveryAutoAccept && resultLoadItemDetails && resultLoadItemDetails.type === 'delivery') {
+          if (isDeliveryAutoAccept && 
+              resultLoadItemDetails && 
+              resultLoadItemDetails.type === 'delivery' &&
+              !processedAutoActions.current.has(autoAcceptKey)) {
+            
+            processedAutoActions.current.add(autoAcceptKey);
             await handleAcceptDelivery(resultLoadItemDetails.data as GoPageDeliveryDetails, userData);
           }
 
           // Auto-mark warehouse bulk as used if parameter is set and item is a warehouse bulk
-          if (isItemAutoMarkAsUsed && resultLoadItemDetails && resultLoadItemDetails.type === 'warehouse_bulk') {
+          if (isItemAutoMarkAsUsed && 
+              resultLoadItemDetails && 
+              resultLoadItemDetails.type === 'warehouse_bulk' &&
+              !processedAutoActions.current.has(autoMarkKey)) {
+            
+            processedAutoActions.current.add(autoMarkKey);
             await handleAutoMarkWarehouseBulk(resultLoadItemDetails.warehouseBulkUuid!, userData);
           }
 
@@ -233,10 +246,11 @@ export default function SearchPage() {
   const handleAcceptDelivery = async (deliveryDetails: GoPageDeliveryDetails, customUser?: any) => {
     if (!deliveryDetails) return;
 
+    console.log("Accepting delivery:", deliveryDetails.uuid);
+
     setIsAcceptingDelivery(true);
     setAcceptDeliveryError(null);
     setAcceptDeliverySuccess(false);
-
 
     try {
       // THis is for operators only
@@ -256,7 +270,11 @@ export default function SearchPage() {
 
       // Check if the delivery status is IN_TRANSIT
       if (deliveryDetails.status !== "IN_TRANSIT") {
-        setAcceptDeliveryError("This delivery cannot be accepted because it is not in transit");
+        if (deliveryDetails.status === "DELIVERED") {
+          setAcceptDeliveryError("This delivery has already been delivered");
+        } else {
+          setAcceptDeliveryError("This delivery cannot be accepted because it is not in transit");
+        }
         setShowAcceptStatusModal(true);
         console.warn("Delivery is not in transit:", deliveryDetails.status);
         return;
@@ -266,9 +284,6 @@ export default function SearchPage() {
       if (deliveryDetails.operator_uuids?.includes(userDetails?.uuid) ||
         deliveryDetails.operator_uuids === null ||
         deliveryDetails.operator_uuids?.length === 0) {
-
-        // Import delivery actions dynamically
-        const { updateDeliveryItem, updateInventoryItemBulksStatus, createWarehouseInventoryItems } = await import('../delivery/actions');
 
         // Update delivery status to DELIVERED
         const currentTimestamp = new Date().toISOString();
@@ -346,7 +361,7 @@ export default function SearchPage() {
 
     try {
       // Update the bulk status to USED
-      const result = await updateWarehouseBulkStatus(bulkUuid, "USED");
+      const result = await markWarehouseBulkAsUsed(bulkUuid);
 
       if (result.success) {
         setAutoMarkSuccess(true);
@@ -358,7 +373,7 @@ export default function SearchPage() {
           await loadItemDetails(query);
         }
       } else {
-        setAutoMarkError(result.error || "Failed to mark item as used");
+        setAutoMarkError(result.message || "Failed to mark item as used");
         setShowAutoMarkStatusModal(true);
       }
 
@@ -620,7 +635,7 @@ export default function SearchPage() {
 
                         return (
                           <div key={timestamp} className="flex items-start group">
-                            <div className={`w-12 h-12 rounded-full flex-shrink-0 bg-${getStatusColor(status)}-100 flex items-center justify-center shadow-sm`}>
+                            <div className={`w-12 h-12 rounded-full flex-shrink-0 bg-${getStatusColor(status)}-100 flex items-center justify-center shadow-sm z-10`}>
                               <Icon
                                 icon={statusIcon}
                                 className={`text-${getStatusColor(status)}-900 text-[1.25rem]`}

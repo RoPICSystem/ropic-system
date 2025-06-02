@@ -178,7 +178,7 @@ export default function SigninPage() {
                       </div>
 
                       <div className="flex items-center justify-between w-full sm:px-6 px-4">
-                        <div className="flex items-center">
+                        {/* <div className="flex items-center">
                           <Checkbox
                             defaultSelected
                             id="remember-me"
@@ -186,7 +186,7 @@ export default function SigninPage() {
                             name="remember-me">
                             Remember me
                           </Checkbox>
-                        </div>
+                        </div> */}
                         <div className="text-sm">
                           <Link
                             isDisabled={isLoading}

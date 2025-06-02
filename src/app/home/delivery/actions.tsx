@@ -507,6 +507,19 @@ export async function createWarehouseInventoryItems(
     }
 
     if (existingWarehouseInv) {
+      // Prepare status update logic
+      let updatedStatus = existingWarehouseInv.status;
+      let updatedStatusHistory = existingWarehouseInv.status_history || {};
+
+      // If current status is USED, change to AVAILABLE and add to history
+      if (existingWarehouseInv.status === 'USED') {
+        updatedStatus = 'AVAILABLE';
+        updatedStatusHistory = {
+          ...updatedStatusHistory,
+          [new Date().toISOString()]: 'Changed from USED to AVAILABLE'
+        };
+      }
+
       // Update existing warehouse inventory item
       // Note: Not updating delivery_uuid as per requirements
       const { data: updatedWarehouseInv, error: updateError } = await supabase
@@ -515,7 +528,9 @@ export async function createWarehouseInventoryItems(
           admin_uuid: inventoryItem.admin_uuid,
           company_uuid: inventoryItem.company_uuid,
           name: inventoryItem.name,
-          description: inventoryItem.description
+          description: inventoryItem.description,
+          status: updatedStatus,
+          status_history: updatedStatusHistory
         })
         .eq("uuid", existingWarehouseInv.uuid)
         .select()
@@ -535,6 +550,10 @@ export async function createWarehouseInventoryItems(
           name: inventoryItem.name,
           description: inventoryItem.description,
           unit: inventoryItem.unit,
+          status: 'AVAILABLE',
+          status_history: {
+            [new Date().toISOString()]: 'Created as AVAILABLE'
+          }
         })
         .select()
         .single();
@@ -567,7 +586,11 @@ export async function createWarehouseInventoryItems(
           is_single_item: bulk.is_single_item,
           location: location,
           location_code: locationCode,
-          properties: bulk.properties
+          properties: bulk.properties,
+          status: 'AVAILABLE',
+          status_history: {
+            [new Date().toISOString()]: 'Created as AVAILABLE'
+          }
         })
         .select()
         .single();
@@ -596,7 +619,11 @@ export async function createWarehouseInventoryItems(
               cost: unit.cost || bulk.cost / bulk.unit_value,
               location: location,
               location_code: locationCode,
-              properties: unit.properties
+              properties: unit.properties,
+              status: 'AVAILABLE',
+              status_history: {
+                [new Date().toISOString()]: 'Created as AVAILABLE'
+              }
             })
             .select()
             .single();
