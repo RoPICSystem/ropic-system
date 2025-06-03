@@ -25,7 +25,8 @@ import {
   Textarea,
   Tooltip,
   useDisclosure,
-  Alert
+  Alert,
+  Switch
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -82,6 +83,9 @@ export default function WarehouseItemsPage() {
   const [selectedWarehouse, setSelectedWarehouse] = useState<string | null>(null);
   const [warehouses, setWarehouses] = useState<any[]>([]);
 
+  // Add status filter state
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+
   // Expanded accordion state
   const [expandedBulks, setExpandedBulks] = useState<Set<string>>(new Set());
   const [expandedUnits, setExpandedUnits] = useState<Set<string>>(new Set());
@@ -95,11 +99,20 @@ export default function WarehouseItemsPage() {
     url: string;
     title: string;
     description: string;
+    itemId: string;
+    itemName: string;
+    isBulkItem: boolean;
+    autoMarkAsUsed: boolean;
   }>({
     url: "",
     title: "",
-    description: ""
+    description: "",
+    itemId: "",
+    itemName: "",
+    isBulkItem: false,
+    autoMarkAsUsed: true
   });
+
 
   // Form state
   const [formData, setFormData] = useState<Partial<WarehouseInventoryItemComplete>>();
@@ -320,7 +333,7 @@ export default function WarehouseItemsPage() {
           user.company_uuid,
           selectedWarehouse || undefined,
           query,
-          null, // status
+          statusFilter || null, // Include status filter
           null, // year
           null, // month
           null, // week
@@ -346,25 +359,18 @@ export default function WarehouseItemsPage() {
     handleSearch(searchQuery, newPage);
   };
 
-  // Update warehouse filter change handler to use pagination
-  const handleWarehouseChange = async (warehouseId: string | null) => {
-    setSelectedWarehouse(warehouseId);
+  // Add status filter handler
+  const handleStatusFilterChange = async (status: string | null) => {
+    setStatusFilter(status);
     setIsLoadingItems(true);
     setPage(1); // Reset to first page on filter change
 
-
-    if (!warehouseId || warehouseId === "null") {
-      setSelectedWarehouse(null);
-      setIsLoadingItems(false);
-      return;
-    };
-
     try {
       const result = await getWarehouseInventoryItems(
-        user.company_uuid,
-        warehouseId || undefined,
+        user?.company_uuid || "",
+        selectedWarehouse || undefined,
         searchQuery,
-        null, // status
+        status || null,
         null, // year
         null, // month
         null, // week
@@ -372,6 +378,66 @@ export default function WarehouseItemsPage() {
         rowsPerPage, // limit
         0 // offset for first page
       );
+
+      setWarehouseItems(result.data || []);
+      setTotalPages(result.totalPages || 1);
+      setTotalItems(result.totalCount || 0);
+    } catch (error) {
+      console.error("Error filtering by status:", error);
+    } finally {
+      setIsLoadingItems(false);
+    }
+  };
+
+  // Helper function to get status chip color
+  const getStatusColor = (status: string): "success" | "warning" | "danger" | "default" => {
+    switch (status?.toUpperCase()) {
+      case "AVAILABLE": return "success";
+      case "IN_USE": return "warning";
+      case "USED": return "danger";
+      case "RESERVED": return "warning";
+      default: return "default";
+    }
+  };
+
+  // Update warehouse filter change handler to use pagination
+  const handleWarehouseChange = async (warehouseId: string | null) => {
+    setIsLoadingItems(true);
+    setPage(1); // Reset to first page on filter change
+
+    try {
+      let result;
+      if (!warehouseId || warehouseId === "null") {
+        setSelectedWarehouse(null);
+
+        result = await getWarehouseInventoryItems(
+          user.company_uuid,
+          undefined, // No warehouse filter
+          searchQuery,
+          statusFilter || null, // Include status filter
+          null, // year
+          null, // month
+          null, // week
+          null, // day
+          rowsPerPage, // limit
+          0 // offset for first page
+        );
+
+      } else {
+        setSelectedWarehouse(warehouseId);
+        result = await getWarehouseInventoryItems(
+          user.company_uuid,
+          warehouseId || undefined,
+          searchQuery,
+          statusFilter || null, // Include status filter
+          null, // year
+          null, // month
+          null, // week
+          null, // day
+          rowsPerPage, // limit
+          0 // offset for first page
+        );
+      }
 
       setWarehouseItems(result.data || []);
       setTotalPages(result.totalPages || 1);
@@ -452,6 +518,17 @@ export default function WarehouseItemsPage() {
     return `${baseUrl}?${params.toString()}`;
   };
 
+  // Updated function to regenerate URL when auto mark as used changes
+  const updateQrCodeUrl = (autoMarkAsUsed: boolean) => {
+    setQrCodeData(prev => ({
+      ...prev,
+      autoMarkAsUsed,
+      url: generateDeliveryUrl(prev.itemId, autoMarkAsUsed),
+      description: prev.isBulkItem
+        ? `Scan this code to view details for ${prev.itemName} in ${formData?.name || 'warehouse item'}${autoMarkAsUsed ? '. This will mark the bulk as USED automatically.' : '.'}`
+        : `Scan this code to view details for ${prev.itemName}`
+    }));
+  };
 
   // Handle showing QR code for warehouse item
   const handleShowWarehouseItemQR = () => {
@@ -460,7 +537,11 @@ export default function WarehouseItemsPage() {
     setQrCodeData({
       url: generateDeliveryUrl(selectedItemId),
       title: "Warehouse Item QR Code",
-      description: `Scan this code to view details for ${formData.name || 'this warehouse item'}`
+      description: `Scan this code to view details for ${formData.name || 'this warehouse item'}`,
+      itemId: selectedItemId,
+      itemName: formData.name || 'this warehouse item',
+      isBulkItem: false,
+      autoMarkAsUsed: true
     });
     qrCodeModal.onOpen();
   };
@@ -469,14 +550,18 @@ export default function WarehouseItemsPage() {
   const handleShowBulkQR = (bulkId: string, bulkName?: string) => {
     if (!selectedItemId || !formData) return;
 
+    const itemName = bulkName || 'this bulk item';
     setQrCodeData({
-      url: generateDeliveryUrl(bulkId, true),
+      url: generateDeliveryUrl(bulkId, false), // Start with false, user can toggle
       title: "Bulk Item QR Code",
-      description: `Scan this code to view details for ${bulkName || 'this bulk item'} in ${formData.name || 'warehouse item'}. This will mark the bulk as USED automatically.`
+      description: `Scan this code to view details for ${itemName} in ${formData.name || 'warehouse item'}.`,
+      itemId: bulkId,
+      itemName: itemName,
+      isBulkItem: true,
+      autoMarkAsUsed: true
     });
     qrCodeModal.onOpen();
   };
-
 
 
   const filteredOccupiedLocations = useMemo(() => {
@@ -587,7 +672,7 @@ export default function WarehouseItemsPage() {
             userData.company_uuid,
             selectedWarehouse || undefined,
             searchQuery,
-            null, // status
+            statusFilter || null, // Include status filter
             null, // year
             null, // month
             null, // week
@@ -639,7 +724,7 @@ export default function WarehouseItemsPage() {
               user.company_uuid,
               selectedWarehouse || undefined,
               searchQuery,
-              null, // status
+              statusFilter || null, // Include status filter
               null, // year
               null, // month
               null, // week
@@ -714,7 +799,7 @@ export default function WarehouseItemsPage() {
               user.company_uuid,
               selectedWarehouse || undefined,
               searchQuery,
-              null, // status
+              statusFilter || null, // Include status filter
               null, // year
               null, // month
               null, // week
@@ -835,69 +920,99 @@ export default function WarehouseItemsPage() {
                       startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
                     />
 
-                    {/* Replace the single Autocomplete with this new filter UI */}
+                    {/* Updated filter UI with status filter */}
                     <div className="flex items-center gap-2 mt-2">
-                      <Popover
-                        isOpen={isSearchFilterOpen}
-                        onOpenChange={setIsSearchFilterOpen}
-                        classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
-                        motionProps={popoverTransition()}
-                        offset={10}
-                        placement="bottom-start">
-                        <PopoverTrigger>
-                          <Button
-                            variant="flat"
-                            color="default"
-                            className="w-24 h-10 rounded-lg !outline-none rounded-xl"
-                            startContent={<Icon icon="mdi:filter-variant" className="text-default-500" />}
-                          >
-                            Filters
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="p-4 w-80 p-0">
-                          <div>
-                            <div className="space-y-4 p-4">
-                              <h3 className="text-lg font-semibold items-center w-full text-center">
-                                Filter Options
-                              </h3>
-
-                              {/* Warehouse filter */}
-                              <Autocomplete
-                                name="warehouse_uuid"
-                                label="Filter by Warehouse"
-                                placeholder="All Warehouses"
-                                selectedKey={selectedWarehouse || ""}
-                                onSelectionChange={(e) => handleWarehouseChange(`${e}` || null)}
-                                startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
-                                inputProps={autoCompleteStyle}
-                              >
-                                {[
-                                  (<AutocompleteItem key="">All Warehouses</AutocompleteItem>),
-                                  ...warehouses.map((warehouse) => (
-                                    <AutocompleteItem key={warehouse.uuid}>
-                                      {warehouse.name}
-                                    </AutocompleteItem>
-                                  ))]}
-                              </Autocomplete>
-
-                            </div>
-
-                            <div className="p-4 border-t border-default-200 flex justify-end gap-2  bg-default-100/50 ">
-                              <Button
-                                size="sm"
-                                variant="flat"
-                                onPress={() => setIsSearchFilterOpen(false)}
-                              >
-                                Close
-                              </Button>
-
-                            </div>
-                          </div>
-                        </PopoverContent>
-                      </Popover>
-
                       <ScrollShadow orientation="horizontal" className="flex-1 overflow-x-auto" hideScrollBar>
                         <div className="inline-flex items-center gap-2">
+                          <Popover
+                            isOpen={isSearchFilterOpen}
+                            onOpenChange={setIsSearchFilterOpen}
+                            classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
+                            motionProps={popoverTransition()}
+                            offset={10}
+                            placement="bottom-start">
+                            <PopoverTrigger>
+                              <Button
+                                variant="flat"
+                                color="default"
+                                className="w-24 h-10 rounded-lg !outline-none rounded-xl"
+                                startContent={<Icon icon="mdi:filter-variant" className="text-default-500" />}
+                              >
+                                Filters
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-96 p-0 overflow-hidden">
+                              <div>
+                                <div className="space-y-4 p-4">
+                                  <h3 className="text-lg font-semibold items-center w-full text-center">
+                                    Filter Options
+                                  </h3>
+
+                                  {/* Warehouse filter */}
+                                  <Autocomplete
+                                    name="warehouse_uuid"
+                                    label="Filter by Warehouse"
+                                    placeholder="All Warehouses"
+                                    selectedKey={selectedWarehouse || ""}
+                                    onSelectionChange={(e) => handleWarehouseChange(`${e}` || null)}
+                                    startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
+                                    inputProps={autoCompleteStyle}
+                                  >
+                                    {[
+                                      (<AutocompleteItem key="">All Warehouses</AutocompleteItem>),
+                                      ...warehouses.map((warehouse) => (
+                                        <AutocompleteItem key={warehouse.uuid}>
+                                          {warehouse.name}
+                                        </AutocompleteItem>
+                                      ))]}
+                                  </Autocomplete>
+
+                                  {/* Add Status filter */}
+                                  <Autocomplete
+                                    name="status_filter"
+                                    label="Filter by Status"
+                                    placeholder="All Statuses"
+                                    selectedKey={statusFilter || ""}
+                                    onSelectionChange={(e) => handleStatusFilterChange(e as string || null)}
+                                    startContent={<Icon icon="mdi:filter-variant" className="text-default-500 mb-[0.2rem]" />}
+                                    inputProps={autoCompleteStyle}
+                                  >
+                                    <AutocompleteItem key="">All Statuses</AutocompleteItem>
+                                    <AutocompleteItem key="AVAILABLE">Available</AutocompleteItem>
+                                    <AutocompleteItem key="IN_USE">In Use</AutocompleteItem>
+                                    <AutocompleteItem key="USED">Used</AutocompleteItem>
+                                    <AutocompleteItem key="RESERVED">Reserved</AutocompleteItem>
+                                  </Autocomplete>
+                                </div>
+
+                                <div className="p-4 border-t border-default-200 flex justify-end gap-2 bg-default-100/50">
+                                  {/* Clear All Filters Button */}
+                                  {(selectedWarehouse || statusFilter) && (
+                                    <Button
+                                      variant="flat"
+                                      color="danger"
+                                      size="sm"
+                                      onPress={() => {
+                                        handleWarehouseChange(null);
+                                        handleStatusFilterChange(null);
+                                      }}
+                                      startContent={<Icon icon="mdi:filter-remove" />}
+                                    >
+                                      Clear All Filters
+                                    </Button>
+                                  )}
+                                  <Button
+                                    size="sm"
+                                    variant="flat"
+                                    onPress={() => setIsSearchFilterOpen(false)}
+                                  >
+                                    Close
+                                  </Button>
+                                </div>
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+
                           {selectedWarehouse && (
                             <Chip
                               variant="flat"
@@ -913,12 +1028,30 @@ export default function WarehouseItemsPage() {
                             </Chip>
                           )}
 
-                          {selectedWarehouse && (
+                          {statusFilter && (
+                            <Chip
+                              variant="flat"
+                              color={getStatusColor(statusFilter)}
+                              onClose={() => handleStatusFilterChange(null)}
+                              size="sm"
+                              className="h-8 p-2"
+                            >
+                              <div className="flex items-center gap-1">
+                                <Icon icon="mdi:filter-variant" className="text-xs" />
+                                {statusFilter.replaceAll('_', ' ')}
+                              </div>
+                            </Chip>
+                          )}
+
+                          {(selectedWarehouse || statusFilter) && (
                             <Button
                               size="sm"
                               variant="light"
                               className="rounded-lg"
-                              onPress={() => handleWarehouseChange(null)}
+                              onPress={() => {
+                                handleWarehouseChange(null);
+                                handleStatusFilterChange(null);
+                              }}
                             >
                               Clear all
                             </Button>
@@ -1809,10 +1942,52 @@ export default function WarehouseItemsPage() {
                   level="L"
                 />
               </div>
+
               <p className="text-center mt-4 text-default-600">
                 {qrCodeData.description}
               </p>
-              <div className="mt-4 w-full bg-default-50 overflow-auto max-h-64 rounded-xl p-4">
+
+              {/* Auto Mark as Used Toggle - Only show for bulk items */}
+              {qrCodeData.isBulkItem && (
+                <div className="w-full mt-4 p-4 bg-default-50 overflow-hidden rounded-xl border-2 border-default-200">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-default-700">Auto Mark as Used</span>
+                      <span className="text-xs text-default-500">
+                        When enabled, scanning this QR code will automatically mark the bulk item as USED
+                      </span>
+                    </div>
+                    <Switch
+                      isSelected={qrCodeData.autoMarkAsUsed}
+                      onValueChange={updateQrCodeUrl}
+                      color="warning"
+                      size="sm"
+                    />  
+                  </div>
+
+                  <AnimatePresence>
+                    {qrCodeData.autoMarkAsUsed && (
+                      <motion.div
+                        {...motionTransition}>
+                        <div className="mt-3 p-2 bg-warning-50 border border-warning-200 rounded-lg">
+                          <div className="flex items-start gap-2">
+                            <Icon icon="mdi:alert" className="text-warning-600 mt-0.5 flex-shrink-0" width={16} />
+                            <div>
+                              <p className="text-xs font-medium text-warning-700">Warning</p>
+                              <p className="text-xs text-warning-600">
+                                This action cannot be undone. The bulk item will be marked as USED when scanned.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              )}
+
+              {/* QR Code URL */}
+              <div className="w-full bg-default-50 overflow-auto max-h-64 rounded-xl p-4">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-sm font-medium text-default-700">QR Code URL:</p>
                   <Button
@@ -1857,6 +2032,7 @@ export default function WarehouseItemsPage() {
             </ModalFooter>
           </ModalContent>
         </Modal>
+
 
         {/* Modal for 3D Location Viewer */}
         <Modal

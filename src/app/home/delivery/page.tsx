@@ -16,7 +16,8 @@ import {
   CardFooter,
   CardBody,
   CardHeader,
-  DateRangePicker
+  DateRangePicker,
+  Switch
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { getLocalTimeZone, parseDate, today } from '@internationalized/date';
@@ -234,6 +235,23 @@ export default function DeliveryPage() {
   // Add state for main search filter open
   const [isMainSearchFilterOpen, setIsMainSearchFilterOpen] = useState(false);
 
+  // Add new state for QR code data with auto accept option
+  const [qrCodeData, setQrCodeData] = useState<{
+    url: string;
+    title: string;
+    description: string;
+    deliveryId: string;
+    deliveryName: string;
+    autoAccept: boolean;
+  }>({
+    url: "",
+    title: "",
+    description: "",
+    deliveryId: "",
+    deliveryName: "",
+    autoAccept: true
+  });
+
 
   // Clear PDF export date filters
   const clearPdfDateFilters = () => {
@@ -304,18 +322,44 @@ export default function DeliveryPage() {
   };
 
   // Generate URL for QR code 
-  const generateDeliveryUrl = () => {
-    if (!selectedDeliveryId || !formData) return "https://ropic.vercel.app/home/search";
+  const generateDeliveryUrl = (deliveryId?: string, autoAccept: boolean = true) => {
+    const targetDeliveryId = deliveryId || selectedDeliveryId;
+    if (!targetDeliveryId || !formData) return "https://ropic.vercel.app/home/search";
 
     const baseUrl = "https://ropic.vercel.app/home/search";
     const params = new URLSearchParams({
-      q: selectedDeliveryId,
-      deliveryAutoAccept: "true"
+      q: targetDeliveryId,
+      ...(autoAccept && { deliveryAutoAccept: "true" })
     });
 
     return `${baseUrl}?${params.toString()}`;
   };
 
+  // Updated function to regenerate URL when auto accept changes
+  const updateQrCodeUrl = (autoAccept: boolean) => {
+    setQrCodeData(prev => ({
+      ...prev,
+      autoAccept,
+      url: generateDeliveryUrl(prev.deliveryId, autoAccept),
+      description: `Scan this code to view delivery details for ${prev.deliveryName}${autoAccept ? '. This will automatically accept the delivery when scanned.' : '.'}`
+    }));
+  };
+
+  // Updated function to show QR code with proper state setup
+  const handleShowDeliveryQR = () => {
+    if (!selectedDeliveryId || !formData) return;
+
+    const deliveryName = `Delivery of ${inventoryItems.find(item => item.uuid === formData.inventory_uuid)?.name || 'Unknown Item'}`;
+    setQrCodeData({
+      url: generateDeliveryUrl(selectedDeliveryId, false), // Start with false, user can toggle
+      title: "Delivery QR Code",
+      description: `Scan this code to view delivery details for ${deliveryName}.`,
+      deliveryId: selectedDeliveryId,
+      deliveryName: deliveryName,
+      autoAccept: true
+    });
+    setShowQrCode(true);
+  };
 
   const isWarehouseNotSet = (): boolean => {
     return formData.warehouse_uuid === "" || formData.warehouse_uuid === undefined || formData.warehouse_uuid === null
@@ -2611,7 +2655,6 @@ export default function DeliveryPage() {
                               <Button
                                 variant="flat"
                                 color="default"
-                                onPress={() => setIsExportSearchFilterOpen(true)}
                                 className="w-24 h-10 rounded-lg !outline-none rounded-xl"
                                 startContent={<Icon icon="mdi:filter-variant" className="text-default-500" />}
                               >
@@ -3243,10 +3286,8 @@ export default function DeliveryPage() {
                                   name="operator_filter"
                                   label="Filter by Operator"
                                   placeholder="All Operators"
-                                  selectedKey={operatorFilter}
-                                  onSelectionChange={(key) => {
-                                    handleOperatorFilterChange(key as string || null);
-                                  }}
+                                  selectedKey={operatorFilter || ""}
+                                  onSelectionChange={(key) => { handleOperatorFilterChange(key as string || null) }}
                                   startContent={<Icon icon="mdi:account" className="text-default-500 mb-[0.2rem]" />}
                                   inputProps={autoCompleteStyle}
                                 >
@@ -4711,7 +4752,7 @@ export default function DeliveryPage() {
                                   color="secondary"
                                   variant="shadow"
                                   className="w-full"
-                                  onPress={() => setShowQrCode(true)}
+                                  onPress={handleShowDeliveryQR}
                                 >
                                   <Icon icon="mdi:qrcode" className="mr-1" />
                                   Show Delivery QR
@@ -4790,17 +4831,70 @@ export default function DeliveryPage() {
         </div >
 
         {/* QR Code Modal */}
-        <Modal isOpen={showQrCode} onClose={() => setShowQrCode(false)} placement="auto" backdrop="blur" size="lg" classNames={{ backdrop: "bg-background/50" }}>
+        <Modal
+          isOpen={showQrCode}
+          onClose={() => setShowQrCode(false)}
+          placement="auto"
+          backdrop="blur"
+          size="lg"
+          classNames={{ backdrop: "bg-background/50" }}
+        >
           <ModalContent>
-            <ModalHeader>Delivery QR Code</ModalHeader>
+            <ModalHeader>{qrCodeData.title}</ModalHeader>
             <ModalBody className="flex flex-col items-center">
               <div className="bg-white rounded-xl overflow-hidden">
-                <QRCodeCanvas id="delivery-qrcode" value={generateDeliveryUrl()} size={320} marginSize={4} level="L" />
+                <QRCodeCanvas
+                  id="delivery-qrcode"
+                  value={qrCodeData.url}
+                  size={320}
+                  marginSize={4}
+                  level="L"
+                />
               </div>
+
               <p className="text-center mt-4 text-default-600">
-                Scan this code to open the delivery details and auto-accept it
+                {qrCodeData.description}
               </p>
-              <div className="mt-4 w-full bg-default-50 overflow-auto max-h-64 rounded-xl p-4">
+
+              {/* Auto Accept Toggle */}
+              <div className="w-full overflow-hidden mt-4 p-4 bg-default-50 rounded-xl border-2 border-default-200">
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium text-default-700">Auto Accept Delivery</span>
+                    <span className="text-xs text-default-500">
+                      When enabled, scanning this QR code will automatically accept the delivery
+                    </span>
+                  </div>
+                  <Switch
+                    isSelected={qrCodeData.autoAccept}
+                    onValueChange={updateQrCodeUrl}
+                    color="warning"
+                    size="sm"
+                  />
+                </div>
+
+                <AnimatePresence>
+                  {qrCodeData.autoAccept && (
+                    <motion.div
+                      {...motionTransition}
+                    >
+                      <div className="mt-3 p-2 bg-warning-50 border border-warning-200 rounded-lg">
+                        <div className="flex items-start gap-2">
+                          <Icon icon="mdi:alert" className="text-warning-600 mt-0.5 flex-shrink-0" width={16} />
+                          <div>
+                            <p className="text-xs font-medium text-warning-700">Warning</p>
+                            <p className="text-xs text-warning-600">
+                              This action cannot be undone. The delivery will be automatically accepted when scanned by an authorized operator.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              <div className="w-full bg-default-50 overflow-auto max-h-64 rounded-xl p-4">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-sm font-medium text-default-700">QR Code URL:</p>
                   <Button
@@ -4808,29 +4902,35 @@ export default function DeliveryPage() {
                     variant="flat"
                     color="default"
                     isIconOnly
-                    onPress={() => copyToClipboard(generateDeliveryUrl())}
+                    onPress={() => copyToClipboard(qrCodeData.url)}
                   >
                     <Icon icon="mdi:content-copy" className="text-default-500 text-sm" />
                   </Button>
                 </div>
                 <code className="text-xs text-default-600 break-all">
-                  {generateDeliveryUrl()}
+                  {qrCodeData.url}
                 </code>
               </div>
             </ModalBody>
             <ModalFooter className="flex justify-end p-4 gap-4">
-              <Button color="default" onPress={() => setShowQrCode(false)}>Close</Button>
-              <Button color="primary" variant="shadow" onPress={() => {
-                const canvas = document.getElementById('delivery-qrcode') as HTMLCanvasElement;
-                const pngUrl = canvas.toDataURL('image/png');
-                const downloadLink = document.createElement('a');
-                downloadLink.href = pngUrl;
-                downloadLink.download = `delivery-${user.full_name?.replace(/\s+/g, '-') || 'item'}-${new Date().toISOString()}.png`;
-                document.body.appendChild(downloadLink);
-                downloadLink.click();
-                document.body.removeChild(downloadLink);
-                setShowQrCode(false);
-              }}>
+              <Button color="default" onPress={() => setShowQrCode(false)}>
+                Close
+              </Button>
+              <Button
+                color="primary"
+                variant="shadow"
+                onPress={() => {
+                  const canvas = document.getElementById('delivery-qrcode') as HTMLCanvasElement;
+                  const pngUrl = canvas.toDataURL('image/png');
+                  const downloadLink = document.createElement('a');
+                  downloadLink.href = pngUrl;
+                  downloadLink.download = `delivery-${user.full_name?.replace(/\s+/g, '-') || 'item'}-${new Date().toISOString().split('T')[0]}.png`;
+                  document.body.appendChild(downloadLink);
+                  downloadLink.click();
+                  document.body.removeChild(downloadLink);
+                  setShowQrCode(false);
+                }}
+              >
                 <Icon icon="mdi:download" className="mr-1" />
                 Download QR
               </Button>
