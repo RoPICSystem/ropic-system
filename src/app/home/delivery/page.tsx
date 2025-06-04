@@ -17,7 +17,9 @@ import {
   CardBody,
   CardHeader,
   DateRangePicker,
-  Switch
+  Switch,
+  Select,
+  SelectItem
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { getLocalTimeZone, parseDate, today } from '@internationalized/date';
@@ -177,6 +179,9 @@ export default function DeliveryPage() {
   const [shelfColorAssignments, setShelfColorAssignments] = useState<Array<ShelfSelectorColorAssignment>>([]);
   const [showControls, setShowControls] = useState(false);
 
+  // Add state for export options collapse
+  const [isExportOptionsOpen, setIsExportOptionsOpen] = useState(false);
+
   // Add new state variables after other state declarations
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [operatorFilter, setOperatorFilter] = useState<string | null>(null);
@@ -216,6 +221,10 @@ export default function DeliveryPage() {
     weekFilter: null as number | null,
     dayFilter: null as number | null,
     dateTabKey: "range" as string,
+    // Add new options
+    pageSize: "A4" as "A4" | "A3" | "LETTER" | "LEGAL",
+    includeAutoAccept: false,
+    includeShowOptions: true,
   });
 
   // Add state for export search filter open
@@ -244,15 +253,16 @@ export default function DeliveryPage() {
     deliveryId: string;
     deliveryName: string;
     autoAccept: boolean;
+    showOptions: boolean; // Add this new property
   }>({
     url: "",
     title: "",
     description: "",
     deliveryId: "",
     deliveryName: "",
-    autoAccept: true
+    autoAccept: false, // Change default to false
+    showOptions: true  // Add this with default true
   });
-
 
   // Clear PDF export date filters
   const clearPdfDateFilters = () => {
@@ -323,26 +333,38 @@ export default function DeliveryPage() {
   };
 
   // Generate URL for QR code 
-  const generateDeliveryUrl = (deliveryId?: string, autoAccept: boolean = true) => {
+  const generateDeliveryUrl = (deliveryId?: string, autoAccept: boolean = false, showOptions: boolean = true) => {
     const targetDeliveryId = deliveryId || selectedDeliveryId;
     if (!targetDeliveryId || !formData) return "https://ropic.vercel.app/home/search";
 
     const baseUrl = "https://ropic.vercel.app/home/search";
     const params = new URLSearchParams({
       q: targetDeliveryId,
-      ...(autoAccept && { deliveryAutoAccept: "true" })
+      ...(autoAccept && { deliveryAutoAccept: "true" }),
+      ...(showOptions && { showOptions: "true" })
     });
 
     return `${baseUrl}?${params.toString()}`;
   };
 
-  // Updated function to regenerate URL when auto accept changes
-  const updateQrCodeUrl = (autoAccept: boolean) => {
+  // Updated function to regenerate URL when auto accept or show options changes
+  const updateQrCodeUrl = (autoAccept: boolean, showOptions?: boolean) => {
+    const currentShowOptions = showOptions !== undefined ? showOptions : qrCodeData.showOptions;
     setQrCodeData(prev => ({
       ...prev,
       autoAccept,
-      url: generateDeliveryUrl(prev.deliveryId, autoAccept),
+      ...(showOptions !== undefined && { showOptions }),
+      url: generateDeliveryUrl(prev.deliveryId, autoAccept, currentShowOptions),
       description: `Scan this code to view delivery details for ${prev.deliveryName}${autoAccept ? '. This will automatically accept the delivery when scanned.' : '.'}`
+    }));
+  };
+
+  // Add new function to update show options
+  const updateShowOptions = (showOptions: boolean) => {
+    setQrCodeData(prev => ({
+      ...prev,
+      showOptions,
+      url: generateDeliveryUrl(prev.deliveryId, prev.autoAccept, showOptions)
     }));
   };
 
@@ -352,12 +374,13 @@ export default function DeliveryPage() {
 
     const deliveryName = `Delivery of ${inventoryItems.find(item => item.uuid === formData.inventory_uuid)?.name || 'Unknown Item'}`;
     setQrCodeData({
-      url: generateDeliveryUrl(selectedDeliveryId, false), // Start with false, user can toggle
+      url: generateDeliveryUrl(selectedDeliveryId, false, true), // Start with autoAccept false, showOptions true
       title: "Delivery QR Code",
       description: `Scan this code to view delivery details for ${deliveryName}.`,
       deliveryId: selectedDeliveryId,
       deliveryName: deliveryName,
-      autoAccept: true
+      autoAccept: false, // Default to false
+      showOptions: true  // Default to true
     });
     setShowQrCode(true);
   };
@@ -746,7 +769,7 @@ export default function DeliveryPage() {
     }
   };
 
-  // Function to generate QR PDF
+  // Function to generate QR PDF with new options
   const handleGenerateQrPdf = async (selectedDeliveryIds: string[]) => {
     setIsPdfGenerating(true);
 
@@ -760,12 +783,21 @@ export default function DeliveryPage() {
 
       // Prepare deliveries with QR URLs and warehouse names
       const preparedDeliveries = deliveriesToExport.map(delivery => {
-        // Generate QR URL for each delivery
+        // Generate QR URL for each delivery with options
         const baseUrl = "https://ropic.vercel.app/home/search";
-        const params = new URLSearchParams({
-          q: delivery.uuid,
-          deliveryAutoAccept: "true"
-        });
+        const params = new URLSearchParams();
+
+
+        params.set('q', delivery.uuid)
+
+        if (pdfExportState.includeAutoAccept) {
+          params.set('deliveryAutoAccept', 'true');
+        }
+
+        if (pdfExportState.includeShowOptions) {
+          params.set('showOptions', 'true');
+        }
+
         const qrUrl = `${baseUrl}?${params.toString()}`;
 
         // Find warehouse name
@@ -789,19 +821,20 @@ export default function DeliveryPage() {
         companyLogoUrl = companyData.data.logo_url;
       }
 
-      // Generate PDF
+      // Generate PDF with selected page size
       const pdfBlob = await generatePdfBlob({
         deliveries: preparedDeliveries,
         companyName: companyData?.data?.name || "Your Company",
         companyLogoUrl: companyLogoUrl,
-        dateGenerated: new Date().toLocaleString()
+        dateGenerated: new Date().toLocaleString(),
+        pageSize: pdfExportState.pageSize
       });
 
       // Create download link
       const url = URL.createObjectURL(pdfBlob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `Delivery_QR_Codes_${new Date().toISOString().split('T')[0]}.pdf`;
+      link.download = `Delivery_QR_Codes_${pdfExportState.pageSize}_${new Date().toISOString().split('T')[0]}_${new Date().toTimeString().split(' ')[0].replace(/:/g, '-')}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -3097,82 +3130,193 @@ export default function DeliveryPage() {
                   <CustomScrollbar
                     disabled={isLoadingPdfDeliveries || getFilteredPdfDeliveries().length === 0}
                     className="max-h-64">
-                    {isLoadingPdfDeliveries ? (
-                      <div className="p-4 text-center">
-                        <Spinner size="sm" />
-                        <p className="text-sm text-default-500 mt-2">Loading deliveries...</p>
-                      </div>
-                    ) : getFilteredPdfDeliveries().length === 0 ? (
-                      <div className="p-4 text-center text-default-500">
-                        No deliveries match the selected filters
-                      </div>
-                    ) : (
-                      <div className="p-2">
-                        <div className="flex items-center justify-between px-2 pt-2 pb-4">
-                          <Checkbox
-                            isSelected={pdfExportState.selectedDeliveries.length === getFilteredPdfDeliveries().length && getFilteredPdfDeliveries().length > 0}
-                            isIndeterminate={pdfExportState.selectedDeliveries.length > 0 && pdfExportState.selectedDeliveries.length < getFilteredPdfDeliveries().length}
-                            onValueChange={(selected) => {
-                              if (selected) {
-                                setPdfExportState(prev => ({
-                                  ...prev,
-                                  selectedDeliveries: getFilteredPdfDeliveries().map(delivery => delivery.uuid)
-                                }));
-                              } else {
-                                setPdfExportState(prev => ({ ...prev, selectedDeliveries: [] }));
-                              }
-                            }}
-                          >
-                            <span className="text-small font-medium pl-2">Select All</span>
-                          </Checkbox>
-                          <span className="text-small text-default-400">
-                            {pdfExportState.selectedDeliveries.length} selected
-                          </span>
-                        </div>
-
-                        {getFilteredPdfDeliveries().map((delivery) => (
-                          <div key={delivery.uuid} className="flex items-center gap-2 p-2 hover:bg-default-100 rounded-md cursor-pointer transition-all duration-200">
-                            <Checkbox
-                              isSelected={pdfExportState.selectedDeliveries.includes(delivery.uuid)}
-                              onValueChange={() => handleTogglePdfDeliverySelection(delivery.uuid)}
-                            />
-                            <div className="flex-1 min-w-0">
-                              <div className="font-medium text-small truncate">
-                                {inventoryItems.find(i => i.uuid === delivery.inventory_uuid)?.name || 'Unknown Item'}
+                    <div className="p-2">
+                      <ListLoadingAnimation
+                        condition={isLoadingPdfDeliveries}
+                        containerClassName="space-y-2"
+                        skeleton={[
+                          /* Select All skeleton */
+                          <div key="select-all" className="flex items-center justify-between p-2 pb-0">
+                            <div className="flex items-center gap-2">
+                              <Skeleton className="w-5 h-5 rounded" />
+                              <Skeleton className="h-4 w-20 rounded-xl" />
+                            </div>
+                            <Skeleton className="h-4 w-16 rounded-xl" />
+                          </div>,
+                          /* Delivery items skeleton */
+                          ...[...Array(5)].map((_, i) => (
+                            <div key={i} className="flex items-center gap-2 p-2 rounded-md">
+                              <Skeleton className="w-5 h-5 rounded" />
+                              <div className="flex-1 min-w-0 space-y-1">
+                                <Skeleton className="h-4 w-32 rounded-xl" />
+                                <Skeleton className="h-3 w-48 rounded-xl" />
                               </div>
-                              <div className="text-tiny text-default-400 truncate">
-                                {warehouses.find(w => w.uuid === delivery.warehouse_uuid)?.name || 'Unknown Warehouse'} • {formatDate(delivery.delivery_date)}
+                              <Skeleton className="h-6 w-16 rounded-xl" />
+                            </div>
+                          ))
+                        ]}
+                      >
+                        {getFilteredPdfDeliveries().length === 0 ? (
+                          [<div className="p-4 text-center text-default-500 h-64 flex items-center justify-center flex-col">
+                            <Icon icon="mdi:alert-circle-outline" className="text-4xl mb-2" />
+                            No items match the selected filters
+                          </div>]
+                        ) : (
+                          [
+                            <div className="flex items-center justify-between p-2 pb-0">
+                              <Checkbox
+                                isSelected={pdfExportState.selectedDeliveries.length === getFilteredPdfDeliveries().length && getFilteredPdfDeliveries().length > 0}
+                                isIndeterminate={pdfExportState.selectedDeliveries.length > 0 && pdfExportState.selectedDeliveries.length < getFilteredPdfDeliveries().length}
+                                onValueChange={(selected) => {
+                                  if (selected) {
+                                    setPdfExportState(prev => ({
+                                      ...prev,
+                                      selectedDeliveries: getFilteredPdfDeliveries().map(delivery => delivery.uuid)
+                                    }));
+                                  } else {
+                                    setPdfExportState(prev => ({ ...prev, selectedDeliveries: [] }));
+                                  }
+                                }}
+                              >
+                                <span className="text-small font-medium pl-2">Select All</span>
+                              </Checkbox>
+                              <span className="text-small text-default-400">
+                                {pdfExportState.selectedDeliveries.length} selected
+                              </span>
+                            </div>,
+                            ...getFilteredPdfDeliveries().map((delivery) => (
+                              <div key={delivery.uuid} className="flex items-center gap-2 p-2 hover:bg-default-100 rounded-md cursor-pointer transition-all duration-200">
+                                <Checkbox
+                                  isSelected={pdfExportState.selectedDeliveries.includes(delivery.uuid)}
+                                  onValueChange={() => handleTogglePdfDeliverySelection(delivery.uuid)}
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-medium text-small truncate">
+                                    {inventoryItems.find(i => i.uuid === delivery.inventory_uuid)?.name || 'Unknown Item'}
+                                  </div>
+                                  <div className="text-tiny text-default-400 truncate">
+                                    {warehouses.find(w => w.uuid === delivery.warehouse_uuid)?.name || 'Unknown Warehouse'} • {formatDate(delivery.delivery_date)}
+                                  </div>
+                                </div>
+                                <Chip color={getStatusColor(delivery.status)} size="sm" variant="flat">
+                                  {delivery.status.charAt(0).toUpperCase() + delivery.status.slice(1).toLowerCase().replace('_', ' ')}
+                                </Chip>
+                              </div>
+                            ))
+                          ]
+                        )}
+                      </ListLoadingAnimation>
+                    </div>
+                  </CustomScrollbar>
+
+
+                  <div className="border-t border-default-200 flex justify-between items-center bg-default-100/50 flex-col w-full">
+                    <div className="w-full">
+                      {/* Collapsible Export Options Header */}
+                      <div
+                        className="flex items-center justify-between p-4 cursor-pointer hover:bg-default-100 transition-colors duration-200"
+                        onClick={() => setIsExportOptionsOpen(!isExportOptionsOpen)}
+                      >
+                        <h4 className="text-sm font-medium text-default-700">Export Options</h4>
+                        <Icon
+                          icon={isExportOptionsOpen ? "mdi:chevron-up" : "mdi:chevron-down"}
+                          className="text-default-500 transition-transform duration-200"
+                        />
+                      </div>
+
+                      {/* Collapsible Export Options Content */}
+                      <AnimatePresence>
+                        {isExportOptionsOpen && (
+                          <motion.div
+                            {...motionTransition}
+                            className="overflow-hidden"
+                          >
+                            <div className="space-y-3 px-4 pb-4">
+                              {/* Page Size Selection */}
+                              <div className="space-y-2">
+                                <label className="text-xs font-medium text-default-600">Page Size</label>
+                                <Select
+                                  size="sm"
+                                  selectedKeys={[pdfExportState.pageSize]}
+                                  onSelectionChange={(keys) => {
+                                    const selectedKey = Array.from(keys)[0] as string;
+                                    setPdfExportState(prev => ({ ...prev, pageSize: selectedKey as any }));
+                                  }}
+                                  classNames={{
+                                    trigger: "h-8",
+                                    value: "text-xs"
+                                  }}
+                                >
+                                  <SelectItem key="A4">A4 (210 × 297 mm)</SelectItem>
+                                  <SelectItem key="A3">A3 (297 × 420 mm)</SelectItem>
+                                  <SelectItem key="LETTER">Letter (8.5 × 11 in)</SelectItem>
+                                  <SelectItem key="LEGAL">Legal (8.5 × 14 in)</SelectItem>
+                                </Select>
+                              </div>
+
+                              {/* QR Code Options */}
+                              <div className="space-y-3">
+                                <label className="text-xs font-medium text-default-600">QR Code Options</label>
+
+                                <div className="space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex flex-col">
+                                      <span className="text-xs font-medium text-default-700">Auto Accept Delivery</span>
+                                      <span className="text-xs text-default-500">Automatically accept delivery when scanned</span>
+                                    </div>
+                                    <Switch
+                                      size="sm"
+                                      isSelected={pdfExportState.includeAutoAccept}
+                                      onValueChange={(checked) =>
+                                        setPdfExportState(prev => ({ ...prev, includeAutoAccept: checked }))
+                                      }
+                                      color="warning"
+                                    />
+                                  </div>
+
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex flex-col">
+                                      <span className="text-xs font-medium text-default-700">Show Options</span>
+                                      <span className="text-xs text-default-500">Display additional options when scanned</span>
+                                    </div>
+                                    <Switch
+                                      size="sm"
+                                      isSelected={pdfExportState.includeShowOptions}
+                                      onValueChange={(checked) =>
+                                        setPdfExportState(prev => ({ ...prev, includeShowOptions: checked }))
+                                      }
+                                      color="secondary"
+                                    />
+                                  </div>
+                                </div>
                               </div>
                             </div>
-                            <Chip color={getStatusColor(delivery.status)} size="sm" variant="flat">
-                              {delivery.status.charAt(0).toUpperCase() + delivery.status.slice(1).toLowerCase().replace('_', ' ')}
-                            </Chip>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
 
-                  </CustomScrollbar>
-                  <div className="p-4 border-t border-default-200 flex justify-end gap-2 bg-default-100/50">
-                    <Button
-                      size="sm"
-                      variant="flat"
-                      onPress={() => setPdfExportState(prev => ({ ...prev, isPopoverOpen: false }))}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      size="sm"
-                      color="primary"
-                      isDisabled={pdfExportState.selectedDeliveries.length === 0}
-                      isLoading={isPdfGenerating}
-                      onPress={() => {
-                        setPdfExportState(prev => ({ ...prev, isPopoverOpen: false }));
-                        handleGenerateQrPdf(pdfExportState.selectedDeliveries);
-                      }}
-                    >
-                      Generate PDF
-                    </Button>
+                    <div className="flex justify-end gap-2 w-full border-t border-default-200 p-4">
+                      <Button
+                        size="sm"
+                        variant="flat"
+                        onPress={() => setPdfExportState(prev => ({ ...prev, isPopoverOpen: false }))}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        color="primary"
+                        isDisabled={pdfExportState.selectedDeliveries.length === 0}
+                        isLoading={isPdfGenerating}
+                        onPress={() => {
+                          setPdfExportState(prev => ({ ...prev, isPopoverOpen: false }));
+                          handleGenerateQrPdf(pdfExportState.selectedDeliveries);
+                        }}
+                      >
+                        Generate PDF
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </PopoverContent>
@@ -4869,42 +5013,63 @@ export default function DeliveryPage() {
                 {qrCodeData.description}
               </p>
 
-              {/* Auto Accept Toggle */}
-              <div className="w-full overflow-hidden mt-4 p-4 bg-default-50 rounded-xl border-2 border-default-200">
-                <div className="flex items-center justify-between">
-                  <div className="flex flex-col">
-                    <span className="text-sm font-medium text-default-700">Auto Accept Delivery</span>
-                    <span className="text-xs text-default-500">
-                      When enabled, scanning this QR code will automatically accept the delivery
-                    </span>
+              {/* QR Code Options */}
+              <div className="w-full overflow-hidden mt-4 space-y-4">
+                {/* Show Options Toggle */}
+                <div className="p-4 bg-default-50 rounded-xl border-2 border-default-200">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-default-700">Show Options</span>
+                      <span className="text-xs text-default-500">
+                        Display additional options when the QR code is scanned
+                      </span>
+                    </div>
+                    <Switch
+                      isSelected={qrCodeData.showOptions}
+                      onValueChange={updateShowOptions}
+                      color="secondary"
+                      size="sm"
+                    />
                   </div>
-                  <Switch
-                    isSelected={qrCodeData.autoAccept}
-                    onValueChange={updateQrCodeUrl}
-                    color="warning"
-                    size="sm"
-                  />
                 </div>
 
-                <AnimatePresence>
-                  {qrCodeData.autoAccept && (
-                    <motion.div
-                      {...motionTransition}
-                    >
-                      <div className="mt-3 p-2 bg-warning-50 border border-warning-200 rounded-lg">
-                        <div className="flex items-start gap-2">
-                          <Icon icon="mdi:alert" className="text-warning-600 mt-0.5 flex-shrink-0" width={16} />
-                          <div>
-                            <p className="text-xs font-medium text-warning-700">Warning</p>
-                            <p className="text-xs text-warning-600">
-                              This action cannot be undone. The delivery will be automatically accepted when scanned by an authorized operator.
-                            </p>
+                {/* Auto Accept Toggle */}
+                <div className="p-4 bg-default-50 rounded-xl border-2 border-default-200">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-default-700">Auto Accept Delivery</span>
+                      <span className="text-xs text-default-500">
+                        When enabled, scanning this QR code will automatically accept the delivery
+                      </span>
+                    </div>
+                    <Switch
+                      isSelected={qrCodeData.autoAccept}
+                      onValueChange={(checked) => updateQrCodeUrl(checked)}
+                      color="warning"
+                      size="sm"
+                    />
+                  </div>
+
+                  <AnimatePresence>
+                    {qrCodeData.autoAccept && (
+                      <motion.div
+                        {...motionTransition}
+                      >
+                        <div className="mt-3 p-2 bg-warning-50 border border-warning-200 rounded-lg">
+                          <div className="flex items-start gap-2">
+                            <Icon icon="mdi:alert" className="text-warning-600 mt-0.5 flex-shrink-0" width={16} />
+                            <div>
+                              <p className="text-xs font-medium text-warning-700">Warning</p>
+                              <p className="text-xs text-warning-600">
+                                This action cannot be undone. The delivery will be automatically accepted when scanned by an authorized operator.
+                              </p>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               </div>
 
               <div className="w-full bg-default-50 overflow-auto max-h-64 rounded-xl p-4">

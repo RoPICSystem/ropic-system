@@ -489,3 +489,27 @@ export async function markWarehouseBulkAsUsed(
     return { success: false, message: error.message || 'An unexpected error occurred.' };
   }
 }
+
+/**
+ * Mark warehouse unit as used
+ */
+export async function markWarehouseUnitAsUsed(unitUuid: string): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+
+  try {
+    const { error } = await supabase
+      .from("warehouse_inventory_item_units")
+      .update({ status: "USED" })
+      .eq("uuid", unitUuid);
+
+    if (error) throw error;
+
+    return { success: true };
+  } catch (error: any) {
+    console.error("Error marking warehouse unit as used:", error);
+    return {
+      success: false,
+      error: error.message || "Failed to mark warehouse unit as used"
+    };
+  }
+}

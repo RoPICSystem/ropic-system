@@ -26,6 +26,7 @@ import { Icon } from "@iconify-icon/react";
 import { AnimatePresence, motion } from 'framer-motion';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import CustomScrollbar from './custom-scrollbar';
 
 
 export default function SideBar({ children }: { children: React.ReactNode }) {
@@ -54,8 +55,8 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
         setUserData(data)
 
         // Memoize navigation to avoid unnecessary re-renders
-        const newNavigation = data?.is_admin 
-        ? [
+        const newNavigation = data?.is_admin
+          ? [
             { name: 'Dashboard', href: '/home/dashboard', icon: "heroicons:home-solid" },
             { name: 'Search', href: '/home/search', icon: "heroicons:magnifying-glass-20-solid" },
             { name: 'Warehouses', href: '/home/warehouses', icon: 'material-symbols:warehouse-rounded' },
@@ -66,7 +67,7 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
             { name: 'Notifications', href: '/home/notifications', icon: "heroicons:bell-alert-20-solid" },
             { name: 'Settings', href: '/home/settings', icon: "heroicons:cog-8-tooth-20-solid" },
           ]
-        : [
+          : [
             { name: 'Dashboard', href: '/home/dashboard', icon: "heroicons:home-solid" },
             { name: 'Search', href: '/home/search', icon: "heroicons:magnifying-glass-20-solid" },
             { name: 'Delivery', href: '/home/delivery', icon: "heroicons:truck-20-solid" },
@@ -75,7 +76,7 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
             { name: 'Notifications', href: '/home/notifications', icon: "heroicons:bell-alert-20-solid" },
             { name: 'Settings', href: '/home/settings', icon: "heroicons:cog-8-tooth-20-solid" },
           ];
-      
+
         setNavigation(newNavigation);
 
         // Set image icon directly from the profile_image_url
@@ -159,8 +160,10 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
 
             {/* Navigation - scrollable and centered */}
             <div className="flex-grow flex flex-col overflow-hidden">
-              <ScrollShadow className="flex-1 overflow-y-auto py-4">
-                <nav className="px-4 space-y-1 flex flex-col">
+              <CustomScrollbar
+                scrollShadow
+                className="flex-1">
+                <nav className="p-4 py-2 space-y-1 flex flex-col">
                   {isLoading ? (
                     // Skeleton loaders while loading
                     <div className="space-y-2 mt-1 h-full relative">
@@ -198,7 +201,7 @@ export default function SideBar({ children }: { children: React.ReactNode }) {
                     })
                   )}
                 </nav>
-              </ScrollShadow>
+              </CustomScrollbar>
             </div>
 
 

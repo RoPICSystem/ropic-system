@@ -164,8 +164,8 @@ const styles = StyleSheet.create({
     paddingRight: 10,
   },
   metadataLogoContainer: {
-    width: 50,
-    height: 50,
+    width: 60,
+    height: 60,
     flexShrink: 0,
   },
   metadataLogo: {
@@ -484,9 +484,9 @@ interface ReorderPointPDFProps {
   inventoryNameMap?: Record<string, string>;
   companyLogoBase64?: string;
   ropicLogoBase64?: string;
+  pageSize?: "A4" | "A3" | "LETTER" | "LEGAL"; // Add this line
 }
 
-// PDF Document Component
 export const ReorderPointPDF = ({
   logs,
   deliveryHistory,
@@ -496,10 +496,11 @@ export const ReorderPointPDF = ({
   dateGenerated,
   inventoryNameMap,
   companyLogoBase64,
-  ropicLogoBase64
+  ropicLogoBase64,
+  pageSize = "A4" // Add this line
 }: ReorderPointPDFProps) => (
   <Document>
-    <Page size="A4" style={styles.page}>
+    <Page size={pageSize} style={styles.page}>
       {/* Header Section - Consistent with DeliveryQRPDF */}
       <View style={styles.headerContainer}>
         <View style={styles.leftHeaderSection}>
@@ -544,6 +545,10 @@ export const ReorderPointPDF = ({
             <View style={styles.metadataRow}>
               <Text style={styles.metadataLabel}>Generated:</Text>
               <Text style={styles.metadataValue}>{dateGenerated}</Text>
+            </View>
+            <View style={styles.metadataRow}>
+              <Text style={styles.metadataLabel}>Page Size:</Text>
+              <Text style={styles.metadataValue}>{pageSize}</Text>
             </View>
           </View>
 
@@ -718,7 +723,7 @@ export const ReorderPointPDF = ({
 
       {/* Footer - Consistent with DeliveryQRPDF */}
       <Text style={styles.footer}>
-        Generated on {dateGenerated} • RoPIC System
+        Generated on {dateGenerated} • RoPIC Reorder Point System • Page Size: {pageSize}
       </Text>
 
       {/* Page Number - Consistent with DeliveryQRPDF */}

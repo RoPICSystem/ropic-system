@@ -156,14 +156,15 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
   };
 
   const scheduleHide = () => {
-    if (disabled || (hideByDefault && !isHovering && !isDragging && !isScrolling)) {
-      clearAllTimeouts();
-      timeoutRef.current = setTimeout(() => {
-        if (disabled || (!isContentHovering && !isScrollbarHovering && !isThumbHovering && !isDragging && !isScrolling)) {
-          setScrollOpacity(0);
-        }
-      }, hideDelay);
-    }
+    if (disabled || !hideByDefault) return;
+    
+    clearAllTimeouts();
+    timeoutRef.current = setTimeout(() => {
+      // Only hide if nothing is being hovered and not dragging/scrolling
+      if (!isContentHovering && !isScrollbarHovering && !isThumbHovering && !isDragging && !isScrolling) {
+        setScrollOpacity(0);
+      }
+    }, hideDelay);
   };
 
   // Handle thumb drag
@@ -277,22 +278,13 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
       }
     });
 
-    // Set up initial auto-hide timer if hideByDefault is true
-    if (hideByDefault && scrollOpacity === 0) {
-      const hasScrollableContent = container.scrollHeight > container.clientHeight;
-      if (hasScrollableContent) {
-        showScrollbar();
-        scheduleHide();
-      }
-    }
-
     return () => {
       if (resizeObserverRef.current) {
         resizeObserverRef.current.disconnect();
         resizeObserverRef.current = null;
       }
     };
-  }, [disabled, hideByDefault, isHovering, isDragging, isScrolling, scrollOpacity]);
+  }, [disabled, hideByDefault, isHovering, isDragging, isScrolling]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;
@@ -308,22 +300,22 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
       scrollTimeoutRef.current = setTimeout(() => {
         setIsScrolling(false);
-        setTimeout(scheduleHide, 100);
+        // Schedule hide after scrolling stops
+        scheduleHide();
       }, 150);
     };
 
     const handleContentMouseEnter = () => {
       if (disabled) return;
-
       setIsContentHovering(true);
       showScrollbar();
     };
 
     const handleContentMouseLeave = () => {
       if (disabled) return;
-
       setIsContentHovering(false);
-      setTimeout(scheduleHide, 100);
+      // Schedule hide immediately when mouse leaves content
+      scheduleHide();
     };
 
     container.addEventListener('scroll', handleScroll, { passive: true });
@@ -350,7 +342,7 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
       window.removeEventListener('resize', handleResize);
       clearAllTimeouts();
     };
-  }, [hideDelay, isHovering, isDragging, isScrolling, hideByDefault, scrollOpacity, disabled]);
+  }, [hideDelay, isHovering, isDragging, isScrolling, hideByDefault, disabled]);
 
   // Mouse events for dragging
   useEffect(() => {
@@ -365,17 +357,32 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
     }
   }, [isDragging, dragStartY, dragStartScrollTop, thumbHeight, disabled]);
 
-  // Auto-hide scheduling effect
+  // Auto-hide scheduling effect - trigger hide when hover states change
   useEffect(() => {
-    scheduleHide();
+    if (!isHovering && !isDragging && !isScrolling) {
+      scheduleHide();
+    }
   }, [isHovering, isDragging, isScrolling, disabled]);
 
-  // Hide scrollbar immediately if disabled
+  // Initial setup - show scrollbar briefly if there's scrollable content
   useEffect(() => {
     if (disabled) {
       setScrollOpacity(0);
+      return;
     }
-  }, [disabled]);
+
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    // Show scrollbar initially if there's scrollable content and hideByDefault is true
+    if (hideByDefault) {
+      const hasScrollableContent = container.scrollHeight > container.clientHeight;
+      if (hasScrollableContent) {
+        showScrollbar();
+        scheduleHide();
+      }
+    }
+  }, [disabled, hideByDefault]);
 
   // Dynamic styles that can't be handled by Tailwind
   const shouldShowScrollbar = !disabled && scrollOpacity > 0;
@@ -472,7 +479,7 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
           }}
           onMouseLeave={() => {
             setIsScrollbarHovering(false);
-            setTimeout(scheduleHide, 100);
+            scheduleHide();
           }}
         >
           <div
@@ -486,7 +493,7 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
             }}
             onMouseLeave={() => {
               setIsThumbHovering(false);
-              setTimeout(scheduleHide, 100);
+              scheduleHide();
             }}
           />
         </div>

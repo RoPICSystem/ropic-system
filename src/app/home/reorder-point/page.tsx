@@ -28,7 +28,9 @@ import {
   DateRangePicker,
   Tabs,
   Tab,
-  Alert
+  Alert,
+  Select,
+  SelectItem
 } from "@heroui/react";
 import { CalendarDate } from "@internationalized/date";
 import { Icon } from "@iconify/react";
@@ -77,6 +79,9 @@ export default function ReorderPointPage() {
   const [inventoryItems, setInventoryItems] = useState<any[]>([]);
   const [statusFilter, setStatusFilter] = useState<InventoryStatus | null>(null);
 
+  // Add state for export options collapse
+  const [isExportOptionsOpen, setIsExportOptionsOpen] = useState(false);
+  
   // Form state
   const [formData, setFormData] = useState<Partial<ReorderPointLog>>({});
   const [customSafetyStock, setCustomSafetyStock] = useState<number | null>(null);
@@ -121,6 +126,8 @@ export default function ReorderPointPage() {
     weekFilter: null as number | null,
     dayFilter: null as number | null,
     dateTabKey: "range" as string,
+    // Add new export options
+    pageSize: "A4" as "A4" | "A3" | "LETTER" | "LEGAL",
   });
 
   // Add state for PDF export logs
@@ -522,7 +529,7 @@ export default function ReorderPointPage() {
         warehouseNameForReport = getWarehouseName(selectedWarehouse);
       }
 
-      // Generate PDF
+      // Generate PDF with selected page size
       const pdfBlob = await generatePdfBlob({
         logs: preparedLogs,
         deliveryHistory: deliveryHistoryWithOperatorNames,
@@ -530,14 +537,15 @@ export default function ReorderPointPage() {
         companyName: companyData.data?.name || "Your Company",
         companyLogoUrl: companyLogoUrl,
         dateGenerated: new Date().toLocaleString(),
-        inventoryNameMap
+        inventoryNameMap,
+        pageSize: pdfExportState.pageSize // Add this line
       });
 
-      // Create download link
+      // Create download link with page size in filename
       const url = URL.createObjectURL(pdfBlob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `RoPIC_Report_${(companyData.data?.name || 'Company').replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}_${new Date().toLocaleTimeString('en-US', { hour12: false }).replace(/:/g, '-')}.pdf`;
+      link.download = `RoPIC_Reorder_Point_Report_${pdfExportState.pageSize}_${(companyData.data?.name || 'Company').replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}_${new Date().toLocaleTimeString('en-US', { hour12: false }).replace(/:/g, '-')}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -837,7 +845,6 @@ export default function ReorderPointPage() {
                 setPdfExportState(prev => ({
                   ...prev,
                   isPopoverOpen: open,
-                  // When opening, default to selected item or clear selection
                   selectedLogs: open
                     ? (selectedItemId ? [selectedItemId] : [])
                     : prev.selectedLogs,
@@ -1256,90 +1263,167 @@ export default function ReorderPointPage() {
                       </ScrollShadow>
                     </div>
                   </div>
-                  
+
                   <CustomScrollbar
                     disabled={isLoadingPdfLogs || getFilteredPdfLogs().length === 0}
                     className="max-h-64">
-                    {isLoadingPdfLogs ? (
-                      <div className="p-4 text-center">
-                        <Spinner size="sm" />
-                        <p className="text-sm text-default-500 mt-2">Loading items...</p>
-                      </div>
-                    ) : getFilteredPdfLogs().length === 0 ? (
-                      <div className="p-4 text-center text-default-500">
-                        No items match the selected filters
-                      </div>
-                    ) : (
-                      <div className="p-2">
-                        <div className="flex items-center justify-between px-2 pt-2 pb-4">
-                          <Checkbox
-                            isSelected={pdfExportState.selectedLogs.length === getFilteredPdfLogs().length && getFilteredPdfLogs().length > 0}
-                            isIndeterminate={pdfExportState.selectedLogs.length > 0 && pdfExportState.selectedLogs.length < getFilteredPdfLogs().length}
-                            onValueChange={(selected) => {
-                              if (selected) {
-                                setPdfExportState(prev => ({
-                                  ...prev,
-                                  selectedLogs: getFilteredPdfLogs().map(log => log.uuid)
-                                }));
-                              } else {
-                                setPdfExportState(prev => ({ ...prev, selectedLogs: [] }));
-                              }
-                            }}
-                          >
-                            <span className="text-small font-medium pl-2">Select All</span>
-                          </Checkbox>
-                          <span className="text-small text-default-400">
-                            {pdfExportState.selectedLogs.length} selected
-                          </span>
-                        </div>
-
-                        {getFilteredPdfLogs().map((log) => (
-                          <div key={log.uuid} className="flex items-center gap-2 p-2 hover:bg-default-100 rounded-md cursor-pointer transition-all duration-200">
-                            <Checkbox
-                              isSelected={pdfExportState.selectedLogs.includes(log.uuid)}
-                              onValueChange={() => handleTogglePdfLogSelection(log.uuid)}
-                            />
-                            <div className="flex-1 min-w-0">
-                              <div className="font-medium text-small truncate">
-                                {getInventoryItemName(log.inventory_uuid)}
-                              </div>
-                              <div className="text-tiny text-default-400 truncate">
-                                {getWarehouseName(log.warehouse_uuid)} • {formatDate(log.updated_at)}
-                              </div>
-                            </div>
-                            <Chip color={getStatusColor(log.status)} size="sm" variant="flat">
-                              {log.status.replaceAll('_', ' ')}
-                            </Chip>
+                    <ListLoadingAnimation
+                      condition={isLoadingPdfLogs}
+                      containerClassName="p-2"
+                      skeleton={[
+                        /* Select All skeleton */
+                        <div key="select-all" className="flex items-center justify-between p-2 pb-0">
+                          <div className="flex items-center gap-2">
+                            <Skeleton className="w-5 h-5 rounded" />
+                            <Skeleton className="h-4 w-20 rounded-xl" />
                           </div>
-                        ))}
-                      </div>
-                    )}
+                          <Skeleton className="h-4 w-16 rounded-xl" />
+                        </div>,
+                        /* Delivery items skeleton */
+                        ...[...Array(5)].map((_, i) => (
+                          <div key={i} className="flex items-center gap-2 p-2 rounded-md">
+                            <Skeleton className="w-5 h-5 rounded" />
+                            <div className="flex-1 min-w-0 space-y-1">
+                              <Skeleton className="h-4 w-32 rounded-xl" />
+                              <Skeleton className="h-3 w-48 rounded-xl" />
+                            </div>
+                            <Skeleton className="h-6 w-16 rounded-xl" />
+                          </div>
+                        ))
+                      ]}
+                    >
+                      {getFilteredPdfLogs().length === 0 ? (
+                        [<div className="p-4 text-center text-default-500 h-64 flex items-center justify-center flex-col">
+                          <Icon icon="mdi:alert-circle-outline" className="text-4xl mb-2" />
+                          No items match the selected filters
+                        </div>]
+                      ) : (
+                        [
+                          <div className="flex items-center justify-between px-2 pt-2 pb-4">
+                            <Checkbox
+                              isSelected={pdfExportState.selectedLogs.length === getFilteredPdfLogs().length && getFilteredPdfLogs().length > 0}
+                              isIndeterminate={pdfExportState.selectedLogs.length > 0 && pdfExportState.selectedLogs.length < getFilteredPdfLogs().length}
+                              onValueChange={(selected) => {
+                                if (selected) {
+                                  setPdfExportState(prev => ({
+                                    ...prev,
+                                    selectedLogs: getFilteredPdfLogs().map(log => log.uuid)
+                                  }));
+                                } else {
+                                  setPdfExportState(prev => ({ ...prev, selectedLogs: [] }));
+                                }
+                              }}
+                            >
+                              Select All
+                            </Checkbox>
+                            <span className="text-small text-default-400">
+                              {pdfExportState.selectedLogs.length} selected
+                            </span>
+                          </div>,
+                          ...getFilteredPdfLogs().map((log) => (
+                            <div key={log.uuid} className="flex items-center gap-2 p-2 hover:bg-default-100 rounded-md cursor-pointer transition-all duration-200">
+                              <Checkbox
+                                isSelected={pdfExportState.selectedLogs.includes(log.uuid)}
+                                onValueChange={() => handleTogglePdfLogSelection(log.uuid)}
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="font-medium text-small truncate">
+                                  {getInventoryItemName(log.inventory_uuid)}
+                                </div>
+                                <div className="text-tiny text-default-400 truncate">
+                                  {getWarehouseName(log.warehouse_uuid)} • {formatDate(log.updated_at)}
+                                </div>
+                              </div>
+                              <Chip color={getStatusColor(log.status)} size="sm" variant="flat">
+                                {log.status.replaceAll('_', ' ')}
+                              </Chip>
+                            </div>
+                          ))
+                        ]
+                      )}
+                    </ListLoadingAnimation>
                   </CustomScrollbar>
 
-                  <div className="p-4 border-t border-default-200 flex justify-end gap-2  bg-default-100/50 ">
-                    <Button
-                      size="sm"
-                      variant="flat"
-                      onPress={() => setPdfExportState(prev => ({ ...prev, isPopoverOpen: false }))}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      size="sm"
-                      color="primary"
-                      isDisabled={pdfExportState.selectedLogs.length === 0}
-                      isLoading={isPdfGenerating}
-                      onPress={() => {
-                        setPdfExportState(prev => ({ ...prev, isPopoverOpen: false }));
-                        handleGeneratePdfFiltered(pdfExportState.selectedLogs);
-                      }}
-                    >
-                      Generate PDF
-                    </Button>
+                  <div className="border-t border-default-200 flex justify-between items-center bg-default-100/50 flex-col w-full">
+                    <div className="w-full">
+                      {/* Collapsible Export Options Header */}
+                      <div
+                        className="flex items-center justify-between p-4 cursor-pointer hover:bg-default-100 transition-colors duration-200"
+                        onClick={() => setIsExportOptionsOpen(!isExportOptionsOpen)}
+                      >
+                        <h4 className="text-sm font-medium text-default-700">Export Options</h4>
+                        <Icon
+                          icon={isExportOptionsOpen ? "mdi:chevron-up" : "mdi:chevron-down"}
+                          className="text-default-500 transition-transform duration-200"
+                        />
+                      </div>
+
+                      {/* Collapsible Export Options Content */}
+                      <AnimatePresence>
+                        {isExportOptionsOpen && (
+                          <motion.div
+                            {...motionTransition}
+                            className="overflow-hidden"
+                          >
+                            <div className="space-y-3 px-4 pb-4">
+                              {/* Page Size Selection */}
+                              <div className="space-y-2">
+
+                                <label className="text-xs text-default-600 mb-1 block">Page Size</label>
+                                <Select
+                                  size="sm"
+                                  selectedKeys={[pdfExportState.pageSize]}
+                                  onSelectionChange={(keys) => {
+                                    const selected = Array.from(keys)[0] as "A4" | "A3" | "LETTER" | "LEGAL";
+                                    setPdfExportState(prev => ({ ...prev, pageSize: selected }));
+                                  }}
+                                  classNames={{
+                                    trigger: "h-8",
+                                    value: "text-xs"
+                                  }}
+                                >
+                                  <SelectItem key="A4">A4 (210 × 297 mm)</SelectItem>
+                                  <SelectItem key="A3">A3 (297 × 420 mm)</SelectItem>
+                                  <SelectItem key="LETTER">Letter (8.5 × 11 in)</SelectItem>
+                                  <SelectItem key="LEGAL">Legal (8.5 × 14 in)</SelectItem>
+                                </Select>
+                              </div>
+
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+
+                    <div className="flex justify-end gap-2 w-full border-t border-default-200 p-4">
+                      <Button
+                        size="sm"
+                        variant="flat"
+                        onPress={() => setPdfExportState(prev => ({ ...prev, isPopoverOpen: false }))}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        color="primary"
+                        isDisabled={pdfExportState.selectedLogs.length === 0}
+                        isLoading={isPdfGenerating}
+                        onPress={() => {
+                          setPdfExportState(prev => ({ ...prev, isPopoverOpen: false }));
+                          handleGeneratePdfFiltered(pdfExportState.selectedLogs);
+                        }}
+                      >
+                        Generate PDF
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </PopoverContent>
             </Popover>
+
+
+
+
           </div>
         </div>
         <div className="flex flex-col xl:flex-row gap-4">

@@ -169,8 +169,8 @@ const styles = StyleSheet.create({
     paddingRight: 10,
   },
   metadataLogoContainer: {
-    width: 50,
-    height: 50,
+    width: 60,
+    height: 60,
     flexShrink: 0,
   },
   metadataLogo: {
@@ -453,6 +453,7 @@ interface DeliveryQRPDFProps {
   dateGenerated: string;
   companyLogoBase64?: string;
   ropicLogoBase64?: string;
+  pageSize?: "A4" | "A3" | "LETTER" | "LEGAL";
 }
 
 // PDF Document Component
@@ -462,10 +463,11 @@ export const DeliveryQRPDF = ({
   companyLogoUrl,
   dateGenerated,
   companyLogoBase64,
-  ropicLogoBase64
+  ropicLogoBase64,
+  pageSize = "A4"
 }: DeliveryQRPDFProps) => (
   <Document>
-    <Page size="A4" style={styles.page}>
+    <Page size={pageSize} style={styles.page}>
       {/* Header Section */}
       <View style={styles.headerContainer}>
         <View style={styles.leftHeaderSection}>
@@ -506,6 +508,10 @@ export const DeliveryQRPDF = ({
             <View style={styles.metadataRow}>
               <Text style={styles.metadataLabel}>Generated:</Text>
               <Text style={styles.metadataValue}>{dateGenerated}</Text>
+            </View>
+            <View style={styles.metadataRow}>
+              <Text style={styles.metadataLabel}>Page Size:</Text>
+              <Text style={styles.metadataValue}>{pageSize}</Text>
             </View>
           </View>
 
@@ -625,7 +631,7 @@ export const DeliveryQRPDF = ({
 
       {/* Footer */}
       <Text style={styles.footer}>
-        Generated on {dateGenerated} • RoPIC Delivery Management System
+        Generated on {dateGenerated} • RoPIC Delivery Management System • Page Size: {pageSize}
       </Text>
 
       {/* Page Number */}

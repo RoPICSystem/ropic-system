@@ -10,6 +10,7 @@ import {
   CardBody,
   CardFooter,
   CardHeader,
+  Checkbox,
   Chip,
   Divider,
   Input,
@@ -40,10 +41,13 @@ import { markWarehouseBulkAsUsed } from "../warehouse-items/actions";
 import {
   getBulkUnitsDetails,
   getItemDetailsByUuid,
+  getWarehouseItemsByDelivery,
   GoPageDeliveryDetails,
   GoPageInventoryDetails,
   GoPageWarehouseDetails,
+  markWarehouseItemsAsUsed,
 } from "./actions";
+import CustomScrollbar from "@/components/custom-scrollbar";
 
 export default function SearchPage() {
   const router = useRouter();
@@ -85,6 +89,19 @@ export default function SearchPage() {
   const [showAcceptDeliveryLoadingModal, setShowAcceptDeliveryLoadingModal] = useState(false);
   const [showAutoMarkLoadingModal, setShowAutoMarkLoadingModal] = useState(false);
 
+  // Add new state for show options modal
+  const [showOptionsModal, setShowOptionsModal] = useState(false);
+  const [optionsDeliveryDetails, setOptionsDeliveryDetails] = useState<GoPageDeliveryDetails | null>(null);
+  const [warehouseBulkItems, setWarehouseBulkItems] = useState<any[]>([]);
+  const [selectedWarehouseBulks, setSelectedWarehouseBulks] = useState<string[]>([]);
+  const [selectedWarehouseUnits, setSelectedWarehouseUnits] = useState<string[]>([]);
+  const [isLoadingWarehouseItems, setIsLoadingWarehouseItems] = useState(false);
+  const [isMarkingAsUsed, setIsMarkingAsUsed] = useState(false);
+
+  // Add new state for property details modal
+  const [showPropertyModal, setShowPropertyModal] = useState(false);
+  const [selectedProperty, setSelectedProperty] = useState<{ key: string, value: any } | null>(null);
+
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -117,6 +134,11 @@ export default function SearchPage() {
       setIsLoading(true);
       setError(null);
 
+      const query = searchParams.get("q");
+      const isDeliveryAutoAccept = searchParams.get("deliveryAutoAccept") === "true";
+      const isItemAutoMarkAsUsed = searchParams.get("itemAutoMarkAsUsed") === "true";
+      const isShowOptions = searchParams.get("showOptions") === "true";
+
       try {
         const userData = await getUserFromCookies();
         if (!userData) {
@@ -126,46 +148,56 @@ export default function SearchPage() {
 
         setUser(userData);
 
-        const query = searchParams.get("q");
-        const isDeliveryAutoAccept = searchParams.get("deliveryAutoAccept") === "true";
-        const isItemAutoMarkAsUsed = searchParams.get("itemAutoMarkAsUsed") === "true";
-
-        const uuid = query;
-
-        if (uuid) {
-          const resultLoadItemDetails = await loadItemDetails(uuid, userData);
+        if (query) {
+          const resultLoadItemDetails = await loadItemDetails(query, userData);
 
           // Create unique keys for auto-actions to prevent duplicates
-          const autoAcceptKey = `delivery-${uuid}-autoAccept`;
-          const autoMarkKey = `warehouse-${uuid}-autoMark`;
+          const autoAcceptKey = `delivery-${query}-autoAccept`;
+          const autoMarkKey = `warehouse-${query}-autoMark`;
+          const showOptionsKey = `options-${query}-show`;
 
-          // Auto-accept delivery if parameter is set and item is a delivery
-          if (isDeliveryAutoAccept &&
-            resultLoadItemDetails &&
-            resultLoadItemDetails.type === 'delivery' &&
-            !processedAutoActions.current.has(autoAcceptKey)) {
 
-            processedAutoActions.current.add(autoAcceptKey);
-            await handleAcceptDelivery(resultLoadItemDetails.data as GoPageDeliveryDetails, userData);
-          }
+          if (resultLoadItemDetails) {
+            if (resultLoadItemDetails.type === 'delivery') {
+              // Auto-accept delivery if parameter is set and item is a delivery
+              if (isDeliveryAutoAccept &&
+                !processedAutoActions.current.has(autoAcceptKey)) {
 
-          // Auto-mark warehouse bulk as used if parameter is set and item is a warehouse bulk
-          if (isItemAutoMarkAsUsed &&
-            resultLoadItemDetails &&
-            resultLoadItemDetails.type === 'warehouse_bulk' &&
-            !processedAutoActions.current.has(autoMarkKey)) {
+                processedAutoActions.current.add(autoAcceptKey);
+                await handleAcceptDelivery(resultLoadItemDetails.data as GoPageDeliveryDetails, userData);
+              }
 
-            processedAutoActions.current.add(autoMarkKey);
-            await handleAutoMarkWarehouseBulk(resultLoadItemDetails.warehouseBulkUuid!, userData);
-          }
+              if (isShowOptions &&
+                !processedAutoActions.current.has(showOptionsKey)) {
+                processedAutoActions.current.add(showOptionsKey);
 
-          // Set target bulk UUID for highlighting if it's a warehouse bulk
-          if (resultLoadItemDetails && resultLoadItemDetails.type === 'warehouse_bulk') {
-            setTargetWarehouseBulkUuid(resultLoadItemDetails.warehouseBulkUuid!);
-            await loadBulkUnits(resultLoadItemDetails.warehouseBulkUuid!, true);
+                // Show options modal for delivery items
+                if (resultLoadItemDetails.type === 'delivery') {
+                  setOptionsDeliveryDetails(resultLoadItemDetails.data as GoPageDeliveryDetails);
+                  setShowOptionsModal(true);
+
+                  // Load warehouse items for this delivery if it's delivered
+                  if ((resultLoadItemDetails.data as GoPageDeliveryDetails).status === 'DELIVERED') {
+                    loadWarehouseItemsForDelivery((resultLoadItemDetails.data as GoPageDeliveryDetails).uuid);
+                  }
+                }
+              }
+
+            }
+            else if (resultLoadItemDetails.type === 'warehouse_bulk') {
+              // Auto-mark warehouse bulk as used if parameter is set and item is a warehouse bulk
+              if (isItemAutoMarkAsUsed &&
+                !processedAutoActions.current.has(autoMarkKey)) {
+
+                processedAutoActions.current.add(autoMarkKey);
+                await handleAutoMarkWarehouseBulk(resultLoadItemDetails.warehouseBulkUuid!, userData);
+              }
+            } else if (resultLoadItemDetails.type === 'warehouse_bulk') {
+              setTargetWarehouseBulkUuid(resultLoadItemDetails.warehouseBulkUuid!);
+              await loadBulkUnits(resultLoadItemDetails.warehouseBulkUuid!, true);
+            }
           }
         }
-
       } catch (error) {
         console.error("Error initializing page:", error);
         setError("Failed to initialize page");
@@ -176,6 +208,7 @@ export default function SearchPage() {
 
     initPage();
   }, [router, searchParams]);
+
 
   const loadItemDetails = async (uuid: string, customUser?: any) => {
     setIsSearching(true);
@@ -223,6 +256,7 @@ export default function SearchPage() {
     }
   };
 
+
   const loadBulkUnits = async (bulkUuid: string, isWarehouseBulk: boolean = false) => {
     if (loadedBulkUnits.has(bulkUuid) || loadingBulkUnits.has(bulkUuid)) {
       return; // Already loaded or loading
@@ -243,6 +277,76 @@ export default function SearchPage() {
         newSet.delete(bulkUuid);
         return newSet;
       });
+    }
+  };
+
+  // Function to load warehouse items for a delivered delivery
+  const loadWarehouseItemsForDelivery = async (deliveryUuid: string) => {
+    setIsLoadingWarehouseItems(true);
+    try {
+      const result = await getWarehouseItemsByDelivery(deliveryUuid);
+      if (result.success) {
+        setWarehouseBulkItems(result.data || []);
+      }
+    } catch (error) {
+      console.error("Error loading warehouse items:", error);
+    } finally {
+      setIsLoadingWarehouseItems(false);
+    }
+  };
+
+  // Handle warehouse bulk selection
+  const handleWarehouseBulkSelection = (bulkUuid: string, isSelected: boolean) => {
+    if (isSelected) {
+      setSelectedWarehouseBulks(prev => [...prev, bulkUuid]);
+
+      // Automatically select all units in this bulk
+      const bulkUnits = warehouseBulkItems
+        .find(item => item.bulk_uuid === bulkUuid)?.units || [];
+      const unitUuids = bulkUnits.map((unit: any) => unit.uuid);
+      setSelectedWarehouseUnits(prev => [...prev, ...unitUuids]);
+    } else {
+      setSelectedWarehouseBulks(prev => prev.filter(id => id !== bulkUuid));
+
+      // Also remove any units from this bulk
+      const bulkUnits = warehouseBulkItems
+        .find(item => item.bulk_uuid === bulkUuid)?.units || [];
+      const unitUuids = bulkUnits.map((unit: any) => unit.uuid);
+      setSelectedWarehouseUnits(prev => prev.filter(id => !unitUuids.includes(id)));
+    }
+  };
+
+  // Handle warehouse unit selection
+  const handleWarehouseUnitSelection = (unitUuid: string, isSelected: boolean) => {
+    if (isSelected) {
+      setSelectedWarehouseUnits(prev => [...prev, unitUuid]);
+    } else {
+      setSelectedWarehouseUnits(prev => prev.filter(id => id !== unitUuid));
+    }
+  };
+
+  // Mark selected items as used
+  const handleMarkSelectedAsUsed = async () => {
+    if (selectedWarehouseBulks.length === 0 && selectedWarehouseUnits.length === 0) {
+      return;
+    }
+
+    setIsMarkingAsUsed(true);
+    try {
+      const result = await markWarehouseItemsAsUsed(selectedWarehouseBulks, selectedWarehouseUnits);
+      if (result.success) {
+        // Refresh the warehouse items
+        if (optionsDeliveryDetails) {
+          await loadWarehouseItemsForDelivery(optionsDeliveryDetails.uuid);
+        }
+        // Clear selections
+        setSelectedWarehouseBulks([]);
+        setSelectedWarehouseUnits([]);
+      }
+    } catch (error) {
+      console.error("Error marking items as used:", error);
+    } finally {
+      setIsMarkingAsUsed(false);
     }
   };
 
@@ -2189,7 +2293,6 @@ export default function SearchPage() {
     </div>
   );
 
-
   return (
     <div className="container mx-auto p-2 max-w-5xl">
       <div className="flex flex-col gap-6">
@@ -2360,7 +2463,7 @@ export default function SearchPage() {
                         <Icon icon="mdi:truck-delivery" className="text-warning" width={24} />
                       </div>
                       <p className="font-medium text-default-900">Delivery Items</p>
-                      <p className="text-sm text-default-600">View delivery details, operators, locations</p>
+                      <p className="text-sm text-default-600">View delivery details, operators, and locations</p>
                     </div>
 
                     <div className="text-center max-w-xs mx-auto">
@@ -2506,7 +2609,7 @@ export default function SearchPage() {
         </ModalContent>
       </Modal>
 
-       {/* Accept Delivery Loading Modal */}
+      {/* Accept Delivery Loading Modal */}
       <Modal
         isOpen={showAcceptDeliveryLoadingModal}
         backdrop="blur"
@@ -2566,6 +2669,555 @@ export default function SearchPage() {
                 </p>
               </div>
             </div>
+          </ModalBody>
+        </ModalContent>
+      </Modal>
+
+            {/* Show Options Modal */}
+      <Modal
+        isOpen={showOptionsModal}
+        onClose={() => {
+          setShowOptionsModal(false);
+          setOptionsDeliveryDetails(null);
+          setWarehouseBulkItems([]);
+          setSelectedWarehouseBulks([]);
+          setSelectedWarehouseUnits([]);
+        }}
+        size="5xl"
+        backdrop="blur"
+        classNames={{
+          backdrop: "bg-background/50",
+          base: "bg-background h-[calc(100vh-150px)]",
+          header: "border-b border-divider",
+          body: "py-6",
+          footer: "border-t border-divider"
+        }}
+      >
+        <ModalContent className="flex flex-col">
+          <ModalHeader className="flex-shrink-0 flex flex-col gap-1">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center w-10 h-10 bg-warning-100 rounded-lg">
+                <Icon icon="mdi:truck-delivery" className="text-warning-600" width={20} />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold">Delivery Options</h2>
+                {optionsDeliveryDetails && (
+                  <p className="text-sm text-default-500 font-normal">
+                    Viewing options for delivery: {optionsDeliveryDetails.name || "Delivery Item"}
+                  </p>
+                )}
+              </div>
+            </div>
+          </ModalHeader>
+          <ModalBody className="flex-1 p-0 overflow-hidden">
+            <CustomScrollbar className="h-full p-6">
+              {optionsDeliveryDetails && (
+                <div className="space-y-6">
+                  {/* Delivery Brief Details */}
+                  <Card className="bg-background">
+                    <CardHeader className="p-4 justify-between flex-wrap bg-warning-50/30">
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center justify-center lg:w-16 lg:h-16 w-12 h-12 bg-warning-100 rounded-lg">
+                          <Icon icon="mdi:truck-delivery" className="text-warning-600" width={24} />
+                        </div>
+                        <div className="flex-1 flex flex-row lg:flex-col gap-2">
+                          <h2 className="text-lg font-semibold">
+                            {optionsDeliveryDetails.name || "Delivery Item"}
+                          </h2>
+                          <div className="flex items-center gap-2">
+                            <div className="lg:block hidden">
+                              <Snippet
+                                symbol=""
+                                variant="flat"
+                                color="warning"
+                                size="sm"
+                                className="text-xs p-1 pl-2"
+                                classNames={{ copyButton: "bg-warning-100 hover:!bg-warning-200 text-sm p-0 h-6 w-6" }}
+                                codeString={optionsDeliveryDetails.uuid}
+                                checkIcon={<Icon icon="fluent:checkmark-16-filled" className="text-success" />}
+                                copyIcon={<Icon icon="fluent:copy-16-regular" className="text-warning-500" />}
+                                onCopy={() => copyToClipboard(optionsDeliveryDetails.uuid)}
+                              >
+                                {optionsDeliveryDetails.uuid}
+                              </Snippet>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="flat"
+                              color="warning"
+                              isIconOnly
+                              className="lg:hidden"
+                              onPress={() => copyToClipboard(optionsDeliveryDetails.uuid)}
+                            >
+                              <Icon icon="fluent:copy-16-regular" className="text-warning-500 text-sm" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                      <Chip size='sm' color={getStatusColor(optionsDeliveryDetails.status)} variant="flat">
+                        {optionsDeliveryDetails.status}
+                      </Chip>
+                    </CardHeader>
+                    <Divider />
+                    <CardBody className="p-4 bg-warning-50/30">
+                      <div className="grid grid-cols-1 lg:grid-rows-2 gap-3">
+                        <div className="bg-warning-50 rounded-lg p-3 border border-warning-100">
+                          <p className="text-sm font-medium text-warning-700">Delivery Address</p>
+                          <p className="text-warning-900">{optionsDeliveryDetails.delivery_address}</p>
+                        </div>
+                        <div className="grid sm:grid-cols-3 md:grid-cols-1 lg:grid-cols-3 gap-3">
+                          <div className="bg-warning-50 rounded-lg p-3 border border-warning-100">
+                            <p className="text-sm font-medium text-warning-700">Delivery Date</p>
+                            <p className="text-warning-900">{formatDate(optionsDeliveryDetails.delivery_date)}</p>
+                          </div>
+                          <div className="bg-warning-50 rounded-lg p-3 border border-warning-100">
+                            <p className="text-sm font-medium text-warning-700">Created At</p>
+                            <p className="text-warning-900">{formatDate(optionsDeliveryDetails.created_at)}</p>
+                          </div>
+                          <div className="bg-warning-50 rounded-lg p-3 border border-warning-100">
+                            <p className="text-sm font-medium text-warning-700">Last Updated</p>
+                            <p className="text-warning-900">{formatDate(optionsDeliveryDetails.updated_at)}</p>
+                          </div>
+                        </div>
+                      </div>
+      
+                      {optionsDeliveryDetails.notes && (
+                        <div className="bg-warning-50 rounded-lg p-3 border border-warning-100 mt-3">
+                          <p className="text-sm font-medium text-warning-700">Notes</p>
+                          <p className="text-warning-900">{optionsDeliveryDetails.notes}</p>
+                        </div>
+                      )}
+                    </CardBody>
+                  </Card>
+      
+                  {/* Related Information */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {/* Original Inventory Item */}
+                    {optionsDeliveryDetails.inventory_item && (
+                      <Card className="bg-background">
+                        <CardHeader className="p-4 bg-secondary-50/30">
+                          <div className="flex items-center gap-3">
+                            <div className="flex items-center justify-center w-12 h-12 bg-secondary-100 rounded-lg">
+                              <Icon icon="mdi:package-variant" className="text-secondary" width={22} />
+                            </div>
+                            <div className="flex-1">
+                              <h3 className="text-lg font-semibold">Inventory Item</h3>
+                              <p className="text-sm text-secondary-600">{optionsDeliveryDetails.inventory_item.name}</p>
+                            </div>
+                          </div>
+                        </CardHeader>
+                        <Divider />
+                        <CardBody className="p-4 bg-secondary-50/30">
+                          <div className="grid grid-cols-1 gap-3">
+                            <div className="bg-secondary-50 rounded-lg p-3 border border-secondary-100">
+                              <p className="text-sm font-medium text-secondary-700">Unit</p>
+                              <p className="text-secondary-900">{optionsDeliveryDetails.inventory_item.unit}</p>
+                            </div>
+                            {optionsDeliveryDetails.inventory_item.description && (
+                              <div className="bg-secondary-50 rounded-lg p-3 border border-secondary-100">
+                                <p className="text-sm font-medium text-secondary-700">Description</p>
+                                <p className="text-secondary-900">{optionsDeliveryDetails.inventory_item.description}</p>
+                              </div>
+                            )}
+                          </div>
+                        </CardBody>
+                      </Card>
+                    )}
+      
+                    {/* Warehouse Info */}
+                    {optionsDeliveryDetails.warehouse && (
+                      <Card className="bg-background">
+                        <CardHeader className="p-4 bg-success-50/30">
+                          <div className="flex items-center gap-3">
+                            <div className="flex items-center justify-center w-12 h-12 bg-success-100 rounded-lg">
+                              <Icon icon="mdi:warehouse" className="text-success" width={22} />
+                            </div>
+                            <div className="flex-1">
+                              <h3 className="text-lg font-semibold">Warehouse</h3>
+                              <p className="text-sm text-success-600">{optionsDeliveryDetails.warehouse.name}</p>
+                            </div>
+                          </div>
+                        </CardHeader>
+                        <Divider />
+                        <CardBody className="p-4 bg-success-50/30">
+                          <div className="bg-success-50 rounded-lg p-3 border border-success-100">
+                            <p className="text-sm font-medium text-success-700">Address</p>
+                            <p className="text-success-900">
+                              {optionsDeliveryDetails.warehouse.address?.fullAddress || "Address not available"}
+                            </p>
+                          </div>
+                        </CardBody>
+                      </Card>
+                    )}
+                  </div>
+      
+                  {/* Accept Delivery or Warehouse Items Management */}
+                  {optionsDeliveryDetails.status === "IN_TRANSIT" ? (
+                    <Card className="bg-background">
+                      <CardHeader className="p-4 bg-success-50/30">
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center justify-center w-12 h-12 bg-success-100 rounded-lg">
+                            <Icon icon="mdi:check-circle" className="text-success-600" width={22} />
+                          </div>
+                          <div>
+                            <h3 className="text-lg font-semibold">Accept Delivery</h3>
+                            <p className="text-sm text-default-600">Mark this delivery as delivered</p>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <Divider />
+                      <CardBody className="p-4 bg-success-50/30">
+                        <div className="flex flex-col gap-4">
+                          <div className="flex items-center gap-3 p-4 bg-success-100 rounded-lg">
+                            <Icon icon="mdi:information" className="text-success-600" width={20} />
+                            <p className="text-success-900">
+                              This will mark the delivery as delivered and add items to warehouse inventory.
+                            </p>
+                          </div>
+                          <Button
+                            color="success"
+                            size="lg"
+                            variant="shadow"
+                            startContent={<Icon icon="mdi:check" />}
+                            onPress={() => {
+                              setShowOptionsModal(false);
+                              handleAcceptDelivery(optionsDeliveryDetails);
+                            }}
+                            isDisabled={!user || user.is_admin || !isOperatorAssigned}
+                            className="px-8"
+                          >
+                            Accept Delivery
+                          </Button>
+                          {(!user || user.is_admin || !isOperatorAssigned) && (
+                            <Alert
+                              color="danger"
+                              variant="flat"
+                              icon={<Icon icon="mdi:alert-circle" />}
+                            >
+                              {!user ? "User not logged in" :
+                                user.is_admin ? "Only operators can accept deliveries" :
+                                  "You are not assigned to this delivery"}
+                            </Alert>
+                          )}
+                        </div>
+                      </CardBody>
+                    </Card>
+                  ) : optionsDeliveryDetails.status === "DELIVERED" ? (
+                    <Card className="bg-background">
+                      <CardHeader className="p-4 bg-primary-50/30">
+                        <div className="flex items-center justify-between w-full">
+                          <div className="flex items-center gap-3">
+                            <div className="flex items-center justify-center w-12 h-12 bg-primary-100 rounded-lg">
+                              <Icon icon="mdi:warehouse" className="text-primary-600" width={22} />
+                            </div>
+                            <h3 className="text-lg font-semibold">Warehouse Items Management</h3>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              color="primary"
+                              variant="flat"
+                              size="sm"
+                              onPress={() => {
+                                if (optionsDeliveryDetails) {
+                                  loadWarehouseItemsForDelivery(optionsDeliveryDetails.uuid);
+                                }
+                              }}
+                              isLoading={isLoadingWarehouseItems}
+                              startContent={<Icon icon="mdi:refresh" />}
+                            >
+                              Refresh
+                            </Button>
+                            <Button
+                              color="primary"
+                              variant="flat"
+                              size="sm"
+                              onPress={() => {
+                                if (warehouseBulkItems.length > 0) {
+                                  const firstBulk = warehouseBulkItems[0];
+                                  router.push(`/home/warehouse-items?warehouseItemId=${firstBulk.warehouse_item_uuid}`);
+                                }
+                              }}
+                              startContent={<Icon icon="mdi:eye" />}
+                            >
+                              View Warehouse
+                            </Button>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <Divider />
+                      <CardBody className="px-2 py-4 bg-primary-50/30">
+                        <ListLoadingAnimation
+                          skeleton={
+                            [
+                              <Alert
+                                color="primary"
+                                variant="flat"
+                                icon={<Icon icon="mdi:information-outline" />}
+                                className="mb-4"
+                              >
+                                Select bulk items or individual units to mark as used. Selecting a bulk will automatically select all its units.
+                              </Alert>,
+                              ...[...Array(3)].map((_, index) => (
+                                <Card key={index} className="border-2 border-primary-100 bg-background">
+                                  <CardBody className="p-4">
+                                    <div className="flex items-center justify-between mb-3">
+                                      <div className="flex items-center gap-3">
+                                        <Skeleton className="w-5 h-5 rounded" />
+                                        <div className="flex items-center gap-2">
+                                          <Skeleton className="h-6 w-20 rounded" />
+                                          <Skeleton className="h-5 w-16 rounded" />
+                                        </div>
+                                      </div>
+                                      <Skeleton className="h-6 w-32 rounded" />
+                                    </div>
+                                    <div className="space-y-3">
+                                      {[...Array(2)].map((_, unitIndex) => (
+                                        <div key={unitIndex} className="p-3 bg-primary-50 rounded-lg border border-primary-100">
+                                          <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                              <Skeleton className="w-4 h-4 rounded" />
+                                              <Skeleton className="h-5 w-16 rounded" />
+                                            </div>
+                                            <Skeleton className="h-6 w-28 rounded" />
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </CardBody>
+                                </Card>
+                              ))
+                            ]
+                          }
+                          containerClassName="space-y-4"
+                          condition={isLoadingWarehouseItems}
+                        >
+                          {warehouseBulkItems.length > 0 ? (
+                            [
+                              <Alert
+                                color="primary"
+                                variant="flat"
+                                icon={<Icon icon="mdi:information-outline" />}
+                                className="mb-4"
+                              >
+                                Select bulk items or individual units to mark as used. Selecting a bulk will automatically select all its units.
+                              </Alert>,
+                              ...warehouseBulkItems.map((item, index) => (
+                                <Card key={item.bulk_uuid} className="p-0 bg-transparent rounded-xl overflow-hidden border-2 border-primary-100">
+                                  <CardBody className="p-4 bg-background">
+                                    <div className="flex items-center justify-between mb-3">
+                                      <div className="flex items-center gap-3">
+                                        <Checkbox
+                                          size="lg"
+                                          isSelected={selectedWarehouseBulks.includes(item.bulk_uuid)}
+                                          onValueChange={(isSelected) =>
+                                            handleWarehouseBulkSelection(item.bulk_uuid, isSelected)
+                                          }
+                                          isDisabled={item.bulk_status === 'USED'}
+                                          color="primary"
+                                        >
+                                          <div className="flex items-center gap-2">
+                                            <span className="font-semibold text-lg">Bulk #{index + 1}</span>
+                                            <Chip
+                                              size="sm"
+                                              color={getStatusColor(item.bulk_status)}
+                                              variant="flat"
+                                            >
+                                              {item.bulk_status}
+                                            </Chip>
+                                          </div>
+                                        </Checkbox>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <Chip size="sm" variant="flat" color="default">
+                                          {item.units?.length || 0} units
+                                        </Chip>
+                                        <div className="lg:block hidden">
+                                          <Snippet
+                                            symbol=""
+                                            variant="flat"
+                                            color="primary"
+                                            size="sm"
+                                            className="text-xs p-1 pl-2"
+                                            classNames={{ copyButton: "bg-primary-100 hover:!bg-primary-200 text-sm p-0 h-6 w-6" }}
+                                            codeString={item.bulk_uuid}
+                                            checkIcon={<Icon icon="fluent:checkmark-16-filled" className="text-success" />}
+                                            copyIcon={<Icon icon="fluent:copy-16-regular" className="text-primary-500" />}
+                                            onCopy={() => copyToClipboard(item.bulk_uuid)}
+                                          >
+                                            {item.bulk_uuid}
+                                          </Snippet>
+                                        </div>
+                                        <Button
+                                          size="sm"
+                                          variant="flat"
+                                          color="primary"
+                                          isIconOnly
+                                          className="lg:hidden"
+                                          onPress={() => copyToClipboard(item.bulk_uuid)}
+                                        >
+                                          <Icon icon="fluent:copy-16-regular" className="text-primary-500 text-sm" />
+                                        </Button>
+                                      </div>
+                                    </div>
+      
+                                    {/* Units */}
+                                    {item.units && item.units.length > 0 && (
+                                      <div>
+                                        <h4 className="font-semibold text-default-900 mb-3">
+                                          Units ({item.units.length})
+                                        </h4>
+                                        <div className="space-y-3">
+                                          {item.units.map((unit: any, unitIndex: number) => (
+                                            <div key={unit.uuid} className="p-3 bg-primary-50 rounded-lg border border-primary-100">
+                                              <div className="flex items-center justify-between mb-2">
+                                                <div className="flex items-center gap-3">
+                                                  <Checkbox
+                                                    size="md"
+                                                    isSelected={selectedWarehouseUnits.includes(unit.uuid)}
+                                                    onValueChange={(isSelected) =>
+                                                      handleWarehouseUnitSelection(unit.uuid, isSelected)
+                                                    }
+                                                    isDisabled={unit.status === 'USED' || selectedWarehouseBulks.includes(item.bulk_uuid)}
+                                                    color="secondary"
+                                                  >
+                                                    <div className="flex items-center gap-2">
+                                                      <span className="font-medium">Unit #{unitIndex + 1}</span>
+                                                      <Chip
+                                                        size="sm"
+                                                        color={getStatusColor(unit.status)}
+                                                        variant="flat"
+                                                      >
+                                                        {unit.status}
+                                                      </Chip>
+                                                    </div>
+                                                  </Checkbox>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                  <div className="lg:block hidden">
+                                                    <Snippet
+                                                      symbol=""
+                                                      variant="flat"
+                                                      color="secondary"
+                                                      size="sm"
+                                                      className="text-xs p-1 pl-2"
+                                                      classNames={{ copyButton: "bg-secondary-100 hover:!bg-secondary-200 text-sm p-0 h-5 w-5" }}
+                                                      codeString={unit.uuid}
+                                                      checkIcon={<Icon icon="fluent:checkmark-16-filled" className="text-success" />}
+                                                      copyIcon={<Icon icon="fluent:copy-16-regular" className="text-secondary-500" />}
+                                                      onCopy={() => copyToClipboard(unit.uuid)}
+                                                    >
+                                                      {unit.uuid}
+                                                    </Snippet>
+                                                  </div>
+                                                  <Button
+                                                    size="sm"
+                                                    variant="flat"
+                                                    color="secondary"
+                                                    isIconOnly
+                                                    className="lg:hidden"
+                                                    onPress={() => copyToClipboard(unit.uuid)}
+                                                  >
+                                                    <Icon icon="fluent:copy-16-regular" className="text-secondary-500 text-sm" />
+                                                  </Button>
+                                                </div>
+                                              </div>
+                                              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                                                <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
+                                                  <p className="text-xs font-medium text-secondary-700">Code</p>
+                                                  <p className="text-secondary-900 text-sm">{unit.code || "N/A"}</p>
+                                                </div>
+                                                <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
+                                                  <p className="text-xs font-medium text-secondary-700">Location</p>
+                                                  <p className="text-secondary-900 text-sm">{unit.location_code || "Not set"}</p>
+                                                </div>
+                                                <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
+                                                  <p className="text-xs font-medium text-secondary-700">Created</p>
+                                                  <p className="text-secondary-900 text-sm">{formatDate(unit.created_at)}</p>
+                                                </div>
+                                                <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
+                                                  <p className="text-xs font-medium text-secondary-700">Updated</p>
+                                                  <p className="text-secondary-900 text-sm">{formatDate(unit.updated_at)}</p>
+                                                </div>
+                                              </div>
+                                              {unit.properties && Object.keys(unit.properties).length > 0 && (
+                                                <div className="mt-3">
+                                                  {renderProperties(unit.properties, "grid sm:grid-cols-2 lg:grid-cols-4 gap-2")}
+                                                </div>
+                                              )}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </CardBody>
+                                </Card>
+                              )),
+      
+                              // Selection Summary
+                              (selectedWarehouseBulks.length > 0 || selectedWarehouseUnits.length > 0) && (
+                                <Card className="bg-warning-50/50 border-2 border-warning-200">
+                                  <CardBody className="p-4">
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-3">
+                                        <Icon icon="mdi:information" className="text-warning-600" width={20} />
+                                        <div>
+                                          <p className="font-medium text-warning-900">Selection Summary</p>
+                                          <p className="text-sm text-warning-700">
+                                            {selectedWarehouseBulks.length} bulk(s) and {selectedWarehouseUnits.length} individual unit(s) selected
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <Button
+                                        color="warning"
+                                        variant="shadow"
+                                        onPress={handleMarkSelectedAsUsed}
+                                        isLoading={isMarkingAsUsed}
+                                        startContent={<Icon icon="mdi:check-circle" />}
+                                      >
+                                        Confirm Mark as Used
+                                      </Button>
+                                    </div>
+                                  </CardBody>
+                                </Card>
+                              )
+                            ]
+                          ) : (
+                            [
+                              <div className="text-center py-12">
+                                <div className="flex items-center justify-center w-16 h-16 bg-default-100 rounded-full mx-auto mb-4">
+                                  <Icon icon="mdi:package-variant-closed" className="text-default-400" width={32} />
+                                </div>
+                                <h3 className="text-lg font-semibold text-default-900 mb-2">
+                                  No Warehouse Items Found
+                                </h3>
+                                <p className="text-default-500">
+                                  No warehouse items were found for this delivery. Items may not have been processed yet.
+                                </p>
+                              </div>
+                            ]
+                          )}
+                        </ListLoadingAnimation>
+                      </CardBody>
+                    </Card>
+                  ) : (
+                    // Other status states
+                    <Card className="bg-background">
+                      <CardBody className="text-center py-8">
+                        <div className="flex items-center justify-center w-16 h-16 bg-default-100 rounded-full mx-auto mb-4">
+                          <Icon icon="mdi:information-outline" className="text-default-400" width={32} />
+                        </div>
+                        <h3 className="text-lg font-semibold text-default-900 mb-2">
+                          No Actions Available
+                        </h3>
+                        <p className="text-default-500">
+                          This delivery is in {optionsDeliveryDetails.status} status. No actions are currently available.
+                        </p>
+                      </CardBody>
+                    </Card>
+                  )}
+                </div>
+              )}
+            </CustomScrollbar>
           </ModalBody>
         </ModalContent>
       </Modal>
