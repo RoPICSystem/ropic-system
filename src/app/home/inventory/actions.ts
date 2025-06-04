@@ -279,7 +279,7 @@ export async function createInventoryItem(
 }
 
 /**
- * Updates an existing inventory item with its bulks and units
+ * Updates an existing inventory item with its bulks and units using RPC
  */
 export async function updateInventoryItem(
   uuid: string,
@@ -294,118 +294,47 @@ export async function updateInventoryItem(
   const supabase = await createClient();
 
   try {
-    // Update inventory item
-    const { error: inventoryError } = await supabase
-      .from("inventory_items")
-      .update({
-        ...itemUpdates,
-        properties: itemUpdates.properties || {}
-      })
-      .eq("uuid", uuid);
+    // Prepare item updates - only include defined properties
+    const cleanItemUpdates: Record<string, any> = {};
+    if (itemUpdates.name !== undefined) cleanItemUpdates.name = itemUpdates.name;
+    if (itemUpdates.description !== undefined) cleanItemUpdates.description = itemUpdates.description;
+    if (itemUpdates.unit !== undefined) cleanItemUpdates.unit = itemUpdates.unit;
+    if (itemUpdates.properties !== undefined) cleanItemUpdates.properties = itemUpdates.properties;
 
-    if (inventoryError) throw inventoryError;
+    // Prepare bulk updates - remove uuid from update data
+    const cleanBulkUpdates = bulkUpdates.map(({ uuid: bulkUuid, ...rest }) => ({
+      uuid: bulkUuid,
+      ...rest
+    }));
 
-    // Delete removed bulk items (this will cascade delete their units)
-    if (deletedBulks.length > 0) {
-      const { error: deleteBulksError } = await supabase
-        .from("inventory_item_bulk")
-        .delete()
-        .in("uuid", deletedBulks);
+    // Prepare unit updates - remove uuid from update data
+    const cleanUnitUpdates = unitUpdates.map(({ uuid: unitUuid, ...rest }) => ({
+      uuid: unitUuid,
+      ...rest
+    }));
 
-      if (deleteBulksError) throw deleteBulksError;
+    const { data, error } = await supabase
+      .rpc('update_inventory_item_details', {
+        p_inventory_uuid: uuid,
+        p_item_updates: Object.keys(cleanItemUpdates).length > 0 ? cleanItemUpdates : {},
+        p_bulk_updates: cleanBulkUpdates,
+        p_unit_updates: cleanUnitUpdates,
+        p_new_bulks: newBulks,
+        p_new_units: newUnits,
+        p_deleted_bulks: deletedBulks,
+        p_deleted_units: deletedUnits
+      });
+
+    if (error) throw error;
+
+    if (!data.success) {
+      throw new Error(data.error || "Unknown error occurred");
     }
 
-    // Delete removed unit items
-    if (deletedUnits.length > 0) {
-      const { error: deleteUnitsError } = await supabase
-        .from("inventory_item_unit")
-        .delete()
-        .in("uuid", deletedUnits);
-
-      if (deleteUnitsError) throw deleteUnitsError;
-    }
-
-    // Update existing bulk items
-    for (const bulk of bulkUpdates) {
-      const bulkUuid = bulk.uuid;
-      // Remove uuid from the update object
-      const { uuid: _, ...bulkUpdateData } = bulk;
-
-      const { error: bulkError } = await supabase
-        .from("inventory_item_bulk")
-        .update(bulkUpdateData)
-        .eq("uuid", bulkUuid);
-
-      if (bulkError) throw bulkError;
-    }
-
-    // Update existing unit items
-    for (const unit of unitUpdates) {
-      const unitUuid = unit.uuid;
-      // Remove uuid from the update object
-      const { uuid: _, ...unitUpdateData } = unit;
-
-      const { error: unitError } = await supabase
-        .from("inventory_item_unit")
-        .update(unitUpdateData)
-        .eq("uuid", unitUuid);
-
-      if (unitError) throw unitError;
-    }
-
-    // Create new bulk items and store their UUIDs
-    const createdBulkUuids: string[] = [];
-
-    for (const bulk of newBulks) {
-      const { data: bulkItem, error: bulkError } = await supabase
-        .from("inventory_item_bulk")
-        .insert({
-          company_uuid: bulk.company_uuid,
-          inventory_uuid: uuid,
-          unit: bulk.unit,
-          unit_value: bulk.unit_value,
-          bulk_unit: bulk.bulk_unit,
-          cost: bulk.cost,
-          is_single_item: bulk.is_single_item,
-          properties: bulk.properties
-        })
-        .select()
-        .single();
-
-      if (bulkError) throw bulkError;
-
-      createdBulkUuids.push(bulkItem.uuid);
-    }
-
-    // Create new unit items
-    for (const unit of newUnits) {
-      let bulkUuid = null;
-
-      // Check if unit has an existing inventory_item_bulk_uuid
-      if ((unit as any).inventory_item_bulk_uuid) {
-        bulkUuid = (unit as any).inventory_item_bulk_uuid;
-      } else if (unit._bulkIndex !== undefined && unit._bulkIndex >= 0 && unit._bulkIndex < createdBulkUuids.length) {
-        bulkUuid = createdBulkUuids[unit._bulkIndex];
-      }
-
-      const { error: unitError } = await supabase
-        .from("inventory_item_unit")
-        .insert({
-          company_uuid: unit.company_uuid,
-          inventory_uuid: uuid,
-          inventory_item_bulk_uuid: bulkUuid,
-          code: unit.code,
-          unit_value: unit.unit_value,
-          unit: unit.unit,
-          name: unit.name,
-          cost: unit.cost,
-          properties: unit.properties
-        });
-
-      if (unitError) throw unitError;
-    }
-
-    return { success: true };
+    return {
+      success: true,
+      createdBulkUuids: data.created_bulk_uuids || []
+    };
   } catch (error) {
     console.error("Error updating inventory item:", error);
     return {
@@ -414,6 +343,7 @@ export async function updateInventoryItem(
     };
   }
 }
+
 /**
  * Deletes an inventory item with all its bulks and units
  */

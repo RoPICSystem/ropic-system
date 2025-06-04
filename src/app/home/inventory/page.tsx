@@ -240,74 +240,86 @@ export default function InventoryPage() {
     };
   }, [user?.company_uuid, searchQuery, page, rowsPerPage]);
 
+  const fetchItemDetails = async (itemId: string) => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const result = await getInventoryItem(itemId);
+
+      if (result.success && result.data) {
+        const item = result.data;
+
+        setInventoryForm({
+          uuid: item.uuid,
+          name: item.name,
+          description: item.description || "",
+          unit: item.unit || "",
+          company_uuid: item.company_uuid,
+          properties: item.properties || {}
+        });
+
+        const bulks = item.inventory_item_bulks || [];
+        const newBulkItems = bulks.map((bulk: any, index: number) => ({
+          ...bulk,
+          id: index + 1,
+        }));
+
+        setBulkItems(newBulkItems);
+        setNextBulkId(newBulkItems.length + 1);
+
+        // Store original bulk items for deletion tracking
+        setOriginalBulkItems(newBulkItems.map((bulk: { id: any; }) => ({
+          ...bulk,
+          id: bulk.id // Keep the same ID structure
+        })));
+
+        const newUnitItems: (Partial<InventoryItemUnit> & { id: number, bulkId: number, isNew?: boolean })[] = [];
+        let unitId = 1;
+
+        bulks.forEach((bulk: { inventory_item_units: never[]; }, bulkIndex: number) => {
+          const units = bulk.inventory_item_units || [];
+
+          units.forEach((unit: Partial<InventoryItemUnit> & { id: number; bulkId: number; isNew?: boolean; }) => {
+            newUnitItems.push({
+              ...unit,
+              id: unitId++,
+              bulkId: bulkIndex + 1,
+            });
+          });
+        });
+
+        setUnitItems(newUnitItems);
+        setNextUnitId(unitId);
+
+        // Store original unit items for deletion tracking
+        setOriginalUnitItems(newUnitItems.map(unit => ({
+          ...unit,
+          id: unit.id, // Keep the same ID structure
+          bulkId: unit.bulkId
+        })));
+
+        // Set expanded states to first items
+        if (newBulkItems.length > 0) {
+          setExpandedBulks(new Set([`${newBulkItems[0].id}`]));
+        }
+
+        if (newUnitItems.length > 0) {
+          setExpandedUnits(new Set([`${newUnitItems[0].id}`]));
+        }
+      } else {
+        setError("Failed to load item details");
+      }
+    } catch (err) {
+      setError("An error occurred while loading item details");
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Load selected item details
   useEffect(() => {
-    const fetchItemDetails = async (itemId: string) => {
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const result = await getInventoryItem(itemId);
-
-        if (result.success && result.data) {
-          const item = result.data;
-
-          setInventoryForm({
-            uuid: item.uuid,
-            name: item.name,
-            description: item.description || "",
-            unit: item.unit || "",
-            company_uuid: item.company_uuid,
-            properties: item.properties || {}
-          });
-
-          const bulks = item.inventory_item_bulks || [];
-          const newBulkItems = bulks.map((bulk: any, index: number) => ({
-            ...bulk,
-            id: index + 1,
-          }));
-
-          setBulkItems(newBulkItems);
-          setNextBulkId(newBulkItems.length + 1);
-
-          const newUnitItems: (Partial<InventoryItemUnit> & { id: number, bulkId: number, isNew?: boolean })[] = [];
-          let unitId = 1;
-
-          bulks.forEach((bulk: { inventory_item_units: never[]; }, bulkIndex: number) => {
-            const units = bulk.inventory_item_units || [];
-
-            units.forEach((unit: Partial<InventoryItemUnit> & { id: number; bulkId: number; isNew?: boolean; }) => {
-              newUnitItems.push({
-                ...unit,
-                id: unitId++,
-                bulkId: bulkIndex + 1,
-              });
-            });
-          });
-
-          setUnitItems(newUnitItems);
-          setNextUnitId(unitId);
-
-          // Set expanded states to first items
-          if (newBulkItems.length > 0) {
-            setExpandedBulks(new Set([`${newBulkItems[0].id}`]));
-          }
-
-          if (newUnitItems.length > 0) {
-            setExpandedUnits(new Set([`${newUnitItems[0].id}`]));
-          }
-        } else {
-          setError("Failed to load item details");
-        }
-      } catch (err) {
-        setError("An error occurred while loading item details");
-        console.error(err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
     // Clear form when no item is selected
     if (!selectedItemId) {
       resetForm();
@@ -587,9 +599,9 @@ export default function InventoryPage() {
           ...unit,
           id: nextUnitId + i * unitsInBulk.length + idx,
           bulkId: newBulkId,
-          uuid: undefined,
           inventory_item_bulk_uuid: undefined,
           unit: bulkToDuplicate.unit || unit.unit, // Ensure it inherits parent bulk's unit
+          uuid: undefined,
           isNew: true
         });
       });
@@ -605,7 +617,8 @@ export default function InventoryPage() {
           unit: bulkToDuplicate.unit || "", // Always use bulk's unit
           name: "",
           cost: bulkToDuplicate.cost || 0,
-          properties: {},
+          properties: { ...(bulkToDuplicate.properties || {}) },
+          uuid: undefined,
           isNew: true
         });
       }
@@ -624,6 +637,8 @@ export default function InventoryPage() {
 
     // Expand only the first new bulk
     setExpandedBulks(new Set([`${firstNewBulkId}`]));
+
+    console.log(`List of bulk items after duplication:`, [...newBulks, ...bulkItems]);
   };
 
   // Update handleDuplicateUnit similarly to add at the top
@@ -830,6 +845,7 @@ export default function InventoryPage() {
         }
       }
     }
+
   };
 
   const updateAllUnits = (field: keyof InventoryItemUnit, value: any) => {
@@ -945,6 +961,9 @@ export default function InventoryPage() {
     if (firstBulk) {
       setExpandedBulks(new Set([`${firstBulk.id}`]));
     }
+
+
+    console.log(`List of bulk items after change:`, bulkItems);
   };
 
   const handleDeleteUnit = (unitId: number) => {
@@ -1110,17 +1129,25 @@ export default function InventoryPage() {
             properties: bulk.properties as Record<string, any>,
           }));
 
-        // Calculate deleted bulks
+        // Fix: Calculate deleted bulks correctly by comparing UUIDs
         const currentBulkUuids = new Set(bulkItems.map(bulk => bulk.uuid).filter(Boolean));
         const deletedBulks = originalBulkItems
           .filter(bulk => bulk.uuid && !currentBulkUuids.has(bulk.uuid))
           .map(bulk => bulk.uuid as string);
 
-        // Calculate deleted units - this now includes units removed when switching to single item mode
+        // Fix: Calculate deleted units correctly by comparing UUIDs
         const currentUnitUuids = new Set(unitItems.map(unit => unit.uuid).filter(Boolean));
         const deletedUnits = originalUnitItems
           .filter(unit => unit.uuid && !currentUnitUuids.has(unit.uuid))
           .map(unit => unit.uuid as string);
+
+        // Debug logging
+        console.log('Original bulk items:', originalBulkItems);
+        console.log('Current bulk items:', bulkItems);
+        console.log('Deleted bulks:', deletedBulks);
+        console.log('Original unit items:', originalUnitItems);
+        console.log('Current unit items:', unitItems);
+        console.log('Deleted units:', deletedUnits);
 
         // Create a mapping of bulkId to new bulk array index
         const bulkIdToIndexMap = new Map();
@@ -1183,7 +1210,9 @@ export default function InventoryPage() {
           throw new Error(result.error || "Failed to update inventory item");
         }
 
-        // // Show success message
+        await fetchItemDetails(selectedItemId);
+
+        // Show success message (uncomment if needed)
         // addToast({
         //   title: "Success",
         //   description: "Inventory item updated successfully",
@@ -1237,7 +1266,7 @@ export default function InventoryPage() {
           throw new Error(result.error || "Failed to create inventory item");
         }
 
-        // // Show success message
+        // Show success message (uncomment if needed)
         // addToast({
         //   title: "Success",
         //   description: "Inventory item created successfully",
