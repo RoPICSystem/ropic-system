@@ -544,37 +544,9 @@ export async function getWarehouseItemsByDelivery(deliveryUuid: string): Promise
 
     if (warehouseError) throw warehouseError;
 
-    // Transform the data to a more usable format
-    const transformedData: any[] = [];
-
-    warehouseItems?.forEach(item => {
-      item.warehouse_inventory_item_bulk?.forEach((bulk: any) => {
-        transformedData.push({
-          warehouse_item_uuid: item.uuid,
-          warehouse_item_name: item.name,
-          warehouse_item_status: item.status,
-          warehouse_item_properties: item.properties,
-          warehouse_item_created_at: item.created_at,
-          warehouse_item_updated_at: item.updated_at,
-          bulk_uuid: bulk.uuid,
-          bulk_status: bulk.status,
-          bulk_properties: bulk.properties,
-          bulk_status_history: bulk.status_history,
-          bulk_unit: bulk.unit,
-          bulk_unit_value: bulk.unit_value,
-          bulk_bulk_unit: bulk.bulk_unit,
-          bulk_cost: bulk.cost,
-          bulk_is_single_item: bulk.is_single_item,
-          bulk_created_at: bulk.created_at,
-          bulk_updated_at: bulk.updated_at,
-          units: bulk.warehouse_inventory_item_unit || []
-        });
-      });
-    });
-
     return {
       success: true,
-      data: transformedData
+      data: warehouseItems
     };
   } catch (error: any) {
     console.error("Error fetching warehouse items by delivery:", error);

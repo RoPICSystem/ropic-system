@@ -284,6 +284,7 @@ export default function SearchPage() {
     }
   };
 
+
   // Function to load warehouse items for a delivered delivery
   const loadWarehouseItemsForDelivery = async (deliveryUuid: string) => {
     setIsLoadingWarehouseItems(true);
@@ -306,7 +307,8 @@ export default function SearchPage() {
 
       // Automatically select all units in this bulk
       const bulkUnits = warehouseBulkItems
-        .find(item => item.bulk_uuid === bulkUuid)?.units || [];
+        .flatMap(item => item.warehouse_inventory_item_bulk || [])
+        .find(bulk => bulk.uuid === bulkUuid)?.warehouse_inventory_item_unit || [];
       const unitUuids = bulkUnits.map((unit: any) => unit.uuid);
       setSelectedWarehouseUnits(prev => [...prev, ...unitUuids]);
     } else {
@@ -314,7 +316,8 @@ export default function SearchPage() {
 
       // Also remove any units from this bulk
       const bulkUnits = warehouseBulkItems
-        .find(item => item.bulk_uuid === bulkUuid)?.units || [];
+        .flatMap(item => item.warehouse_inventory_item_bulk || [])
+        .find(bulk => bulk.uuid === bulkUuid)?.warehouse_inventory_item_unit || [];
       const unitUuids = bulkUnits.map((unit: any) => unit.uuid);
       setSelectedWarehouseUnits(prev => prev.filter(id => !unitUuids.includes(id)));
     }
@@ -328,6 +331,7 @@ export default function SearchPage() {
       setSelectedWarehouseUnits(prev => prev.filter(id => id !== unitUuid));
     }
   };
+
 
   // Mark selected items as used
   const handleMarkSelectedAsUsed = async () => {
@@ -2707,7 +2711,7 @@ export default function SearchPage() {
                 <h2 className="text-xl font-bold">Delivery Options</h2>
                 {optionsDeliveryDetails && (
                   <p className="text-sm text-default-500 font-normal">
-                    Viewing options for delivery: {optionsDeliveryDetails.name || "Delivery Item"}
+                    Viewing options for the delivery.
                   </p>
                 )}
               </div>
@@ -2891,7 +2895,13 @@ export default function SearchPage() {
                             <div className="flex items-center justify-center w-12 h-12 bg-secondary-100 rounded-lg">
                               <Icon icon="mdi:warehouse" className="text-secondary-600" width={22} />
                             </div>
+                             <div className="flex-1">
                             <h3 className="text-lg font-semibold">Warehouse Items Management</h3>
+                              <p className="text-sm text-secondary-600">
+                                {warehouseBulkItems[0].name}
+                              </p>
+                            </div>
+                            
                           </div>
                           <div className="flex gap-2">
                             <Button
@@ -2914,13 +2924,13 @@ export default function SearchPage() {
                               size="sm"
                               onPress={() => {
                                 if (warehouseBulkItems.length > 0) {
-                                  const firstBulk = warehouseBulkItems[0];
-                                  router.push(`/home/warehouse-items?warehouseItemId=${firstBulk.warehouse_item_uuid}`);
+                                  const firstItem = warehouseBulkItems[0];
+                                  router.push(`/home/warehouse-items?warehouseItemId=${firstItem.uuid}`);
                                 }
                               }}
                               startContent={<Icon icon="mdi:eye" />}
                             >
-                              View Warehouse Inventory
+                              View All Items in Warehouse
                             </Button>
                           </div>
                         </div>
@@ -2999,188 +3009,199 @@ export default function SearchPage() {
                         >
                           {warehouseBulkItems.length > 0 ? (
                             [
-                              <Alert
-                                color="secondary"
-                                variant="flat"
-                                icon={<Icon icon="mdi:information-outline" />}
-                                className="mb-4"
-                              >
-                                Select bulk items or individual units to mark as used. Selecting a bulk will automatically select all its units.
-                              </Alert>,
-                              ...warehouseBulkItems.map((item, index) => (
-                                <Card key={item.bulk_uuid} className="p-0 bg-transparent rounded-xl overflow-hidden border-2 border-secondary-100">
-                                  <CardBody className="p-4 bg-background">
-                                    <div className="flex items-center justify-between mb-3">
-                                      <div className="flex items-center gap-3">
-                                        <Checkbox
-                                          size="lg"
-                                          isSelected={selectedWarehouseBulks.includes(item.bulk_uuid)}
-                                          onValueChange={(isSelected) =>
-                                            handleWarehouseBulkSelection(item.bulk_uuid, isSelected)
-                                          }
-                                          isDisabled={item.bulk_status === 'USED'}
-                                          color="secondary"
-                                        >
-                                          <div className="flex items-center gap-2">
-                                            <span className="font-semibold text-lg">Bulk #{index + 1}</span>
-                                            <Chip
-                                              size="sm"
-                                              color={getStatusColor(item.bulk_status)}
-                                              variant="flat"
-                                            >
-                                              {item.bulk_status}
-                                            </Chip>
-                                          </div>
-                                        </Checkbox>
+                              <Card className="bg-secondary-50 border-2 border-secondary-200 mb-4">
+                                <CardBody className="p-4">
+                                  <div className="flex items-start gap-3">
+                                    <div className="flex items-center justify-center w-10 h-10 bg-secondary-100 rounded-full flex-shrink-0 mt-0.5">
+                                      <Icon icon="mdi:information-outline" className="text-secondary-600" width={20} />
+                                    </div>
+                                    <div className="flex-1">
+                                      <h4 className="font-semibold text-secondary-900 mb-2">Warehouse Items Management Information</h4>
+                                      <div className="space-y-1 text-sm text-secondary-700">
+                                        <p>• Items shown below are from the warehouse inventory for this delivery only.</p>
+                                        <p>• Select bulk items or individual units to mark as used.</p>
+                                        <p>• Selecting a bulk will automatically select all its units.</p>
                                       </div>
-                                      <div className="flex items-center gap-2">
-                                        <Chip size="sm" variant="flat" color="default">
-                                          {item.units?.length || 0} units
-                                        </Chip>
-                                        <div className="lg:block hidden">
-                                          <Snippet
-                                            symbol=""
+                                    </div>
+                                  </div>
+                                </CardBody>
+                              </Card>,
+                              ...warehouseBulkItems.flatMap((warehouseItem) =>
+                                warehouseItem.warehouse_inventory_item_bulk?.map((bulk: any, bulkIndex: number) => (
+                                  <Card key={bulk.uuid} className="p-0 bg-transparent rounded-xl overflow-hidden border-2 border-secondary-100">
+                                    <CardBody className="p-4 bg-background">
+                                      <div className="flex items-center justify-between mb-3">
+                                        <div className="flex items-center gap-3">
+                                          <Checkbox
+                                            size="lg"
+                                            isSelected={selectedWarehouseBulks.includes(bulk.uuid)}
+                                            onValueChange={(isSelected) =>
+                                              handleWarehouseBulkSelection(bulk.uuid, isSelected)
+                                            }
+                                            isDisabled={bulk.status === 'USED'}
+                                            color="secondary"
+                                          >
+                                            <div className="flex items-center gap-2">
+                                              <span className="font-semibold text-lg">Bulk #{bulkIndex + 1}</span>
+                                              <Chip
+                                                size="sm"
+                                                color={getStatusColor(bulk.status)}
+                                                variant="flat"
+                                              >
+                                                {bulk.status}
+                                              </Chip>
+                                            </div>
+                                          </Checkbox>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <Chip size="sm" variant="flat" color="default">
+                                            {bulk.warehouse_inventory_item_unit?.length || 0} units
+                                          </Chip>
+                                          <div className="lg:block hidden">
+                                            <Snippet
+                                              symbol=""
+                                              variant="flat"
+                                              color="secondary"
+                                              size="sm"
+                                              className="text-xs p-1 pl-2"
+                                              classNames={{ copyButton: "bg-secondary-100 hover:!bg-secondary-200 text-sm p-0 h-6 w-6" }}
+                                              codeString={bulk.uuid}
+                                              checkIcon={<Icon icon="fluent:checkmark-16-filled" className="text-success" />}
+                                              copyIcon={<Icon icon="fluent:copy-16-regular" className="text-secondary-500" />}
+                                              onCopy={() => copyToClipboard(bulk.uuid)}
+                                            >
+                                              {bulk.uuid}
+                                            </Snippet>
+                                          </div>
+                                          <Button
+                                            size="sm"
                                             variant="flat"
                                             color="secondary"
-                                            size="sm"
-                                            className="text-xs p-1 pl-2"
-                                            classNames={{ copyButton: "bg-secondary-100 hover:!bg-secondary-200 text-sm p-0 h-6 w-6" }}
-                                            codeString={item.bulk_uuid}
-                                            checkIcon={<Icon icon="fluent:checkmark-16-filled" className="text-success" />}
-                                            copyIcon={<Icon icon="fluent:copy-16-regular" className="text-secondary-500" />}
-                                            onCopy={() => copyToClipboard(item.bulk_uuid)}
+                                            isIconOnly
+                                            className="lg:hidden"
+                                            onPress={() => copyToClipboard(bulk.uuid)}
                                           >
-                                            {item.bulk_uuid}
-                                          </Snippet>
+                                            <Icon icon="fluent:copy-16-regular" className="text-secondary-500 text-sm" />
+                                          </Button>
                                         </div>
-                                        <Button
-                                          size="sm"
-                                          variant="flat"
-                                          color="secondary"
-                                          isIconOnly
-                                          className="lg:hidden"
-                                          onPress={() => copyToClipboard(item.bulk_uuid)}
-                                        >
-                                          <Icon icon="fluent:copy-16-regular" className="text-secondary-500 text-sm" />
-                                        </Button>
                                       </div>
-                                    </div>
 
-                                    {/* Bulk Details */}
-                                    <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4 mt-2">
-                                      <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
-                                        <p className="text-xs font-medium text-secondary-700">Unit</p>
-                                        <p className="text-secondary-900 text-sm">{item.bulk_unit || "N/A"}</p>
+                                      {/* Bulk Details */}
+                                      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4 mt-2">
+                                        <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
+                                          <p className="text-xs font-medium text-secondary-700">Unit</p>
+                                          <p className="text-secondary-900 text-sm">{bulk.unit || "N/A"}</p>
+                                        </div>
+                                        <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
+                                          <p className="text-xs font-medium text-secondary-700">Bulk Unit</p>
+                                          <p className="text-secondary-900 text-sm">{bulk.bulk_unit || "N/A"}</p>
+                                        </div>
+                                        <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
+                                          <p className="text-xs font-medium text-secondary-700">Cost</p>
+                                          <p className="text-secondary-900 text-sm">
+                                            {bulk.cost ? formatCurrency(bulk.cost) : "N/A"}
+                                          </p>
+                                        </div>
+                                        <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
+                                          <p className="text-xs font-medium text-secondary-700">Type</p>
+                                          <p className="text-secondary-900 text-sm">{bulk.is_single_item ? "Single Item" : "Multiple Items"}</p>
+                                        </div>
                                       </div>
-                                      <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
-                                        <p className="text-xs font-medium text-secondary-700">Bulk Unit</p>
-                                        <p className="text-secondary-900 text-sm">{item.bulk_bulk_unit || "N/A"}</p>
-                                      </div>
-                                      <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
-                                        <p className="text-xs font-medium text-secondary-700">Cost</p>
-                                        <p className="text-secondary-900 text-sm">
-                                          {item.bulk_cost ? formatCurrency(item.bulk_cost) : "N/A"}
-                                        </p>
-                                      </div>
-                                      <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
-                                        <p className="text-xs font-medium text-secondary-700">Type</p>
-                                        <p className="text-secondary-900 text-sm">{item.bulk_is_single_item ? "Single Item" : "Multiple Items"}</p>
-                                      </div>
-                                    </div>
 
 
-                                    {/* Units */}
-                                    {item.units && item.units.length > 0 && (
-                                      <div>
-                                        <h4 className="font-semibold text-default-900 mb-3">
-                                          Units ({item.units.length})
-                                        </h4>
-                                        <div className="space-y-3">
-                                          {item.units.map((unit: any, unitIndex: number) => (
-                                            <div key={unit.uuid} className="p-3 bg-secondary-50 rounded-lg border border-secondary-100">
-                                              <div className="flex items-center justify-between mb-4">
-                                                <div className="flex items-center gap-3">
-                                                  <Checkbox
-                                                    size="md"
-                                                    isSelected={selectedWarehouseUnits.includes(unit.uuid)}
-                                                    onValueChange={(isSelected) =>
-                                                      handleWarehouseUnitSelection(unit.uuid, isSelected)
-                                                    }
-                                                    isDisabled={unit.status === 'USED' || selectedWarehouseBulks.includes(item.bulk_uuid)}
-                                                    color="secondary"
-                                                  >
-                                                    <div className="flex items-center gap-2">
-                                                      <span className="font-medium">Unit #{unitIndex + 1}</span>
-                                                      <Chip
-                                                        size="sm"
-                                                        color={getStatusColor(unit.status)}
+                                      {/* Units */}
+                                      {bulk.warehouse_inventory_item_unit && bulk.warehouse_inventory_item_unit.length > 0 && (
+                                        <div>
+                                          <h4 className="font-semibold text-default-900 mb-3">
+                                            Units ({bulk.warehouse_inventory_item_unit.length})
+                                          </h4>
+                                          <div className="space-y-3">
+                                            {bulk.warehouse_inventory_item_unit.map((unit: any, unitIndex: number) => (
+                                              <div key={unit.uuid} className="p-3 bg-secondary-50 rounded-lg border border-secondary-100">
+                                                <div className="flex items-center justify-between mb-4">
+                                                  <div className="flex items-center gap-3">
+                                                    <Checkbox
+                                                      size="md"
+                                                      isSelected={selectedWarehouseUnits.includes(unit.uuid)}
+                                                      onValueChange={(isSelected) =>
+                                                        handleWarehouseUnitSelection(unit.uuid, isSelected)
+                                                      }
+                                                      isDisabled={unit.status === 'USED' || selectedWarehouseBulks.includes(bulk.uuid)}
+                                                      color="secondary"
+                                                    >
+                                                      <div className="flex items-center gap-2">
+                                                        <span className="font-medium">Unit #{unitIndex + 1}</span>
+                                                        <Chip
+                                                          size="sm"
+                                                          color={getStatusColor(unit.status)}
+                                                          variant="flat"
+                                                        >
+                                                          {unit.status}
+                                                        </Chip>
+                                                      </div>
+                                                    </Checkbox>
+                                                  </div>
+                                                  <div className="flex items-center gap-2">
+                                                    <div className="lg:block hidden">
+                                                      <Snippet
+                                                        symbol=""
                                                         variant="flat"
+                                                        color="secondary"
+                                                        size="sm"
+                                                        className="text-xs p-1 pl-2"
+                                                        classNames={{ copyButton: "bg-secondary-100 hover:!bg-secondary-200 text-sm p-0 h-5 w-5" }}
+                                                        codeString={unit.uuid}
+                                                        checkIcon={<Icon icon="fluent:checkmark-16-filled" className="text-success" />}
+                                                        copyIcon={<Icon icon="fluent:copy-16-regular" className="text-secondary-500" />}
+                                                        onCopy={() => copyToClipboard(unit.uuid)}
                                                       >
-                                                        {unit.status}
-                                                      </Chip>
+                                                        {unit.uuid}
+                                                      </Snippet>
                                                     </div>
-                                                  </Checkbox>
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                  <div className="lg:block hidden">
-                                                    <Snippet
-                                                      symbol=""
+                                                    <Button
+                                                      size="sm"
                                                       variant="flat"
                                                       color="secondary"
-                                                      size="sm"
-                                                      className="text-xs p-1 pl-2"
-                                                      classNames={{ copyButton: "bg-secondary-100 hover:!bg-secondary-200 text-sm p-0 h-5 w-5" }}
-                                                      codeString={unit.uuid}
-                                                      checkIcon={<Icon icon="fluent:checkmark-16-filled" className="text-success" />}
-                                                      copyIcon={<Icon icon="fluent:copy-16-regular" className="text-secondary-500" />}
-                                                      onCopy={() => copyToClipboard(unit.uuid)}
+                                                      isIconOnly
+                                                      className="lg:hidden"
+                                                      onPress={() => copyToClipboard(unit.uuid)}
                                                     >
-                                                      {unit.uuid}
-                                                    </Snippet>
+                                                      <Icon icon="fluent:copy-16-regular" className="text-secondary-500 text-sm" />
+                                                    </Button>
                                                   </div>
-                                                  <Button
-                                                    size="sm"
-                                                    variant="flat"
-                                                    color="secondary"
-                                                    isIconOnly
-                                                    className="lg:hidden"
-                                                    onPress={() => copyToClipboard(unit.uuid)}
-                                                  >
-                                                    <Icon icon="fluent:copy-16-regular" className="text-secondary-500 text-sm" />
-                                                  </Button>
                                                 </div>
+                                                <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                                                  <div className="bg-secondary-100 rounded-lg p-2 border border-secondary-100">
+                                                    <p className="text-xs font-medium text-secondary-700">Code</p>
+                                                    <p className="text-secondary-900 text-sm">{unit.code || "N/A"}</p>
+                                                  </div>
+                                                  <div className="bg-secondary-100 rounded-lg p-2 border border-secondary-100">
+                                                    <p className="text-xs font-medium text-secondary-700">Location</p>
+                                                    <p className="text-secondary-900 text-sm">{unit.location_code || "Not set"}</p>
+                                                  </div>
+                                                  <div className="bg-secondary-100 rounded-lg p-2 border border-secondary-100">
+                                                    <p className="text-xs font-medium text-secondary-700">Cost</p>
+                                                    <p className="text-secondary-900 text-sm">{unit.cost ? formatCurrency(unit.cost) : "N/A"}</p>
+                                                  </div>
+                                                  <div className="bg-secondary-100 rounded-lg p-2 border border-secondary-100">
+                                                    <p className="text-xs font-medium text-secondary-700">Updated</p>
+                                                    <p className="text-secondary-900 text-sm">{formatDate(unit.updated_at)}</p>
+                                                  </div>
+                                                </div>
+                                                {unit.properties && Object.keys(unit.properties).length > 0 && (
+                                                  <div className="mt-3">
+                                                    {renderProperties(unit.properties, "grid sm:grid-cols-2 lg:grid-cols-4 gap-2")}
+                                                  </div>
+                                                )}
                                               </div>
-                                              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                                                <div className="bg-secondary-100 rounded-lg p-2 border border-secondary-100">
-                                                  <p className="text-xs font-medium text-secondary-700">Code</p>
-                                                  <p className="text-secondary-900 text-sm">{unit.code || "N/A"}</p>
-                                                </div>
-                                                <div className="bg-secondary-100 rounded-lg p-2 border border-secondary-100">
-                                                  <p className="text-xs font-medium text-secondary-700">Location</p>
-                                                  <p className="text-secondary-900 text-sm">{unit.location_code || "Not set"}</p>
-                                                </div>
-                                                <div className="bg-secondary-100 rounded-lg p-2 border border-secondary-100">
-                                                  <p className="text-xs font-medium text-secondary-700">Cost</p>
-                                                  <p className="text-secondary-900 text-sm">{unit.cost ? formatCurrency(unit.cost) : "N/A"}</p>
-                                                </div>
-                                                <div className="bg-secondary-100 rounded-lg p-2 border border-secondary-100">
-                                                  <p className="text-xs font-medium text-secondary-700">Updated</p>
-                                                  <p className="text-secondary-900 text-sm">{formatDate(unit.updated_at)}</p>
-                                                </div>
-                                              </div>
-                                              {unit.properties && Object.keys(unit.properties).length > 0 && (
-                                                <div className="mt-3">
-                                                  {renderProperties(unit.properties, "grid sm:grid-cols-2 lg:grid-cols-4 gap-2")}
-                                                </div>
-                                              )}
-                                            </div>
-                                          ))}
+                                            ))}
+                                          </div>
                                         </div>
-                                      </div>
-                                    )}
-                                  </CardBody>
-                                </Card>
-                              )),
+                                      )}
+                                    </CardBody>
+                                  </Card>
+                                )) || []
+                              ),
 
                               // Selection Summary
                               <AnimatePresence>
