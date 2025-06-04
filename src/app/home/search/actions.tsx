@@ -519,6 +519,11 @@ export async function getWarehouseItemsByDelivery(deliveryUuid: string): Promise
           warehouse_inventory_uuid,
           properties,
           status_history,
+          unit,
+          unit_value,
+          bulk_unit,
+          cost,
+          is_single_item,
           created_at,
           updated_at,
           warehouse_inventory_item_unit (
@@ -527,6 +532,7 @@ export async function getWarehouseItemsByDelivery(deliveryUuid: string): Promise
             status,
             properties,
             location,
+            cost,
             location_code,
             status_history,
             created_at,
@@ -554,6 +560,11 @@ export async function getWarehouseItemsByDelivery(deliveryUuid: string): Promise
           bulk_status: bulk.status,
           bulk_properties: bulk.properties,
           bulk_status_history: bulk.status_history,
+          bulk_unit: bulk.unit,
+          bulk_unit_value: bulk.unit_value,
+          bulk_bulk_unit: bulk.bulk_unit,
+          bulk_cost: bulk.cost,
+          bulk_is_single_item: bulk.is_single_item,
           bulk_created_at: bulk.created_at,
           bulk_updated_at: bulk.updated_at,
           units: bulk.warehouse_inventory_item_unit || []
@@ -630,7 +641,7 @@ export async function markWarehouseItemsAsUsed(
     if (unitUuids.length > 0) {
       // Filter out units that belong to bulks being updated
       let filteredUnitUuids = unitUuids;
-      
+
       if (bulkUuids.length > 0) {
         const { data: units, error: unitsError } = await supabase
           .from("warehouse_inventory_item_unit")

@@ -176,6 +176,10 @@ export default function SearchPage() {
                   setOptionsDeliveryDetails(resultLoadItemDetails.data as GoPageDeliveryDetails);
                   setShowOptionsModal(true);
 
+                  // remove the showOptions query param
+                  const searchQuery = searchParams.get("q") || "";
+                  router.replace(`/home/search?q=${encodeURIComponent(searchQuery.trim())}`);
+
                   // Load warehouse items for this delivery if it's delivered
                   if ((resultLoadItemDetails.data as GoPageDeliveryDetails).status === 'DELIVERED') {
                     loadWarehouseItemsForDelivery((resultLoadItemDetails.data as GoPageDeliveryDetails).uuid);
@@ -2673,7 +2677,7 @@ export default function SearchPage() {
         </ModalContent>
       </Modal>
 
-            {/* Show Options Modal */}
+      {/* Show Options Modal */}
       <Modal
         isOpen={showOptionsModal}
         onClose={() => {
@@ -2780,7 +2784,7 @@ export default function SearchPage() {
                           </div>
                         </div>
                       </div>
-      
+
                       {optionsDeliveryDetails.notes && (
                         <div className="bg-warning-50 rounded-lg p-3 border border-warning-100 mt-3">
                           <p className="text-sm font-medium text-warning-700">Notes</p>
@@ -2789,45 +2793,13 @@ export default function SearchPage() {
                       )}
                     </CardBody>
                   </Card>
-      
-                  {/* Related Information */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    {/* Original Inventory Item */}
-                    {optionsDeliveryDetails.inventory_item && (
-                      <Card className="bg-background">
-                        <CardHeader className="p-4 bg-secondary-50/30">
-                          <div className="flex items-center gap-3">
-                            <div className="flex items-center justify-center w-12 h-12 bg-secondary-100 rounded-lg">
-                              <Icon icon="mdi:package-variant" className="text-secondary" width={22} />
-                            </div>
-                            <div className="flex-1">
-                              <h3 className="text-lg font-semibold">Inventory Item</h3>
-                              <p className="text-sm text-secondary-600">{optionsDeliveryDetails.inventory_item.name}</p>
-                            </div>
-                          </div>
-                        </CardHeader>
-                        <Divider />
-                        <CardBody className="p-4 bg-secondary-50/30">
-                          <div className="grid grid-cols-1 gap-3">
-                            <div className="bg-secondary-50 rounded-lg p-3 border border-secondary-100">
-                              <p className="text-sm font-medium text-secondary-700">Unit</p>
-                              <p className="text-secondary-900">{optionsDeliveryDetails.inventory_item.unit}</p>
-                            </div>
-                            {optionsDeliveryDetails.inventory_item.description && (
-                              <div className="bg-secondary-50 rounded-lg p-3 border border-secondary-100">
-                                <p className="text-sm font-medium text-secondary-700">Description</p>
-                                <p className="text-secondary-900">{optionsDeliveryDetails.inventory_item.description}</p>
-                              </div>
-                            )}
-                          </div>
-                        </CardBody>
-                      </Card>
-                    )}
-      
-                    {/* Warehouse Info */}
-                    {optionsDeliveryDetails.warehouse && (
-                      <Card className="bg-background">
-                        <CardHeader className="p-4 bg-success-50/30">
+
+
+                  {/* Warehouse Info */}
+                  {optionsDeliveryDetails.warehouse && (
+                    <Card className="bg-background">
+                      <CardHeader className="p-4 bg-success-50/30">
+                        <div className="flex items-center justify-between w-full">
                           <div className="flex items-center gap-3">
                             <div className="flex items-center justify-center w-12 h-12 bg-success-100 rounded-lg">
                               <Icon icon="mdi:warehouse" className="text-success" width={22} />
@@ -2837,27 +2809,36 @@ export default function SearchPage() {
                               <p className="text-sm text-success-600">{optionsDeliveryDetails.warehouse.name}</p>
                             </div>
                           </div>
-                        </CardHeader>
-                        <Divider />
-                        <CardBody className="p-4 bg-success-50/30">
-                          <div className="bg-success-50 rounded-lg p-3 border border-success-100">
-                            <p className="text-sm font-medium text-success-700">Address</p>
-                            <p className="text-success-900">
-                              {optionsDeliveryDetails.warehouse.address?.fullAddress || "Address not available"}
-                            </p>
-                          </div>
-                        </CardBody>
-                      </Card>
-                    )}
-                  </div>
-      
+                          <Button
+                            size="sm"
+                            color="success"
+                            variant="flat"
+                            onPress={() => router.push(`/home/warehouses?warehouseId=${optionsDeliveryDetails.warehouse!.uuid}`)}
+                            startContent={<Icon icon="mdi:eye" />}
+                          >
+                            View Warehouse
+                          </Button>
+                        </div>
+                      </CardHeader>
+                      <Divider />
+                      <CardBody className="p-4 bg-success-50/30">
+                        <div className="bg-success-50 rounded-lg p-3 border border-success-100">
+                          <p className="text-sm font-medium text-success-700">Address</p>
+                          <p className="text-success-900">
+                            {optionsDeliveryDetails.warehouse.address?.fullAddress || "Address not available"}
+                          </p>
+                        </div>
+                      </CardBody>
+                    </Card>
+                  )}
+
                   {/* Accept Delivery or Warehouse Items Management */}
                   {optionsDeliveryDetails.status === "IN_TRANSIT" ? (
                     <Card className="bg-background">
-                      <CardHeader className="p-4 bg-success-50/30">
+                      <CardHeader className="p-4 bg-secondary-50/30">
                         <div className="flex items-center gap-3">
-                          <div className="flex items-center justify-center w-12 h-12 bg-success-100 rounded-lg">
-                            <Icon icon="mdi:check-circle" className="text-success-600" width={22} />
+                          <div className="flex items-center justify-center w-12 h-12 bg-secondary-100 rounded-lg">
+                            <Icon icon="mdi:check-circle" className="text-secondary-600" width={22} />
                           </div>
                           <div>
                             <h3 className="text-lg font-semibold">Accept Delivery</h3>
@@ -2866,16 +2847,27 @@ export default function SearchPage() {
                         </div>
                       </CardHeader>
                       <Divider />
-                      <CardBody className="p-4 bg-success-50/30">
+                      <CardBody className="p-4 bg-secondary-50/30">
                         <div className="flex flex-col gap-4">
-                          <div className="flex items-center gap-3 p-4 bg-success-100 rounded-lg">
-                            <Icon icon="mdi:information" className="text-success-600" width={20} />
-                            <p className="text-success-900">
+                          <div className="flex items-center gap-3 p-4 bg-secondary-100 rounded-lg">
+                            <Icon icon="mdi:information" className="text-secondary-600" width={20} />
+                            <p className="text-secondary-900">
                               This will mark the delivery as delivered and add items to warehouse inventory.
                             </p>
                           </div>
+                          {(!user || user.is_admin || !isOperatorAssigned) && (
+                            <Alert
+                              color="danger"
+                              variant="flat"
+                              icon={<Icon icon="mdi:alert-circle" />}
+                            >
+                              {!user ? "User not logged in" :
+                                user.is_admin ? "Only operators can accept deliveries" :
+                                  "You are not assigned to this delivery"}
+                            </Alert>
+                          )}
                           <Button
-                            color="success"
+                            color="secondary"
                             size="lg"
                             variant="shadow"
                             startContent={<Icon icon="mdi:check" />}
@@ -2888,33 +2880,22 @@ export default function SearchPage() {
                           >
                             Accept Delivery
                           </Button>
-                          {(!user || user.is_admin || !isOperatorAssigned) && (
-                            <Alert
-                              color="danger"
-                              variant="flat"
-                              icon={<Icon icon="mdi:alert-circle" />}
-                            >
-                              {!user ? "User not logged in" :
-                                user.is_admin ? "Only operators can accept deliveries" :
-                                  "You are not assigned to this delivery"}
-                            </Alert>
-                          )}
                         </div>
                       </CardBody>
                     </Card>
                   ) : optionsDeliveryDetails.status === "DELIVERED" ? (
                     <Card className="bg-background">
-                      <CardHeader className="p-4 bg-primary-50/30">
+                      <CardHeader className="p-4 bg-secondary-50/30">
                         <div className="flex items-center justify-between w-full">
                           <div className="flex items-center gap-3">
-                            <div className="flex items-center justify-center w-12 h-12 bg-primary-100 rounded-lg">
-                              <Icon icon="mdi:warehouse" className="text-primary-600" width={22} />
+                            <div className="flex items-center justify-center w-12 h-12 bg-secondary-100 rounded-lg">
+                              <Icon icon="mdi:warehouse" className="text-secondary-600" width={22} />
                             </div>
                             <h3 className="text-lg font-semibold">Warehouse Items Management</h3>
                           </div>
                           <div className="flex gap-2">
                             <Button
-                              color="primary"
+                              color="secondary"
                               variant="flat"
                               size="sm"
                               onPress={() => {
@@ -2928,7 +2909,7 @@ export default function SearchPage() {
                               Refresh
                             </Button>
                             <Button
-                              color="primary"
+                              color="secondary"
                               variant="flat"
                               size="sm"
                               onPress={() => {
@@ -2939,46 +2920,71 @@ export default function SearchPage() {
                               }}
                               startContent={<Icon icon="mdi:eye" />}
                             >
-                              View Warehouse
+                              View Warehouse Inventory
                             </Button>
                           </div>
                         </div>
                       </CardHeader>
                       <Divider />
-                      <CardBody className="px-2 py-4 bg-primary-50/30">
+                      <CardBody className="p-4 bg-secondary-50/30 overflow-hidden">
                         <ListLoadingAnimation
                           skeleton={
                             [
                               <Alert
-                                color="primary"
+                                color="secondary"
                                 variant="flat"
-                                icon={<Icon icon="mdi:information-outline" />}
+                                icon={<Skeleton className="w-5 h-5 rounded" />}
                                 className="mb-4"
                               >
-                                Select bulk items or individual units to mark as used. Selecting a bulk will automatically select all its units.
+                                <Skeleton className="w-80 h-4 rounded" />
                               </Alert>,
                               ...[...Array(3)].map((_, index) => (
-                                <Card key={index} className="border-2 border-primary-100 bg-background">
-                                  <CardBody className="p-4">
+                                <Card key={index} className="p-0 bg-transparent rounded-xl overflow-hidden border-2 border-secondary-100">
+                                  <CardBody className="p-4 bg-background">
                                     <div className="flex items-center justify-between mb-3">
                                       <div className="flex items-center gap-3">
                                         <Skeleton className="w-5 h-5 rounded" />
                                         <div className="flex items-center gap-2">
-                                          <Skeleton className="h-6 w-20 rounded" />
-                                          <Skeleton className="h-5 w-16 rounded" />
+                                          <Skeleton className="h-6 w-24 rounded" />
+                                          <Skeleton className="h-6 w-16 rounded" />
                                         </div>
                                       </div>
-                                      <Skeleton className="h-6 w-32 rounded" />
+                                      <div className="flex items-center gap-2">
+                                        <Skeleton className="h-6 w-16 rounded" />
+                                        <div className="lg:block hidden">
+                                          <Skeleton className="h-6 w-32 rounded" />
+                                        </div>
+                                        <Skeleton className="lg:hidden w-8 h-8 rounded" />
+                                      </div>
                                     </div>
+
+                                    {/* Units skeleton */}
                                     <div className="space-y-3">
+                                      <Skeleton className="h-5 w-20 rounded" />
                                       {[...Array(2)].map((_, unitIndex) => (
-                                        <div key={unitIndex} className="p-3 bg-primary-50 rounded-lg border border-primary-100">
-                                          <div className="flex items-center justify-between">
+                                        <div key={unitIndex} className="p-3 bg-secondary-50 rounded-lg border border-secondary-100">
+                                          <div className="flex items-center justify-between mb-2">
                                             <div className="flex items-center gap-3">
                                               <Skeleton className="w-4 h-4 rounded" />
-                                              <Skeleton className="h-5 w-16 rounded" />
+                                              <div className="flex items-center gap-2">
+                                                <Skeleton className="h-5 w-16 rounded" />
+                                                <Skeleton className="h-5 w-12 rounded" />
+                                              </div>
                                             </div>
-                                            <Skeleton className="h-6 w-28 rounded" />
+                                            <div className="flex items-center gap-2">
+                                              <div className="lg:block hidden">
+                                                <Skeleton className="h-5 w-28 rounded" />
+                                              </div>
+                                              <Skeleton className="lg:hidden w-6 h-6 rounded" />
+                                            </div>
+                                          </div>
+                                          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                                            {[...Array(4)].map((_, fieldIndex) => (
+                                              <div key={fieldIndex} className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
+                                                <Skeleton className="h-3 w-12 rounded mb-1" />
+                                                <Skeleton className="h-4 w-16 rounded" />
+                                              </div>
+                                            ))}
                                           </div>
                                         </div>
                                       ))}
@@ -2994,7 +3000,7 @@ export default function SearchPage() {
                           {warehouseBulkItems.length > 0 ? (
                             [
                               <Alert
-                                color="primary"
+                                color="secondary"
                                 variant="flat"
                                 icon={<Icon icon="mdi:information-outline" />}
                                 className="mb-4"
@@ -3002,7 +3008,7 @@ export default function SearchPage() {
                                 Select bulk items or individual units to mark as used. Selecting a bulk will automatically select all its units.
                               </Alert>,
                               ...warehouseBulkItems.map((item, index) => (
-                                <Card key={item.bulk_uuid} className="p-0 bg-transparent rounded-xl overflow-hidden border-2 border-primary-100">
+                                <Card key={item.bulk_uuid} className="p-0 bg-transparent rounded-xl overflow-hidden border-2 border-secondary-100">
                                   <CardBody className="p-4 bg-background">
                                     <div className="flex items-center justify-between mb-3">
                                       <div className="flex items-center gap-3">
@@ -3013,7 +3019,7 @@ export default function SearchPage() {
                                             handleWarehouseBulkSelection(item.bulk_uuid, isSelected)
                                           }
                                           isDisabled={item.bulk_status === 'USED'}
-                                          color="primary"
+                                          color="secondary"
                                         >
                                           <div className="flex items-center gap-2">
                                             <span className="font-semibold text-lg">Bulk #{index + 1}</span>
@@ -3035,13 +3041,13 @@ export default function SearchPage() {
                                           <Snippet
                                             symbol=""
                                             variant="flat"
-                                            color="primary"
+                                            color="secondary"
                                             size="sm"
                                             className="text-xs p-1 pl-2"
-                                            classNames={{ copyButton: "bg-primary-100 hover:!bg-primary-200 text-sm p-0 h-6 w-6" }}
+                                            classNames={{ copyButton: "bg-secondary-100 hover:!bg-secondary-200 text-sm p-0 h-6 w-6" }}
                                             codeString={item.bulk_uuid}
                                             checkIcon={<Icon icon="fluent:checkmark-16-filled" className="text-success" />}
-                                            copyIcon={<Icon icon="fluent:copy-16-regular" className="text-primary-500" />}
+                                            copyIcon={<Icon icon="fluent:copy-16-regular" className="text-secondary-500" />}
                                             onCopy={() => copyToClipboard(item.bulk_uuid)}
                                           >
                                             {item.bulk_uuid}
@@ -3050,16 +3056,39 @@ export default function SearchPage() {
                                         <Button
                                           size="sm"
                                           variant="flat"
-                                          color="primary"
+                                          color="secondary"
                                           isIconOnly
                                           className="lg:hidden"
                                           onPress={() => copyToClipboard(item.bulk_uuid)}
                                         >
-                                          <Icon icon="fluent:copy-16-regular" className="text-primary-500 text-sm" />
+                                          <Icon icon="fluent:copy-16-regular" className="text-secondary-500 text-sm" />
                                         </Button>
                                       </div>
                                     </div>
-      
+
+                                    {/* Bulk Details */}
+                                    <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4 mt-2">
+                                      <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
+                                        <p className="text-xs font-medium text-secondary-700">Unit</p>
+                                        <p className="text-secondary-900 text-sm">{item.bulk_unit || "N/A"}</p>
+                                      </div>
+                                      <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
+                                        <p className="text-xs font-medium text-secondary-700">Bulk Unit</p>
+                                        <p className="text-secondary-900 text-sm">{item.bulk_bulk_unit || "N/A"}</p>
+                                      </div>
+                                      <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
+                                        <p className="text-xs font-medium text-secondary-700">Cost</p>
+                                        <p className="text-secondary-900 text-sm">
+                                          {item.bulk_cost ? formatCurrency(item.bulk_cost) : "N/A"}
+                                        </p>
+                                      </div>
+                                      <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
+                                        <p className="text-xs font-medium text-secondary-700">Type</p>
+                                        <p className="text-secondary-900 text-sm">{item.bulk_is_single_item ? "Single Item" : "Multiple Items"}</p>
+                                      </div>
+                                    </div>
+
+
                                     {/* Units */}
                                     {item.units && item.units.length > 0 && (
                                       <div>
@@ -3068,8 +3097,8 @@ export default function SearchPage() {
                                         </h4>
                                         <div className="space-y-3">
                                           {item.units.map((unit: any, unitIndex: number) => (
-                                            <div key={unit.uuid} className="p-3 bg-primary-50 rounded-lg border border-primary-100">
-                                              <div className="flex items-center justify-between mb-2">
+                                            <div key={unit.uuid} className="p-3 bg-secondary-50 rounded-lg border border-secondary-100">
+                                              <div className="flex items-center justify-between mb-4">
                                                 <div className="flex items-center gap-3">
                                                   <Checkbox
                                                     size="md"
@@ -3122,19 +3151,19 @@ export default function SearchPage() {
                                                 </div>
                                               </div>
                                               <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                                                <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
+                                                <div className="bg-secondary-100 rounded-lg p-2 border border-secondary-100">
                                                   <p className="text-xs font-medium text-secondary-700">Code</p>
                                                   <p className="text-secondary-900 text-sm">{unit.code || "N/A"}</p>
                                                 </div>
-                                                <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
+                                                <div className="bg-secondary-100 rounded-lg p-2 border border-secondary-100">
                                                   <p className="text-xs font-medium text-secondary-700">Location</p>
                                                   <p className="text-secondary-900 text-sm">{unit.location_code || "Not set"}</p>
                                                 </div>
-                                                <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
-                                                  <p className="text-xs font-medium text-secondary-700">Created</p>
-                                                  <p className="text-secondary-900 text-sm">{formatDate(unit.created_at)}</p>
+                                                <div className="bg-secondary-100 rounded-lg p-2 border border-secondary-100">
+                                                  <p className="text-xs font-medium text-secondary-700">Cost</p>
+                                                  <p className="text-secondary-900 text-sm">{unit.cost ? formatCurrency(unit.cost) : "N/A"}</p>
                                                 </div>
-                                                <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
+                                                <div className="bg-secondary-100 rounded-lg p-2 border border-secondary-100">
                                                   <p className="text-xs font-medium text-secondary-700">Updated</p>
                                                   <p className="text-secondary-900 text-sm">{formatDate(unit.updated_at)}</p>
                                                 </div>
@@ -3152,34 +3181,40 @@ export default function SearchPage() {
                                   </CardBody>
                                 </Card>
                               )),
-      
+
                               // Selection Summary
-                              (selectedWarehouseBulks.length > 0 || selectedWarehouseUnits.length > 0) && (
-                                <Card className="bg-warning-50/50 border-2 border-warning-200">
-                                  <CardBody className="p-4">
-                                    <div className="flex items-center justify-between">
-                                      <div className="flex items-center gap-3">
-                                        <Icon icon="mdi:information" className="text-warning-600" width={20} />
-                                        <div>
-                                          <p className="font-medium text-warning-900">Selection Summary</p>
-                                          <p className="text-sm text-warning-700">
-                                            {selectedWarehouseBulks.length} bulk(s) and {selectedWarehouseUnits.length} individual unit(s) selected
-                                          </p>
+                              <AnimatePresence>
+                                {(selectedWarehouseBulks.length > 0 || selectedWarehouseUnits.length > 0) && (
+                                  <motion.div
+                                    {...motionTransition}>
+                                    <Card className="bg-warning-50/50 border-2 border-warning-200">
+                                      <CardBody className="p-4">
+                                        <div className="flex items-center justify-between">
+                                          <div className="flex items-center gap-3">
+                                            <Icon icon="mdi:information" className="text-warning-600" width={20} />
+                                            <div>
+                                              <p className="font-medium text-warning-900">Selection Summary</p>
+                                              <p className="text-sm text-warning-700">
+                                                {selectedWarehouseBulks.length} bulk(s) and {selectedWarehouseUnits.length} individual unit(s) selected
+                                              </p>
+                                            </div>
+                                          </div>
+                                          <Button
+                                            color="warning"
+                                            variant="shadow"
+                                            onPress={handleMarkSelectedAsUsed}
+                                            isLoading={isMarkingAsUsed}
+                                            startContent={<Icon icon="mdi:check-circle" />}
+                                          >
+                                            Confirm Mark as Used
+                                          </Button>
                                         </div>
-                                      </div>
-                                      <Button
-                                        color="warning"
-                                        variant="shadow"
-                                        onPress={handleMarkSelectedAsUsed}
-                                        isLoading={isMarkingAsUsed}
-                                        startContent={<Icon icon="mdi:check-circle" />}
-                                      >
-                                        Confirm Mark as Used
-                                      </Button>
-                                    </div>
-                                  </CardBody>
-                                </Card>
-                              )
+                                      </CardBody>
+                                    </Card>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+
                             ]
                           ) : (
                             [
