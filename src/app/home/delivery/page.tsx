@@ -3681,6 +3681,8 @@ export default function DeliveryPage() {
 
               <div className="h-full absolute w-full">
                 <CustomScrollbar
+                  scrollShadow
+                  scrollShadowTop={false}
                   scrollbarMarginTop="10.75rem"
                   scrollbarMarginBottom="0.5rem"
                   disabled={!user || isLoadingItems}
@@ -4083,7 +4085,7 @@ export default function DeliveryPage() {
 
                         {/* Inventory Bulks Selection */}
                         {formData.inventory_uuid && (
-                          <div className="border-2 border-default-200 rounded-xl bg-gradient-to-b from-background to-default-50/30">
+                          <div className="border-2 border-default-200 rounded-xl bg-gradient-to-b from-background to-default-50/30 overflow-hidden">
                             <div className="flex justify-between items-center border-b border-default-200 p-4">
                               <h3 className="text-md font-medium">
                                 {formData.status === "PENDING" ? "Select Bulk Items to Deliver" :
@@ -4109,13 +4111,13 @@ export default function DeliveryPage() {
                                 </Button>
                               )}
                             </div>
-                            <div className="space-y-4 p-2">
+                            <div className="space-y-4">
 
 
                               <div className="space-y-2">
 
                                 {(isDeliveryProcessing() && user.is_admin) && (
-                                  <div className="flex flex-row-reverse justify-between items-center mb-2 p-2 pb-0">
+                                  <div className="flex flex-row-reverse justify-between items-center mb-2 p-4 pb-0">
 
                                     <span className="text-sm text-default-600">
                                       {selectedBulks.length} of {inventoryBulks.length} selected
@@ -4161,8 +4163,10 @@ export default function DeliveryPage() {
                                   </div>
                                 )}
 
-                                <ScrollShadow
-                                  className="max-h-[40rem] overflow-y-auto overflow-x-hidden">
+                                <CustomScrollbar
+                                  scrollShadow
+                                  className="max-h-[40rem] overflow-y-auto overflow-x-hidden p-2">
+
                                   <div>
                                     {/* When not in PENDING status, only show selected bulks */}
                                     <ListLoadingAnimation
@@ -4469,7 +4473,7 @@ export default function DeliveryPage() {
                                       ))}
                                     </ListLoadingAnimation>
                                   </div>
-                                </ScrollShadow>
+                                </CustomScrollbar>
 
                                 {errors.inventory_item_bulk_uuids && (
                                   <div className="text-danger text-sm mt-1">{errors.inventory_item_bulk_uuids}</div>

@@ -1747,6 +1747,8 @@ export default function ReorderPointPage() {
 
               <div className="h-full absolute w-full">
                 <CustomScrollbar
+                  scrollShadow
+                  scrollShadowTop={false}
                   scrollbarMarginTop="10.75rem"
                   scrollbarMarginBottom="0.5rem"
                   disabled={!user || isLoadingItems}

@@ -1338,6 +1338,8 @@ export default function InventoryPage() {
               </div>
               <div className="h-full absolute w-full">
                 <CustomScrollbar
+                  scrollShadow
+                  scrollShadowTop={false}
                   scrollbarMarginTop="7.25rem"
                   scrollbarMarginBottom="0.5rem"
                   disabled={!user || isLoadingItems}

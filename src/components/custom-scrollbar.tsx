@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, ReactNode } from 'react';
 import { herouiColor } from '@/utils/colors';
 
+
 interface CustomScrollbarProps {
   children: ReactNode;
   className?: string;
@@ -18,6 +19,12 @@ interface CustomScrollbarProps {
   scrollbarMarginTop?: string | number;
   scrollbarMarginBottom?: string | number;
   disabled?: boolean;
+  scrollShadow?: boolean;
+  scrollShadowTop?: boolean;
+  scrollShadowBottom?: boolean;
+  scrollShadowColor?: string;
+  scrollShadowSize?: number;
+  scrollShadowOpacity?: number;
 }
 
 const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
@@ -35,7 +42,14 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
   scrollbarMarginTop = 0,
   scrollbarMarginBottom = 0,
   disabled = false,
+  scrollShadow = false,
+  scrollShadowTop = true,
+  scrollShadowBottom = true,
+  scrollShadowColor = herouiColor('background', 'hex') as string,
+  scrollShadowSize = 40,
+  scrollShadowOpacity = 1,
 }) => {
+
   const [scrollOpacity, setScrollOpacity] = useState(hideByDefault ? 0 : 1);
   const [scrollPercentage, setScrollPercentage] = useState(0);
   const [thumbHeight, setThumbHeight] = useState(0);
@@ -46,6 +60,8 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
   const [isScrolling, setIsScrolling] = useState(false);
   const [dragStartY, setDragStartY] = useState(0);
   const [dragStartScrollTop, setDragStartScrollTop] = useState(0);
+  const [showTopShadow, setShowTopShadow] = useState(false);
+  const [showBottomShadow, setShowBottomShadow] = useState(false);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollbarRef = useRef<HTMLDivElement>(null);
@@ -73,6 +89,20 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
     const pixels = tempDiv.offsetHeight;
     element.removeChild(tempDiv);
     return pixels;
+  };
+
+  // Update scroll shadows
+  const updateScrollShadows = () => {
+    if (!scrollShadow || disabled) return;
+
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const scrollThreshold = 5; // Minimum scroll distance to show shadow
+
+    setShowTopShadow(scrollShadowTop && scrollTop > scrollThreshold);
+    setShowBottomShadow(scrollShadowBottom && scrollTop < scrollHeight - clientHeight - scrollThreshold);
   };
 
   // Calculate scrollbar dimensions
@@ -108,6 +138,9 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
 
     setScrollPercentage(percentage);
     setThumbHeight(calculatedThumbHeight);
+
+    // Update scroll shadows
+    updateScrollShadows();
   };
 
   const clearAllTimeouts = () => {
@@ -384,6 +417,20 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
     transition: 'background-color 200ms ease-in-out',
   };
 
+  // Scroll shadow styles
+  const shadowStyle = (isTop: boolean): React.CSSProperties => ({
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: scrollShadowSize,
+    pointerEvents: 'none',
+    zIndex: 999,
+    background: `linear-gradient(${isTop ? 'to bottom' : 'to top'}, ${scrollShadowColor}${Math.round(scrollShadowOpacity * 255).toString(16).padStart(2, '0')}, transparent)`,
+    opacity: isTop ? (showTopShadow ? 1 : 0) : (showBottomShadow ? 1 : 0),
+    transition: 'opacity 200ms ease-in-out',
+    ...(isTop ? { top: 0 } : { bottom: 0 }),
+  });
+
   const overflowClass = disabled ? 'overflow-hidden' : 'overflow-y-auto overflow-x-hidden scrollbar-hide';
 
   return (
@@ -404,6 +451,14 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
       >
         {children}
       </div>
+
+      {/* Scroll shadows */}
+      {scrollShadow && !disabled && (
+        <>
+          {scrollShadowTop && <div style={shadowStyle(true)} />}
+          {scrollShadowBottom && <div style={shadowStyle(false)} />}
+        </>
+      )}
 
       {!disabled && (
         <div

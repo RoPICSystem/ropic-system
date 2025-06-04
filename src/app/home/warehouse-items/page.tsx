@@ -1062,6 +1062,8 @@ export default function WarehouseItemsPage() {
 
               <div className="h-full absolute w-full">
                 <CustomScrollbar
+                  scrollShadow
+                  scrollShadowTop={false}
                   scrollbarMarginTop="10.75rem"
                   scrollbarMarginBottom="0.5rem"
                   disabled={!user || isLoadingItems}
