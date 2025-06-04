@@ -38,6 +38,7 @@ import WarehouseLayoutEditorModal from './layout-editor-modal';
 import LoadingAnimation from '@/components/loading-animation';
 import ListLoadingAnimation from '@/components/list-loading-animation';
 import { getUserFromCookies } from '@/utils/supabase/server/user';
+import CustomScrollbar from '@/components/custom-scrollbar';
 
 function generateFullAddress(
   street: string,
@@ -625,7 +626,11 @@ export default function WarehousePage() {
 
               </div>
               <div className="h-full absolute w-full">
-                <div className={`space-y-4 p-4 mt-1 pt-32 h-full relative ${!listLoading && "overflow-y-auto"}`}>
+                <CustomScrollbar
+                  scrollbarMarginTop="7.25rem"
+                  scrollbarMarginBottom="0.5rem"
+                  disabled={!user || listLoading}
+                  className="space-y-4 p-4 mt-1 pt-32 h-full relative">
                   <ListLoadingAnimation
                     condition={listLoading}
                     containerClassName="space-y-4"
@@ -703,8 +708,7 @@ export default function WarehousePage() {
                       </motion.div>
                     )}
                   </AnimatePresence>
-                </div>
-
+                </CustomScrollbar>
 
                 {/* Add pagination */}
                 {warehouses.length > 0 && (

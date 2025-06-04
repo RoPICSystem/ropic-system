@@ -55,6 +55,7 @@ import {
 import { copyToClipboard, formatDate, formatNumber } from "@/utils/tools";
 import ListLoadingAnimation from "@/components/list-loading-animation";
 import CustomProperties from "@/components/custom-properties";
+import CustomScrollbar from "@/components/custom-scrollbar";
 
 
 export default function InventoryPage() {
@@ -1307,7 +1308,11 @@ export default function InventoryPage() {
                 />
               </div>
               <div className="h-full absolute w-full">
-                <div className={`space-y-4 p-4 mt-1 pt-32 h-full relative ${(user && !isLoadingItems) && "overflow-y-auto"}`}>
+                <CustomScrollbar
+                  scrollbarMarginTop="7.25rem"
+                  scrollbarMarginBottom="0.5rem"
+                  disabled={!user || isLoadingItems}
+                  className="space-y-4 p-4 mt-1 pt-32 h-full relative">
                   <ListLoadingAnimation
                     condition={!user || isLoadingItems}
                     containerClassName="space-y-4"
@@ -1355,7 +1360,6 @@ export default function InventoryPage() {
                       </Button>
                     ))}
                   </ListLoadingAnimation>
-
                   {/* Add pagination */}
                   {inventoryItems.length > 0 && (
                     <div className="flex flex-col items-center pt-2 pb-4 px-2">
@@ -1373,7 +1377,6 @@ export default function InventoryPage() {
                       />
                     </div>
                   )}
-
                   {/* Empty state and loading animations */}
                   <AnimatePresence>
                     {(!user || isLoadingItems) && (
@@ -1391,7 +1394,7 @@ export default function InventoryPage() {
                       </motion.div>
                     )}
                   </AnimatePresence>
-                </div>
+                </CustomScrollbar>
 
                 {/* No items found state */}
                 <AnimatePresence>

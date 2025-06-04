@@ -1,11 +1,13 @@
 "use client";
 
+import ListLoadingAnimation from "@/components/list-loading-animation";
 import { createClient } from "@/utils/supabase/client";
 import {
   Accordion,
   AccordionItem,
-  AutocompleteItem,
+  Alert,
   Autocomplete,
+  AutocompleteItem,
   Button,
   Chip,
   Input,
@@ -22,45 +24,40 @@ import {
   ScrollShadow,
   Skeleton,
   Spinner,
+  Switch,
   Textarea,
   Tooltip,
-  useDisclosure,
-  Alert,
-  Switch
+  useDisclosure
 } from "@heroui/react";
+
 import { Icon } from "@iconify/react";
+import { format } from "date-fns";
 import { AnimatePresence, motion } from "framer-motion";
 import { useRouter, useSearchParams } from "next/navigation";
 import { QRCodeCanvas } from "qrcode.react";
-import React, { lazy, memo, Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { format } from "date-fns";
-import ListLoadingAnimation from "@/components/list-loading-animation";
+import { lazy, memo, Suspense, useEffect, useMemo, useState } from "react";
 
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { materialLight, materialDark } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 
 // Import server actions
 import CardList from "@/components/card-list";
-import { motionTransition, motionTransitionScale, popoverTransition } from "@/utils/anim";
-import {
-  getWarehouseInventoryItems,
-  getWarehouseInventoryItem,
-  getWarehouseItemByInventory,
-  getWarehouses,
-  getWarehouseInventoryItemBulks,
-  getWarehouseInventoryItemUnits,
-  WarehouseInventoryItem,
-  WarehouseInventoryItemBulk,
-  WarehouseInventoryItemUnit,
-  markWarehouseBulkAsUsed,
-  WarehouseInventoryItemComplete,
-} from "./actions";
-import { getOccupiedShelfLocations } from "../delivery/actions";
-import { formatCode, parseColumn } from '@/utils/floorplan';
-import { copyToClipboard, formatDate, formatNumber, toNormalCase, toTitleCase } from "@/utils/tools";
-import { getUserFromCookies } from "@/utils/supabase/server/user";
 import LoadingAnimation from "@/components/loading-animation";
 import { ShelfLocation } from "@/components/shelf-selector-3d";
+import { motionTransition, popoverTransition } from "@/utils/anim";
+import { formatCode, parseColumn } from '@/utils/floorplan';
+import { getUserFromCookies } from "@/utils/supabase/server/user";
+import { copyToClipboard, formatDate, formatNumber, toNormalCase, toTitleCase } from "@/utils/tools";
+import { getOccupiedShelfLocations } from "../delivery/actions";
+import {
+  getWarehouseInventoryItem,
+  getWarehouseInventoryItems,
+  getWarehouseItemByInventory,
+  getWarehouses,
+  markWarehouseBulkAsUsed,
+  WarehouseInventoryItem,
+  WarehouseInventoryItemBulk,
+  WarehouseInventoryItemComplete
+} from "./actions";
+import CustomScrollbar from "@/components/custom-scrollbar";
 // Lazy load 3D shelf selector
 const ShelfSelector3D = memo(lazy(() =>
   import("@/components/shelf-selector-3d").then(mod => ({
@@ -1064,7 +1061,11 @@ export default function WarehouseItemsPage() {
               </div>
 
               <div className="h-full absolute w-full">
-                <div className={`space-y-4 p-4 mt-1 pt-[11.5rem] h-full relative ${(user && !isLoadingItems) && "overflow-y-auto"}`}>
+                <CustomScrollbar
+                  scrollbarMarginTop="10.75rem"
+                  scrollbarMarginBottom="0.5rem"
+                  disabled={!user || isLoadingItems}
+                  className="space-y-4 p-4 mt-1 pt-[11.5rem] h-full relative">
                   <ListLoadingAnimation
                     condition={!user || isLoadingItems}
                     containerClassName="space-y-4"
@@ -1072,6 +1073,7 @@ export default function WarehouseItemsPage() {
                       <Skeleton key={i} className="w-full min-h-[7.5rem] rounded-xl" />
                     ))}
                   >
+
                     {warehouseItems.map((item) => (
                       <Button
                         key={item.uuid}
@@ -1150,7 +1152,7 @@ export default function WarehouseItemsPage() {
                       </motion.div>
                     )}
                   </AnimatePresence>
-                </div>
+                </CustomScrollbar>
 
                 {/* No items found state */}
                 <AnimatePresence>
@@ -1962,7 +1964,7 @@ export default function WarehouseItemsPage() {
                       onValueChange={updateQrCodeUrl}
                       color="warning"
                       size="sm"
-                    />  
+                    />
                   </div>
 
                   <AnimatePresence>

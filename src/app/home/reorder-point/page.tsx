@@ -53,6 +53,7 @@ import { getUserFromCookies } from "@/utils/supabase/server/user";
 import LoadingAnimation from "@/components/loading-animation";
 import ListLoadingAnimation from "@/components/list-loading-animation";
 import { getUserCompanyDetails } from "@/utils/supabase/server/companies";
+import CustomScrollbar from "@/components/custom-scrollbar";
 
 export default function ReorderPointPage() {
   const router = useRouter();
@@ -1255,8 +1256,10 @@ export default function ReorderPointPage() {
                       </ScrollShadow>
                     </div>
                   </div>
-
-                  <div className="max-h-64 overflow-y-auto">
+                  
+                  <CustomScrollbar
+                    disabled={isLoadingPdfLogs || getFilteredPdfLogs().length === 0}
+                    className="max-h-64">
                     {isLoadingPdfLogs ? (
                       <div className="p-4 text-center">
                         <Spinner size="sm" />
@@ -1311,7 +1314,7 @@ export default function ReorderPointPage() {
                         ))}
                       </div>
                     )}
-                  </div>
+                  </CustomScrollbar>
 
                   <div className="p-4 border-t border-default-200 flex justify-end gap-2  bg-default-100/50 ">
                     <Button
@@ -1743,8 +1746,11 @@ export default function ReorderPointPage() {
               </div>
 
               <div className="h-full absolute w-full">
-
-                <div className={`space-y-4 p-4 mt-1 pt-[11.5rem] h-full relative ${(user && !isLoadingItems) && "overflow-y-auto"}`}>
+                <CustomScrollbar
+                  scrollbarMarginTop="10.75rem"
+                  scrollbarMarginBottom="0.5rem"
+                  disabled={!user || isLoadingItems}
+                  className="space-y-4 p-4 mt-1 pt-[11.5rem] h-full relative">
                   <ListLoadingAnimation
                     condition={!user || isLoadingItems}
                     containerClassName="space-y-4"
@@ -1858,7 +1864,7 @@ export default function ReorderPointPage() {
                     )}
                   </AnimatePresence>
 
-                </div>
+                </CustomScrollbar>
               </div>
             </div>
           </div>

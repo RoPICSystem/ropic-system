@@ -62,6 +62,7 @@ import { Warehouse } from '../warehouses/actions';
 // Import at the top of your DeliveryPage component 
 import { generatePdfBlob } from './pdf-document';
 import { getUserCompanyDetails } from "@/utils/supabase/server/companies";
+import CustomScrollbar from '@/components/custom-scrollbar';
 
 // Import the ShelfSelector3D component
 const ShelfSelector3D = lazy(() =>
@@ -3092,7 +3093,10 @@ export default function DeliveryPage() {
                     </div>
                   </div>
 
-                  <div className="max-h-64 overflow-y-auto">
+
+                  <CustomScrollbar
+                    disabled={isLoadingPdfDeliveries || getFilteredPdfDeliveries().length === 0}
+                    className="max-h-64">
                     {isLoadingPdfDeliveries ? (
                       <div className="p-4 text-center">
                         <Spinner size="sm" />
@@ -3147,8 +3151,8 @@ export default function DeliveryPage() {
                         ))}
                       </div>
                     )}
-                  </div>
 
+                  </CustomScrollbar>
                   <div className="p-4 border-t border-default-200 flex justify-end gap-2 bg-default-100/50">
                     <Button
                       size="sm"
@@ -3676,7 +3680,11 @@ export default function DeliveryPage() {
 
 
               <div className="h-full absolute w-full">
-                <div className={`space-y-4 p-4 mt-1 pt-[11.5rem] h-full relative ${(user && !isLoadingItems) && "overflow-y-auto"}`}>
+                <CustomScrollbar
+                  scrollbarMarginTop="10.75rem"
+                  scrollbarMarginBottom="0.5rem"
+                  disabled={!user || isLoadingItems}
+                  className="space-y-4 p-4 mt-1 pt-[11.5rem] h-full relative">
                   <ListLoadingAnimation
                     condition={!user || isLoadingItems}
                     containerClassName="space-y-4"
@@ -3765,7 +3773,8 @@ export default function DeliveryPage() {
                       </motion.div>
                     )}
                   </AnimatePresence>
-                </div>
+                </CustomScrollbar>
+
 
                 <AnimatePresence>
                   {user && !isLoadingItems && deliveryItems.length === 0 && (
