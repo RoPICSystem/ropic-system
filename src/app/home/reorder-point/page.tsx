@@ -42,7 +42,7 @@ import { format } from "date-fns";
 // Import server actions
 import CardList from "@/components/card-list";
 import { motionTransition, motionTransitionScale, popoverTransition } from "@/utils/anim";
-import { getReorderPointLogs, updateCustomSafetyStock, triggerReorderPointCalculation, InventoryStatus, ReorderPointLog, getOperators } from "./actions";
+import { getReorderPointLogs, updateCustomSafetyStock, triggerReorderPointCalculation, InventoryStatus, ReorderPointLog, getOperators, triggerSpecificReorderPointCalculation } from "./actions";
 import { getWarehouses } from "../warehouses/actions";
 import { getInventoryItems } from "../inventory/actions";
 import { formatDate } from "@/utils/tools";
@@ -81,7 +81,7 @@ export default function ReorderPointPage() {
 
   // Add state for export options collapse
   const [isExportOptionsOpen, setIsExportOptionsOpen] = useState(false);
-  
+
   // Form state
   const [formData, setFormData] = useState<Partial<ReorderPointLog>>({});
   const [customSafetyStock, setCustomSafetyStock] = useState<number | null>(null);
@@ -604,26 +604,59 @@ export default function ReorderPointPage() {
     }
   };
 
-  // Handle recalculating reorder points
-  const handleRecalculateReorderPoints = async () => {
+  // Handle recalculating reorder points (modified to handle both specific and all)
+  const handleRecalculateReorderPoints = async (isSpecific: boolean = false) => {
     setIsLoading(true);
     try {
-      const result = await triggerReorderPointCalculation();
+      let result;
+
+      if (isSpecific && formData.inventory_uuid && formData.warehouse_uuid && user?.company_uuid) {
+        // Recalculate for specific item
+        result = await triggerSpecificReorderPointCalculation(
+          formData.inventory_uuid,
+          formData.warehouse_uuid,
+          user.company_uuid
+        );
+      } else {
+        // Recalculate for all items
+        result = await triggerReorderPointCalculation();
+      }
 
       if (result.success) {
         // Refresh the reorder point logs
         const refreshedLogs = await getReorderPointLogs(
           user?.company_uuid || "",
           selectedWarehouse || undefined,
-          statusFilter || undefined
+          statusFilter || undefined,
+          searchQuery,
+          dateFrom || undefined,
+          dateTo || undefined,
+          yearFilter || undefined,
+          monthFilter || undefined,
+          weekFilter || undefined,
+          dayFilter || undefined,
+          rowsPerPage,
+          (page - 1) * rowsPerPage
         );
         setReorderPointLogs(refreshedLogs.data || []);
+        setTotalPages(refreshedLogs.totalPages || 1);
+        setTotalItems(refreshedLogs.totalCount || 0);
 
-        // If we have a selected item, refresh its details
-        if (selectedItemId) {
+        // If we have a selected item and did specific calculation, refresh its details
+        if (isSpecific && selectedItemId && result.data) {
+          const updatedLog = Array.isArray(result.data) ? result.data[0] : result.data;
+          if (updatedLog) {
+            setFormData(updatedLog);
+            setCustomSafetyStock(updatedLog.custom_safety_stock !== null ? updatedLog.custom_safety_stock ?? 0 : updatedLog.safety_stock ?? 0);
+            setSafetyStockNotes(updatedLog.notes || "");
+          }
+        } else if (selectedItemId) {
+          // For general recalculation, find the updated log
           const selectedLog = refreshedLogs.data?.find(log => log.uuid === selectedItemId);
           if (selectedLog) {
             setFormData(selectedLog);
+            setCustomSafetyStock(selectedLog.custom_safety_stock !== null ? selectedLog.custom_safety_stock ?? 0 : selectedLog.safety_stock ?? 0);
+            setSafetyStockNotes(selectedLog.notes || "");
           }
         }
       }
@@ -831,7 +864,7 @@ export default function ReorderPointPage() {
             <Button
               color="primary"
               variant="shadow"
-              onPress={handleRecalculateReorderPoints}
+              onPress={() => { handleRecalculateReorderPoints() }}
               isLoading={isLoading}
               startContent={!isLoading && <Icon icon="mdi:refresh" />}
             >
@@ -1941,7 +1974,7 @@ export default function ReorderPointPage() {
                             variant="light"
                             size="sm"
                             className="mt-4"
-                            onPress={handleRecalculateReorderPoints}
+                            onPress={() => { handleRecalculateReorderPoints() }}
                           >
                             Calculate Reorder Points
                           </Button>
@@ -2272,8 +2305,9 @@ export default function ReorderPointPage() {
                         color="secondary"
                         variant="shadow"
                         className="w-full"
-                        onPress={handleRecalculateReorderPoints}
+                        onPress={() => handleRecalculateReorderPoints(true)}
                         isLoading={isLoading}
+                        isDisabled={!formData.inventory_uuid || !formData.warehouse_uuid}
                       >
                         <div className="flex items-center gap-2">
                           {!isLoading && <Icon icon="mdi:refresh" />}

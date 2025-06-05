@@ -155,6 +155,38 @@ export async function triggerReorderPointCalculation() {
 }
 
 /**
+ * Triggers reorder point calculation for a specific inventory item
+ */
+export async function triggerSpecificReorderPointCalculation(
+  inventoryUuid: string,
+  warehouseUuid: string,
+  companyUuid: string
+) {
+  const supabase = await createClient();
+
+  try {
+    const { data, error } = await supabase.rpc('calculate_specific_reorder_point', {
+      p_inventory_uuid: inventoryUuid,
+      p_warehouse_uuid: warehouseUuid,
+      p_company_uuid: companyUuid
+    });
+
+    if (error) throw error;
+
+    return {
+      success: true,
+      data: data as ReorderPointLog
+    };
+  } catch (error: any) {
+    console.error("Error calculating specific reorder point:", error);
+    return {
+      success: false,
+      error: error.message || "Failed to calculate reorder point"
+    };
+  }
+}
+
+/**
  * Fetches users/operators for a company to resolve operator names
  */
 export async function getOperators(operatorUuids: string[]) {

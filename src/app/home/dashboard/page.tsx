@@ -412,6 +412,7 @@ export default function DashboardPage() {
   // Prepare reorder point data - items that need reordering
   const lowStockItems = !loading && dashboardData?.reorderPointItems;
 
+
   return (
     <motion.div {...motionTransition}>
       <div className="container mx-auto p-2 max-w-5xl">
