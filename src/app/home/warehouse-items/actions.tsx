@@ -193,7 +193,7 @@ export async function getWarehouseInventoryItem(uuid: string) {
       error: `Failed to fetch warehouse inventory item: ${error.message || "Unknown error"}`,
     };
   }
-  
+
 }
 
 /**
@@ -480,9 +480,9 @@ export async function markWarehouseBulkAsUsed(
     // 7. Revalidate relevant paths
     // revalidatePath('/home/warehouse-items');
 
-    return { 
-      success: true, 
-      message: `Bulk marked as used successfully. Main item status set to ${mainItemStatus}.` 
+    return {
+      success: true,
+      message: `Bulk marked as used successfully. Main item status set to ${mainItemStatus}.`
     };
   } catch (error: any) {
     console.error('Unexpected error marking bulk as used:', error);
@@ -495,14 +495,99 @@ export async function markWarehouseBulkAsUsed(
  */
 export async function markWarehouseUnitAsUsed(unitUuid: string): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
+  const newStatus = 'USED';
+  const timestamp = new Date().toISOString();
 
   try {
-    const { error } = await supabase
-      .from("warehouse_inventory_item_units")
-      .update({ status: "USED" })
-      .eq("uuid", unitUuid);
+    // First get the unit to access its status history
+    const { data: unitData, error: fetchError } = await supabase
+      .from('warehouse_inventory_item_unit')
+      .select('uuid, status_history, warehouse_inventory_bulk_uuid')
+      .eq('uuid', unitUuid)
+      .single();
 
-    if (error) throw error;
+    if (fetchError) {
+      console.error('Error fetching unit:', fetchError);
+      return { success: false, error: `Failed to fetch unit: ${fetchError.message}` };
+    }
+
+    if (!unitData) {
+      return { success: false, error: 'Unit not found.' };
+    }
+
+    // Update the unit's status and status_history
+    const currentStatusHistory: StatusHistory =
+      unitData.status_history && typeof unitData.status_history === 'object' && !Array.isArray(unitData.status_history)
+        ? (unitData.status_history as StatusHistory)
+        : {};
+
+    const updatedStatusHistory: StatusHistory = {
+      ...currentStatusHistory,
+      [timestamp]: newStatus,
+    };
+
+    const { error: updateError } = await supabase
+      .from('warehouse_inventory_item_unit')
+      .update({
+        status: newStatus,
+        status_history: updatedStatusHistory,
+        updated_at: timestamp,
+      })
+      .eq('uuid', unitUuid);
+
+    if (updateError) {
+      console.error('Error updating unit status:', updateError);
+      return { success: false, error: `Failed to update unit: ${updateError.message}` };
+    }
+
+    // Check if all units in the bulk are now used to update bulk status
+    const { data: allUnitsInBulk, error: fetchUnitsError } = await supabase
+      .from('warehouse_inventory_item_unit')
+      .select('status')
+      .eq('warehouse_inventory_bulk_uuid', unitData.warehouse_inventory_bulk_uuid);
+
+    if (fetchUnitsError) {
+      console.error('Error fetching all units in bulk:', fetchUnitsError);
+      // Don't fail the operation if we can't update the bulk status
+    } else if (allUnitsInBulk && allUnitsInBulk.every(u => u.status === 'USED')) {
+      // If all units are used, mark the bulk as used too
+      const updatedBulkStatusHistory: StatusHistory = {
+        [timestamp]: newStatus,
+      };
+
+      await supabase
+        .from('warehouse_inventory_item_bulk')
+        .update({
+          status: newStatus,
+          status_history: updatedBulkStatusHistory,
+          updated_at: timestamp,
+        })
+        .eq('uuid', unitData.warehouse_inventory_bulk_uuid);
+
+      // Also check if we need to update the main warehouse inventory item
+      const { data: bulkData, error: fetchBulkError } = await supabase
+        .from('warehouse_inventory_item_bulk')
+        .select('warehouse_inventory_uuid')
+        .eq('uuid', unitData.warehouse_inventory_bulk_uuid)
+        .single();
+
+      if (!fetchBulkError && bulkData) {
+        const { data: allBulks, error: fetchAllBulksError } = await supabase
+          .from('warehouse_inventory_item_bulk')
+          .select('status')
+          .eq('warehouse_inventory_uuid', bulkData.warehouse_inventory_uuid);
+
+        if (!fetchAllBulksError && allBulks && allBulks.every(b => b.status === 'USED')) {
+          await supabase
+            .from('warehouse_inventory_items')
+            .update({
+              status: 'USED',
+              updated_at: timestamp,
+            })
+            .eq('uuid', bulkData.warehouse_inventory_uuid);
+        }
+      }
+    }
 
     return { success: true };
   } catch (error: any) {
@@ -513,3 +598,4 @@ export async function markWarehouseUnitAsUsed(unitUuid: string): Promise<{ succe
     };
   }
 }
+

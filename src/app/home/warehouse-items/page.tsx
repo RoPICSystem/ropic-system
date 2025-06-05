@@ -53,6 +53,7 @@ import {
   getWarehouseItemByInventory,
   getWarehouses,
   markWarehouseBulkAsUsed,
+  markWarehouseUnitAsUsed,
   WarehouseInventoryItem,
   WarehouseInventoryItemBulk,
   WarehouseInventoryItemComplete
@@ -133,6 +134,8 @@ export default function WarehouseItemsPage() {
   const [maxColumn, setMaxColumn] = useState(0);
   const [maxDepth, setMaxDepth] = useState(0);
   const [isLoadingMarkAsUsed, setIsLoadingMarkAsUsed] = useState(false);
+  const [isLoadingMarkUnitAsUsed, setIsLoadingMarkUnitAsUsed] = useState<string | null>(null);
+
 
   const [showControls, setShowControls] = useState(false);
 
@@ -501,6 +504,30 @@ export default function WarehouseItemsPage() {
     }
   };
 
+  const handleMarkUnitAsUsed = async (unitUuid: string) => {
+    setIsLoadingMarkUnitAsUsed(unitUuid);
+
+    try {
+      const result = await markWarehouseUnitAsUsed(unitUuid);
+      if (result.success) {
+        // Refresh the item details to show updated status
+        if (selectedItemId) {
+          const refreshedItem = await getWarehouseInventoryItem(selectedItemId);
+          if (refreshedItem.success && refreshedItem.data) {
+            setFormData(refreshedItem.data);
+          }
+        }
+      } else {
+        console.error(result.error);
+        setError(result.error || "Failed to mark unit as used");
+      }
+    } catch (error) {
+      console.error("Failed to mark unit as used:", error);
+      setError("Failed to mark unit as used");
+    } finally {
+      setIsLoadingMarkUnitAsUsed(null);
+    }
+  };
 
   // Generate URL for QR code 
   const generateDeliveryUrl = (q: string, itemAutoMarkAsUsed: boolean = false) => {
@@ -1659,6 +1686,14 @@ export default function WarehouseItemsPage() {
                                                                   <span>
                                                                     {unit.name || `Unit ${unit.code}`}
                                                                   </span>
+                                                                  {/* Add unit status chip */}
+                                                                  <Chip
+                                                                    size="sm"
+                                                                    color={unit.status === "USED" ? "danger" : unit.status === "AVAILABLE" ? "success" : "default"}
+                                                                    variant="flat"
+                                                                  >
+                                                                    {unit.status || "UNKNOWN"}
+                                                                  </Chip>
                                                                 </div>
                                                                 <Chip size="sm" color="primary" variant="flat">
                                                                   {formatNumber(unit.unit_value)} {unit.unit}
@@ -1701,43 +1736,80 @@ export default function WarehouseItemsPage() {
                                                                   value={unit.name || ""}
                                                                   isReadOnly
                                                                   classNames={inputStyle}
-                                                                  startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
+                                                                  startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
+                                                                />
+
+                                                                <Input
+                                                                  label="Unit Value"
+                                                                  value={unit.unit_value ? formatNumber(unit.unit_value) : ""}
+                                                                  isReadOnly
+                                                                  classNames={inputStyle}
+                                                                  startContent={<Icon icon="mdi:scale" className="text-default-500 mb-[0.2rem]" />}
                                                                 />
 
                                                                 <Input
                                                                   label="Unit"
-                                                                  value={`${unit.unit_value} ${unit.unit}`}
+                                                                  value={unit.unit || ""}
                                                                   isReadOnly
                                                                   classNames={inputStyle}
                                                                   startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.2rem]" />}
                                                                 />
 
                                                                 <Input
-                                                                  label="Cost"
-                                                                  value={`${unit.cost}`}
+                                                                  label="Status"
+                                                                  value={unit.status || "UNKNOWN"}
                                                                   isReadOnly
                                                                   classNames={inputStyle}
-                                                                  startContent={<Icon icon="mdi:currency-php" className="text-default-500 mb-[0.2rem]" />}
+                                                                  startContent={<Icon icon="mdi:information" className="text-default-500 mb-[0.2rem]" />}
+                                                                />
+
+                                                                <Input
+                                                                  label="Created At"
+                                                                  value={unit.created_at ? new Date(unit.created_at).toLocaleString() : ""}
+                                                                  isReadOnly
+                                                                  classNames={inputStyle}
+                                                                  startContent={<Icon icon="mdi:calendar" className="text-default-500 mb-[0.2rem]" />}
                                                                 />
                                                               </div>
 
-                                                              {/* Unit Properties */}
-                                                              {unit.properties && Object.keys(unit.properties).length > 0 && (
-                                                                <div className="mx-4 p-3 bg-default-100 rounded-xl border-2 border-default-200">
-                                                                  <div className="flex items-center gap-2 mb-3">
-                                                                    <Icon icon="mdi:tag" className="text-default-500" width={16} />
-                                                                    <span className="text-sm font-medium">Unit Properties</span>
-                                                                  </div>
-                                                                  <div className="grid grid-cols-2 gap-2 text-sm">
-                                                                    {Object.entries(unit.properties).map(([key, value]) => (
-                                                                      <div key={key}>
-                                                                        <span className="text-default-500">{toTitleCase(toNormalCase(key))}:</span>
-                                                                        <span className="ml-2">{String(value)}</span>
-                                                                      </div>
-                                                                    ))}
-                                                                  </div>
-                                                                </div>
-                                                              )}
+                                                              {/* Unit action buttons */}
+                                                              <div className="flex justify-end gap-2 p-4 pt-0">
+                                                                <Button
+                                                                  color="primary"
+                                                                  variant="flat"
+                                                                  size="sm"
+                                                                  onPress={() => {
+                                                                    setQrCodeData({
+                                                                      url: generateDeliveryUrl(unit.uuid),
+                                                                      title: "Unit QR Code",
+                                                                      description: `Scan to view details for unit: ${unit.name || unit.code}`,
+                                                                      itemId: unit.uuid,
+                                                                      itemName: unit.name || unit.code || "Unknown Unit",
+                                                                      isBulkItem: false,
+                                                                      autoMarkAsUsed: false
+                                                                    });
+                                                                    qrCodeModal.onOpen();
+                                                                  }}
+                                                                  startContent={<Icon icon="mdi:qrcode" />}
+                                                                >
+                                                                  Show QR
+                                                                </Button>
+
+                                                                <Button
+                                                                  color="warning"
+                                                                  variant="flat"
+                                                                  size="sm"
+                                                                  isDisabled={isLoadingMarkUnitAsUsed === unit.uuid || unit.status === "USED"}
+                                                                  onPress={() => handleMarkUnitAsUsed(unit.uuid)}
+                                                                  startContent={
+                                                                    isLoadingMarkUnitAsUsed === unit.uuid ?
+                                                                      <Spinner size="sm" color="warning" />
+                                                                      : <Icon icon="mdi:check-circle" />
+                                                                  }
+                                                                >
+                                                                  {unit.status === "USED" ? "Already Used" : "Mark as Used"}
+                                                                </Button>
+                                                              </div>
                                                             </div>
                                                           </AccordionItem>
                                                         ))}
@@ -1796,7 +1868,7 @@ export default function WarehouseItemsPage() {
                                                     : <Icon icon="mdi:check-circle" />
                                                 }
                                               >
-                                                Mark as Used
+                                                {bulk.status === "USED" ? "Already Used" : "Mark as Used"}
                                               </Button>
                                             </div>
                                           )}

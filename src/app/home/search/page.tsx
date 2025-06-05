@@ -325,15 +325,38 @@ export default function SearchPage() {
 
   // Handle warehouse unit selection
   const handleWarehouseUnitSelection = (unitUuid: string, isSelected: boolean) => {
+    // Find which bulk this unit belongs to
+    const parentBulk = warehouseBulkItems
+      .flatMap(item => item.warehouse_inventory_item_bulk || [])
+      .find(bulk => bulk.warehouse_inventory_item_unit?.some((unit: any) => unit.uuid === unitUuid));
+
     if (isSelected) {
       setSelectedWarehouseUnits(prev => [...prev, unitUuid]);
+
+      // Check if all units in the parent bulk are now selected
+      if (parentBulk) {
+        const allUnitsInBulk = parentBulk.warehouse_inventory_item_unit || [];
+        const currentSelectedUnits = [...selectedWarehouseUnits, unitUuid];
+        const allUnitsSelected = allUnitsInBulk.every((unit: any) =>
+          currentSelectedUnits.includes(unit.uuid)
+        );
+
+        // If all units are selected, also select the parent bulk
+        if (allUnitsSelected && !selectedWarehouseBulks.includes(parentBulk.uuid)) {
+          setSelectedWarehouseBulks(prev => [...prev, parentBulk.uuid]);
+        }
+      }
     } else {
       setSelectedWarehouseUnits(prev => prev.filter(id => id !== unitUuid));
+
+      // If parent bulk was selected, unselect it since not all units are selected now
+      if (parentBulk && selectedWarehouseBulks.includes(parentBulk.uuid)) {
+        setSelectedWarehouseBulks(prev => prev.filter(id => id !== parentBulk.uuid));
+      }
     }
   };
 
-
-  // Mark selected items as used
+  // Mark selected items as used - OPTIMIZED VERSION
   const handleMarkSelectedAsUsed = async () => {
     if (selectedWarehouseBulks.length === 0 && selectedWarehouseUnits.length === 0) {
       return;
@@ -341,7 +364,20 @@ export default function SearchPage() {
 
     setIsMarkingAsUsed(true);
     try {
-      const result = await markWarehouseItemsAsUsed(selectedWarehouseBulks, selectedWarehouseUnits);
+      // Filter out units that belong to selected bulks to avoid double processing
+      const filteredUnitUuids = selectedWarehouseUnits.filter(unitUuid => {
+        // Check if this unit belongs to any selected bulk
+        const belongsToSelectedBulk = warehouseBulkItems
+          .flatMap(item => item.warehouse_inventory_item_bulk || [])
+          .some(bulk =>
+            selectedWarehouseBulks.includes(bulk.uuid) &&
+            bulk.warehouse_inventory_item_unit?.some((unit: any) => unit.uuid === unitUuid)
+          );
+
+        return !belongsToSelectedBulk;
+      });
+
+      const result = await markWarehouseItemsAsUsed(selectedWarehouseBulks, filteredUnitUuids);
       if (result.success) {
         // Refresh the warehouse items
         if (optionsDeliveryDetails) {
@@ -357,6 +393,8 @@ export default function SearchPage() {
       setIsMarkingAsUsed(false);
     }
   };
+
+
 
   // Accept delivery function (adapted from delivery page)
   const handleAcceptDelivery = async (deliveryDetails: GoPageDeliveryDetails, customUser?: any) => {
@@ -2895,16 +2933,16 @@ export default function SearchPage() {
                             <div className="flex items-center justify-center w-12 h-12 bg-secondary-100 rounded-lg">
                               <Icon icon="mdi:warehouse" className="text-secondary-600" width={22} />
                             </div>
-                             <div className="flex-1">
-                            <h3 className="text-lg font-semibold">Warehouse Items Management</h3>
+                            <div className="flex-1">
+                              <h3 className="text-lg font-semibold">Warehouse Items Management</h3>
                               <p className="text-sm text-secondary-600">
                                 {warehouseBulkItems && warehouseBulkItems.length > 0 ?
-                                   warehouseBulkItems[0].name
-                                : <Skeleton className="w-32 h-4 mt-1 rounded-full" />
-                                }                              
+                                  warehouseBulkItems[0].name
+                                  : <Skeleton className="w-32 h-4 mt-1 rounded-full" />
+                                }
                               </p>
                             </div>
-                            
+
                           </div>
                           <div className="flex gap-2 flex-wrap items-end justify-end">
                             <Button
@@ -3129,7 +3167,7 @@ export default function SearchPage() {
                                                       onValueChange={(isSelected) =>
                                                         handleWarehouseUnitSelection(unit.uuid, isSelected)
                                                       }
-                                                      isDisabled={unit.status === 'USED' || selectedWarehouseBulks.includes(bulk.uuid)}
+                                                      isDisabled={unit.status === 'USED'}
                                                       color="secondary"
                                                     >
                                                       <div className="flex items-center gap-2">
@@ -3210,27 +3248,43 @@ export default function SearchPage() {
                               <AnimatePresence>
                                 {(selectedWarehouseBulks.length > 0 || selectedWarehouseUnits.length > 0) && (
                                   <motion.div
-                                    {...motionTransition}>
-                                    <Card className="bg-warning-50/50 border-2 border-warning-200">
+                                    initial={{ opacity: 0, y: 20 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -20 }}
+                                    key="selection-summary"
+                                  >
+                                    <Card className="bg-secondary-50 border-2 border-secondary-200">
                                       <CardBody className="p-4">
                                         <div className="flex items-center justify-between">
                                           <div className="flex items-center gap-3">
-                                            <Icon icon="mdi:information" className="text-warning-600" width={20} />
+                                            <div className="flex items-center justify-center w-10 h-10 bg-secondary-100 rounded-full">
+                                              <Icon icon="mdi:checkbox-marked" className="text-secondary-600" width={20} />
+                                            </div>
                                             <div>
-                                              <p className="font-medium text-warning-900">Selection Summary</p>
-                                              <p className="text-sm text-warning-700">
-                                                {selectedWarehouseBulks.length} bulk(s) and {selectedWarehouseUnits.length} individual unit(s) selected
+                                              <h4 className="font-semibold text-secondary-900">Selection Summary</h4>
+                                              <p className="text-sm text-secondary-700">
+                                                {selectedWarehouseBulks.length} bulk(s) and {selectedWarehouseUnits.filter(unitUuid => {
+                                                  // Only count units that don't belong to selected bulks
+                                                  const belongsToSelectedBulk = warehouseBulkItems
+                                                    .flatMap(item => item.warehouse_inventory_item_bulk || [])
+                                                    .some(bulk =>
+                                                      selectedWarehouseBulks.includes(bulk.uuid) &&
+                                                      bulk.warehouse_inventory_item_unit?.some((unit: any) => unit.uuid === unitUuid)
+                                                    );
+                                                  return !belongsToSelectedBulk;
+                                                }).length} individual unit(s) selected
                                               </p>
                                             </div>
                                           </div>
                                           <Button
-                                            color="warning"
+                                            color="secondary"
                                             variant="shadow"
+                                            startContent={<Icon icon="mdi:check-circle" />}
                                             onPress={handleMarkSelectedAsUsed}
                                             isLoading={isMarkingAsUsed}
-                                            startContent={<Icon icon="mdi:check-circle" />}
+                                            size="lg"
                                           >
-                                            Confirm Mark as Used
+                                            Mark as Used
                                           </Button>
                                         </div>
                                       </CardBody>
@@ -3238,7 +3292,6 @@ export default function SearchPage() {
                                   </motion.div>
                                 )}
                               </AnimatePresence>
-
                             ]
                           ) : (
                             [
