@@ -24,6 +24,7 @@ import {
   Input,
   Link
 } from "@heroui/react";
+import CustomScrollbar from '@/components/custom-scrollbar';
 
 
 export default function SigninPage() {
@@ -74,7 +75,7 @@ export default function SigninPage() {
 
 
   return (
-    <div className="h-full overflow-auto">
+    <CustomScrollbar className="h-full">
       <div className="w-auto h-full 2xl:absolute fixed inset-0 overflow-hidden min-h-[55rem] top-0 z-2">
         <div className="absolute w-full max-w-[30rem] top-[calc(50%-20rem)] left-[calc(50%+5rem)] hidden xl:block select-none z-1">
           {/* Ground element - positioned at bottom */}
@@ -109,7 +110,7 @@ export default function SigninPage() {
           </div>
           <Card
             isBlurred 
-            className="dark:bg-primary-100/70 h-full sm:w-[30rem] w-full sm:rounded-2xl rounded-none">
+            className="dark:bg-primary-100/70 sm:w-[30rem] w-full sm:rounded-2xl rounded-none h-[calc(100vh-115px)] sm:h-full">
             <div className="pt-[5.5rem] border-b-2 border-default-400 pb-6 select-none hidden sm:block">
               <div className="grid grid-cols-1">
                 <span className="text-4xl text-center font-semibold font-serif">
@@ -120,7 +121,7 @@ export default function SigninPage() {
                 </span>
               </div>
             </div>
-            <div className="w-full space-y-8 sm:p-6 p-4">
+            <div className="w-full space-y-8 sm:p-6 p-6 items-center justify-center flex flex-col h-full">
               <div className='space-y-1'>
                 <h1 className="text-3xl font-bold text-center sm:pt-0 pt-2">Sign-in</h1>
                 <p className="text-sm text-center text-foreground/80">Welcome back! Please enter your details.</p>
@@ -177,8 +178,8 @@ export default function SigninPage() {
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between w-full sm:px-6 px-4">
-                        {/* <div className="flex items-center">
+                      {/* <div className="flex items-center justify-between w-full sm:px-6 px-4">
+                        <div className="flex items-center">
                           <Checkbox
                             defaultSelected
                             id="remember-me"
@@ -186,7 +187,7 @@ export default function SigninPage() {
                             name="remember-me">
                             Remember me
                           </Checkbox>
-                        </div> */}
+                        </div> 
                         <div className="text-sm">
                           <Link
                             isDisabled={isLoading}
@@ -194,7 +195,7 @@ export default function SigninPage() {
                             Forgot your password?
                           </Link>
                         </div>
-                      </div>
+                      </div> */}
 
                       <div className="flex flex-col space-y-4 w-full border-t-2 border-default-200 sm:p-6 p-4">
                         <AnimatePresence>
@@ -251,6 +252,6 @@ export default function SigninPage() {
         </div>
 
       </div>
-    </div>
+    </CustomScrollbar>
   )
 }
