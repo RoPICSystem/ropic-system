@@ -3187,9 +3187,9 @@ export default function SearchPage() {
                                           </p>
                                         </div>
                                         <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
-                                          <p className="text-xs font-medium text-secondary-700 mb-1">Type</p>
+                                          <p className="text-xs font-medium text-secondary-700 mb-1">Location</p>
                                           <p className="text-lg font-bold text-secondary-900">
-                                            {bulk.is_single_item ? "Single Item" : "Multiple Items"}
+                                            {bulk.location_code || "Not set"}
                                           </p>
                                         </div>
                                       </div>
@@ -3199,7 +3199,7 @@ export default function SearchPage() {
                                       {bulk.warehouse_inventory_item_unit && bulk.warehouse_inventory_item_unit.length > 0 && (
                                         <div>
                                           <h4 className="font-semibold text-default-900 mb-3">
-                                            Units ({bulk.warehouse_inventory_item_unit.length})
+                                            {bulk.is_single_item ? "Single Item" : `Units (${bulk.warehouse_inventory_item_unit.length})`}
                                           </h4>
                                           <div className="space-y-3">
                                             {bulk.warehouse_inventory_item_unit.map((unit: any, unitIndex: number) => (
@@ -3262,16 +3262,16 @@ export default function SearchPage() {
                                                     <p className="text-secondary-900 text-sm">{unit.code || "N/A"}</p>
                                                   </div>
                                                   <div className="bg-secondary-100 rounded-lg p-2 border border-secondary-100">
-                                                    <p className="text-xs font-medium text-secondary-700">Location</p>
-                                                    <p className="text-secondary-900 text-sm">{unit.location_code || "Not set"}</p>
-                                                  </div>
-                                                  <div className="bg-secondary-100 rounded-lg p-2 border border-secondary-100">
                                                     <p className="text-xs font-medium text-secondary-700">Unit Value</p>
                                                     <p className="text-secondary-900 text-sm">{unit.unit_value || "N/A"} {unit.unit || "N/A"}</p>
                                                   </div>
                                                   <div className="bg-secondary-100 rounded-lg p-2 border border-secondary-100">
                                                     <p className="text-xs font-medium text-secondary-700">Cost</p>
                                                     <p className="text-secondary-900 text-sm">{unit.cost ? formatCurrency(unit.cost) : "N/A"}</p>
+                                                  </div>
+                                                  <div className="bg-secondary-100 rounded-lg p-2 border border-secondary-100">
+                                                    <p className="text-xs font-medium text-secondary-700">Updated At</p>
+                                                    <p className="text-secondary-900 text-sm">{unit.updated_at ? formatDate(unit.updated_at) : "Not set"}</p>
                                                   </div>
                                                 </div>
                                                 {unit.properties && Object.keys(unit.properties).length > 0 && (
