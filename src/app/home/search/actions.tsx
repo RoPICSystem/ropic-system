@@ -530,6 +530,8 @@ export async function getWarehouseItemsByDelivery(deliveryUuid: string): Promise
             uuid,
             code,
             status,
+          unit,
+          unit_value,
             properties,
             location,
             cost,

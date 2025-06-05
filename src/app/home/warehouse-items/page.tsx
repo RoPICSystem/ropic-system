@@ -154,20 +154,26 @@ export default function WarehouseItemsPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
 
-  // Generate item JSON for QR code
-  const generateItemJson = (space: number = 0) => {
-    if (!selectedItemId || !formData) return "{}";
 
-    // Create a clean object with essential properties
-    const data = {
-      uuid: formData.uuid,
-      inventory_uuid: formData.inventory_uuid,
-      warehouse_uuid: formData.warehouse_uuid,
-      company_uuid: formData.company_uuid,
-      name: formData.name
+  const calculateBulkTotals = (bulk: any) => {
+    if (!bulk.units || bulk.units.length === 0) {
+      return {
+        currentUnitValue: 0,
+        totalUnitValue: 0,
+        currentCost: 0,
+        totalCost: 0
+      };
+    }
+
+    const units = bulk.units;
+    const availableUnits = units.filter((unit: any) => unit.status === 'AVAILABLE');
+
+    return {
+      currentUnitValue: availableUnits.reduce((sum: number, unit: any) => sum + (parseFloat(unit.unit_value) || 0), 0),
+      totalUnitValue: units.reduce((sum: number, unit: any) => sum + (parseFloat(unit.unit_value) || 0), 0),
+      currentCost: availableUnits.reduce((sum: number, unit: any) => sum + (parseFloat(unit.cost) || 0), 0),
+      totalCost: units.reduce((sum: number, unit: any) => sum + (parseFloat(unit.cost) || 0), 0)
     };
-
-    return JSON.stringify(data, null, space);
   };
 
   const handleViewBulkLocation = (location: ShelfLocation | null) => {
@@ -1216,7 +1222,9 @@ export default function WarehouseItemsPage() {
                       <div>
                         <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" />
                         <div className="space-y-4">
+                          {/* Warehouse Item Identifier Skeleton */}
                           <Skeleton className="h-16 w-full rounded-xl" />
+
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <Skeleton className="h-16 rounded-xl" />
                             <Skeleton className="h-16 rounded-xl" />
@@ -1225,8 +1233,23 @@ export default function WarehouseItemsPage() {
                             <Skeleton className="h-16 rounded-xl" />
                             <Skeleton className="h-16 rounded-xl" />
                           </div>
-                          <Skeleton className="h-28 w-full rounded-xl" />
-                          <Skeleton className="h-28 w-full rounded-xl" />
+
+                          {/* Description Skeleton */}
+                          <Skeleton className="h-16 w-full rounded-xl" />
+
+                          {/* Warehouse Properties Skeleton */}
+                          <div className="mt-4 p-3 bg-default-100 rounded-xl border-2 border-default-200">
+                            <div className="flex items-center gap-2 mb-4">
+                              <Skeleton className="w-4 h-4 rounded-full" />
+                              <Skeleton className="h-4 w-32 rounded-xl" />
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <Skeleton className="h-3 w-24 rounded-xl" />
+                              <Skeleton className="h-3 w-20 rounded-xl" />
+                              <Skeleton className="h-3 w-28 rounded-xl" />
+                              <Skeleton className="h-3 w-16 rounded-xl" />
+                            </div>
+                          </div>
                         </div>
                       </div>
                     }>
@@ -1234,13 +1257,18 @@ export default function WarehouseItemsPage() {
                       <div>
                         <h2 className="text-xl font-semibold mb-4 w-full text-center">Item Details</h2>
                         <div className="space-y-4">
-                          <Input
-                            label="Warehouse Item Identifier"
-                            value={formData.uuid}
-                            isReadOnly
-                            classNames={inputStyle}
-                            startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
-                            endContent={
+                          {/* Warehouse Item Identifier */}
+                          <div className="flex flex-col">
+                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                              <div className="flex items-center gap-3">
+                                <Icon icon="mdi:package-variant" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                <div className="flex flex-col">
+                                  <span className="text-xs text-default-600 font-medium">Warehouse Item Identifier</span>
+                                  <span className="text-md font-semibold text-default-700">
+                                    {formData.uuid}
+                                  </span>
+                                </div>
+                              </div>
                               <Button
                                 variant="flat"
                                 color="default"
@@ -1249,69 +1277,115 @@ export default function WarehouseItemsPage() {
                               >
                                 <Icon icon="mdi:content-copy" className="text-default-500" />
                               </Button>
-                            }
-                          />
-                          <div className="flex items-center justify-between gap-4">
-                            <Input
-                              label="Item Name"
-                              value={formData.name || ""}
-                              isReadOnly
-                              classNames={inputStyle}
-                              startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
-                            />
-                            <Input
-                              label="Item Unit"
-                              value={formData.unit || ""}
-                              isReadOnly
-                              classNames={inputStyle}
-                              startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.1rem]" />}
-                            />
+                            </div>
                           </div>
 
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <Input
-                              label="Status"
-                              value={formData.status || ""}
-                              isReadOnly
-                              classNames={inputStyle}
-                              startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
-                            />
+                            {/* Item Name */}
+                            <div className="flex flex-col">
+                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                <div className="flex items-center gap-3">
+                                  <Icon icon="mdi:tag" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                  <div className="flex flex-col">
+                                    <span className="text-xs text-default-600 font-medium">Item Name</span>
+                                    <span className="text-md font-semibold text-default-700">
+                                      {formData.name || "N/A"}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
 
-                            <Input
-                              label="Warehouse"
-                              value={warehouses.find(w => w.uuid === formData.warehouse_uuid)?.name || ""}
-                              isReadOnly
-                              classNames={inputStyle}
-                              startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
-                            />
+                            {/* Item Unit */}
+                            <div className="flex flex-col">
+                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                <div className="flex items-center gap-3">
+                                  <Icon icon="mdi:ruler" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                  <div className="flex flex-col">
+                                    <span className="text-xs text-default-600 font-medium">Item Unit</span>
+                                    <span className="text-md font-semibold text-default-700">
+                                      {formData.unit || "N/A"}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Status */}
+                            <div className="flex flex-col">
+                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                <div className="flex items-center gap-3">
+                                  <Icon icon="mdi:tag" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                  <div className="flex flex-col">
+                                    <span className="text-xs text-default-600 font-medium">Status</span>
+                                    <span className="text-md font-semibold text-default-700">
+                                      {formData.status || "N/A"}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Warehouse */}
+                            <div className="flex flex-col">
+                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                <div className="flex items-center gap-3">
+                                  <Icon icon="mdi:warehouse" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                  <div className="flex flex-col">
+                                    <span className="text-xs text-default-600 font-medium">Warehouse</span>
+                                    <span className="text-md font-semibold text-default-700">
+                                      {warehouses.find(w => w.uuid === formData.warehouse_uuid)?.name || "N/A"}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Created */}
+                            <div className="flex flex-col">
+                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                <div className="flex items-center gap-3">
+                                  <Icon icon="mdi:calendar" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                  <div className="flex flex-col">
+                                    <span className="text-xs text-default-600 font-medium">Created</span>
+                                    <span className="text-md font-semibold text-default-700">
+                                      {formData.created_at ? format(new Date(formData.created_at), "MMM d, yyyy") : "N/A"}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Last Updated */}
+                            <div className="flex flex-col">
+                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                <div className="flex items-center gap-3">
+                                  <Icon icon="mdi:calendar-clock" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                  <div className="flex flex-col">
+                                    <span className="text-xs text-default-600 font-medium">Last Updated</span>
+                                    <span className="text-md font-semibold text-default-700">
+                                      {formData.updated_at ? format(new Date(formData.updated_at), "MMM d, yyyy") : "N/A"}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
                           </div>
 
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <Input
-                              label="Created"
-                              value={formData.created_at ? format(new Date(formData.created_at), "MMM d, yyyy") : ""}
-                              isReadOnly
-                              classNames={inputStyle}
-                              startContent={<Icon icon="mdi:calendar" className="text-default-500 mb-[0.2rem]" />}
-                            />
-
-                            <Input
-                              label="Last Updated"
-                              value={formData.updated_at ? format(new Date(formData.updated_at), "MMM d, yyyy") : ""}
-                              isReadOnly
-                              classNames={inputStyle}
-                              startContent={<Icon icon="mdi:calendar-clock" className="text-default-500 mb-[0.2rem]" />}
-                            />
+                          {/* Description */}
+                          <div className="flex flex-col">
+                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                              <div className="flex items-center gap-3">
+                                <Icon icon="mdi:text-box" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                <div className="flex flex-col">
+                                  <span className="text-xs text-default-600 font-medium">Description</span>
+                                  <span className="text-md font-semibold text-default-700">
+                                    {formData.description || "Empty description"}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
                           </div>
-
-                          <Textarea
-                            label="Description"
-                            value={formData.description || undefined}
-                            isReadOnly
-                            placeholder="Empty description"
-                            classNames={inputStyle}
-                            startContent={<Icon icon="mdi:text-box" className="text-default-500 mb-[0.2rem]" />}
-                          />
 
                           {/* Warehouse Properties */}
                           {formData.properties && Object.keys(formData.properties).length > 0 && (
@@ -1343,87 +1417,118 @@ export default function WarehouseItemsPage() {
                         <div>
                           <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" />
                           <div className="space-y-4">
-                            <div className="flex justify-between items-center mb-4">
-                              <Skeleton className="h-6 w-20 rounded-xl" />
+                            <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-2">
+                                <Skeleton className="h-6 w-16 rounded-full" />
+                              </div>
                             </div>
-                          </div>
-                          <div className="space-y-2">
-                            <div className="p-4 border-2 border-default-200 rounded-xl space-y-4">
-                              <div className="flex justify-between items-center mb-8">
-                                <Skeleton className="h-6 w-40 rounded-full" />
-                                <div className="flex items-center gap-4">
-                                  <Skeleton className="h-5 w-16 rounded-full" />
-                                  <Skeleton className="h-5 w-5 rounded-full" />
-                                </div>
-                              </div>
-                              <Skeleton className="h-16 w-full rounded-xl" />
 
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <Skeleton className="h-16 w-full rounded-xl" />
-                                <Skeleton className="h-16 w-full rounded-xl" />
-                                <Skeleton className="h-16 w-full rounded-xl" />
-                                <Skeleton className="h-16 w-full rounded-xl" />
-                              </div>
+                            {/* Bulk Items Skeleton */}
+                            <div className="-mx-4">
+                              <div className="mx-2 mt-4 space-y-4">
+                                {[...Array(2)].map((_, bulkIndex) => (
+                                  <div key={bulkIndex} className="p-0 bg-transparent rounded-xl overflow-hidden border-2 border-default-200">
+                                    {/* Bulk Header Skeleton */}
+                                    <div className="p-4 flex items-center justify-between">
+                                      <div className="flex items-center gap-2">
+                                        <Skeleton className="h-6 w-24 rounded-xl" />
+                                      </div>
+                                      <div className="flex gap-2 flex-wrap">
+                                        <Skeleton className="h-6 w-16 rounded-full" />
+                                        <Skeleton className="h-6 w-12 rounded-full" />
+                                        <Skeleton className="h-6 w-20 rounded-full" />
+                                      </div>
+                                    </div>
 
-                              <Skeleton className="h-28 w-full rounded-xl" />
+                                    {/* Bulk Content Skeleton */}
+                                    <div>
+                                      {/* Warehouse Bulk Identifier */}
+                                      <div className="flex flex-col p-4 pb-0">
+                                        <Skeleton className="h-16 w-full rounded-xl" />
+                                      </div>
 
-                              <div className="p-4 border-2 border-default-200 rounded-xl space-y-2">
-                                <div className="flex justify-between items-center mb-4">
-                                  <Skeleton className="h-6 w-40 rounded-full" />
-                                  <Skeleton className="h-5 w-5 rounded-full" />
-                                </div>
-                                <div className="p-4 border-2 border-default-200 rounded-xl space-y-4">
-                                  <div className="flex justify-between items-center mb-8">
-                                    <Skeleton className="h-6 w-32 rounded-full" />
-                                    <div className="flex items-center gap-4">
-                                      <Skeleton className="h-5 w-16 rounded-full" />
-                                      <Skeleton className="h-5 w-5 rounded-full" />
+                                      {/* Bulk Details Grid */}
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pb-0">
+                                        <Skeleton className="h-20 rounded-xl" />
+                                        <Skeleton className="h-20 rounded-xl" />
+                                        <Skeleton className="h-16 rounded-xl" />
+                                        <Skeleton className="h-16 rounded-xl" />
+                                      </div>
+
+                                      {/* Bulk Properties */}
+                                      <div className="mt-4 mx-4 p-3 bg-default-100 rounded-xl border-2 border-default-200">
+                                        <div className="flex items-center gap-2 mb-3">
+                                          <Skeleton className="w-4 h-4 rounded-full" />
+                                          <Skeleton className="h-4 w-28 rounded-xl" />
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                          <Skeleton className="h-3 w-20 rounded-xl" />
+                                          <Skeleton className="h-3 w-16 rounded-xl" />
+                                          <Skeleton className="h-3 w-24 rounded-xl" />
+                                          <Skeleton className="h-3 w-18 rounded-xl" />
+                                        </div>
+                                      </div>
+
+                                      {/* Units Section Skeleton */}
+                                      <div className="overflow-hidden px-4 py-4">
+                                        <div className="border-2 border-default-200 rounded-xl">
+                                          {/* Units Header */}
+                                          <div className="flex justify-between items-center p-4 pb-0">
+                                            <Skeleton className="h-6 w-32 rounded-xl" />
+                                          </div>
+
+                                          {/* Units List */}
+                                          <div className="p-4 overflow-hidden space-y-4">
+                                            {[...Array(2)].map((_, unitIndex) => (
+                                              <div key={unitIndex} className="p-0 w-full bg-transparent rounded-xl overflow-hidden border-2 border-default-200">
+                                                {/* Unit Header */}
+                                                <div className="p-4 h-14 flex items-center justify-between">
+                                                  <div className="flex items-center gap-2">
+                                                    <Skeleton className="h-5 w-20 rounded-xl" />
+                                                    <Skeleton className="h-5 w-16 rounded-full" />
+                                                  </div>
+                                                  <Skeleton className="h-5 w-14 rounded-full" />
+                                                </div>
+
+                                                {/* Unit Details */}
+                                                <div className="space-y-4 pb-4">
+                                                  {/* Unit Identifier */}
+                                                  <div className="flex flex-col p-4 pb-0">
+                                                    <Skeleton className="h-16 w-full rounded-xl" />
+                                                  </div>
+
+                                                  {/* Unit Details Grid */}
+                                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 py-0">
+                                                    <Skeleton className="h-16 rounded-xl" />
+                                                    <Skeleton className="h-16 rounded-xl" />
+                                                    <Skeleton className="h-16 rounded-xl" />
+                                                    <Skeleton className="h-16 rounded-xl" />
+                                                    <Skeleton className="h-16 rounded-xl" />
+                                                    <Skeleton className="h-16 rounded-xl" />
+                                                  </div>
+
+                                                  {/* Unit Action Buttons */}
+                                                  <div className="flex justify-end gap-2 p-4 pt-0">
+                                                    <Skeleton className="h-8 w-20 rounded-xl" />
+                                                    <Skeleton className="h-8 w-24 rounded-xl" />
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      {/* Bulk Action Buttons */}
+                                      <div className="flex justify-end gap-2 bg-default-100/50 p-4">
+                                        <Skeleton className="h-8 w-24 rounded-xl" />
+                                        <Skeleton className="h-8 w-28 rounded-xl" />
+                                        <Skeleton className="h-8 w-20 rounded-xl" />
+                                        <Skeleton className="h-8 w-24 rounded-xl" />
+                                      </div>
                                     </div>
                                   </div>
-                                  <Skeleton className="h-16 w-full rounded-xl" />
-
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <Skeleton className="h-16 w-full rounded-xl" />
-                                    <Skeleton className="h-16 w-full rounded-xl" />
-                                    <Skeleton className="h-16 w-full rounded-xl" />
-                                    <Skeleton className="h-16 w-full rounded-xl" />
-                                  </div>
-
-                                  <Skeleton className="h-28 w-full rounded-xl" />
-
-                                </div>
-
-                                <div className="p-4 border-2 border-default-200 rounded-xl flex justify-between">
-                                  <Skeleton className="h-6 w-40 rounded-full" />
-                                  <div className="flex items-center gap-4">
-                                    <Skeleton className="h-5 w-16 rounded-full" />
-                                    <Skeleton className="h-5 w-5 rounded-full" />
-                                  </div>
-                                </div>
-
-                                <div className="p-4 border-2 border-default-200 rounded-xl flex justify-between">
-                                  <Skeleton className="h-6 w-40 rounded-full" />
-                                  <div className="flex items-center gap-4">
-                                    <Skeleton className="h-5 w-16 rounded-full" />
-                                    <Skeleton className="h-5 w-5 rounded-full" />
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="p-4 border-2 border-default-200 rounded-xl flex justify-between">
-                              <Skeleton className="h-6 w-40 rounded-full" />
-                              <div className="flex items-center gap-4">
-                                <Skeleton className="h-5 w-16 rounded-full" />
-                                <Skeleton className="h-5 w-5 rounded-full" />
-                              </div>
-                            </div>
-
-                            <div className="p-4 border-2 border-default-200 rounded-xl flex justify-between">
-                              <Skeleton className="h-6 w-40 rounded-full" />
-                              <div className="flex items-center gap-4">
-                                <Skeleton className="h-5 w-16 rounded-full" />
-                                <Skeleton className="h-5 w-5 rounded-full" />
+                                ))}
                               </div>
                             </div>
                           </div>
@@ -1462,7 +1567,7 @@ export default function WarehouseItemsPage() {
                                     title: "font-normal text-lg font-semibold",
                                     trigger: "p-4 data-[hover=true]:bg-default-100 flex items-center transition-colors",
                                     indicator: "text-medium",
-                                    content: "text-small p-0",
+                                    content: "p-0",
                                   }}
                                 >
                                   {formData.bulks.map((bulk, index) => (
@@ -1479,7 +1584,12 @@ export default function WarehouseItemsPage() {
                                           </div>
                                           <div className="flex gap-2 flex-wrap justify-end">
                                             <Chip color="primary" variant="flat" size="sm">
-                                              {formatNumber(bulk.unit_value)} {bulk.unit}
+                                              {(() => {
+                                                const totals = calculateBulkTotals(bulk);
+                                                return totals.totalUnitValue > 0
+                                                  ? `${formatNumber(totals.currentUnitValue)}/${formatNumber(totals.totalUnitValue)} ${bulk.unit}`
+                                                  : `${formatNumber(bulk.unit_value)} ${bulk.unit}`;
+                                              })()}
                                             </Chip>
                                             {bulk.location_code && (
                                               <Chip color="secondary" variant="flat" size="sm">
@@ -1497,13 +1607,17 @@ export default function WarehouseItemsPage() {
                                     >
                                       <div>
                                         {bulk.uuid && (
-                                          <Input
-                                            label="Warehouse Bulk Identifier"
-                                            value={bulk.uuid}
-                                            isReadOnly
-                                            classNames={{ inputWrapper: inputStyle.inputWrapper, base: "p-4 pb-0" }}
-                                            startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
-                                            endContent={
+                                          <div className="flex flex-col p-4 pb-0">
+                                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                              <div className="flex items-center gap-3">
+                                                <Icon icon="mdi:package-variant" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                <div className="flex flex-col">
+                                                  <span className="text-xs text-default-600 font-medium">Warehouse Bulk Identifier</span>
+                                                  <span className="text-md font-semibold text-default-700">
+                                                    {bulk.uuid}
+                                                  </span>
+                                                </div>
+                                              </div>
                                               <Button
                                                 variant="flat"
                                                 color="default"
@@ -1512,42 +1626,96 @@ export default function WarehouseItemsPage() {
                                               >
                                                 <Icon icon="mdi:content-copy" className="text-default-500" />
                                               </Button>
-                                            }
-                                          />
+                                            </div>
+                                          </div>
                                         )}
 
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pb-0">
-                                          <Input
-                                            label="Unit"
-                                            value={`${bulk.unit_value} ${bulk.unit}`}
-                                            isReadOnly
-                                            classNames={inputStyle}
-                                            startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.2rem]" />}
-                                          />
+                                          {/* Unit Value */}
+                                          <div className="flex flex-col">
+                                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                              <div className="flex items-center gap-3">
+                                                <Icon icon="mdi:ruler" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                <div className="flex flex-col">
+                                                  <span className="text-xs text-default-600 font-medium">Unit Value</span>
+                                                  <span className="text-md font-semibold text-default-700">
+                                                    {(() => {
+                                                      const totals = calculateBulkTotals(bulk);
+                                                      return totals.totalUnitValue > 0
+                                                        ? `${formatNumber(totals.currentUnitValue)} ${bulk.unit}`
+                                                        : `${formatNumber(bulk.unit_value)} ${bulk.unit}`;
+                                                    })()}
+                                                  </span>
+                                                  {(() => {
+                                                    const totals = calculateBulkTotals(bulk);
+                                                    return totals.totalUnitValue > 0 && (
+                                                      <span className="text-sm text-default-500">
+                                                        of {formatNumber(totals.totalUnitValue)} {bulk.unit} total
+                                                      </span>
+                                                    );
+                                                  })()}
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </div>
 
-                                          <Input
-                                            label="Bulk Unit"
-                                            value={bulk.bulk_unit || "N/A"}
-                                            isReadOnly
-                                            classNames={inputStyle}
-                                            startContent={<Icon icon="mdi:cube-outline" className="text-default-500 mb-[0.2rem]" />}
-                                          />
+                                          {/* Cost */}
+                                          <div className="flex flex-col">
+                                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                              <div className="flex items-center gap-3">
+                                                <Icon icon="mdi:currency-php" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                <div className="flex flex-col">
+                                                  <span className="text-xs text-default-600 font-medium">Cost</span>
+                                                  <span className="text-md font-semibold text-default-700">
+                                                    {(() => {
+                                                      const totals = calculateBulkTotals(bulk);
+                                                      return totals.totalCost > 0
+                                                        ? `₱${formatNumber(totals.currentCost)}`
+                                                        : `₱${formatNumber(bulk.cost)}`;
+                                                    })()}
+                                                  </span>
+                                                  {(() => {
+                                                    const totals = calculateBulkTotals(bulk);
+                                                    return totals.totalCost > 0 && (
+                                                      <span className="text-sm text-default-500">
+                                                        of ₱{formatNumber(totals.totalCost)} total
+                                                      </span>
+                                                    );
+                                                  })()}
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </div>
 
-                                          <Input
-                                            label="Cost"
-                                            value={`${bulk.cost}`}
-                                            isReadOnly
-                                            classNames={inputStyle}
-                                            startContent={<Icon icon="mdi:currency-php" className="text-default-500 mb-[0.2rem]" />}
-                                          />
+                                          {/* Bulk Unit */}
+                                          <div className="flex flex-col">
+                                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                              <div className="flex items-center gap-3">
+                                                <Icon icon="mdi:cube-outline" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                <div className="flex flex-col">
+                                                  <span className="text-xs text-default-600 font-medium">Bulk Unit</span>
+                                                  <span className="text-md font-semibold text-default-700">
+                                                    {bulk.bulk_unit || "N/A"}
+                                                  </span>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </div>
 
-                                          <Input
-                                            label="Location"
-                                            value={bulk.location_code || "Not assigned"}
-                                            isReadOnly
-                                            classNames={inputStyle}
-                                            startContent={<Icon icon="mdi:map-marker" className="text-default-500 mb-[0.2rem]" />}
-                                          />
+                                          {/* Location */}
+                                          <div className="flex flex-col">
+                                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                              <div className="flex items-center gap-3">
+                                                <Icon icon="mdi:map-marker" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                <div className="flex flex-col">
+                                                  <span className="text-xs text-default-600 font-medium">Location</span>
+                                                  <span className="text-md font-semibold text-default-700">
+                                                    {bulk.location_code || "Not assigned"}
+                                                  </span>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </div>
                                         </div>
 
                                         {/* Bulk Properties */}
@@ -1586,13 +1754,18 @@ export default function WarehouseItemsPage() {
                                                   {/* Use the bulk's units from the itemUnits map */}
                                                   {(bulk.units.length > 0) ? (
                                                     <>
-                                                      <Input
-                                                        label="Warehouse Unit Identifier"
-                                                        value={bulk.units[0].uuid}
-                                                        isReadOnly
-                                                        classNames={{ inputWrapper: inputStyle.inputWrapper }}
-                                                        startContent={<Icon icon="mdi:cube-outline" className="text-default-500 mb-[0.2rem]" />}
-                                                        endContent={
+                                                      {/* Warehouse Unit Identifier */}
+                                                      <div className="flex flex-col">
+                                                        <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                          <div className="flex items-center gap-3">
+                                                            <Icon icon="mdi:cube-outline" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                            <div className="flex flex-col">
+                                                              <span className="text-xs text-default-600 font-medium">Warehouse Unit Identifier</span>
+                                                              <span className="text-md font-semibold text-default-700">
+                                                                {bulk.units[0].uuid}
+                                                              </span>
+                                                            </div>
+                                                          </div>
                                                           <Button
                                                             variant="flat"
                                                             color="default"
@@ -1601,41 +1774,69 @@ export default function WarehouseItemsPage() {
                                                           >
                                                             <Icon icon="mdi:content-copy" className="text-default-500" />
                                                           </Button>
-                                                        }
-                                                      />
+                                                        </div>
+                                                      </div>
 
                                                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                        <Input
-                                                          label="Item Code"
-                                                          value={bulk.units[0].code || ""}
-                                                          isReadOnly
-                                                          classNames={inputStyle}
-                                                          startContent={<Icon icon="mdi:barcode" className="text-default-500 mb-[0.2rem]" />}
-                                                        />
+                                                        {/* Item Code */}
+                                                        <div className="flex flex-col">
+                                                          <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                            <div className="flex items-center gap-3">
+                                                              <Icon icon="mdi:barcode" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                              <div className="flex flex-col">
+                                                                <span className="text-xs text-default-600 font-medium">Item Code</span>
+                                                                <span className="text-md font-semibold text-default-700">
+                                                                  {bulk.units[0].code || "N/A"}
+                                                                </span>
+                                                              </div>
+                                                            </div>
+                                                          </div>
+                                                        </div>
 
-                                                        <Input
-                                                          label="Item Name"
-                                                          value={bulk.units[0].name || ""}
-                                                          isReadOnly
-                                                          classNames={inputStyle}
-                                                          startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
-                                                        />
+                                                        {/* Item Name */}
+                                                        <div className="flex flex-col">
+                                                          <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                            <div className="flex items-center gap-3">
+                                                              <Icon icon="mdi:tag" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                              <div className="flex flex-col">
+                                                                <span className="text-xs text-default-600 font-medium">Item Name</span>
+                                                                <span className="text-md font-semibold text-default-700">
+                                                                  {bulk.units[0].name || "N/A"}
+                                                                </span>
+                                                              </div>
+                                                            </div>
+                                                          </div>
+                                                        </div>
 
-                                                        <Input
-                                                          label="Unit"
-                                                          value={`${bulk.units[0].unit_value} ${bulk.units[0].unit}`}
-                                                          isReadOnly
-                                                          classNames={inputStyle}
-                                                          startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.2rem]" />}
-                                                        />
+                                                        {/* Unit */}
+                                                        <div className="flex flex-col">
+                                                          <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                            <div className="flex items-center gap-3">
+                                                              <Icon icon="mdi:ruler" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                              <div className="flex flex-col">
+                                                                <span className="text-xs text-default-600 font-medium">Unit</span>
+                                                                <span className="text-md font-semibold text-default-700">
+                                                                  {`${bulk.units[0].unit_value} ${bulk.units[0].unit}`}
+                                                                </span>
+                                                              </div>
+                                                            </div>
+                                                          </div>
+                                                        </div>
 
-                                                        <Input
-                                                          label="Cost"
-                                                          value={`${bulk.units[0].cost}`}
-                                                          isReadOnly
-                                                          classNames={inputStyle}
-                                                          startContent={<Icon icon="mdi:currency-php" className="text-default-500 mb-[0.2rem]" />}
-                                                        />
+                                                        {/* Cost */}
+                                                        <div className="flex flex-col">
+                                                          <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                            <div className="flex items-center gap-3">
+                                                              <Icon icon="mdi:currency-php" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                              <div className="flex flex-col">
+                                                                <span className="text-xs text-default-600 font-medium">Cost</span>
+                                                                <span className="text-md font-semibold text-default-700">
+                                                                  ₱{bulk.units[0].cost}
+                                                                </span>
+                                                              </div>
+                                                            </div>
+                                                          </div>
+                                                        </div>
                                                       </div>
                                                     </>
                                                   ) : (
@@ -1702,14 +1903,19 @@ export default function WarehouseItemsPage() {
                                                             }
                                                           >
                                                             <div className="space-y-4 pb-4">
+                                                              {/* Warehouse Unit Identifier */}
                                                               {unit.uuid && (
-                                                                <Input
-                                                                  label="Warehouse Unit Identifier"
-                                                                  value={unit.uuid}
-                                                                  isReadOnly
-                                                                  classNames={{ inputWrapper: inputStyle.inputWrapper, base: "p-4 pb-0" }}
-                                                                  startContent={<Icon icon="mdi:cube-outline" className="text-default-500 mb-[0.2rem]" />}
-                                                                  endContent={
+                                                                <div className="flex flex-col p-4 pb-0">
+                                                                  <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                                    <div className="flex items-center gap-3">
+                                                                      <Icon icon="mdi:cube-outline" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                                      <div className="flex flex-col">
+                                                                        <span className="text-xs text-default-600 font-medium">Warehouse Unit Identifier</span>
+                                                                        <span className="text-md font-semibold text-default-700">
+                                                                          {unit.uuid}
+                                                                        </span>
+                                                                      </div>
+                                                                    </div>
                                                                     <Button
                                                                       variant="flat"
                                                                       color="default"
@@ -1718,62 +1924,104 @@ export default function WarehouseItemsPage() {
                                                                     >
                                                                       <Icon icon="mdi:content-copy" className="text-default-500" />
                                                                     </Button>
-                                                                  }
-                                                                />
+                                                                  </div>
+                                                                </div>
                                                               )}
 
                                                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 py-0">
-                                                                <Input
-                                                                  label="Item Code"
-                                                                  value={unit.code || ""}
-                                                                  isReadOnly
-                                                                  classNames={inputStyle}
-                                                                  startContent={<Icon icon="mdi:barcode" className="text-default-500 mb-[0.2rem]" />}
-                                                                />
+                                                                {/* Item Code */}
+                                                                <div className="flex flex-col">
+                                                                  <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                                    <div className="flex items-center gap-3">
+                                                                      <Icon icon="mdi:barcode" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                                      <div className="flex flex-col">
+                                                                        <span className="text-xs text-default-600 font-medium">Item Code</span>
+                                                                        <span className="text-md font-semibold text-default-700">
+                                                                          {unit.code || "N/A"}
+                                                                        </span>
+                                                                      </div>
+                                                                    </div>
+                                                                  </div>
+                                                                </div>
 
-                                                                <Input
-                                                                  label="Item Name"
-                                                                  value={unit.name || ""}
-                                                                  isReadOnly
-                                                                  classNames={inputStyle}
-                                                                  startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
-                                                                />
+                                                                {/* Item Name */}
+                                                                <div className="flex flex-col">
+                                                                  <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                                    <div className="flex items-center gap-3">
+                                                                      <Icon icon="mdi:package-variant" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                                      <div className="flex flex-col">
+                                                                        <span className="text-xs text-default-600 font-medium">Item Name</span>
+                                                                        <span className="text-md font-semibold text-default-700">
+                                                                          {unit.name || "N/A"}
+                                                                        </span>
+                                                                      </div>
+                                                                    </div>
+                                                                  </div>
+                                                                </div>
 
-                                                                <Input
-                                                                  label="Unit Value"
-                                                                  value={unit.unit_value ? formatNumber(unit.unit_value) : ""}
-                                                                  isReadOnly
-                                                                  classNames={inputStyle}
-                                                                  startContent={<Icon icon="mdi:scale" className="text-default-500 mb-[0.2rem]" />}
-                                                                />
+                                                                {/* Unit Value */}
+                                                                <div className="flex flex-col">
+                                                                  <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                                    <div className="flex items-center gap-3">
+                                                                      <Icon icon="mdi:scale" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                                      <div className="flex flex-col">
+                                                                        <span className="text-xs text-default-600 font-medium">Unit Value</span>
+                                                                        <span className="text-md font-semibold text-default-700">
+                                                                          {unit.unit_value ? formatNumber(unit.unit_value) : "N/A"}
+                                                                        </span>
+                                                                      </div>
+                                                                    </div>
+                                                                  </div>
+                                                                </div>
 
-                                                                <Input
-                                                                  label="Unit"
-                                                                  value={unit.unit || ""}
-                                                                  isReadOnly
-                                                                  classNames={inputStyle}
-                                                                  startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.2rem]" />}
-                                                                />
+                                                                {/* Unit */}
+                                                                <div className="flex flex-col">
+                                                                  <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                                    <div className="flex items-center gap-3">
+                                                                      <Icon icon="mdi:ruler" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                                      <div className="flex flex-col">
+                                                                        <span className="text-xs text-default-600 font-medium">Unit</span>
+                                                                        <span className="text-md font-semibold text-default-700">
+                                                                          {unit.unit || "N/A"}
+                                                                        </span>
+                                                                      </div>
+                                                                    </div>
+                                                                  </div>
+                                                                </div>
 
-                                                                <Input
-                                                                  label="Status"
-                                                                  value={unit.status || "UNKNOWN"}
-                                                                  isReadOnly
-                                                                  classNames={inputStyle}
-                                                                  startContent={<Icon icon="mdi:information" className="text-default-500 mb-[0.2rem]" />}
-                                                                />
+                                                                {/* Status */}
+                                                                <div className="flex flex-col">
+                                                                  <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                                    <div className="flex items-center gap-3">
+                                                                      <Icon icon="mdi:information" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                                      <div className="flex flex-col">
+                                                                        <span className="text-xs text-default-600 font-medium">Status</span>
+                                                                        <span className="text-md font-semibold text-default-700">
+                                                                          {unit.status || "UNKNOWN"}
+                                                                        </span>
+                                                                      </div>
+                                                                    </div>
+                                                                  </div>
+                                                                </div>
 
-                                                                <Input
-                                                                  label="Created At"
-                                                                  value={unit.created_at ? new Date(unit.created_at).toLocaleString() : ""}
-                                                                  isReadOnly
-                                                                  classNames={inputStyle}
-                                                                  startContent={<Icon icon="mdi:calendar" className="text-default-500 mb-[0.2rem]" />}
-                                                                />
+                                                                {/* Created At */}
+                                                                <div className="flex flex-col">
+                                                                  <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                                    <div className="flex items-center gap-3">
+                                                                      <Icon icon="mdi:calendar" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                                      <div className="flex flex-col">
+                                                                        <span className="text-xs text-default-600 font-medium">Created At</span>
+                                                                        <span className="text-md font-semibold text-default-700">
+                                                                          {unit.created_at ? formatDate(unit.created_at) : "N/A"}
+                                                                        </span>
+                                                                      </div>
+                                                                    </div>
+                                                                  </div>
+                                                                </div>
                                                               </div>
 
                                                               {/* Unit action buttons */}
-                                                              <div className="flex justify-end gap-2 p-4 pt-0">
+                                                              <div className="flex justify-end gap-2 px-4">
                                                                 <Button
                                                                   color="primary"
                                                                   variant="flat"

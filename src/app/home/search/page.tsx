@@ -128,6 +128,27 @@ export default function SearchPage() {
     );
   };
 
+  const calculateBulkTotals = (bulk: any) => {
+    if (!bulk.warehouse_inventory_item_unit || bulk.warehouse_inventory_item_unit.length === 0) {
+      return {
+        currentUnitValue: 0,
+        totalUnitValue: 0,
+        currentCost: 0,
+        totalCost: 0
+      };
+    }
+
+    const units = bulk.warehouse_inventory_item_unit;
+    const availableUnits = units.filter((unit: any) => unit.status === 'AVAILABLE');
+
+    return {
+      currentUnitValue: availableUnits.reduce((sum: number, unit: any) => sum + (parseFloat(unit.unit_value) || 0), 0),
+      totalUnitValue: units.reduce((sum: number, unit: any) => sum + (parseFloat(unit.unit_value) || 0), 0),
+      currentCost: availableUnits.reduce((sum: number, unit: any) => sum + (parseFloat(unit.cost) || 0), 0),
+      totalCost: units.reduce((sum: number, unit: any) => sum + (parseFloat(unit.cost) || 0), 0)
+    };
+  };
+
   // Load user and check for UUID in URL
   useEffect(() => {
     const initPage = async () => {
@@ -3129,23 +3150,47 @@ export default function SearchPage() {
 
                                       {/* Bulk Details */}
                                       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4 mt-2">
-                                        <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
-                                          <p className="text-xs font-medium text-secondary-700">Unit</p>
-                                          <p className="text-secondary-900 text-sm">{bulk.unit || "N/A"}</p>
+                                        <div className="bg-secondary-50 rounded-lg p-3 border border-secondary-100">
+                                          <p className="text-xs font-medium text-secondary-700 mb-1">Available Value</p>
+                                          <p className="text-lg font-bold text-secondary-900">
+                                            {(() => {
+                                              const totals = calculateBulkTotals(bulk);
+                                              return `${totals.currentUnitValue} ${bulk.unit || ""}`;
+                                            })()}
+                                          </p>
+                                          <p className="text-sm text-secondary-600">
+                                            {(() => {
+                                              const totals = calculateBulkTotals(bulk);
+                                              return `of ${totals.totalUnitValue} ${bulk.unit || ""} total`;
+                                            })()}
+                                          </p>
                                         </div>
-                                        <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
-                                          <p className="text-xs font-medium text-secondary-700">Bulk Unit</p>
-                                          <p className="text-secondary-900 text-sm">{bulk.bulk_unit || "N/A"}</p>
-                                        </div>
-                                        <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
-                                          <p className="text-xs font-medium text-secondary-700">Cost</p>
-                                          <p className="text-secondary-900 text-sm">
-                                            {bulk.cost ? formatCurrency(bulk.cost) : "N/A"}
+                                        <div className="bg-secondary-50 rounded-lg p-3 border border-secondary-100">
+                                          <p className="text-xs font-medium text-secondary-700 mb-1">Available Cost</p>
+                                          <p className="text-lg font-bold text-secondary-900">
+                                            {(() => {
+                                              const totals = calculateBulkTotals(bulk);
+                                              return formatCurrency(totals.currentCost);
+                                            })()}
+                                          </p>
+                                          <p className="text-sm text-secondary-600">
+                                            {(() => {
+                                              const totals = calculateBulkTotals(bulk);
+                                              return `of ${formatCurrency(totals.totalCost)} total`;
+                                            })()}
                                           </p>
                                         </div>
                                         <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
-                                          <p className="text-xs font-medium text-secondary-700">Type</p>
-                                          <p className="text-secondary-900 text-sm">{bulk.is_single_item ? "Single Item" : "Multiple Items"}</p>
+                                          <p className="text-xs font-medium text-secondary-700 mb-1">Bulk Unit</p>
+                                          <p className="text-lg font-bold text-secondary-900">
+                                            {bulk.bulk_unit || "N/A"}
+                                          </p>
+                                        </div>
+                                        <div className="bg-secondary-50 rounded-lg p-2 border border-secondary-100">
+                                          <p className="text-xs font-medium text-secondary-700 mb-1">Type</p>
+                                          <p className="text-lg font-bold text-secondary-900">
+                                            {bulk.is_single_item ? "Single Item" : "Multiple Items"}
+                                          </p>
                                         </div>
                                       </div>
 
@@ -3213,7 +3258,7 @@ export default function SearchPage() {
                                                 </div>
                                                 <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
                                                   <div className="bg-secondary-100 rounded-lg p-2 border border-secondary-100">
-                                                    <p className="text-xs font-medium text-secondary-700">Code</p>
+                                                    <p className="text-xs font-medium text-secondary-700">Item Code</p>
                                                     <p className="text-secondary-900 text-sm">{unit.code || "N/A"}</p>
                                                   </div>
                                                   <div className="bg-secondary-100 rounded-lg p-2 border border-secondary-100">
@@ -3221,12 +3266,12 @@ export default function SearchPage() {
                                                     <p className="text-secondary-900 text-sm">{unit.location_code || "Not set"}</p>
                                                   </div>
                                                   <div className="bg-secondary-100 rounded-lg p-2 border border-secondary-100">
-                                                    <p className="text-xs font-medium text-secondary-700">Cost</p>
-                                                    <p className="text-secondary-900 text-sm">{unit.cost ? formatCurrency(unit.cost) : "N/A"}</p>
+                                                    <p className="text-xs font-medium text-secondary-700">Unit Value</p>
+                                                    <p className="text-secondary-900 text-sm">{unit.unit_value || "N/A"} {unit.unit || "N/A"}</p>
                                                   </div>
                                                   <div className="bg-secondary-100 rounded-lg p-2 border border-secondary-100">
-                                                    <p className="text-xs font-medium text-secondary-700">Updated</p>
-                                                    <p className="text-secondary-900 text-sm">{formatDate(unit.updated_at)}</p>
+                                                    <p className="text-xs font-medium text-secondary-700">Cost</p>
+                                                    <p className="text-secondary-900 text-sm">{unit.cost ? formatCurrency(unit.cost) : "N/A"}</p>
                                                   </div>
                                                 </div>
                                                 {unit.properties && Object.keys(unit.properties).length > 0 && (
