@@ -19,6 +19,7 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
+  ScrollShadow,
   Spinner,
   Tab,
   Tabs
@@ -27,6 +28,8 @@ import { Icon } from '@iconify-icon/react/dist/iconify.mjs';
 import { AnimatePresence, motion } from 'framer-motion';
 import React, { Suspense, useEffect, useState } from 'react';
 import { saveWarehouseLayout } from './actions';
+import CustomScrollbar from '@/components/custom-scrollbar';
+import { herouiColor } from '@/utils/colors';
 
 
 interface WarehouseLayoutEditorProps {
@@ -665,9 +668,10 @@ export default function WarehouseLayoutEditorModal({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      size="4xl"
-      scrollBehavior="inside"
+      size="5xl"
       classNames={{
+        base: "h-[calc(100vh)] sm:h-[calc(100vh-64px)]",
+        wrapper: "overflow-hidden",
         backdrop: "bg-background/50",
       }}
       backdrop="blur"
@@ -682,7 +686,7 @@ export default function WarehouseLayoutEditorModal({
           </div>
         </ModalHeader>
 
-        <ModalBody>
+        <ModalBody className="flex flex-col gap-4">
           {error && (
             <Alert
               color="danger"
@@ -695,10 +699,11 @@ export default function WarehouseLayoutEditorModal({
           )}
 
           {activeTab === "editor" ? (
-            <div>
+            <div className="flex-1 flex flex-col gap-4">
               {warehouseLayout[currentFloor] && (
-                <div className="border border-default-200 rounded-lg p-4">
-                  <div className="flex justify-between items-center mb-4">
+                <div className="border border-default-200 rounded-lg p-4 flex flex-1 flex-col">
+                  { /* Layout editor header */}
+                  <div className="flex justify-between items-center mb-4 flex-shrink-0">
                     <h4 className="text-lg font-medium">Layout Editor</h4>
                     <div className="flex gap-2">
                       <Button
@@ -724,107 +729,116 @@ export default function WarehouseLayoutEditorModal({
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap gap-4 items-center mb-4">
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      <NumberInput
-                        label="Rows"
-                        className="w-32"
-                        {...autoCompleteStyle}
-                        minValue={1}
-                        maxValue={100}
-                        value={layoutRows}
-                        onValueChange={(value) => {
-                          if (value !== undefined) {
-                            setLayoutRows(value);
-                          }
-                        }}
-                      />
-                      <NumberInput
-                        label="Columns"
-                        className="w-32"
-                        {...autoCompleteStyle}
-                        minValue={1}
-                        maxValue={100}
-                        value={layoutColumns}
-                        onValueChange={(value) => {
-                          if (value !== undefined) {
-                            setLayoutColumns(value);
-                          }
-                        }}
-                      />
+                  {/* Layout controls */}
+                  <div className="flex-shrink-0 w-full">
+                    <CustomScrollbar direction='horizontal'
+                      hideScrollbars
+                      scrollShadow scrollShadowColor={herouiColor('content1', 'hex') as string}>
+                      <div className="gap-2 mb-4 flex">
+                        <NumberInput
+                          label="Rows"
+                          className="w-32 flex-shrink-0"
+                          {...autoCompleteStyle}
+                          minValue={1}
+                          maxValue={100}
+                          value={layoutRows}
+                          onValueChange={(value) => {
+                            if (value !== undefined) {
+                              setLayoutRows(value);
+                            }
+                          }}
+                        />
+                        <NumberInput
+                          label="Columns"
+                          className="w-32 flex-shrink-0"
+                          {...autoCompleteStyle}
+                          minValue={1}
+                          maxValue={100}
+                          value={layoutColumns}
+                          onValueChange={(value) => {
+                            if (value !== undefined) {
+                              setLayoutColumns(value);
+                            }
+                          }}
+                        />
 
-                      <NumberInput
-                        label="Max Height"
-                        className="w-32"
-                        {...autoCompleteStyle}
-                        minValue={1}
-                        maxValue={20}
-                        value={warehouseLayout[currentFloor]?.height || 10}
-                        onValueChange={(value) => {
-                          if (value !== undefined) {
-                            setFloorHeight(currentFloor, value);
-                          }
-                        }}
-                      />
+                        <NumberInput
+                          label="Max Height"
+                          className="w-32 flex-shrink-0"
+                          {...autoCompleteStyle}
+                          minValue={1}
+                          maxValue={20}
+                          value={warehouseLayout[currentFloor]?.height || 10}
+                          onValueChange={(value) => {
+                            if (value !== undefined) {
+                              setFloorHeight(currentFloor, value);
+                            }
+                          }}
+                        />
 
-                      <NumberInput
-                        label="Shelf Count"
-                        className="w-32"
-                        {...autoCompleteStyle}
-                        minValue={1}
-                        maxValue={warehouseLayout[currentFloor]?.height || 10}
-                        value={selectedCellValue}
-                        onValueChange={(value) => {
-                          if (value !== undefined) {
-                            setSelectedCellValue(value);
-                            setShelvesForSelection(value);
-                          }
-                        }}
-                      />
-                    </div>
+                        <NumberInput
+                          label="Shelf Count"
+                          className="w-32 flex-shrink-0"
+                          {...autoCompleteStyle}
+                          minValue={1}
+                          maxValue={warehouseLayout[currentFloor]?.height || 10}
+                          value={selectedCellValue}
+                          onValueChange={(value) => {
+                            if (value !== undefined) {
+                              setSelectedCellValue(value);
+                              setShelvesForSelection(value);
+                            }
+                          }}
+                        />
+                      </div>
+                    </CustomScrollbar>
                   </div>
 
-                  <div className="overflow-auto border border-default-200 rounded-lg max-h-[calc(100vh-540px)]">
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: `repeat(${layoutColumns}, 1fr)`,
-                        gap: '1px',
-                        userSelect: 'none',
-                        WebkitUserSelect: 'none',
-                        MozUserSelect: 'none',
-                        msUserSelect: 'none'
-                      }}
-                      className="select-none"
-                    >
-                      {warehouseLayout[currentFloor]?.matrix.map((row, rowIndex) => (
-                        row.map((cell, colIndex) => {
-                          const isSelected = selectedCells[`${rowIndex}-${colIndex}`] === true;
+                  {/* Layout grid */}
+                  <div className="flex-1 overflow-auto border border-default-200 rounded-lg max-h-[calc(100vh-438px)] sm:max-h-[calc(100vh-442px)]">
+                    <CustomScrollbar direction='both'
+                      scrollShadow scrollShadowColor={herouiColor('content1', 'hex') as string}>
+                      <div className="w-full h-full flex items-center justify-center min-w-fit min-h-fit">
+                        <div className="inline-block">
+                          {warehouseLayout[currentFloor]?.matrix.map((row, rowIndex) => (
+                            <div key={rowIndex} className="flex gap-[2px] mb-[2px]">
+                              {row.map((cell, colIndex) => {
+                                const isSelected = selectedCells[`${rowIndex}-${colIndex}`] === true;
 
-                          return (
-                            <div
-                              key={`${rowIndex}-${colIndex}`}
-                              data-row={rowIndex}
-                              data-col={colIndex}
-                              className={`
-                                w-6 h-6 flex items-center justify-center text-xs
-                                ${cell > 0 ? 'bg-primary-400 hover:bg-primary-300' : 'bg-default-200 hover:bg-default-300'}
-                                ${isSelected ? 'ring-2 ring-primary-500 cell-selected bg-default-300' : ''}
-                                cursor-pointer transition-all
-                              `}
-                              onMouseDown={(e) => handleCellClick(rowIndex, colIndex, e)}
-                              onMouseEnter={(e) => handleCellDrag(rowIndex, colIndex, e)}
-                              title={`Row ${rowIndex + 1}, Column ${colIndex + 1}: ${cell > 0 ? `${cell} shelves` : 'Empty'}`}
-                            >
-                              {cell > 0 && cell}
+                                return (
+                                  <div
+                                    key={`${rowIndex}-${colIndex}`}
+                                    data-row={rowIndex}
+                                    data-col={colIndex}
+                                    className={`
+                            w-6 h-6 flex items-center justify-center text-xs flex-shrink-0
+                            ${cell > 0 ? 'bg-primary-400 hover:bg-primary-300' : 'bg-default-200 hover:bg-default-300'}
+                            ${isSelected ? 'ring-2 ring-primary-500 cell-selected bg-default-300' : ''}
+                            cursor-pointer transition-all select-none
+                            `}
+                                    style={{
+                                      userSelect: 'none',
+                                      WebkitUserSelect: 'none',
+                                      MozUserSelect: 'none',
+                                      msUserSelect: 'none'
+                                    }}
+                                    onMouseDown={(e) => handleCellClick(rowIndex, colIndex, e)}
+                                    onMouseEnter={(e) => handleCellDrag(rowIndex, colIndex, e)}
+                                    title={`Row ${rowIndex + 1}, Column ${colIndex + 1}: ${cell > 0 ? `${cell} shelves` : 'Empty'}`}
+                                  >
+                                    {cell > 0 && cell}
+                                  </div>
+                                );
+                              })}
                             </div>
-                          );
-                        })
-                      ))}
-                    </div>
+                          ))}
+                        </div>
+                      </div>
+                    </CustomScrollbar>
                   </div>
 
-                  <div className="flex justify-between items-center mt-4">
+                  {/* Selection controls */}
+                  <div className="flex justify-between items-center mt-4 flex-shrink-0">
                     <Popover
                       classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
                       motionProps={popoverTransition(false)}
@@ -885,12 +899,12 @@ export default function WarehouseLayoutEditorModal({
               )}
             </div>
           ) : (
-            <div className="border border-default-200 rounded-lg p-4">
+            <div className="flex-1 border border-default-200 rounded-lg p-4">
               <div className="flex justify-between items-center mb-4">
-                <h4 className="text-lg font-medium">3D Warehouse Preview</h4>
+                <h4 className="text-lg font-medium mt-1">3D Warehouse Preview</h4>
               </div>
 
-              <div className="relative h-[calc(100vh-460px)] w-full border border-default-200 rounded-lg overflow-hidden">
+              <div className="relative sm:h-[calc(100vh-370px)] h-[calc(100vh-366px)] w-full border border-default-200 rounded-lg overflow-hidden">
                 <Suspense fallback={
                   <div className="flex items-center justify-center h-full">
                     <Spinner size="lg" color="primary" />
@@ -1246,7 +1260,7 @@ export default function WarehouseLayoutEditorModal({
           )}
         </ModalBody>
 
-        <ModalFooter className="flex justify-between items-center">
+        <ModalFooter className="flex justify-between items-center sm:flex-row flex-col gap-4">
           <Tabs
             selectedKey={activeTab}
             onSelectionChange={(key) => setActiveTab(key as "editor" | "preview")}
@@ -1257,7 +1271,7 @@ export default function WarehouseLayoutEditorModal({
             <Tab key="preview" title="3D Warehouse Preview" />
           </Tabs>
 
-          <div>
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
             <Button
               variant="flat"
               color="default"
