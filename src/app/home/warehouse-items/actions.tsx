@@ -550,28 +550,35 @@ export async function markWarehouseUnitAsUsed(unitUuid: string): Promise<{ succe
       console.error('Error fetching all units in bulk:', fetchUnitsError);
       // Don't fail the operation if we can't update the bulk status
     } else if (allUnitsInBulk && allUnitsInBulk.every(u => u.status === 'USED')) {
-      // If all units are used, mark the bulk as used too
-      const updatedBulkStatusHistory: StatusHistory = {
-        [timestamp]: newStatus,
-      };
-
-      await supabase
-        .from('warehouse_inventory_item_bulk')
-        .update({
-          status: newStatus,
-          status_history: updatedBulkStatusHistory,
-          updated_at: timestamp,
-        })
-        .eq('uuid', unitData.warehouse_inventory_bulk_uuid);
-
-      // Also check if we need to update the main warehouse inventory item
+      // Get the current bulk to preserve its status history
       const { data: bulkData, error: fetchBulkError } = await supabase
         .from('warehouse_inventory_item_bulk')
-        .select('warehouse_inventory_uuid')
+        .select('status_history, warehouse_inventory_uuid')
         .eq('uuid', unitData.warehouse_inventory_bulk_uuid)
         .single();
 
       if (!fetchBulkError && bulkData) {
+        // Properly merge the bulk status history
+        const currentBulkStatusHistory: StatusHistory =
+          bulkData.status_history && typeof bulkData.status_history === 'object' && !Array.isArray(bulkData.status_history)
+            ? (bulkData.status_history as StatusHistory)
+            : {};
+
+        const updatedBulkStatusHistory: StatusHistory = {
+          ...currentBulkStatusHistory,
+          [timestamp]: newStatus,
+        };
+
+        await supabase
+          .from('warehouse_inventory_item_bulk')
+          .update({
+            status: newStatus,
+            status_history: updatedBulkStatusHistory,
+            updated_at: timestamp,
+          })
+          .eq('uuid', unitData.warehouse_inventory_bulk_uuid);
+
+        // Check if we need to update the main warehouse inventory item
         const { data: allBulks, error: fetchAllBulksError } = await supabase
           .from('warehouse_inventory_item_bulk')
           .select('status')
@@ -598,4 +605,3 @@ export async function markWarehouseUnitAsUsed(unitUuid: string): Promise<{ succe
     };
   }
 }
-
