@@ -354,6 +354,9 @@ export default function DashboardPage() {
       case 'AVAILABLE': return 'success';
       case 'IN_WAREHOUSE': return 'primary';
       case 'RESERVED': return 'warning';
+      case 'CRITICAL': return 'danger';
+      case 'IN_STOCK': return 'success';
+      case 'WARNING': return 'warning';
       case 'OUT_OF_STOCK': return 'danger';
       default: return 'default';
     }
@@ -491,10 +494,10 @@ export default function DashboardPage() {
                             <TableCell>{item.reorder_point}</TableCell>
                             <TableCell>
                               <Chip
-                                color={item.current_stock === 0 ? "danger" : "warning"}
+                                color={getStatusColor(item.status)}
                                 size="sm"
                               >
-                                {item.current_stock === 0 ? "Out of Stock" : "Low Stock"}
+                                {item.status.replace(/_/g, ' ')}
                               </Chip>
                             </TableCell>
                           </TableRow>
