@@ -2695,7 +2695,7 @@ export default function SearchPage() {
         backdrop="blur"
         classNames={{
           backdrop: "bg-background/50",
-          base: "bg-background h-[calc(100vh-150px)]",
+          base: "bg-background h-[calc(100vh)] sm:h-[calc(100vh-150px)]",
           header: "border-b border-divider",
           body: "py-6",
           footer: "border-t border-divider"
@@ -2898,12 +2898,15 @@ export default function SearchPage() {
                              <div className="flex-1">
                             <h3 className="text-lg font-semibold">Warehouse Items Management</h3>
                               <p className="text-sm text-secondary-600">
-                                {warehouseBulkItems[0].name}
+                                {warehouseBulkItems && warehouseBulkItems.length > 0 ?
+                                   warehouseBulkItems[0].name
+                                : <Skeleton className="w-32 h-4 mt-1 rounded-full" />
+                                }                              
                               </p>
                             </div>
                             
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex gap-2 flex-wrap items-end justify-end">
                             <Button
                               color="secondary"
                               variant="flat"
