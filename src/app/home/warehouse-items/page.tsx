@@ -42,7 +42,7 @@ import { lazy, memo, Suspense, useEffect, useMemo, useState } from "react";
 import CardList from "@/components/card-list";
 import LoadingAnimation from "@/components/loading-animation";
 import { ShelfLocation } from "@/components/shelf-selector-3d";
-import { motionTransition, popoverTransition } from "@/utils/anim";
+import { motionTransition, motionTransitionScale, motionTransitionX, popoverTransition } from "@/utils/anim";
 import { formatCode, parseColumn } from '@/utils/floorplan';
 import { getUserFromCookies } from "@/utils/supabase/server/user";
 import { copyToClipboard, formatDate, formatNumber, toNormalCase, toTitleCase } from "@/utils/tools";
@@ -136,11 +136,7 @@ export default function WarehouseItemsPage() {
   const [isLoadingMarkAsUsed, setIsLoadingMarkAsUsed] = useState(false);
   const [isLoadingMarkUnitAsUsed, setIsLoadingMarkUnitAsUsed] = useState<string | null>(null);
 
-
   const [showControls, setShowControls] = useState(false);
-
-  // Add near your other state variables
-  const [currentBulkIndex, setCurrentBulkIndex] = useState<number | null>(null);
 
   // Input style for consistency
   const inputStyle = {
@@ -154,6 +150,80 @@ export default function WarehouseItemsPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
 
+  // Add these new state variables after the existing state declarations (around line 135)
+  const [bulkSearchQuery, setBulkSearchQuery] = useState("");
+  const [bulkSearchFilters, setBulkSearchFilters] = useState({
+    status: null as string | null,
+    bulk_unit: null as string | null,
+    unit: null as string | null,
+  });
+  const [isBulkSearchFilterOpen, setIsBulkSearchFilterOpen] = useState(false);
+  const [showBulkSearch, setShowBulkSearch] = useState(false); // Add this new state
+
+  // Add this helper function to filter bulks and units (around line 170, after calculateBulkTotals)
+  const filterBulksAndUnits = (bulks: any[]) => {
+    if (!bulkSearchQuery && !bulkSearchFilters.status && !bulkSearchFilters.bulk_unit && !bulkSearchFilters.unit) {
+      return bulks;
+    }
+
+    return bulks.filter(bulk => {
+      // Search query filter
+      const searchLower = bulkSearchQuery.toLowerCase();
+      const bulkMatchesSearch = !bulkSearchQuery ||
+        bulk.uuid?.toLowerCase().includes(searchLower) ||
+        bulk.bulk_unit?.toLowerCase().includes(searchLower) ||
+        bulk.unit?.toLowerCase().includes(searchLower) ||
+        bulk.status?.toLowerCase().includes(searchLower) ||
+        bulk.location_code?.toLowerCase().includes(searchLower) ||
+        bulk.units?.some((unit: any) =>
+          unit.uuid?.toLowerCase().includes(searchLower) ||
+          unit.code?.toLowerCase().includes(searchLower) ||
+          unit.name?.toLowerCase().includes(searchLower) ||
+          unit.status?.toLowerCase().includes(searchLower) ||
+          unit.unit?.toLowerCase().includes(searchLower)
+        );
+
+      // Status filter
+      const statusMatches = !bulkSearchFilters.status ||
+        bulk.status === bulkSearchFilters.status ||
+        bulk.units?.some((unit: any) => unit.status === bulkSearchFilters.status);
+
+      // Bulk unit filter
+      const bulkUnitMatches = !bulkSearchFilters.bulk_unit ||
+        bulk.bulk_unit === bulkSearchFilters.bulk_unit;
+
+      // Unit filter
+      const unitMatches = !bulkSearchFilters.unit ||
+        bulk.unit === bulkSearchFilters.unit ||
+        bulk.units?.some((unit: any) => unit.unit === bulkSearchFilters.unit);
+
+      return bulkMatchesSearch && statusMatches && bulkUnitMatches && unitMatches;
+    });
+  };
+
+  // Add this helper function to get unique filter options (around line 200)
+  const getFilterOptions = (bulks: any[]) => {
+    const statuses = new Set<string>();
+    const bulkUnits = new Set<string>();
+    const units = new Set<string>();
+
+    bulks.forEach(bulk => {
+      if (bulk.status) statuses.add(bulk.status);
+      if (bulk.bulk_unit) bulkUnits.add(bulk.bulk_unit);
+      if (bulk.unit) units.add(bulk.unit);
+
+      bulk.units?.forEach((unit: any) => {
+        if (unit.status) statuses.add(unit.status);
+        if (unit.unit) units.add(unit.unit);
+      });
+    });
+
+    return {
+      statuses: Array.from(statuses).sort(),
+      bulkUnits: Array.from(bulkUnits).sort(),
+      units: Array.from(units).sort()
+    };
+  };
 
   const calculateBulkTotals = (bulk: any) => {
     if (!bulk.units || bulk.units.length === 0) {
@@ -1536,597 +1606,856 @@ export default function WarehouseItemsPage() {
                       }>
                       {formData && formData.bulks && (
                         <div>
-                          <h2 className="text-xl font-semibold mb-4 w-full text-center">Bulk Items</h2>
+                          <div className="flex lg:justify-between justify-center items-center mb-4 flex-col lg:flex-row gap-2">
+                            <h2 className="text-xl font-semibold">Bulk Items</h2>
+                            <div className="flex">
+                              <AnimatePresence mode="popLayout">
+                                {!showBulkSearch ? (
+                                  <motion.div
+                                    key="search-button"
+                                    {...motionTransitionScale}
+                                  >
+                                    <Button
+                                      variant="flat"
+                                      color="default"
+                                      size="sm"
+                                      startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
+                                      onPress={() => setShowBulkSearch(true)}
+                                    >
+                                      Search & Filter
+                                    </Button>
+                                  </motion.div>
+                                ) : (
+                                  <motion.div
+                                    key="search-form"
+                                    {...motionTransitionX}
+                                  >
+                                    <div className="flex items-center gap-2 w-full overflow-hidden">
+                                      <Input
+                                        placeholder="Search keywords..."
+                                        value={bulkSearchQuery}
+                                        onChange={(e) => setBulkSearchQuery(e.target.value)}
+                                        isClearable
+                                        onClear={() => setBulkSearchQuery("")}
+                                        startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
+                                        size="sm"
+                                        className="max-w-48 flex-grow"
+                                      />
+                                      <Popover
+                                        isOpen={isBulkSearchFilterOpen}
+                                        onOpenChange={setIsBulkSearchFilterOpen}
+                                        classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
+                                        motionProps={popoverTransition()}
+                                        offset={10}
+                                        placement="bottom-start"
+                                      >
+                                        <PopoverTrigger>
+                                          <Button
+                                            variant="flat"
+                                            color="default"
+                                            size="sm"
+                                            className="min-w-18 w-18"
+                                          >
+                                            <div className="flex items-center gap-1">
+                                              <Icon icon="fluent:filter-12-filled" className="text-default-500" />
+                                              Filter
+                                            </div>
+                                          </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-96 p-0 overflow-hidden">
+                                          <div className="w-full">
+                                            <div className="space-y-4 p-4">
+                                              <h3 className="text-lg font-semibold items-center w-full text-center">
+                                                Bulk Filter Options
+                                              </h3>
+
+                                              {/* Filters */}
+                                              <div className="grid grid-cols-1 gap-4">
+                                                {(() => {
+                                                  const filterOptions = getFilterOptions(formData?.bulks || []);
+
+                                                  return (
+                                                    <>
+                                                      {/* Status Filter */}
+                                                      <Autocomplete
+                                                        label="Filter by Bulk Status"
+                                                        placeholder="All Statuses"
+                                                        selectedKey={bulkSearchFilters.status || ""}
+                                                        onSelectionChange={(value) =>
+                                                          setBulkSearchFilters(prev => ({ ...prev, status: value as string || null }))
+                                                        }
+                                                        startContent={<Icon icon="mdi:information" className="text-default-500 mb-[0.2rem]" />}
+                                                        inputProps={autoCompleteStyle}
+                                                      >
+                                                        {[<AutocompleteItem key="">All Statuses</AutocompleteItem>,
+                                                        ...filterOptions.statuses.map((status) => (
+                                                          <AutocompleteItem key={status}>
+                                                            {status}
+                                                          </AutocompleteItem>
+                                                        ))]}
+                                                      </Autocomplete>
+
+                                                      {/* Bulk Unit Filter */}
+                                                      <Autocomplete
+                                                        label="Filter by Bulk Unit"
+                                                        placeholder="All Bulk Units"
+                                                        selectedKey={bulkSearchFilters.bulk_unit || ""}
+                                                        onSelectionChange={(value) =>
+                                                          setBulkSearchFilters(prev => ({ ...prev, bulk_unit: value as string || null }))
+                                                        }
+                                                        startContent={<Icon icon="mdi:cube-outline" className="text-default-500 mb-[0.2rem]" />}
+                                                        inputProps={autoCompleteStyle}
+                                                      >
+                                                        {[<AutocompleteItem key="">All Bulk Units</AutocompleteItem>,
+                                                        ...filterOptions.bulkUnits.map((bulkUnit) => (
+                                                          <AutocompleteItem key={bulkUnit}>
+                                                            {bulkUnit}
+                                                          </AutocompleteItem>
+                                                        ))]}
+                                                      </Autocomplete>
+
+                                                      {/* Unit Filter */}
+                                                      <Autocomplete
+                                                        label="Filter by Unit"
+                                                        placeholder="All Units"
+                                                        selectedKey={bulkSearchFilters.unit || ""}
+                                                        onSelectionChange={(value) =>
+                                                          setBulkSearchFilters(prev => ({ ...prev, unit: value as string || null }))
+                                                        }
+                                                        startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.2rem]" />}
+                                                        inputProps={autoCompleteStyle}
+                                                      >
+                                                        {[<AutocompleteItem key="">All Units</AutocompleteItem>,
+                                                        ...filterOptions.units.map((unit) => (
+                                                          <AutocompleteItem key={unit}>
+                                                            {unit}
+                                                          </AutocompleteItem>
+                                                        ))]}
+                                                      </Autocomplete>
+                                                    </>
+                                                  );
+                                                })()}
+                                              </div>
+                                            </div>
+
+                                            <div className="p-4 border-t border-default-200 flex justify-end gap-2 bg-default-100/50">
+                                              {/* Clear All Filters Button */}
+                                              {(bulkSearchFilters.status || bulkSearchFilters.bulk_unit || bulkSearchFilters.unit) && (
+                                                <Button
+                                                  variant="flat"
+                                                  color="danger"
+                                                  size="sm"
+                                                  onPress={() => {
+                                                    setBulkSearchFilters({ status: null, bulk_unit: null, unit: null });
+                                                  }}
+                                                  startContent={<Icon icon="mdi:filter-remove" />}
+                                                >
+                                                  Clear All Filters
+                                                </Button>
+                                              )}
+                                              <Button
+                                                size="sm"
+                                                variant="flat"
+                                                onPress={() => setIsBulkSearchFilterOpen(false)}
+                                              >
+                                                Close
+                                              </Button>
+                                            </div>
+                                          </div>
+                                        </PopoverContent>
+                                      </Popover>
+                                      <Button
+                                        variant="flat"
+                                        color="danger"
+                                        size="sm"
+                                        isIconOnly
+                                        onPress={() => {
+                                          setShowBulkSearch(false);
+                                          setBulkSearchQuery("");
+                                          setBulkSearchFilters({ status: null, bulk_unit: null, unit: null });
+                                        }}
+                                      >
+                                        <Icon icon="mdi:close" className="text-default-500" />
+                                      </Button>
+                                    </div>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+                            </div>
+                          </div>
+
                           <div>
                             <div className="flex justify-between items-center">
-                              <div className="flex items-center gap-2">
-
-                                <Chip color="default" variant="flat" size="sm">
-                                  {formData.bulks.length} bulk{formData.bulks.length !== 1 ? "s" : ""}
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <Chip color="default" variant="flat" size="sm" className="flex-shrink-0">
+                                  {(() => {
+                                    const filteredBulks = filterBulksAndUnits(formData.bulks);
+                                    return `${filteredBulks.length} of ${formData.bulks.length} bulk${formData.bulks.length !== 1 ? "s" : ""}`;
+                                  })()}
                                 </Chip>
 
+                                {/* Active filters display */}
+                                {(bulkSearchQuery || bulkSearchFilters.status || bulkSearchFilters.bulk_unit || bulkSearchFilters.unit) && (
+                                  <ScrollShadow orientation="horizontal" className="flex-1" hideScrollBar>
+                                    <div className="flex items-center gap-1 min-w-max">
+                                      {bulkSearchQuery && (
+                                        <Chip
+                                          variant="flat"
+                                          color="primary"
+                                          size="sm"
+                                          onClose={() => setBulkSearchQuery("")}
+                                        >
+                                          Search: {bulkSearchQuery}
+                                        </Chip>
+                                      )}
+                                      {bulkSearchFilters.status && (
+                                        <Chip
+                                          variant="flat"
+                                          color={getStatusColor(bulkSearchFilters.status)}
+                                          size="sm"
+                                          onClose={() => setBulkSearchFilters(prev => ({ ...prev, status: null }))}
+                                        >
+                                          Status: {bulkSearchFilters.status}
+                                        </Chip>
+                                      )}
+                                      {bulkSearchFilters.bulk_unit && (
+                                        <Chip
+                                          variant="flat"
+                                          color="secondary"
+                                          size="sm"
+                                          onClose={() => setBulkSearchFilters(prev => ({ ...prev, bulk_unit: null }))}
+                                        >
+                                          Bulk Unit: {bulkSearchFilters.bulk_unit}
+                                        </Chip>
+                                      )}
+                                      {bulkSearchFilters.unit && (
+                                        <Chip
+                                          variant="flat"
+                                          color="warning"
+                                          size="sm"
+                                          onClose={() => setBulkSearchFilters(prev => ({ ...prev, unit: null }))}
+                                        >
+                                          Unit: {bulkSearchFilters.unit}
+                                        </Chip>
+                                      )}
+                                      <Button
+                                        size="sm"
+                                        variant="light"
+                                        onPress={() => {
+                                          setBulkSearchQuery("");
+                                          setBulkSearchFilters({ status: null, bulk_unit: null, unit: null });
+                                        }}
+                                        className="flex-shrink-0"
+                                      >
+                                        Clear all
+                                      </Button>
+                                    </div>
+                                  </ScrollShadow>
+                                )}
                               </div>
                             </div>
 
-                            {formData.bulks.length === 0 ? (
-                              <motion.div {...motionTransition}>
-                                <div className="py-8 h-48 text-center text-default-500 border border-dashed border-default-300 rounded-lg justify-center flex flex-col items-center">
-                                  <Icon icon="mdi:package-variant-closed" className="mx-auto mb-2 opacity-50" width={40} height={40} />
-                                  <p>No bulk items available for this warehouse item</p>
-                                </div>
-                              </motion.div>
-                            ) : (
-                              <motion.div {...motionTransition} className="-mx-4">
-                                <Accordion
-                                  selectionMode="multiple"
-                                  variant="splitted"
-                                  selectedKeys={expandedBulks}
-                                  onSelectionChange={(keys) => setExpandedBulks(keys as Set<string>)}
-                                  itemClasses={{
-                                    base: "p-0 bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
-                                    title: "font-normal text-lg font-semibold",
-                                    trigger: "p-4 data-[hover=true]:bg-default-100 flex items-center transition-colors",
-                                    indicator: "text-medium",
-                                    content: "p-0",
-                                  }}
-                                >
-                                  {formData.bulks.map((bulk, index) => (
-                                    <AccordionItem
-                                      key={bulk.uuid}
-                                      aria-label={`Bulk ${bulk.uuid}`}
-                                      className={`${index === 0 ? 'mt-4' : ''} mx-2`}
-                                      title={
-                                        <div className="flex justify-between items-center w-full">
-                                          <div className="flex items-center gap-2">
-                                            <span className="font-medium">
-                                              {bulk.is_single_item ? "Single Item" : `Bulk ${bulk.bulk_unit || ''}`}
-                                            </span>
-                                          </div>
-                                          <div className="flex gap-2 flex-wrap justify-end">
-                                            <Chip color="primary" variant="flat" size="sm">
-                                              {(() => {
-                                                const totals = calculateBulkTotals(bulk);
-                                                return totals.totalUnitValue > 0
-                                                  ? `${formatNumber(totals.currentUnitValue)}/${formatNumber(totals.totalUnitValue)} ${bulk.unit}`
-                                                  : `${formatNumber(bulk.unit_value)} ${bulk.unit}`;
-                                              })()}
-                                            </Chip>
-                                            {bulk.location_code && (
-                                              <Chip color="secondary" variant="flat" size="sm">
-                                                {bulk.location_code}
+                            {(() => {
+                              const filteredBulks = filterBulksAndUnits(formData.bulks);
+
+                              if (filteredBulks.length === 0) {
+                                return (
+                                  <motion.div {...motionTransition}>
+                                    <div className="py-8 h-48 text-center text-default-500 border border-dashed border-default-300 rounded-lg justify-center flex flex-col items-center mt-4">
+                                      <Icon icon="mdi:package-variant-closed" className="mx-auto mb-2 opacity-50" width={40} height={40} />
+                                      <p>
+                                        {(bulkSearchQuery || bulkSearchFilters.status || bulkSearchFilters.bulk_unit || bulkSearchFilters.unit)
+                                          ? "No bulk items match your search criteria"
+                                          : "No bulk items available for this warehouse item"
+                                        }
+                                      </p>
+                                    </div>
+                                  </motion.div>
+                                );
+                              }
+
+                              return (
+                                <motion.div {...motionTransition} className="-mx-4">
+                                  <Accordion
+                                    selectionMode="multiple"
+                                    variant="splitted"
+                                    selectedKeys={expandedBulks}
+                                    onSelectionChange={(keys) => setExpandedBulks(keys as Set<string>)}
+                                    itemClasses={{
+                                      base: "p-0 bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
+                                      title: "font-normal text-lg font-semibold",
+                                      trigger: "p-4 data-[hover=true]:bg-default-100 flex items-center transition-colors",
+                                      indicator: "text-medium",
+                                      content: "p-0",
+                                    }}
+                                  >
+                                    {filteredBulks.map((bulk, index) => (
+
+                                      <AccordionItem
+                                        key={bulk.uuid}
+                                        aria-label={`Bulk ${bulk.uuid}`}
+                                        className={`${index === 0 ? 'mt-4' : ''} mx-2`}
+                                        title={
+                                          <div className="flex justify-between items-center w-full">
+                                            <div className="flex items-center gap-2">
+                                              <span className="font-medium">
+                                                {bulk.is_single_item ? "Single Item" : `Bulk ${bulk.bulk_unit || ''}`}
+                                              </span>
+                                            </div>
+                                            <div className="flex gap-2 flex-wrap justify-end">
+                                              <Chip color="primary" variant="flat" size="sm">
+                                                {(() => {
+                                                  const totals = calculateBulkTotals(bulk);
+                                                  return totals.totalUnitValue > 0
+                                                    ? `${formatNumber(totals.currentUnitValue)}/${formatNumber(totals.totalUnitValue)} ${bulk.unit}`
+                                                    : `${formatNumber(bulk.unit_value)} ${bulk.unit}`;
+                                                })()}
                                               </Chip>
-                                            )}
-                                            {bulk.status && (
-                                              <Chip color={bulk.status === "AVAILABLE" ? "success" : "danger"} variant="flat" size="sm">
-                                                {bulk.status}
-                                              </Chip>
-                                            )}
-                                          </div>
-                                        </div>
-                                      }
-                                    >
-                                      <div>
-                                        {bulk.uuid && (
-                                          <div className="flex flex-col p-4 pb-0">
-                                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                              <div className="flex items-center gap-3">
-                                                <Icon icon="mdi:package-variant" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                                <div className="flex flex-col">
-                                                  <span className="text-xs text-default-600 font-medium">Warehouse Bulk Identifier</span>
-                                                  <span className="text-md font-semibold text-default-700">
-                                                    {bulk.uuid}
-                                                  </span>
-                                                </div>
-                                              </div>
-                                              <Button
-                                                variant="flat"
-                                                color="default"
-                                                isIconOnly
-                                                onPress={() => copyToClipboard(bulk.uuid)}
-                                              >
-                                                <Icon icon="mdi:content-copy" className="text-default-500" />
-                                              </Button>
+                                              {bulk.location_code && (
+                                                <Chip color="secondary" variant="flat" size="sm">
+                                                  {bulk.location_code}
+                                                </Chip>
+                                              )}
+                                              {bulk.status && (
+                                                <Chip color={bulk.status === "AVAILABLE" ? "success" : "danger"} variant="flat" size="sm">
+                                                  {bulk.status}
+                                                </Chip>
+                                              )}
                                             </div>
                                           </div>
-                                        )}
-
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pb-0">
-                                          {/* Unit Value */}
-                                          <div className="flex flex-col">
-                                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                              <div className="flex items-center gap-3">
-                                                <Icon icon="mdi:ruler" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                                <div className="flex flex-col">
-                                                  <span className="text-xs text-default-600 font-medium">Unit Value</span>
-                                                  <span className="text-md font-semibold text-default-700">
-                                                    {(() => {
-                                                      const totals = calculateBulkTotals(bulk);
-                                                      return totals.totalUnitValue > 0
-                                                        ? `${formatNumber(totals.currentUnitValue)} ${bulk.unit}`
-                                                        : `${formatNumber(bulk.unit_value)} ${bulk.unit}`;
-                                                    })()}
-                                                  </span>
-                                                  {(() => {
-                                                    const totals = calculateBulkTotals(bulk);
-                                                    return totals.totalUnitValue > 0 && (
-                                                      <span className="text-sm text-default-500">
-                                                        of {formatNumber(totals.totalUnitValue)} {bulk.unit} total
-                                                      </span>
-                                                    );
-                                                  })()}
-                                                </div>
-                                              </div>
-                                            </div>
-                                          </div>
-
-                                          {/* Cost */}
-                                          <div className="flex flex-col">
-                                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                              <div className="flex items-center gap-3">
-                                                <Icon icon="mdi:currency-php" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                                <div className="flex flex-col">
-                                                  <span className="text-xs text-default-600 font-medium">Cost</span>
-                                                  <span className="text-md font-semibold text-default-700">
-                                                    {(() => {
-                                                      const totals = calculateBulkTotals(bulk);
-                                                      return totals.totalCost > 0
-                                                        ? `₱${formatNumber(totals.currentCost)}`
-                                                        : `₱${formatNumber(bulk.cost)}`;
-                                                    })()}
-                                                  </span>
-                                                  {(() => {
-                                                    const totals = calculateBulkTotals(bulk);
-                                                    return totals.totalCost > 0 && (
-                                                      <span className="text-sm text-default-500">
-                                                        of ₱{formatNumber(totals.totalCost)} total
-                                                      </span>
-                                                    );
-                                                  })()}
-                                                </div>
-                                              </div>
-                                            </div>
-                                          </div>
-
-                                          {/* Bulk Unit */}
-                                          <div className="flex flex-col">
-                                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                              <div className="flex items-center gap-3">
-                                                <Icon icon="mdi:cube-outline" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                                <div className="flex flex-col">
-                                                  <span className="text-xs text-default-600 font-medium">Bulk Unit</span>
-                                                  <span className="text-md font-semibold text-default-700">
-                                                    {bulk.bulk_unit || "N/A"}
-                                                  </span>
-                                                </div>
-                                              </div>
-                                            </div>
-                                          </div>
-
-                                          {/* Location */}
-                                          <div className="flex flex-col">
-                                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                              <div className="flex items-center gap-3">
-                                                <Icon icon="mdi:map-marker" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                                <div className="flex flex-col">
-                                                  <span className="text-xs text-default-600 font-medium">Location</span>
-                                                  <span className="text-md font-semibold text-default-700">
-                                                    {bulk.location_code || "Not assigned"}
-                                                  </span>
-                                                </div>
-                                              </div>
-                                            </div>
-                                          </div>
-                                        </div>
-
-                                        {/* Bulk Properties */}
-                                        {bulk.properties && Object.keys(bulk.properties).length > 0 && (
-                                          <div className="mt-4 mx-4 p-3 bg-default-100 rounded-xl border-2 border-default-200">
-                                            <div className="flex items-center gap-2 mb-3">
-                                              <Icon icon="mdi:tag" className="text-default-500" width={16} />
-                                              <span className="text-sm font-medium">Bulk Properties</span>
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-2 text-sm">
-                                              {Object.entries(bulk.properties).map(([key, value]) => (
-                                                <div key={key}>
-                                                  <span className="text-default-500">{toTitleCase(toNormalCase(key))}:</span>
-                                                  <span className="ml-2">{String(value)}</span>
-                                                </div>
-                                              ))}
-                                            </div>
-                                          </div>
-                                        )}
-
-                                        <div className="overflow-hidden px-4 py-4">
-                                          <AnimatePresence mode="popLayout">
-                                            {bulk.is_single_item ? (
-                                              <motion.div {...motionTransition}>
-                                                <div className="space-y-4 border-2 border-default-200 rounded-xl p-4">
-                                                  <div className="flex justify-between items-center">
-                                                    <h3 className="text-lg font-semibold">Single Item Details</h3>
-                                                    <Tooltip
-                                                      content="This is a single large item (e.g., mother roll) rather than a collection of units">
-                                                      <span>
-                                                        <Icon icon="mdi:information-outline" className="text-default-500" width={16} height={16} />
-                                                      </span>
-                                                    </Tooltip>
+                                        }
+                                      >
+                                        <div>
+                                          {bulk.uuid && (
+                                            <div className="flex flex-col p-4 pb-0">
+                                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                <div className="flex items-center gap-3">
+                                                  <Icon icon="mdi:package-variant" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                  <div className="flex flex-col">
+                                                    <span className="text-xs text-default-600 font-medium">Warehouse Bulk Identifier</span>
+                                                    <span className="text-md font-semibold text-default-700">
+                                                      {bulk.uuid}
+                                                    </span>
                                                   </div>
-
-                                                  {/* Use the bulk's units from the itemUnits map */}
-                                                  {(bulk.units.length > 0) ? (
-                                                    <>
-                                                      {/* Warehouse Unit Identifier */}
-                                                      <div className="flex flex-col">
-                                                        <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                                          <div className="flex items-center gap-3">
-                                                            <Icon icon="mdi:cube-outline" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                                            <div className="flex flex-col">
-                                                              <span className="text-xs text-default-600 font-medium">Warehouse Unit Identifier</span>
-                                                              <span className="text-md font-semibold text-default-700">
-                                                                {bulk.units[0].uuid}
-                                                              </span>
-                                                            </div>
-                                                          </div>
-                                                          <Button
-                                                            variant="flat"
-                                                            color="default"
-                                                            isIconOnly
-                                                            onPress={() => copyToClipboard(bulk.units[0].uuid)}
-                                                          >
-                                                            <Icon icon="mdi:content-copy" className="text-default-500" />
-                                                          </Button>
-                                                        </div>
-                                                      </div>
-
-                                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                        {/* Item Code */}
-                                                        <div className="flex flex-col">
-                                                          <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                                            <div className="flex items-center gap-3">
-                                                              <Icon icon="mdi:barcode" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                                              <div className="flex flex-col">
-                                                                <span className="text-xs text-default-600 font-medium">Item Code</span>
-                                                                <span className="text-md font-semibold text-default-700">
-                                                                  {bulk.units[0].code || "N/A"}
-                                                                </span>
-                                                              </div>
-                                                            </div>
-                                                          </div>
-                                                        </div>
-
-                                                        {/* Item Name */}
-                                                        <div className="flex flex-col">
-                                                          <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                                            <div className="flex items-center gap-3">
-                                                              <Icon icon="mdi:tag" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                                              <div className="flex flex-col">
-                                                                <span className="text-xs text-default-600 font-medium">Item Name</span>
-                                                                <span className="text-md font-semibold text-default-700">
-                                                                  {bulk.units[0].name || "N/A"}
-                                                                </span>
-                                                              </div>
-                                                            </div>
-                                                          </div>
-                                                        </div>
-
-                                                        {/* Unit */}
-                                                        <div className="flex flex-col">
-                                                          <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                                            <div className="flex items-center gap-3">
-                                                              <Icon icon="mdi:ruler" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                                              <div className="flex flex-col">
-                                                                <span className="text-xs text-default-600 font-medium">Unit</span>
-                                                                <span className="text-md font-semibold text-default-700">
-                                                                  {`${bulk.units[0].unit_value} ${bulk.units[0].unit}`}
-                                                                </span>
-                                                              </div>
-                                                            </div>
-                                                          </div>
-                                                        </div>
-
-                                                        {/* Cost */}
-                                                        <div className="flex flex-col">
-                                                          <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                                            <div className="flex items-center gap-3">
-                                                              <Icon icon="mdi:currency-php" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                                              <div className="flex flex-col">
-                                                                <span className="text-xs text-default-600 font-medium">Cost</span>
-                                                                <span className="text-md font-semibold text-default-700">
-                                                                  ₱{bulk.units[0].cost}
-                                                                </span>
-                                                              </div>
-                                                            </div>
-                                                          </div>
-                                                        </div>
-                                                      </div>
-                                                    </>
-                                                  ) : (
-                                                    <div className="py-4 text-center text-default-500">
-                                                      <p>No details available for this single item</p>
-                                                    </div>
-                                                  )}
                                                 </div>
-                                              </motion.div>
-                                            ) : (
-                                              <AnimatePresence mode="popLayout">
-                                                {(bulk.units && bulk.units.length === 0) ? (
-                                                  <motion.div {...motionTransition}>
-                                                    <div className="py-4 m-4 h-48 text-center text-default-500 border border-dashed border-default-200 rounded-lg justify-center flex flex-col items-center">
-                                                      <Icon icon="mdi:cube-outline" className="mx-auto mb-2 opacity-50" width={40} height={40} />
-                                                      <p className="text-sm">No units available for this bulk</p>
-                                                    </div>
-                                                  </motion.div>
-                                                ) : (
-                                                  <motion.div
-                                                    {...motionTransition}>
-                                                    <div className="border-2 border-default-200 rounded-xl">
-                                                      <div className="flex justify-between items-center p-4 pb-0">
-                                                        <h3 className="text-lg font-semibold">Units in this Bulk</h3>
-                                                      </div>
-
-                                                      <Accordion
-                                                        selectionMode="multiple"
-                                                        variant="splitted"
-                                                        selectedKeys={expandedUnits}
-                                                        onSelectionChange={(keys) => setExpandedUnits(keys as Set<string>)}
-                                                        itemClasses={{
-                                                          base: "p-0 w-full bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
-                                                          title: "font-normal text-lg font-semibold",
-                                                          trigger: "p-4 data-[hover=true]:bg-default-100 h-14 flex items-center transition-colors",
-                                                          indicator: "text-medium",
-                                                          content: "text-small p-0",
-                                                        }}
-                                                        className="p-4 overflow-hidden"
-                                                      >
-                                                        {/* Use the bulk's units from the itemUnits map */}
-                                                        {bulk.units.map((unit: any) => (
-                                                          <AccordionItem
-                                                            key={unit.uuid}
-                                                            title={
-                                                              <div className="flex justify-between items-center w-full">
-                                                                <div className="flex items-center gap-2">
-                                                                  <span>
-                                                                    {unit.name || `Unit ${unit.code}`}
-                                                                  </span>
-                                                                  {/* Add unit status chip */}
-                                                                  <Chip
-                                                                    size="sm"
-                                                                    color={unit.status === "USED" ? "danger" : unit.status === "AVAILABLE" ? "success" : "default"}
-                                                                    variant="flat"
-                                                                  >
-                                                                    {unit.status || "UNKNOWN"}
-                                                                  </Chip>
-                                                                </div>
-                                                                <Chip size="sm" color="primary" variant="flat">
-                                                                  {formatNumber(unit.unit_value)} {unit.unit}
-                                                                </Chip>
-                                                              </div>
-                                                            }
-                                                          >
-                                                            <div className="space-y-4 pb-4">
-                                                              {/* Warehouse Unit Identifier */}
-                                                              {unit.uuid && (
-                                                                <div className="flex flex-col p-4 pb-0">
-                                                                  <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                                                    <div className="flex items-center gap-3">
-                                                                      <Icon icon="mdi:cube-outline" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                                                      <div className="flex flex-col">
-                                                                        <span className="text-xs text-default-600 font-medium">Warehouse Unit Identifier</span>
-                                                                        <span className="text-md font-semibold text-default-700">
-                                                                          {unit.uuid}
-                                                                        </span>
-                                                                      </div>
-                                                                    </div>
-                                                                    <Button
-                                                                      variant="flat"
-                                                                      color="default"
-                                                                      isIconOnly
-                                                                      onPress={() => copyToClipboard(unit.uuid)}
-                                                                    >
-                                                                      <Icon icon="mdi:content-copy" className="text-default-500" />
-                                                                    </Button>
-                                                                  </div>
-                                                                </div>
-                                                              )}
-
-                                                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 py-0">
-                                                                {/* Item Code */}
-                                                                <div className="flex flex-col">
-                                                                  <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                                                    <div className="flex items-center gap-3">
-                                                                      <Icon icon="mdi:barcode" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                                                      <div className="flex flex-col">
-                                                                        <span className="text-xs text-default-600 font-medium">Item Code</span>
-                                                                        <span className="text-md font-semibold text-default-700">
-                                                                          {unit.code || "N/A"}
-                                                                        </span>
-                                                                      </div>
-                                                                    </div>
-                                                                  </div>
-                                                                </div>
-
-                                                                {/* Item Name */}
-                                                                <div className="flex flex-col">
-                                                                  <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                                                    <div className="flex items-center gap-3">
-                                                                      <Icon icon="mdi:package-variant" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                                                      <div className="flex flex-col">
-                                                                        <span className="text-xs text-default-600 font-medium">Item Name</span>
-                                                                        <span className="text-md font-semibold text-default-700">
-                                                                          {unit.name || "N/A"}
-                                                                        </span>
-                                                                      </div>
-                                                                    </div>
-                                                                  </div>
-                                                                </div>
-
-                                                                {/* Unit Value */}
-                                                                <div className="flex flex-col">
-                                                                  <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                                                    <div className="flex items-center gap-3">
-                                                                      <Icon icon="mdi:scale" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                                                      <div className="flex flex-col">
-                                                                        <span className="text-xs text-default-600 font-medium">Unit Value</span>
-                                                                        <span className="text-md font-semibold text-default-700">
-                                                                          {unit.unit_value ? formatNumber(unit.unit_value) : "N/A"}
-                                                                        </span>
-                                                                      </div>
-                                                                    </div>
-                                                                  </div>
-                                                                </div>
-
-                                                                {/* Unit */}
-                                                                <div className="flex flex-col">
-                                                                  <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                                                    <div className="flex items-center gap-3">
-                                                                      <Icon icon="mdi:ruler" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                                                      <div className="flex flex-col">
-                                                                        <span className="text-xs text-default-600 font-medium">Unit</span>
-                                                                        <span className="text-md font-semibold text-default-700">
-                                                                          {unit.unit || "N/A"}
-                                                                        </span>
-                                                                      </div>
-                                                                    </div>
-                                                                  </div>
-                                                                </div>
-
-                                                                {/* Status */}
-                                                                <div className="flex flex-col">
-                                                                  <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                                                    <div className="flex items-center gap-3">
-                                                                      <Icon icon="mdi:information" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                                                      <div className="flex flex-col">
-                                                                        <span className="text-xs text-default-600 font-medium">Status</span>
-                                                                        <span className="text-md font-semibold text-default-700">
-                                                                          {unit.status || "UNKNOWN"}
-                                                                        </span>
-                                                                      </div>
-                                                                    </div>
-                                                                  </div>
-                                                                </div>
-
-                                                                {/* Created At */}
-                                                                <div className="flex flex-col">
-                                                                  <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                                                    <div className="flex items-center gap-3">
-                                                                      <Icon icon="mdi:calendar" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                                                      <div className="flex flex-col">
-                                                                        <span className="text-xs text-default-600 font-medium">Created At</span>
-                                                                        <span className="text-md font-semibold text-default-700">
-                                                                          {unit.created_at ? formatDate(unit.created_at) : "N/A"}
-                                                                        </span>
-                                                                      </div>
-                                                                    </div>
-                                                                  </div>
-                                                                </div>
-                                                              </div>
-
-                                                              {/* Unit action buttons */}
-                                                              <div className="flex justify-end gap-2 px-4">
-                                                                <Button
-                                                                  color="primary"
-                                                                  variant="flat"
-                                                                  size="sm"
-                                                                  onPress={() => {
-                                                                    setQrCodeData({
-                                                                      url: generateDeliveryUrl(unit.uuid),
-                                                                      title: "Unit QR Code",
-                                                                      description: `Scan to view details for unit: ${unit.name || unit.code}`,
-                                                                      itemId: unit.uuid,
-                                                                      itemName: unit.name || unit.code || "Unknown Unit",
-                                                                      isBulkItem: false,
-                                                                      autoMarkAsUsed: false
-                                                                    });
-                                                                    qrCodeModal.onOpen();
-                                                                  }}
-                                                                  startContent={<Icon icon="mdi:qrcode" />}
-                                                                >
-                                                                  Show QR
-                                                                </Button>
-
-                                                                <Button
-                                                                  color="warning"
-                                                                  variant="flat"
-                                                                  size="sm"
-                                                                  isDisabled={isLoadingMarkUnitAsUsed === unit.uuid || unit.status === "USED"}
-                                                                  onPress={() => handleMarkUnitAsUsed(unit.uuid)}
-                                                                  startContent={
-                                                                    isLoadingMarkUnitAsUsed === unit.uuid ?
-                                                                      <Spinner size="sm" color="warning" />
-                                                                      : <Icon icon="mdi:check-circle" />
-                                                                  }
-                                                                >
-                                                                  {unit.status === "USED" ? "Already Used" : "Mark as Used"}
-                                                                </Button>
-                                                              </div>
-                                                            </div>
-                                                          </AccordionItem>
-                                                        ))}
-                                                      </Accordion>
-                                                    </div>
-                                                  </motion.div>
-                                                )}
-                                              </AnimatePresence>
-                                            )}
-                                          </AnimatePresence>
-                                        </div>
-
-
-                                        <div className="flex justify-end gap-2 bg-default-100/50 p-4">
-                                          {bulk.location && (
-                                            <div className="flex flex-wrap justify-end gap-2">
-                                              <Button
-                                                color="secondary"
-                                                variant="flat"
-                                                size="sm"
-                                                onPress={() => handleViewBulkLocation(bulk.location)}
-                                                startContent={<Icon icon="mdi:view-in-ar" />}
-                                              >
-                                                View Location
-                                              </Button>
-
-                                              <Button
-                                                color="success"
-                                                variant="flat"
-                                                size="sm"
-                                                onPress={() => handleViewDelivery(bulk.delivery_uuid)}
-                                                startContent={<Icon icon="mdi:truck-delivery" />}
-                                              >
-                                                View Delivery
-                                              </Button>
-
-                                              <Button
-                                                color="primary"
-                                                variant="flat"
-                                                size="sm"
-                                                onPress={() => handleShowBulkQR(bulk.uuid, bulk.is_single_item ? "Single Item" : `Bulk ${bulk.bulk_unit || ''}`)}
-                                                startContent={<Icon icon="mdi:qrcode" />}
-                                              >
-                                                Show QR
-                                              </Button>
-
-                                              <Button
-                                                color="warning"
-                                                variant="flat"
-                                                size="sm"
-                                                isDisabled={isLoadingMarkAsUsed || bulk.status === "USED"}
-                                                onPress={() => handleMarkComponentsAsUsed(bulk.uuid)}
-                                                startContent={
-                                                  isLoadingMarkAsUsed ?
-                                                    <Spinner size="sm" color="warning" />
-                                                    : <Icon icon="mdi:check-circle" />
-                                                }
-                                              >
-                                                {bulk.status === "USED" ? "Already Used" : "Mark as Used"}
-                                              </Button>
+                                                <Button
+                                                  variant="flat"
+                                                  color="default"
+                                                  isIconOnly
+                                                  onPress={() => copyToClipboard(bulk.uuid)}
+                                                >
+                                                  <Icon icon="mdi:content-copy" className="text-default-500" />
+                                                </Button>
+                                              </div>
                                             </div>
                                           )}
+
+                                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pb-0">
+                                            {/* Unit Value */}
+                                            <div className="flex flex-col">
+                                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                <div className="flex items-center gap-3">
+                                                  <Icon icon="mdi:ruler" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                  <div className="flex flex-col">
+                                                    <span className="text-xs text-default-600 font-medium">Unit Value</span>
+                                                    <span className="text-md font-semibold text-default-700">
+                                                      {(() => {
+                                                        const totals = calculateBulkTotals(bulk);
+                                                        return totals.totalUnitValue > 0
+                                                          ? `${formatNumber(totals.currentUnitValue)} ${bulk.unit}`
+                                                          : `${formatNumber(bulk.unit_value)} ${bulk.unit}`;
+                                                      })()}
+                                                    </span>
+                                                    {(() => {
+                                                      const totals = calculateBulkTotals(bulk);
+                                                      return totals.totalUnitValue > 0 && (
+                                                        <span className="text-sm text-default-500">
+                                                          of {formatNumber(totals.totalUnitValue)} {bulk.unit} total
+                                                        </span>
+                                                      );
+                                                    })()}
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            </div>
+
+                                            {/* Cost */}
+                                            <div className="flex flex-col">
+                                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                <div className="flex items-center gap-3">
+                                                  <Icon icon="mdi:currency-php" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                  <div className="flex flex-col">
+                                                    <span className="text-xs text-default-600 font-medium">Cost</span>
+                                                    <span className="text-md font-semibold text-default-700">
+                                                      {(() => {
+                                                        const totals = calculateBulkTotals(bulk);
+                                                        return totals.totalCost > 0
+                                                          ? `₱${formatNumber(totals.currentCost)}`
+                                                          : `₱${formatNumber(bulk.cost)}`;
+                                                      })()}
+                                                    </span>
+                                                    {(() => {
+                                                      const totals = calculateBulkTotals(bulk);
+                                                      return totals.totalCost > 0 && (
+                                                        <span className="text-sm text-default-500">
+                                                          of ₱{formatNumber(totals.totalCost)} total
+                                                        </span>
+                                                      );
+                                                    })()}
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            </div>
+
+                                            {/* Bulk Unit */}
+                                            <div className="flex flex-col">
+                                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                <div className="flex items-center gap-3">
+                                                  <Icon icon="mdi:cube-outline" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                  <div className="flex flex-col">
+                                                    <span className="text-xs text-default-600 font-medium">Bulk Unit</span>
+                                                    <span className="text-md font-semibold text-default-700">
+                                                      {bulk.bulk_unit || "N/A"}
+                                                    </span>
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            </div>
+
+                                            {/* Location */}
+                                            <div className="flex flex-col">
+                                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                <div className="flex items-center gap-3">
+                                                  <Icon icon="mdi:package-variant" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                  <div className="flex flex-col">
+                                                    <span className="text-xs text-default-600 font-medium">Location</span>
+                                                    <span className="text-md font-semibold text-default-700">
+                                                      {bulk.location_code || "Not assigned"}
+                                                    </span>
+                                                  </div>
+                                                </div>
+                                                <Button
+                                                  variant="flat"
+                                                  color="default"
+                                                  isIconOnly
+                                                  onPress={() => copyToClipboard(bulk.location_code || "")}
+                                                >
+                                                  <Icon icon="mdi:content-copy" className="text-default-500" />
+                                                </Button>
+                                              </div>
+                                            </div>
+                                          </div>
+
+                                          {/* Bulk Properties */}
+                                          {bulk.properties && Object.keys(bulk.properties).length > 0 && (
+                                            <div className="mt-4 mx-4 p-3 bg-default-100 rounded-xl border-2 border-default-200">
+                                              <div className="flex items-center gap-2 mb-3">
+                                                <Icon icon="mdi:tag" className="text-default-500" width={16} />
+                                                <span className="text-sm font-medium">Bulk Properties</span>
+                                              </div>
+                                              <div className="grid grid-cols-2 gap-2 text-sm">
+                                                {Object.entries(bulk.properties).map(([key, value]) => (
+                                                  <div key={key}>
+                                                    <span className="text-default-500">{toTitleCase(toNormalCase(key))}:</span>
+                                                    <span className="ml-2">{String(value)}</span>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          )}
+
+                                          <div className="overflow-hidden px-4 py-4">
+                                            <AnimatePresence mode="popLayout">
+                                              {bulk.is_single_item ? (
+                                                <motion.div {...motionTransition}>
+                                                  <div className="space-y-4 border-2 border-default-200 rounded-xl p-4">
+                                                    <div className="flex justify-between items-center">
+                                                      <h3 className="text-lg font-semibold">Single Item Details</h3>
+                                                      <Tooltip
+                                                        content="This is a single large item (e.g., mother roll) rather than a collection of units">
+                                                        <span>
+                                                          <Icon icon="mdi:information-outline" className="text-default-500" width={16} height={16} />
+                                                        </span>
+                                                      </Tooltip>
+                                                    </div>
+
+                                                    {/* Use the bulk's units from the itemUnits map */}
+                                                    {(bulk.units.length > 0) ? (
+                                                      <>
+                                                        {/* Warehouse Unit Identifier */}
+                                                        <div className="flex flex-col">
+                                                          <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                            <div className="flex items-center gap-3">
+                                                              <Icon icon="mdi:cube-outline" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                              <div className="flex flex-col">
+                                                                <span className="text-xs text-default-600 font-medium">Warehouse Unit Identifier</span>
+                                                                <span className="text-md font-semibold text-default-700">
+                                                                  {bulk.units[0].uuid}
+                                                                </span>
+                                                              </div>
+                                                            </div>
+                                                            <Button
+                                                              variant="flat"
+                                                              color="default"
+                                                              isIconOnly
+                                                              onPress={() => copyToClipboard(bulk.units[0].uuid)}
+                                                            >
+                                                              <Icon icon="mdi:content-copy" className="text-default-500" />
+                                                            </Button>
+                                                          </div>
+                                                        </div>
+
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                          {/* Item Code */}
+                                                          <div className="flex flex-col">
+                                                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                              <div className="flex items-center gap-3">
+                                                                <Icon icon="mdi:barcode" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                                <div className="flex flex-col">
+                                                                  <span className="text-xs text-default-600 font-medium">Item Code</span>
+                                                                  <span className="text-md font-semibold text-default-700">
+                                                                    {bulk.units[0].code || "N/A"}
+                                                                  </span>
+                                                                </div>
+                                                              </div>
+                                                            </div>
+                                                          </div>
+
+                                                          {/* Item Name */}
+                                                          <div className="flex flex-col">
+                                                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                              <div className="flex items-center gap-3">
+                                                                <Icon icon="mdi:tag" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                                <div className="flex flex-col">
+                                                                  <span className="text-xs text-default-600 font-medium">Item Name</span>
+                                                                  <span className="text-md font-semibold text-default-700">
+                                                                    {bulk.units[0].name || "N/A"}
+                                                                  </span>
+                                                                </div>
+                                                              </div>
+                                                            </div>
+                                                          </div>
+
+                                                          {/* Unit */}
+                                                          <div className="flex flex-col">
+                                                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                              <div className="flex items-center gap-3">
+                                                                <Icon icon="mdi:ruler" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                                <div className="flex flex-col">
+                                                                  <span className="text-xs text-default-600 font-medium">Unit</span>
+                                                                  <span className="text-md font-semibold text-default-700">
+                                                                    {`${bulk.units[0].unit_value} ${bulk.units[0].unit}`}
+                                                                  </span>
+                                                                </div>
+                                                              </div>
+                                                            </div>
+                                                          </div>
+
+                                                          {/* Cost */}
+                                                          <div className="flex flex-col">
+                                                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                              <div className="flex items-center gap-3">
+                                                                <Icon icon="mdi:currency-php" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                                <div className="flex flex-col">
+                                                                  <span className="text-xs text-default-600 font-medium">Cost</span>
+                                                                  <span className="text-md font-semibold text-default-700">
+                                                                    ₱{bulk.units[0].cost}
+                                                                  </span>
+                                                                </div>
+                                                              </div>
+                                                            </div>
+                                                          </div>
+                                                        </div>
+                                                      </>
+                                                    ) : (
+                                                      <div className="py-4 text-center text-default-500">
+                                                        <p>No details available for this single item</p>
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                </motion.div>
+                                              ) : (
+                                                <AnimatePresence mode="popLayout">
+                                                  {(bulk.units && bulk.units.length === 0) ? (
+                                                    <motion.div {...motionTransition}>
+                                                      <div className="py-4 m-4 h-48 text-center text-default-500 border border-dashed border-default-200 rounded-lg justify-center flex flex-col items-center">
+                                                        <Icon icon="mdi:cube-outline" className="mx-auto mb-2 opacity-50" width={40} height={40} />
+                                                        <p className="text-sm">No units available for this bulk</p>
+                                                      </div>
+                                                    </motion.div>
+                                                  ) : (
+                                                    <motion.div
+                                                      {...motionTransition}>
+                                                      <div className="border-2 border-default-200 rounded-xl">
+                                                        <div className="flex justify-between items-center p-4 pb-0">
+                                                          <h3 className="text-lg font-semibold">Units in this Bulk</h3>
+                                                        </div>
+
+                                                        <Accordion
+                                                          selectionMode="multiple"
+                                                          variant="splitted"
+                                                          selectedKeys={expandedUnits}
+                                                          onSelectionChange={(keys) => setExpandedUnits(keys as Set<string>)}
+                                                          itemClasses={{
+                                                            base: "p-0 w-full bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
+                                                            title: "font-normal text-lg font-semibold",
+                                                            trigger: "p-4 data-[hover=true]:bg-default-100 h-14 flex items-center transition-colors",
+                                                            indicator: "text-medium",
+                                                            content: "text-small p-0",
+                                                          }}
+                                                          className="p-4 overflow-hidden"
+                                                        >
+                                                          {/* Use the bulk's units from the itemUnits map */}
+                                                          {bulk.units.map((unit: any) => (
+                                                            <AccordionItem
+                                                              key={unit.uuid}
+                                                              title={
+                                                                <div className="flex justify-between items-center w-full">
+                                                                  <div className="flex items-center gap-2">
+                                                                    <span>
+                                                                      {unit.name || `Unit ${unit.code}`}
+                                                                    </span>
+                                                                    {/* Add unit status chip */}
+                                                                    <Chip
+                                                                      size="sm"
+                                                                      color={unit.status === "USED" ? "danger" : unit.status === "AVAILABLE" ? "success" : "default"}
+                                                                      variant="flat"
+                                                                    >
+                                                                      {unit.status || "UNKNOWN"}
+                                                                    </Chip>
+                                                                  </div>
+                                                                  <Chip size="sm" color="primary" variant="flat">
+                                                                    {formatNumber(unit.unit_value)} {unit.unit}
+                                                                  </Chip>
+                                                                </div>
+                                                              }
+                                                            >
+                                                              <div className="space-y-4 pb-4">
+                                                                {/* Warehouse Unit Identifier */}
+                                                                {unit.uuid && (
+                                                                  <div className="flex flex-col p-4 pb-0">
+                                                                    <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                                      <div className="flex items-center gap-3">
+                                                                        <Icon icon="mdi:cube-outline" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                                        <div className="flex flex-col">
+                                                                          <span className="text-xs text-default-600 font-medium">Warehouse Unit Identifier</span>
+                                                                          <span className="text-md font-semibold text-default-700">
+                                                                            {unit.uuid}
+                                                                          </span>
+                                                                        </div>
+                                                                      </div>
+                                                                      <Button
+                                                                        variant="flat"
+                                                                        color="default"
+                                                                        isIconOnly
+                                                                        onPress={() => copyToClipboard(unit.uuid)}
+                                                                      >
+                                                                        <Icon icon="mdi:content-copy" className="text-default-500" />
+                                                                      </Button>
+                                                                    </div>
+                                                                  </div>
+                                                                )}
+
+                                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 py-0">
+                                                                  {/* Item Code */}
+                                                                  <div className="flex flex-col">
+                                                                    <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                                      <div className="flex items-center gap-3">
+                                                                        <Icon icon="mdi:barcode" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                                        <div className="flex flex-col">
+                                                                          <span className="text-xs text-default-600 font-medium">Item Code</span>
+                                                                          <span className="text-md font-semibold text-default-700">
+                                                                            {unit.code || "N/A"}
+                                                                          </span>
+                                                                        </div>
+                                                                      </div>
+                                                                    </div>
+                                                                  </div>
+
+                                                                  {/* Item Name */}
+                                                                  <div className="flex flex-col">
+                                                                    <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                                      <div className="flex items-center gap-3">
+                                                                        <Icon icon="mdi:package-variant" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                                        <div className="flex flex-col">
+                                                                          <span className="text-xs text-default-600 font-medium">Item Name</span>
+                                                                          <span className="text-md font-semibold text-default-700">
+                                                                            {unit.name || "N/A"}
+                                                                          </span>
+                                                                        </div>
+                                                                      </div>
+                                                                    </div>
+                                                                  </div>
+
+                                                                  {/* Unit Value */}
+                                                                  <div className="flex flex-col">
+                                                                    <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                                      <div className="flex items-center gap-3">
+                                                                        <Icon icon="mdi:scale" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                                        <div className="flex flex-col">
+                                                                          <span className="text-xs text-default-600 font-medium">Unit Value</span>
+                                                                          <span className="text-md font-semibold text-default-700">
+                                                                            {unit.unit_value ? formatNumber(unit.unit_value) : "N/A"}
+                                                                          </span>
+                                                                        </div>
+                                                                      </div>
+                                                                    </div>
+                                                                  </div>
+
+                                                                  {/* Unit */}
+                                                                  <div className="flex flex-col">
+                                                                    <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                                      <div className="flex items-center gap-3">
+                                                                        <Icon icon="mdi:ruler" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                                        <div className="flex flex-col">
+                                                                          <span className="text-xs text-default-600 font-medium">Unit</span>
+                                                                          <span className="text-md font-semibold text-default-700">
+                                                                            {unit.unit || "N/A"}
+                                                                          </span>
+                                                                        </div>
+                                                                      </div>
+                                                                    </div>
+                                                                  </div>
+
+                                                                  {/* Status */}
+                                                                  <div className="flex flex-col">
+                                                                    <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                                      <div className="flex items-center gap-3">
+                                                                        <Icon icon="mdi:information" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                                        <div className="flex flex-col">
+                                                                          <span className="text-xs text-default-600 font-medium">Status</span>
+                                                                          <span className="text-md font-semibold text-default-700">
+                                                                            {unit.status || "UNKNOWN"}
+                                                                          </span>
+                                                                        </div>
+                                                                      </div>
+                                                                    </div>
+                                                                  </div>
+
+                                                                  {/* Created At */}
+                                                                  <div className="flex flex-col">
+                                                                    <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                                      <div className="flex items-center gap-3">
+                                                                        <Icon icon="mdi:calendar" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                                        <div className="flex flex-col">
+                                                                          <span className="text-xs text-default-600 font-medium">Created At</span>
+                                                                          <span className="text-md font-semibold text-default-700">
+                                                                            {unit.created_at ? formatDate(unit.created_at) : "N/A"}
+                                                                          </span>
+                                                                        </div>
+                                                                      </div>
+                                                                    </div>
+                                                                  </div>
+                                                                </div>
+
+                                                                {/* Unit action buttons */}
+                                                                <div className="flex justify-end gap-2 px-4">
+                                                                  <Button
+                                                                    color="primary"
+                                                                    variant="flat"
+                                                                    size="sm"
+                                                                    onPress={() => {
+                                                                      setQrCodeData({
+                                                                        url: generateDeliveryUrl(unit.uuid),
+                                                                        title: "Unit QR Code",
+                                                                        description: `Scan to view details for unit: ${unit.name || unit.code}`,
+                                                                        itemId: unit.uuid,
+                                                                        itemName: unit.name || unit.code || "Unknown Unit",
+                                                                        isBulkItem: false,
+                                                                        autoMarkAsUsed: false
+                                                                      });
+                                                                      qrCodeModal.onOpen();
+                                                                    }}
+                                                                    startContent={<Icon icon="mdi:qrcode" />}
+                                                                  >
+                                                                    Show QR
+                                                                  </Button>
+
+                                                                  <Button
+                                                                    color="warning"
+                                                                    variant="flat"
+                                                                    size="sm"
+                                                                    isDisabled={isLoadingMarkUnitAsUsed === unit.uuid || unit.status === "USED"}
+                                                                    onPress={() => handleMarkUnitAsUsed(unit.uuid)}
+                                                                    startContent={
+                                                                      isLoadingMarkUnitAsUsed === unit.uuid ?
+                                                                        <Spinner size="sm" color="warning" />
+                                                                        : <Icon icon="mdi:check-circle" />
+                                                                    }
+                                                                  >
+                                                                    {unit.status === "USED" ? "Already Used" : "Mark as Used"}
+                                                                  </Button>
+                                                                </div>
+                                                              </div>
+                                                            </AccordionItem>
+                                                          ))}
+                                                        </Accordion>
+                                                      </div>
+                                                    </motion.div>
+                                                  )}
+                                                </AnimatePresence>
+                                              )}
+                                            </AnimatePresence>
+                                          </div>
+
+
+                                          <div className="flex justify-end gap-2 bg-default-100/50 p-4">
+                                            {bulk.location && (
+                                              <div className="flex flex-wrap justify-end gap-2">
+                                                <Button
+                                                  color="secondary"
+                                                  variant="flat"
+                                                  size="sm"
+                                                  onPress={() => handleViewBulkLocation(bulk.location)}
+                                                  startContent={<Icon icon="mdi:view-in-ar" />}
+                                                >
+                                                  View Location
+                                                </Button>
+
+                                                <Button
+                                                  color="success"
+                                                  variant="flat"
+                                                  size="sm"
+                                                  onPress={() => handleViewDelivery(bulk.delivery_uuid)}
+                                                  startContent={<Icon icon="mdi:truck-delivery" />}
+                                                >
+                                                  View Delivery
+                                                </Button>
+
+                                                <Button
+                                                  color="primary"
+                                                  variant="flat"
+                                                  size="sm"
+                                                  onPress={() => handleShowBulkQR(bulk.uuid, bulk.is_single_item ? "Single Item" : `Bulk ${bulk.bulk_unit || ''}`)}
+                                                  startContent={<Icon icon="mdi:qrcode" />}
+                                                >
+                                                  Show QR
+                                                </Button>
+
+                                                <Button
+                                                  color="warning"
+                                                  variant="flat"
+                                                  size="sm"
+                                                  isDisabled={isLoadingMarkAsUsed || bulk.status === "USED"}
+                                                  onPress={() => handleMarkComponentsAsUsed(bulk.uuid)}
+                                                  startContent={
+                                                    isLoadingMarkAsUsed ?
+                                                      <Spinner size="sm" color="warning" />
+                                                      : <Icon icon="mdi:check-circle" />
+                                                  }
+                                                >
+                                                  {bulk.status === "USED" ? "Already Used" : "Mark as Used"}
+                                                </Button>
+                                              </div>
+                                            )}
+                                          </div>
                                         </div>
-                                      </div>
-                                    </AccordionItem>
-                                  ))}
-                                </Accordion>
-                              </motion.div>
-                            )}
+                                      </AccordionItem>
+                                    ))}
+                                  </Accordion>
+                                </motion.div>
+                              );
+                            })()}
                           </div>
                         </div>
                       )}
@@ -2730,6 +3059,6 @@ export default function WarehouseItemsPage() {
           </ModalContent>
         </Modal>
       </div >
-    </motion.div>
+    </motion.div >
   );
 }
