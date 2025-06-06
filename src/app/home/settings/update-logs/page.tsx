@@ -17,39 +17,8 @@ import {
 import { Icon } from "@iconify-icon/react";
 import { formatDistanceToNow } from "date-fns";
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useState } from "react";
-
-// GitHub commit interface
-interface GitHubCommit {
-  sha: string;
-  commit: {
-    author: {
-      name: string;
-      email: string;
-      date: string;
-    };
-    message: string;
-    url: string;
-  };
-  author: {
-    login: string;
-    avatar_url: string;
-    html_url: string;
-  } | null;
-  html_url: string;
-  stats?: {
-    additions: number;
-    deletions: number;
-    total: number;
-  };
-  files?: Array<{
-    filename: string;
-    status: string;
-    additions: number;
-    deletions: number;
-    changes: number;
-  }>;
-}
+import { useEffect, useState, useTransition } from "react";
+import { fetchCommits, type GitHubCommit } from "./actions";
 
 export default function UpdateLogsPage() {
   // State management
@@ -57,6 +26,7 @@ export default function UpdateLogsPage() {
   const [commits, setCommits] = useState<GitHubCommit[]>([]);
   const [filteredCommits, setFilteredCommits] = useState<GitHubCommit[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
 
   // Filter and pagination state
   const [selectedTab, setSelectedTab] = useState<string>("all");
@@ -67,80 +37,39 @@ export default function UpdateLogsPage() {
 
   // GitHub repository details
   const GITHUB_REPO = "RoPICSystem/ropic-system";
-  const GITHUB_API_BASE = "https://api.github.com";
 
-  // Fetch commits from GitHub API
-  const fetchCommits = async (pageNum: number = 1) => {
-    try {
-      setLoading(true);
+  // Fetch commits using server action
+  const loadCommits = async (pageNum: number = 1) => {
+    setLoading(true);
+    setError(null);
 
-      const headers: HeadersInit = {
-        'Accept': 'application/vnd.github.v3+json',
-      };
-
-      // Add token if available (for higher rate limits)
-      if (process.env.NEXT_PUBLIC_GITHUB_TOKEN) {
-        headers['Authorization'] = `token ${process.env.NEXT_PUBLIC_GITHUB_TOKEN}`;
+    startTransition(async () => {
+      try {
+        const result = await fetchCommits(pageNum, itemsPerPage);
+        
+        if (result.error) {
+          setError(result.error);
+          setCommits([]);
+          setFilteredCommits([]);
+        } else {
+          setCommits(result.commits);
+          setTotalPages(result.totalPages);
+          applyFilters(result.commits);
+        }
+      } catch (error) {
+        console.error("Error loading commits:", error);
+        setError("Failed to load update logs");
+        setCommits([]);
+        setFilteredCommits([]);
+      } finally {
+        setLoading(false);
       }
-
-      // Fetch commits with pagination
-      const response = await fetch(
-        `${GITHUB_API_BASE}/repos/${GITHUB_REPO}/commits?page=${pageNum}&per_page=${itemsPerPage}`,
-        { headers }
-      );
-
-      if (!response.ok) {
-        throw new Error(`GitHub API error: ${response.status}`);
-      }
-
-      const commitsData: GitHubCommit[] = await response.json();
-
-      // Fetch detailed stats for each commit (limited to avoid rate limiting)
-      const commitsWithStats = await Promise.all(
-        commitsData.slice(0, 5).map(async (commit) => {
-          try {
-            const detailResponse = await fetch(
-              `${GITHUB_API_BASE}/repos/${GITHUB_REPO}/commits/${commit.sha}`
-            );
-            if (detailResponse.ok) {
-              const detailData = await detailResponse.json();
-              return {
-                ...commit,
-                stats: detailData.stats,
-                files: detailData.files
-              };
-            }
-          } catch (error) {
-            console.error(`Error fetching details for commit ${commit.sha}:`, error);
-          }
-          return commit;
-        })
-      );
-
-      // For remaining commits, just use basic data
-      const allCommits = [
-        ...commitsWithStats,
-        ...commitsData.slice(5)
-      ];
-
-      setCommits(allCommits);
-      applyFilters(allCommits);
-
-      // Calculate total pages (GitHub API doesn't provide total count easily)
-      // We'll estimate based on typical repository size
-      setTotalPages(Math.ceil(100 / itemsPerPage)); // Estimate 100 commits max for pagination
-
-    } catch (error) {
-      console.error("Error fetching commits:", error);
-      setError("Failed to fetch update logs from GitHub");
-    } finally {
-      setLoading(false);
-    }
+    });
   };
 
   // Initial load
   useEffect(() => {
-    fetchCommits(page);
+    loadCommits(page);
   }, [page]);
 
   // Apply filters when search changes
@@ -239,8 +168,10 @@ export default function UpdateLogsPage() {
 
   const refreshLogs = () => {
     setPage(1);
-    fetchCommits(1);
+    loadCommits(1);
   };
+
+  const isLoading = loading || isPending;
 
   if (error) {
     return (
@@ -250,7 +181,7 @@ export default function UpdateLogsPage() {
             <Icon icon="mdi:alert-circle" className="text-5xl text-danger-500" />
             <h2 className="text-xl font-semibold mt-4">Error Loading Update Logs</h2>
             <p className="text-default-500 mt-2">{error}</p>
-            <Button color="primary" onPress={refreshLogs} className="mt-4">
+            <Button color="primary" onPress={refreshLogs} className="mt-4" isLoading={isLoading}>
               Try Again
             </Button>
           </div>
@@ -265,7 +196,7 @@ export default function UpdateLogsPage() {
         <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
           <div className="flex flex-col w-full xl:text-left text-center">
             <h1 className="text-2xl font-bold">Update Logs</h1>
-            {loading ? (
+            {isLoading ? (
               <div className="text-default-500 flex xl:justify-start justify-center items-center">
                 <p className='my-auto mr-1'>Loading update logs</p>
                 <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
@@ -279,7 +210,7 @@ export default function UpdateLogsPage() {
               color="primary"
               variant="shadow"
               onPress={refreshLogs}
-              isDisabled={loading}
+              isLoading={isLoading}
             >
               <Icon icon="mdi:refresh" className="mr-2" />
               Refresh
@@ -334,7 +265,7 @@ export default function UpdateLogsPage() {
               <div className="p-4 overflow-hidden">
 
                 <AnimatePresence>
-                  {loading && (
+                  {isLoading && (
                     <motion.div {...motionTransition}>
                       <div className="space-y-4 h-full relative">
                         {[...Array(10)].map((_, i) => (
@@ -350,7 +281,7 @@ export default function UpdateLogsPage() {
                 </AnimatePresence>
 
                 <AnimatePresence>
-                  {!loading && filteredCommits.length === 0 && (
+                  {!isLoading && filteredCommits.length === 0 && (
                     <motion.div {...motionTransition}>
                       <div className="flex flex-col items-center justify-center h-[300px] p-32">
                         <Icon icon="mdi:source-commit-end" className="text-5xl text-default-300" />
@@ -361,7 +292,7 @@ export default function UpdateLogsPage() {
                 </AnimatePresence>
 
                 <AnimatePresence>
-                  {!loading && filteredCommits.length > 0 && (
+                  {!isLoading && filteredCommits.length > 0 && (
                     <motion.div {...motionTransition}>
                       <div className="space-y-4">
                         {filteredCommits.map((commit) => (
@@ -403,19 +334,7 @@ export default function UpdateLogsPage() {
 
                                   <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mt-3 gap-2">
                                     <div className="flex items-center gap-2 text-sm text-default-500">
-                                      {/* {commit.author && (
-                                        <>
-                                          <img
-                                            src={commit.author.avatar_url}
-                                            alt={commit.author.login}
-                                            className="w-6 h-6 rounded-full"
-                                          />
-                                          <span>{commit.author.login}</span>
-                                        </>
-                                      )}
-                                      {!commit.author && (
-                                        <span>{commit.commit.author.name}</span>
-                                      )} */}
+                                      {/* Author info commented out as in original */}
                                     </div>
 
                                     {commit.stats && (
