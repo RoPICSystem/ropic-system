@@ -3326,7 +3326,10 @@ export default function DeliveryPage() {
         </div>
         <div className="flex flex-col xl:flex-row gap-4">
           {/* Left side: Delivery List */}
-          <div className={`xl:w-1/3 shadow-xl shadow-primary/10 xl:min-h-[calc(100vh-6.5rem)] 2xl:min-h-[calc(100vh-9rem)] min-h-[42rem] xl:min-w-[350px] w-full rounded-2xl overflow-hidden bg-background border border-default-200 backdrop-blur-lg xl:sticky top-0 self-start max-h-[calc(100vh-2rem)]`}>
+          <div className={`xl:w-1/3 shadow-xl shadow-primary/10 
+            xl:min-h-[calc(100vh-6.5rem)] 2xl:min-h-[calc(100vh-9rem)] min-h-[42rem] 
+            xl:min-w-[350px] w-full rounded-2xl overflow-hidden bg-background border 
+            border-default-200 backdrop-blur-lg xl:sticky top-0 self-start max-h-[calc(100vh-2rem)]`}>
             <div className="flex flex-col h-full">
               <div className="p-4 sticky top-0 z-20 bg-background/80 border-b border-default-200 backdrop-blur-lg shadow-sm">
 
@@ -3947,7 +3950,7 @@ export default function DeliveryPage() {
           </div>
 
           {/* Right side: Delivery Form */}
-          <div className="xl:w-2/3">
+          <div className="xl:w-2/3 overflow-hidden">
             {((user && user.is_admin) || selectedDeliveryId) ? (
               <Form id="deliveryForm" onSubmit={handleSubmit} className="items-stretch space-y-4">
                 <CardList>

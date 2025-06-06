@@ -976,7 +976,7 @@ export default function WarehouseItemsPage() {
         </div>
         <div className="flex flex-col xl:flex-row gap-4">
           {/* Left side: Warehouse Items List */}
-          <div className={`xl:w-1/3 shadow-xl shadow-primary/10 
+          <div className={`xl:w-1/3 shadow-xl shadow-primary/10
           xl:min-h-[calc(100vh-6.5rem)] 2xl:min-h-[calc(100vh-9rem)] min-h-[42rem] 
           xl:min-w-[350px] w-full rounded-2xl overflow-hidden bg-background border 
           border-default-200 backdrop-blur-lg xl:sticky top-0 self-start max-h-[calc(100vh-2rem)]`}
@@ -1281,7 +1281,7 @@ export default function WarehouseItemsPage() {
           </div>
 
           {/* Right side: Item Details */}
-          <div className="xl:w-2/3">
+          <div className="xl:w-2/3 overflow-hidden">
             {selectedItemId ? (
               <div className="flex flex-col gap-2">
                 <CardList>
@@ -1796,61 +1796,72 @@ export default function WarehouseItemsPage() {
 
                                 {/* Active filters display */}
                                 {(bulkSearchQuery || bulkSearchFilters.status || bulkSearchFilters.bulk_unit || bulkSearchFilters.unit) && (
-                                  <ScrollShadow orientation="horizontal" className="flex-1" hideScrollBar>
-                                    <div className="flex items-center gap-1 min-w-max">
-                                      {bulkSearchQuery && (
-                                        <Chip
-                                          variant="flat"
-                                          color="primary"
+                                  <div className="flex-1 min-w-0">
+                                    <CustomScrollbar
+                                      direction="horizontal"
+                                      className="w-full"
+                                      scrollShadow
+                                      hideScrollbars
+                                    >
+                                      <div className="flex items-center gap-1 min-w-max pr-4">
+                                        {bulkSearchQuery && (
+                                          <Chip
+                                            variant="flat"
+                                            color="primary"
+                                            size="sm"
+                                            onClose={() => setBulkSearchQuery("")}
+                                            className="flex-shrink-0"
+                                          >
+                                            Search: {bulkSearchQuery}
+                                          </Chip>
+                                        )}
+                                        {bulkSearchFilters.status && (
+                                          <Chip
+                                            variant="flat"
+                                            color={getStatusColor(bulkSearchFilters.status)}
+                                            size="sm"
+                                            onClose={() => setBulkSearchFilters(prev => ({ ...prev, status: null }))}
+                                            className="flex-shrink-0"
+                                          >
+                                            Status: {bulkSearchFilters.status}
+                                          </Chip>
+                                        )}
+                                        {bulkSearchFilters.bulk_unit && (
+                                          <Chip
+                                            variant="flat"
+                                            color="secondary"
+                                            size="sm"
+                                            onClose={() => setBulkSearchFilters(prev => ({ ...prev, bulk_unit: null }))}
+                                            className="flex-shrink-0"
+                                          >
+                                            Bulk Unit: {bulkSearchFilters.bulk_unit}
+                                          </Chip>
+                                        )}
+                                        {bulkSearchFilters.unit && (
+                                          <Chip
+                                            variant="flat"
+                                            color="warning"
+                                            size="sm"
+                                            onClose={() => setBulkSearchFilters(prev => ({ ...prev, unit: null }))}
+                                            className="flex-shrink-0"
+                                          >
+                                            Unit: {bulkSearchFilters.unit}
+                                          </Chip>
+                                        )}
+                                        <Button
                                           size="sm"
-                                          onClose={() => setBulkSearchQuery("")}
+                                          variant="light"
+                                          onPress={() => {
+                                            setBulkSearchQuery("");
+                                            setBulkSearchFilters({ status: null, bulk_unit: null, unit: null });
+                                          }}
+                                          className="flex-shrink-0"
                                         >
-                                          Search: {bulkSearchQuery}
-                                        </Chip>
-                                      )}
-                                      {bulkSearchFilters.status && (
-                                        <Chip
-                                          variant="flat"
-                                          color={getStatusColor(bulkSearchFilters.status)}
-                                          size="sm"
-                                          onClose={() => setBulkSearchFilters(prev => ({ ...prev, status: null }))}
-                                        >
-                                          Status: {bulkSearchFilters.status}
-                                        </Chip>
-                                      )}
-                                      {bulkSearchFilters.bulk_unit && (
-                                        <Chip
-                                          variant="flat"
-                                          color="secondary"
-                                          size="sm"
-                                          onClose={() => setBulkSearchFilters(prev => ({ ...prev, bulk_unit: null }))}
-                                        >
-                                          Bulk Unit: {bulkSearchFilters.bulk_unit}
-                                        </Chip>
-                                      )}
-                                      {bulkSearchFilters.unit && (
-                                        <Chip
-                                          variant="flat"
-                                          color="warning"
-                                          size="sm"
-                                          onClose={() => setBulkSearchFilters(prev => ({ ...prev, unit: null }))}
-                                        >
-                                          Unit: {bulkSearchFilters.unit}
-                                        </Chip>
-                                      )}
-                                      <Button
-                                        size="sm"
-                                        variant="light"
-                                        onPress={() => {
-                                          setBulkSearchQuery("");
-                                          setBulkSearchFilters({ status: null, bulk_unit: null, unit: null });
-                                        }}
-                                        className="flex-shrink-0"
-                                      >
-                                        Clear all
-                                      </Button>
-                                    </div>
-                                  </ScrollShadow>
+                                          Clear all
+                                        </Button>
+                                      </div>
+                                    </CustomScrollbar>
+                                  </div>
                                 )}
                               </div>
                             </div>

@@ -1461,7 +1461,7 @@ export default function ReorderPointPage() {
         </div>
         <div className="flex flex-col xl:flex-row gap-4">
           {/* Left side: Reorder Point Logs List */}
-          <div className={`xl:w-1/3 shadow-xl shadow-primary/10 
+          <div className={`xl:w-1/3 shadow-xl shadow-primary/10
           xl:min-h-[calc(100vh-6.5rem)] 2xl:min-h-[calc(100vh-9rem)] min-h-[42rem] 
           xl:min-w-[350px] w-full rounded-2xl overflow-hidden bg-background border 
           border-default-200 backdrop-blur-lg xl:sticky top-0 self-start max-h-[calc(100vh-2rem)]`}
@@ -1989,8 +1989,7 @@ export default function ReorderPointPage() {
           </div>
 
           {/* Right side: Reorder Point Details */}
-          <div className="xl:w-2/3">
-
+          <div className="xl:w-2/3 overflow-hidden">
             {selectedItemId ? (
               <div className="flex flex-col gap-2">
                 <CardList>
