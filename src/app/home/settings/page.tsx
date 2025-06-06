@@ -105,7 +105,8 @@ export default function SettingsPage() {
                   Version 1.0.0
                 </p>
               </div>
-              <Button variant="shadow" color="primary" className="my-1">
+              <Button variant="shadow" color="primary" className="my-1"
+                onPress={() => router.push('/home/settings/update-logs')}>
                 <Icon icon="mdi:chevron-right" className="text-xl" />
               </Button>
             </div>

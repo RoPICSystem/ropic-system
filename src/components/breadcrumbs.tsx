@@ -130,7 +130,7 @@ export default function NavigationBread() {
                   <Dropdown>
                     <DropdownTrigger>
                       <Button variant="light" color='primary' className='p-4 text-lg font-medium text-primary-800 min-w-0'>
-                        {displayName}
+                        {displayName.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
                       </Button>
                     </DropdownTrigger>
                     <DropdownMenu aria-label="Navigation">
@@ -146,7 +146,7 @@ export default function NavigationBread() {
                   </Dropdown>
                 ) : (
                   <Link href={fullPath} className="p-4">
-                    {displayName}
+                    {displayName.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
                   </Link>
                 )}
               </BreadcrumbItem>
