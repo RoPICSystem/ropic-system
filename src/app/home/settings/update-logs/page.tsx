@@ -79,8 +79,8 @@ export default function UpdateLogsPage() {
       };
 
       // Add token if available (for higher rate limits)
-      if (process.env.GITHUB_TOKEN) {
-        headers['Authorization'] = `token ${process.env.GITHUB_TOKEN}`;
+      if (process.env.NEXT_PUBLIC_GITHUB_TOKEN) {
+        headers['Authorization'] = `token ${process.env.NEXT_PUBLIC_GITHUB_TOKEN}`;
       }
 
       // Fetch commits with pagination
