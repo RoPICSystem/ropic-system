@@ -46,7 +46,6 @@ import {
   Textarea
 } from "@heroui/react";
 import { AnimatePresence, motion } from 'framer-motion';
-import CustomScrollbar from '@/components/custom-scrollbar';
 
 
 // Types for address data
@@ -432,7 +431,7 @@ export default function RegisterPage() {
 
   return (
 
-    <CustomScrollbar className="h-full">
+    <div className="h-full overflow-auto">
       <div className="w-auto h-full 2xl:absolute fixed inset-0 overflow-hidden top-0 ">
         <div className="absolute w-full max-w-[30rem] top-[calc(50%-20rem)] left-[calc(50%+8rem)] hidden xl:block select-none">
           {/* Ground element - positioned at bottom */}
@@ -451,8 +450,8 @@ export default function RegisterPage() {
         />
       </div>
 
-      <div className="w-full z-20 xl:pr-[28rem] md:pb-12 h-[100vh]">
-        <div className="flex flex-col items-center justify-between relative pt-4 md:py-8">
+      <div className="w-full z-20 xl:pr-[28rem] md:pb-12 pt-4">
+        <div className="flex flex-col items-center justify-between relative">
           {/* Left side - Login form */}
           <div className="max-w-[200rem] flex md:flex-col flex-row space-x-4 items-center justify-center md:mb-[-6rem] mb-4">
             <Image src="/logo.png" alt="Logo" className="md:h-48 h-20" />
@@ -1253,6 +1252,6 @@ export default function RegisterPage() {
           </Card>
         </div>
       </div>
-    </CustomScrollbar>
+    </div>
   )
 }       
