@@ -1066,9 +1066,13 @@ export default function InventoryPage() {
 
     for (const unit of unitItems) {
       // Remove unit check since it's inherited from the bulk
-      if (!unit.code || !unit.name || typeof unit.unit_value !== 'number' || unit.unit_value <= 0 || typeof unit.cost !== 'number' || unit.cost <= 0) {
-        setError("All units require item code, name, valid unit value, and cost");
-        return false;
+      // Skip unit validation for single items since they inherit from bulk
+      const bulk = bulkItems.find(b => b.id === unit.bulkId);
+      if (!bulk?.is_single_item) {
+        if (!unit.code || !unit.name || typeof unit.unit_value !== 'number' || unit.unit_value <= 0 || typeof unit.cost !== 'number' || unit.cost <= 0) {
+          setError("All units require item code, name, valid unit value, and cost");
+          return false;
+        }
       }
     }
 
