@@ -65,6 +65,7 @@ import { Warehouse } from '../warehouses/actions';
 import { generatePdfBlob } from './pdf-document';
 import { getUserCompanyDetails } from "@/utils/supabase/server/companies";
 import CustomScrollbar from '@/components/custom-scrollbar';
+import { FilterOption, SearchListPanel } from '@/components/search-list-panel/search-list-panel';
 
 // Import the ShelfSelector3D component
 const ShelfSelector3D = lazy(() =>
@@ -503,7 +504,7 @@ export default function DeliveryPage() {
         formData.warehouse_uuid as string,
         selectedBulks.length,
         // Optionally provide a starting shelf
-        selectedFloor !== null && selectedGroup !== null && selectedRow !== null && selectedColumn !== null 
+        selectedFloor !== null && selectedGroup !== null && selectedRow !== null && selectedColumn !== null
           ? { floor: selectedFloor, group: selectedGroup, row: selectedRow, column: selectedColumn }
           : undefined
       );
@@ -2507,6 +2508,58 @@ export default function DeliveryPage() {
     formData.warehouse_uuid
   ]);
 
+  const deliveryFilters: Record<string, FilterOption> = {
+    warehouse_filter: {
+      name: "Warehouse",
+      valueName: "warehouse_uuid",
+      color: "danger",
+      filters: warehouses.reduce(
+        (acc, warehouse) => ({
+          ...acc,
+          [warehouse.uuid]: warehouse.name
+        }),
+        { "": "All Warehouses" }
+      )
+    },
+    status_filter: {
+      name: "Status",
+      valueName: "status",
+      color: "primary",
+      filters: {
+        "": "All Statuses",
+        PENDING: "Pending",
+        PROCESSING: "Processing",
+        IN_TRANSIT: "In Transit",
+        DELIVERED: "Delivered",
+        CANCELLED: "Cancelled"
+      }
+    },
+    operator_filter: {
+      name: "Operator",
+      valueName: "operator_uuids",
+      color: "secondary",
+      filters: operators.reduce(
+        (acc, operator) => ({
+          ...acc,
+          [operator.uuid]: operator.full_name
+        }),
+        { "": "All Operators" }
+      )
+    },
+    inventory_filter: {
+      name: "Inventory",
+      valueName: "inventory_uuid",
+      color: "success",
+      filters: inventoryItems.reduce(
+        (acc, item) => ({
+          ...acc,
+          [item.uuid]: item.name
+        }),
+        { "": "All Items" }
+      )
+    }
+  };
+
   useEffect(() => {
     // When the delivery status changes to DELIVERED, we want to ensure location fields are ready
     // Skip this effect for already delivered items that are just being viewed
@@ -3279,628 +3332,82 @@ export default function DeliveryPage() {
         </div>
         <div className="flex flex-col xl:flex-row gap-4">
           {/* Left side: Delivery List */}
-          <div className={`xl:w-1/3 shadow-xl shadow-primary/10 
+          <SearchListPanel
+            title="Delivery Items"
+            searchPlaceholder="Search deliveries..."
+            searchLimit={10}
+            date_filters={["dateRange", "weekFilter", "specificDate"]}
+            filters={deliveryFilters}
+            companyUuid={user?.company_uuid}
+            renderItem={(delivery) => (
+              <Button
+                key={delivery.uuid}
+                onPress={() => handleSelectDelivery(delivery.uuid)}
+                variant="shadow"
+                className={`w-full min-h-[7.5rem] !transition-all duration-200 rounded-xl p-0 ${selectedDeliveryId === delivery.uuid ? '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' : '!bg-default-100/50 shadow-none hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
+              >
+                <div className="w-full flex flex-col h-full">
+                  <div className="flex-grow flex flex-col justify-center px-3">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold">
+                        {inventoryItems.find(i => i.uuid === delivery.inventory_uuid)?.name || 'Unknown Item'}
+                      </span>
+                      <Chip color="default" variant={selectedDeliveryId === delivery.uuid ? "shadow" : "flat"} size="sm">
+                        {delivery.inventory_item_bulk_uuids?.length || 0} bulks
+                      </Chip>
+                    </div>
+                    {delivery.delivery_address && (
+                      <div className={`w-full mt-1 text-sm ${selectedDeliveryId === delivery.uuid ? 'text-default-800 ' : 'text-default-600'} text-start text-ellipsis overflow-hidden whitespace-nowrap`}>
+                        {delivery.delivery_address}
+                      </div>
+                    )}
+                  </div>
+                  {/* Footer - always at the bottom */}
+                  <div className={`flex items-center gap-2 border-t ${selectedDeliveryId === delivery.uuid ? 'border-primary-300' : 'border-default-100'} p-3`}>
+                    <Chip
+                      color={selectedDeliveryId === delivery.uuid ? "default" : "primary"}
+                      variant={selectedDeliveryId === delivery.uuid ? "shadow" : "flat"}
+                      size="sm">
+                      {formatDate(delivery.delivery_date)}
+                    </Chip>
+                    <Chip color={getStatusColor(delivery.status)} variant={selectedDeliveryId === delivery.uuid ? "shadow" : "flat"} size="sm">
+                      {delivery.status.replaceAll('_', ' ')}
+                    </Chip>
+                    {delivery.operator_uuids && delivery.operator_uuids.length > 0 && (
+                      <Chip color="success" variant={selectedDeliveryId === delivery.uuid ? "shadow" : "flat"} size="sm">
+                        <div className="flex items-center gap-1">
+                          <Icon icon="mdi:account" className="mb-[0.1rem]" />
+                          {delivery.operator_uuids.length === 1
+                            ? operators.find(op => delivery.operator_uuids?.includes(op.uuid))?.full_name.split(' ')[0] || 'Operator'
+                            : `${delivery.operator_uuids.length} operators`
+                          }
+                        </div>
+                      </Chip>
+                    )}
+                  </div>
+                </div>
+              </Button>
+            )}
+            renderSkeletonItem={(i) => (
+              <Skeleton key={i} className="w-full min-h-[7.5rem] rounded-xl" />
+
+            )}
+            renderEmptyCard={(
+              <>
+                <Icon icon="fluent:box-dismiss-20-filled" className="text-5xl text-default-300" />
+                <p className="text-default-500 mt-2">No deliveries found</p>
+                <Button color="primary" variant="light" size="sm" className="mt-4" onPress={handleNewDelivery}>
+                  Create New Delivery
+                </Button>
+              </>
+            )}
+            onItemSelect={handleSelectDelivery}
+            supabaseFunction="get_delivery_items"
+            className={`xl:w-1/3 shadow-xl shadow-primary/10 
             xl:min-h-[calc(100vh-6.5rem)] 2xl:min-h-[calc(100vh-9rem)] min-h-[42rem] 
             xl:min-w-[350px] w-full rounded-2xl overflow-hidden bg-background border 
-            border-default-200 backdrop-blur-lg xl:sticky top-0 self-start max-h-[calc(100vh-2rem)]`}>
-            <div className="flex flex-col h-full">
-              <div className="p-4 sticky top-0 z-20 bg-background/80 border-b border-default-200 backdrop-blur-lg shadow-sm">
-
-                <LoadingAnimation
-                  condition={!user || isLoadingWarehouses}
-                  skeleton={
-                    <>
-                      {/* Heading skeleton */}
-                      <Skeleton className="h-[1.75rem] w-48 mx-auto mb-4 rounded-full" />
-
-                      <div className="space-y-4">
-                        {/* Search input skeleton */}
-                        <Skeleton className="h-10 w-full rounded-xl" />
-
-                        {/* Filter controls skeleton */}
-                        <ScrollShadow orientation="horizontal" className="flex-1" hideScrollBar>
-                          <div className="flex flex-row gap-2 items-center">
-                            {/* Filter button skeleton */}
-                            <Skeleton className="h-10 w-24 rounded-xl flex-none" />
-
-                            {/* Filter chips area skeleton */}
-                            <Skeleton className="h-8 w-32 rounded-full flex-none" />
-                            <Skeleton className="h-8 w-36 rounded-full flex-none" />
-                            <Skeleton className="h-8 w-24 rounded-full flex-none" />
-                          </div>
-                        </ScrollShadow>
-                      </div>
-                    </>
-                  }>
-
-                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Delivery Items</h2>
-                  <Input
-                    placeholder="Search deliveries..."
-                    value={searchQuery}
-                    onChange={(e) => handleSearch(e.target.value)}
-                    isClearable
-                    onClear={() => handleSearch("")}
-                    startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
-                  />
-                  <div className="flex items-center gap-2 mt-4">
-                    <ScrollShadow orientation="horizontal" className="flex-1 overflow-x-auto" hideScrollBar>
-                      <div className="inline-flex items-center gap-2">
-                        <Popover
-                          isOpen={isFilterOpen}
-                          onOpenChange={setIsFilterOpen}
-                          classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
-                          motionProps={popoverTransition()}
-                          placement="bottom-start">
-                          <PopoverTrigger>
-                            <Button
-                              variant="flat"
-                              color="default"
-                              className="w-24 h-10 rounded-lg !outline-none rounded-xl"
-                              startContent={<Icon icon="mdi:filter-variant" className="text-default-500" />}
-                            >
-                              Filters
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-96 p-0 overflow-hidden">
-                            <div>
-                              <div className="space-y-4 p-4">
-                                <h3 className="text-lg font-semibold items-center w-full text-center">
-                                  Filter Options
-                                </h3>
-
-                                {/* Warehouse filter */}
-                                <Autocomplete
-                                  name="warehouse_filter"
-                                  label="Filter by Warehouse"
-                                  placeholder="All Warehouses"
-                                  selectedKey={warehouseFilter || ""}
-                                  onSelectionChange={(key) => handleWarehouseFilterChange(key as string || null)}
-                                  startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
-                                  inputProps={autoCompleteStyle}
-                                >
-                                  {[
-                                    (<AutocompleteItem key="">All Warehouses</AutocompleteItem>),
-                                    ...warehouses.map((warehouse) => (
-                                      <AutocompleteItem key={warehouse.uuid}>
-                                        {warehouse.name}
-                                      </AutocompleteItem>
-                                    ))]}
-                                </Autocomplete>
-
-                                {/* Status filter */}
-                                <Autocomplete
-                                  name="status_filter"
-                                  label="Filter by Status"
-                                  placeholder="All Statuses"
-                                  selectedKey={statusFilter || ""}
-                                  onSelectionChange={(key) => handleStatusFilterChange(key as string || null)}
-                                  startContent={<Icon icon="mdi:filter-variant" className="text-default-500 mb-[0.2rem]" />}
-                                  inputProps={autoCompleteStyle}
-                                >
-                                  <AutocompleteItem key="">All Statuses</AutocompleteItem>
-                                  <AutocompleteItem key="PENDING">Pending</AutocompleteItem>
-                                  <AutocompleteItem key="PROCESSING">Processing</AutocompleteItem>
-                                  <AutocompleteItem key="IN_TRANSIT">In Transit</AutocompleteItem>
-                                  <AutocompleteItem key="DELIVERED">Delivered</AutocompleteItem>
-                                  <AutocompleteItem key="CANCELLED">Cancelled</AutocompleteItem>
-                                </Autocomplete>
-
-                                {/* Operator filter */}
-                                <Autocomplete
-                                  name="operator_filter"
-                                  label="Filter by Operator"
-                                  placeholder="All Operators"
-                                  selectedKey={operatorFilter || ""}
-                                  onSelectionChange={(key) => { handleOperatorFilterChange(key as string || null) }}
-                                  startContent={<Icon icon="mdi:account" className="text-default-500 mb-[0.2rem]" />}
-                                  inputProps={autoCompleteStyle}
-                                >
-                                  {[
-                                    (<AutocompleteItem key="">All Operators</AutocompleteItem>),
-                                    ...operators.map((operator) => (
-                                      <AutocompleteItem key={operator.uuid}>
-                                        {operator.full_name}
-                                      </AutocompleteItem>
-                                    ))]}
-                                </Autocomplete>
-
-                                {/* Inventory filter */}
-                                <Autocomplete
-                                  name="inventory_filter"
-                                  label="Filter by Item"
-                                  placeholder="All Items"
-                                  selectedKey={mainFilterState.inventoryFilter || ""}
-                                  onSelectionChange={(key) => handleMainInventoryFilterChange(key as string || null)}
-                                  startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
-                                  inputProps={autoCompleteStyle}
-                                >
-                                  {[
-                                    (<AutocompleteItem key="">All Items</AutocompleteItem>),
-                                    ...inventoryItems.map((item) => (
-                                      <AutocompleteItem key={item.uuid}>
-                                        {item.name}
-                                      </AutocompleteItem>
-                                    ))]}
-                                </Autocomplete>
-
-                                {/* Date Filters using Tabs */}
-                                <div className="space-y-3 border-2 border-default-200 rounded-xl p-4 bg-default-100/25">
-                                  <div className="flex items-center gap-2">
-                                    <Icon icon="mdi:calendar-range" className="text-default-500" />
-                                    <span className="text-sm font-medium">Date Filters</span>
-                                  </div>
-
-                                  <Tabs
-                                    variant="solid"
-                                    color="primary"
-                                    fullWidth
-                                    size="md"
-                                    classNames={{
-                                      panel: "p-0",
-                                      tabList: "border-2 border-default-200",
-                                      tabContent: "text-default-700",
-                                    }}
-                                    selectedKey={mainFilterState.dateTabKey}
-                                    onSelectionChange={(key) => {
-                                      const tabKey = key as string;
-                                      setMainFilterState(prev => ({
-                                        ...prev,
-                                        dateTabKey: tabKey,
-                                        // Reset all date filters when switching tabs
-                                        dateFrom: null,
-                                        dateTo: null,
-                                        yearFilter: null,
-                                        monthFilter: null,
-                                        weekFilter: null,
-                                        dayFilter: null
-                                      }));
-                                      clearMainDateFilters();
-                                    }}
-                                    className="w-full"
-                                  >
-                                    <Tab key="range" title="Date Range">
-                                      <DateRangePicker
-                                        label="Select Date Range"
-                                        className="w-full"
-                                        value={mainFilterState.dateFrom && mainFilterState.dateTo ? {
-                                          start: mainFilterState.dateFrom,
-                                          end: mainFilterState.dateTo
-                                        } : null}
-                                        onChange={(range) => {
-                                          if (range) {
-                                            handleMainDateFromChange(range.start);
-                                            handleMainDateToChange(range.end);
-                                          } else {
-                                            handleMainDateFromChange(null);
-                                            handleMainDateToChange(null);
-                                          }
-                                        }}
-                                        classNames={inputStyle}
-                                      />
-                                    </Tab>
-
-                                    <Tab key="week" title="By Week">
-                                      <div className="space-y-3">
-                                        <div className="flex gap-2">
-                                          <Input
-                                            type="number"
-                                            label="Year"
-                                            placeholder="2024"
-                                            value={mainFilterState.yearFilter?.toString() || ""}
-                                            onChange={(e) => handleMainYearFilterChange(e.target.value ? parseInt(e.target.value) : null)}
-                                            className="flex-1"
-                                            classNames={inputStyle}
-                                            min="2000"
-                                            max="2100"
-                                          />
-                                          <Input
-                                            type="number"
-                                            label="Week"
-                                            placeholder="1-53"
-                                            value={mainFilterState.weekFilter?.toString() || ""}
-                                            onChange={(e) => {
-                                              const week = e.target.value ? parseInt(e.target.value) : null;
-                                              const year = mainFilterState.yearFilter || new Date().getFullYear();
-                                              handleMainWeekFilterChange(week);
-                                              if (week && !mainFilterState.yearFilter) {
-                                                handleMainYearFilterChange(year);
-                                              }
-                                            }}
-                                            className="flex-1"
-                                            classNames={inputStyle}
-                                            min="1"
-                                            max="53"
-                                          />
-                                        </div>
-                                        {(mainFilterState.yearFilter || mainFilterState.weekFilter) && (
-                                          <Button
-                                            size="sm"
-                                            variant="flat"
-                                            color="warning"
-                                            onPress={() => {
-                                              handleMainYearFilterChange(null);
-                                              handleMainWeekFilterChange(null);
-                                            }}
-                                            className="w-full"
-                                            startContent={<Icon icon="mdi:close" />}
-                                          >
-                                            Clear Week Filter
-                                          </Button>
-                                        )}
-                                      </div>
-                                    </Tab>
-
-                                    <Tab key="specific" title="Specific Date">
-                                      <div className="space-y-3">
-                                        <div className="grid grid-cols-3 gap-2">
-                                          <Input
-                                            type="number"
-                                            label="Year"
-                                            placeholder="2024"
-                                            value={mainFilterState.yearFilter?.toString() || ""}
-                                            onChange={(e) => handleMainYearFilterChange(e.target.value ? parseInt(e.target.value) : null)}
-                                            classNames={inputStyle}
-                                            min="2000"
-                                            max="2100"
-                                          />
-                                          <Input
-                                            type="number"
-                                            label="Month"
-                                            placeholder="1-12"
-                                            value={mainFilterState.monthFilter?.toString() || ""}
-                                            onChange={(e) => handleMainMonthFilterChange(e.target.value ? parseInt(e.target.value) : null)}
-                                            classNames={inputStyle}
-                                            min="1"
-                                            max="12"
-                                          />
-                                          <Input
-                                            type="number"
-                                            label="Day"
-                                            placeholder="1-31"
-                                            value={mainFilterState.dayFilter?.toString() || ""}
-                                            onChange={(e) => handleMainDayFilterChange(e.target.value ? parseInt(e.target.value) : null)}
-                                            classNames={inputStyle}
-                                            min="1"
-                                            max="31"
-                                          />
-                                        </div>
-                                        {(mainFilterState.yearFilter || mainFilterState.monthFilter || mainFilterState.dayFilter) && (
-                                          <Button
-                                            size="sm"
-                                            variant="flat"
-                                            color="warning"
-                                            onPress={() => {
-                                              handleMainYearFilterChange(null);
-                                              handleMainMonthFilterChange(null);
-                                              handleMainDayFilterChange(null);
-                                            }}
-                                            className="w-full"
-                                            startContent={<Icon icon="mdi:close" />}
-                                          >
-                                            Clear Specific Date Filter
-                                          </Button>
-                                        )}
-                                      </div>
-                                    </Tab>
-                                  </Tabs>
-                                </div>
-                              </div>
-
-                              <div className="p-4 border-t border-default-200 flex justify-end gap-2 bg-default-100/50">
-                                {/* Clear All Filters Button */}
-                                {(warehouseFilter || statusFilter || operatorFilter || mainFilterState.inventoryFilter || mainFilterState.dateFrom || mainFilterState.dateTo || mainFilterState.yearFilter || mainFilterState.monthFilter || mainFilterState.weekFilter || mainFilterState.dayFilter) && (
-                                  <Button
-                                    variant="flat"
-                                    color="danger"
-                                    size="sm"
-                                    onPress={() => {
-                                      setWarehouseFilter(null);
-                                      setStatusFilter(null);
-                                      setOperatorFilter(null);
-                                      setMainFilterState({
-                                        dateFrom: null,
-                                        dateTo: null,
-                                        yearFilter: null,
-                                        monthFilter: null,
-                                        weekFilter: null,
-                                        dayFilter: null,
-                                        dateTabKey: "range",
-                                        inventoryFilter: null,
-                                      });
-                                      setPage(1);
-                                      handleSearch(searchQuery, null, null, null, null, null, null, null, null, null, null, 1);
-                                    }}
-                                    startContent={<Icon icon="mdi:filter-remove" />}
-                                  >
-                                    Clear All Filters
-                                  </Button>
-                                )}
-                                <Button
-                                  size="sm"
-                                  variant="flat"
-                                  onPress={() => setIsFilterOpen(false)}
-                                >
-                                  Close
-                                </Button>
-                              </div>
-                            </div>
-                          </PopoverContent>
-                        </Popover>
-
-                        {/* Display selected filters as chips */}
-                        {warehouseFilter && (
-                          <Chip
-                            variant="flat"
-                            color="primary"
-                            onClose={() => handleWarehouseFilterChange(null)}
-                            size="sm"
-                            className="h-8 p-2"
-                          >
-                            <div className="flex items-center gap-1">
-                              <Icon icon="mdi:warehouse" className="text-xs" />
-                              {warehouses.find(w => w.uuid === warehouseFilter)?.name || 'Unknown Warehouse'}
-                            </div>
-                          </Chip>
-                        )}
-
-                        {statusFilter && (
-                          <Chip
-                            variant="flat"
-                            color={getStatusColor(statusFilter)}
-                            onClose={() => handleStatusFilterChange(null)}
-                            size="sm"
-                            className="h-8 p-2"
-                          >
-                            <div className="flex items-center gap-1">
-                              <Icon icon="mdi:filter-variant" className="text-xs" />
-                              {statusFilter.replaceAll('_', ' ')}
-                            </div>
-                          </Chip>
-                        )}
-
-                        {operatorFilter && (
-                          <Chip
-                            variant="flat"
-                            color="secondary"
-                            onClose={() => handleOperatorFilterChange(null)}
-                            size="sm"
-                            className="h-8 p-2"
-                          >
-                            <div className="flex items-center gap-1">
-                              <Icon icon="mdi:account" className="text-xs" />
-                              {operators.find(op => op.uuid === operatorFilter)?.full_name || 'Unknown Operator'}
-                            </div>
-                          </Chip>
-                        )}
-
-                        {mainFilterState.inventoryFilter && (
-                          <Chip
-                            variant="flat"
-                            color="success"
-                            onClose={() => handleMainInventoryFilterChange(null)}
-                            size="sm"
-                            className="h-8 p-2"
-                          >
-                            <div className="flex items-center gap-1">
-                              <Icon icon="mdi:package-variant" className="text-xs" />
-                              {inventoryItems.find(item => item.uuid === mainFilterState.inventoryFilter)?.name || 'Unknown Item'}
-                            </div>
-                          </Chip>
-                        )}
-
-                        {(mainFilterState.dateFrom || mainFilterState.dateTo) && (
-                          <Chip
-                            variant="flat"
-                            color="secondary"
-                            onClose={() => {
-                              handleMainDateFromChange(null);
-                              handleMainDateToChange(null);
-                            }}
-                            size="sm"
-                            className="h-8 p-2"
-                          >
-                            <div className="flex items-center gap-1">
-                              <Icon icon="mdi:calendar-range" className="text-xs" />
-                              {mainFilterState.dateFrom && mainFilterState.dateTo ? `${format(new Date(mainFilterState.dateFrom.year, mainFilterState.dateFrom.month - 1, mainFilterState.dateFrom.day), 'MMM d')} - ${format(new Date(mainFilterState.dateTo.year, mainFilterState.dateTo.month - 1, mainFilterState.dateTo.day), 'MMM d')}` : 'Date Range'}
-                            </div>
-                          </Chip>
-                        )}
-
-                        {mainFilterState.weekFilter && (
-                          <Chip
-                            variant="flat"
-                            color="secondary"
-                            onClose={() => {
-                              handleMainWeekFilterChange(null);
-                              handleMainYearFilterChange(null);
-                            }}
-                            size="sm"
-                            className="h-8 p-2"
-                          >
-                            <div className="flex items-center gap-1">
-                              <Icon icon="mdi:calendar-week" className="text-xs" />
-                              Week {mainFilterState.weekFilter}/{mainFilterState.yearFilter || new Date().getFullYear()}
-                            </div>
-                          </Chip>
-                        )}
-
-                        {(mainFilterState.yearFilter || mainFilterState.monthFilter || mainFilterState.dayFilter) && !mainFilterState.weekFilter && (
-                          <Chip
-                            variant="flat"
-                            color="secondary"
-                            onClose={() => {
-                              handleMainYearFilterChange(null);
-                              handleMainMonthFilterChange(null);
-                              handleMainDayFilterChange(null);
-                            }}
-                            size="sm"
-                            className="h-8 p-2"
-                          >
-                            <div className="flex items-center gap-1">
-                              <Icon icon="mdi:calendar" className="text-xs" />
-                              {mainFilterState.yearFilter && mainFilterState.monthFilter && mainFilterState.dayFilter
-                                ? `${mainFilterState.dayFilter}/${mainFilterState.monthFilter}/${mainFilterState.yearFilter}`
-                                : `Custom Date`}
-                            </div>
-                          </Chip>
-                        )}
-
-                        {(warehouseFilter || statusFilter || operatorFilter || mainFilterState.inventoryFilter || mainFilterState.dateFrom || mainFilterState.dateTo || mainFilterState.yearFilter || mainFilterState.monthFilter || mainFilterState.weekFilter || mainFilterState.dayFilter) && (
-                          <Button
-                            size="sm"
-                            variant="light"
-                            className="rounded-lg"
-                            onPress={() => {
-                              setWarehouseFilter(null);
-                              setStatusFilter(null);
-                              setOperatorFilter(null);
-                              setMainFilterState({
-                                dateFrom: null,
-                                dateTo: null,
-                                yearFilter: null,
-                                monthFilter: null,
-                                weekFilter: null,
-                                dayFilter: null,
-                                dateTabKey: "range",
-                                inventoryFilter: null,
-                              });
-                              setPage(1);
-                              handleSearch(searchQuery, null, null, null, null, null, null, null, null, null, null, 1);
-                            }}
-                          >
-                            Clear all
-                          </Button>
-                        )}
-                      </div>
-                    </ScrollShadow>
-                  </div>
-                </LoadingAnimation>
-
-              </div>
-
-
-              <div className="h-full absolute w-full">
-                <CustomScrollbar
-                  scrollShadow
-                  scrollShadowTop={false}
-                  scrollbarMarginTop="10.75rem"
-                  scrollbarMarginBottom="0.5rem"
-                  disabled={!user || isLoadingItems}
-                  className="space-y-4 p-4 mt-1 pt-[11.5rem] h-full relative">
-                  <ListLoadingAnimation
-                    condition={!user || isLoadingItems}
-                    containerClassName="space-y-4"
-                    skeleton={[...Array(10)].map((_, i) => (
-                      <Skeleton key={i} className="w-full min-h-[7.5rem] rounded-xl" />
-                    ))}>
-                    {deliveryItems.map((delivery) => (
-                      <Button
-                        key={delivery.uuid}
-                        onPress={() => handleSelectDelivery(delivery.uuid)}
-                        variant="shadow"
-                        className={`w-full min-h-[7.5rem] !transition-all duration-200 rounded-xl p-0 ${selectedDeliveryId === delivery.uuid ? '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' : '!bg-default-100/50 shadow-none hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
-                      >
-                        <div className="w-full flex flex-col h-full">
-                          <div className="flex-grow flex flex-col justify-center px-3">
-                            <div className="flex items-center justify-between">
-                              <span className="font-semibold">
-                                {inventoryItems.find(i => i.uuid === delivery.inventory_uuid)?.name || 'Unknown Item'}
-                              </span>
-                              <Chip color="default" variant={selectedDeliveryId === delivery.uuid ? "shadow" : "flat"} size="sm">
-                                {delivery.inventory_item_bulk_uuids?.length || 0} bulks
-                              </Chip>
-                            </div>
-                            {delivery.delivery_address && (
-                              <div className={`w-full mt-1 text-sm ${selectedDeliveryId === delivery.uuid ? 'text-default-800 ' : 'text-default-600'} text-start text-ellipsis overflow-hidden whitespace-nowrap`}>
-                                {delivery.delivery_address}
-                              </div>
-                            )}
-                          </div>
-                          {/* Footer - always at the bottom */}
-                          <div className={`flex items-center gap-2 border-t ${selectedDeliveryId === delivery.uuid ? 'border-primary-300' : 'border-default-100'} p-3`}>
-                            <Chip
-                              color={selectedDeliveryId === delivery.uuid ? "default" : "primary"}
-                              variant={selectedDeliveryId === delivery.uuid ? "shadow" : "flat"}
-                              size="sm">
-                              {formatDate(delivery.delivery_date)}
-                            </Chip>
-                            <Chip color={getStatusColor(delivery.status)} variant={selectedDeliveryId === delivery.uuid ? "shadow" : "flat"} size="sm">
-                              {delivery.status.replaceAll('_', ' ')}
-                            </Chip>
-                            {delivery.operator_uuids && delivery.operator_uuids.length > 0 && (
-                              <Chip color="success" variant={selectedDeliveryId === delivery.uuid ? "shadow" : "flat"} size="sm">
-                                <div className="flex items-center gap-1">
-                                  <Icon icon="mdi:account" className="mb-[0.1rem]" />
-                                  {delivery.operator_uuids.length === 1
-                                    ? operators.find(op => delivery.operator_uuids?.includes(op.uuid))?.full_name.split(' ')[0] || 'Operator'
-                                    : `${delivery.operator_uuids.length} operators`
-                                  }
-                                </div>
-                              </Chip>
-                            )}
-                          </div>
-                        </div>
-                      </Button>
-                    ))}
-                  </ListLoadingAnimation>
-                  {deliveryItems.length > 0 && (
-                    <div className="flex flex-col items-center pt-2 pb-4 px-2">
-                      <div className="text-sm text-default-500 mb-2">
-                        Showing {(page - 1) * rowsPerPage + 1} to {Math.min(page * rowsPerPage, totalDeliveries)} of {totalDeliveries} {totalDeliveries === 1 ? 'delivery' : 'deliveries'}
-                      </div>
-                      <Pagination
-                        total={totalPages}
-                        initialPage={1}
-                        page={page}
-                        onChange={handlePageChange}
-                        color="primary"
-                        size="sm"
-                        showControls
-                      />
-                    </div>
-                  )}
-                  <AnimatePresence>
-                    {(!user || isLoadingItems) && (
-                      <motion.div
-                        className="absolute inset-0 flex items-center justify-center"
-                        initial={{ opacity: 0, filter: "blur(8px)" }}
-                        animate={{ opacity: 1, filter: "blur(0px)" }}
-                        exit={{ opacity: 0, filter: "blur(8px)" }}
-                        transition={{ duration: 0.3, delay: 0.3 }}
-                      >
-                        <div className="absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-background to-transparent pointer-events-none" />
-                        <div className="py-4 flex absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
-                          <Spinner />
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </CustomScrollbar>
-
-
-                <AnimatePresence>
-                  {user && !isLoadingItems && deliveryItems.length === 0 && (
-                    <motion.div
-                      className="xl:h-full h-[42rem] absolute w-full"
-                      initial={{ opacity: 0, filter: "blur(8px)" }}
-                      animate={{ opacity: 1, filter: "blur(0px)" }}
-                      exit={{ opacity: 0, filter: "blur(8px)" }}
-                      transition={{ duration: 0.3 }}
-                    >
-                      <div className="py-4 flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
-                        <Icon icon="fluent:box-dismiss-20-filled" className="text-5xl text-default-300" />
-                        <p className="text-default-500 mt-2">No deliveries found</p>
-                        <Button color="primary" variant="light" size="sm" className="mt-4" onPress={handleNewDelivery}>
-                          Create New Delivery
-                        </Button>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-              </div>
-            </div>
-          </div>
+            border-default-200 backdrop-blur-lg xl:sticky top-0 self-start max-h-[calc(100vh-2rem)]`}
+          />
 
           {/* Right side: Delivery Form */}
           <div className="xl:w-2/3 overflow-hidden">

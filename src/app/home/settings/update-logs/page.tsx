@@ -19,9 +19,11 @@ import { formatDistanceToNow } from "date-fns";
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useState, useTransition } from "react";
 import { fetchCommits, type GitHubCommit } from "./actions";
+import { getUserProfile } from "@/utils/supabase/server/user";
 
 export default function UpdateLogsPage() {
   // State management
+  const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [commits, setCommits] = useState<GitHubCommit[]>([]);
   const [filteredCommits, setFilteredCommits] = useState<GitHubCommit[]>([]);
@@ -31,7 +33,7 @@ export default function UpdateLogsPage() {
   // Filter and pagination state
   const [selectedTab, setSelectedTab] = useState<string>("all");
   const [page, setPage] = useState(1);
-  const [itemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [searchQuery, setSearchQuery] = useState("");
   const [totalPages, setTotalPages] = useState(1);
 
@@ -39,14 +41,14 @@ export default function UpdateLogsPage() {
   const GITHUB_REPO = "RoPICSystem/ropic-system";
 
   // Fetch commits using server action
-  const loadCommits = async (pageNum: number = 1) => {
+  const loadCommits = async (pageNum: number = 1, pageSize: number = itemsPerPage) => {
     setLoading(true);
     setError(null);
 
     startTransition(async () => {
       try {
-        const result = await fetchCommits(pageNum, itemsPerPage);
-        
+        const result = await fetchCommits(pageNum, pageSize);
+
         if (result.error) {
           setError(result.error);
           setCommits([]);
@@ -66,16 +68,6 @@ export default function UpdateLogsPage() {
       }
     });
   };
-
-  // Initial load
-  useEffect(() => {
-    loadCommits(page);
-  }, [page]);
-
-  // Apply filters when search changes
-  useEffect(() => {
-    applyFilters(commits);
-  }, [searchQuery, selectedTab, commits]);
 
   const applyFilters = (allCommits: GitHubCommit[]) => {
     let filtered = [...allCommits];
@@ -172,6 +164,35 @@ export default function UpdateLogsPage() {
   };
 
   const isLoading = loading || isPending;
+
+  useEffect(() => {
+    async function fetchUserData() {
+      setLoading(true);
+      const { data, error } = await getUserProfile();
+
+      if (error) {
+        setLoading(false);
+        return;
+      }
+
+      setUser(data);
+      setItemsPerPage(data.settings.pageSize);
+      await loadCommits(page, data.settings.pageSize);
+      setLoading(false);
+    }
+
+    fetchUserData();
+  }, []);
+
+  // Initial load
+  useEffect(() => {
+    loadCommits(page);
+  }, [page]);
+
+  // Apply filters when search changes
+  useEffect(() => {
+    applyFilters(commits);
+  }, [searchQuery, selectedTab, commits]);
 
   if (error) {
     return (

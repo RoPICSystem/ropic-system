@@ -40,6 +40,7 @@ import ListLoadingAnimation from '@/components/list-loading-animation';
 import { getUserFromCookies } from '@/utils/supabase/server/user';
 import CustomScrollbar from '@/components/custom-scrollbar';
 import { createClient } from "@/utils/supabase/client";
+import { SearchListPanel } from '@/components/search-list-panel/search-list-panel';
 
 function generateFullAddress(
   street: string,
@@ -505,7 +506,7 @@ export default function WarehousePage() {
       .on(
         'postgres_changes',
         {
-          event: '*', 
+          event: '*',
           schema: 'public',
           table: 'warehouses',
           filter: `company_uuid=eq.${user.company_uuid}`
@@ -626,154 +627,91 @@ export default function WarehousePage() {
 
         <div className="flex flex-col xl:flex-row gap-4">
           {/* Left side: Warehouse List */}
-          <div className={`xl:w-1/3 shadow-xl shadow-primary/10
-          xl:min-h-[calc(100vh-6.5rem)] 2xl:min-h-[calc(100vh-9rem)] min-h-[42rem] 
-          xl:min-w-[350px] w-full rounded-2xl overflow-hidden bg-background border 
-          border-default-200 backdrop-blur-lg xl:sticky top-0 self-start max-h-[calc(100vh-2rem)]`}
-          >
-            <div className="flex flex-col h-full">
-              <div className="p-4 sticky top-0 z-20 bg-background/80 border-b border-default-200 backdrop-blur-lg shadow-sm">
-                <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouses</h2>
-                <Input
-                  placeholder="Search warehouses..."
-                  value={searchQuery}
-                  onChange={(e) => handleSearch(e.target.value)}
-                  isClearable
-                  onClear={() => handleSearch("")}
-                  startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
-                />
-              </div>
-              <div className="h-full absolute w-full">
-                <CustomScrollbar
-                  scrollShadow={warehouses.length <= rowsPerPage}
-                  scrollShadowTop={false}
-                  scrollbarMarginTop="7.25rem"
-                  scrollbarMarginBottom={warehouses.length > rowsPerPage ? "6.5rem" : "0.5rem"}
-                  disabled={!user || listLoading}
-                  className={`space-y-4 p-4 mt-1 pt-32 h-full relative ${warehouses.length > rowsPerPage && "pb-28"}`}>
-                  <ListLoadingAnimation
-                    condition={listLoading}
-                    containerClassName="space-y-4"
-                    skeleton={[...Array(10)].map((_, i) => (
-                      <Skeleton key={i} className="w-full min-h-28 rounded-xl" />
-                    ))}
-                  >
-                    {warehouses.map((warehouse) => (
-                      <Button
-                        key={warehouse.uuid}
-                        onPress={() => { if (warehouse.uuid) handleSelectWarehouse(warehouse.uuid) }}
-                        variant="shadow"
-                        className={`w-full min-h-28 !transition-all duration-200 rounded-xl px-0 py-4 ${selectedWarehouseId === warehouse.uuid ?
-                          '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' :
-                          '!bg-default-100/50 shadow-none hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
-                      >
-                        <div className="w-full flex justify-between items-start px-0">
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between px-4">
-                              <span className="font-semibold">{warehouse.name}</span>
-                            </div>
-                            {warehouse.address?.fullAddress && (
-                              <div className={`text-sm mx-4 ${selectedWarehouseId === warehouse.uuid ? 'text-default-800 ' : 'text-default-600'} line-clamp-2 text-start overflow-hidden`}>
-                                {(() => {
-                                  const cleanText = (text: string) => text.replace(/\s*\([^)]*\)/g, '');
-                                  const addressText = `${cleanText(warehouse.address.municipality.desc)}, ${cleanText(warehouse.address.barangay.desc)}, ${cleanText(warehouse.address.street)}`;
-                                  return addressText.length > 40 ? `${addressText.substring(0, 37)}...` : addressText;
-                                })()}
-                              </div>
-                            )}
-                            <div className={`flex items-center gap-2 mt-3 border-t ${selectedWarehouseId === warehouse.uuid ? 'border-primary-300' : 'border-default-100'
-                              } px-4 pt-4`}>
-                              {warehouse.floors_count ? (
-                                <>
-                                  <Chip color="secondary" variant={selectedWarehouseId === warehouse.uuid ? "shadow" : "flat"} size="sm">
-                                    <div className="flex items-center">
-                                      <Icon icon="material-symbols:warehouse-rounded" className="mr-1" />
-                                      {warehouse.floors_count} floor{warehouse.floors_count > 1 ? 's' : ''}
-                                    </div>
-                                  </Chip>
-                                  <Chip color="warning" variant={selectedWarehouseId === warehouse.uuid ? "shadow" : "flat"} size="sm">
-                                    <div className="flex items-center">
-                                      <Icon icon="tabler:layout-2-filled" className="mr-1" />
-                                      {warehouse.rows_count} × {warehouse.columns_count}
-                                    </div>
-                                  </Chip>
-                                </>
-                              ) : (
-                                <Chip color="danger" variant={selectedWarehouseId === warehouse.uuid ? "shadow" : "flat"} size="sm">
-                                  <div className="flex items-center">
-                                    <Icon icon="material-symbols:warehouse-rounded" className="mr-1" />
-                                    No layout
-                                  </div>
-                                </Chip>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </Button>
-                    ))}
-                  </ListLoadingAnimation>
-                  <AnimatePresence>
-                    {listLoading && (
-                      <motion.div
-                        className="absolute inset-0 flex items-center justify-center"
-                        {...motionTransitionScale}
-                      >
-                        <div className="absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-background to-transparent pointer-events-none" />
-                        <div className="py-4 flex absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
-                          <Spinner />
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-
-                  {/* Pagination fixed at the bottom */}
-                  {warehouses.length > 15 && (
-                    <div className="flex fixed h-24 flex-col items-center justify-center pt-2 pb-4 px-2 border-t border-default-200 bg-background/80 backdrop-blur-lg bottom-0 left-0 right-0">
-                      <div className="text-sm text-default-500 mb-2">
-                        Showing {(page - 1) * rowsPerPage + 1} to {Math.min(page * rowsPerPage, totalWarehouses)} of {totalWarehouses} {totalWarehouses === 1 ? 'warehouse' : 'warehouses'}
-                      </div>
-                      <Pagination
-                        total={totalPages}
-                        initialPage={1}
-                        page={page}
-                        onChange={handlePageChange}
-                        color="primary"
-                        size="sm"
-                        showControls
-                      />
+          <SearchListPanel
+            title="Warehouses"
+            searchPlaceholder="Search warehouses..."
+            searchLimit={10}
+            date_filters={["weekFilter", "specificDate"]}
+            companyUuid={user?.company_uuid}
+            renderItem={(warehouse) => (
+              <Button
+                key={warehouse.uuid}
+                onPress={() => { if (warehouse.uuid) handleSelectWarehouse(warehouse.uuid) }}
+                variant="shadow"
+                className={`w-full min-h-28 !transition-all duration-200 rounded-xl px-0 py-4 ${selectedWarehouseId === warehouse.uuid ?
+                  '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' :
+                  '!bg-default-100/50 shadow-none hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
+              >
+                <div className="w-full flex justify-between items-start px-0">
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between px-4">
+                      <span className="font-semibold">{warehouse.name}</span>
                     </div>
-                  )}
-                </CustomScrollbar>
-
-
-
-
-                {/* No items found state */}
-                <AnimatePresence>
-                  {!listLoading && warehouses.length === 0 && (
-                    <motion.div
-                      className="absolute inset-0 flex items-center justify-center"
-                      {...motionTransitionScale}
-                    >
-                      <div className="py-4 px-8 w-full flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
-                        <Icon icon="material-symbols:warehouse-rounded" className="text-5xl text-default-300" />
-                        <p className="text-default-500 mt-2">No warehouses found</p>
-                        <Button
-                          color="primary"
-                          variant="flat"
-                          size="sm"
-                          className="mt-4"
-                          onPress={handleAddWarehouse}
-                          startContent={<Icon icon="mdi:plus" className="text-default-500" />}>
-                          Add Warehouse
-                        </Button>
+                    {warehouse.address?.fullAddress && (
+                      <div className={`text-sm mx-4 ${selectedWarehouseId === warehouse.uuid ? 'text-default-800 ' : 'text-default-600'} line-clamp-2 text-start overflow-hidden`}>
+                        {(() => {
+                          const cleanText = (text: string) => text.replace(/\s*\([^)]*\)/g, '');
+                          const addressText = `${cleanText(warehouse.address.municipality.desc)}, ${cleanText(warehouse.address.barangay.desc)}, ${cleanText(warehouse.address.street)}`;
+                          return addressText.length > 40 ? `${addressText.substring(0, 37)}...` : addressText;
+                        })()}
                       </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            </div>
-          </div>
+                    )}
+                    <div className={`flex items-center gap-2 mt-3 border-t ${selectedWarehouseId === warehouse.uuid ? 'border-primary-300' : 'border-default-100'
+                      } px-4 pt-4`}>
+                      {warehouse.floors_count ? (
+                        <>
+                          <Chip color="secondary" variant={selectedWarehouseId === warehouse.uuid ? "shadow" : "flat"} size="sm">
+                            <div className="flex items-center">
+                              <Icon icon="material-symbols:warehouse-rounded" className="mr-1" />
+                              {warehouse.floors_count} floor{warehouse.floors_count > 1 ? 's' : ''}
+                            </div>
+                          </Chip>
+                          <Chip color="warning" variant={selectedWarehouseId === warehouse.uuid ? "shadow" : "flat"} size="sm">
+                            <div className="flex items-center">
+                              <Icon icon="tabler:layout-2-filled" className="mr-1" />
+                              {warehouse.rows_count} × {warehouse.columns_count}
+                            </div>
+                          </Chip>
+                        </>
+                      ) : (
+                        <Chip color="danger" variant={selectedWarehouseId === warehouse.uuid ? "shadow" : "flat"} size="sm">
+                          <div className="flex items-center">
+                            <Icon icon="material-symbols:warehouse-rounded" className="mr-1" />
+                            No layout
+                          </div>
+                        </Chip>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </Button>
+            )}
+            renderSkeletonItem={(i) => (
+              <Skeleton key={i} className="w-full min-h-[7.5rem] rounded-xl" />
+            )}
+            renderEmptyCard={(
+              <>
+                <Icon icon="material-symbols:warehouse-rounded" className="text-5xl text-default-300" />
+                <p className="text-default-500 mt-2">No warehouses found</p>
+                <Button
+                  color="primary"
+                  variant="flat"
+                  size="sm"
+                  className="mt-4"
+                  onPress={handleAddWarehouse}
+                  startContent={<Icon icon="mdi:plus" className="text-default-500" />}>
+                  Add Warehouse
+                </Button>
+              </>
+            )}
+            onItemSelect={handleSelectWarehouse}
+            supabaseFunction="get_warehouses_filtered"
+            className={`xl:w-1/3 shadow-xl shadow-primary/10 
+                      xl:min-h-[calc(100vh-6.5rem)] 2xl:min-h-[calc(100vh-9rem)] min-h-[42rem] 
+                      xl:min-w-[350px] w-full rounded-2xl overflow-hidden bg-background border 
+                      border-default-200 backdrop-blur-lg xl:sticky top-0 self-start max-h-[calc(100vh-2rem)]`}
+          />
+
 
 
           {/* Right side: Warehouse Form */}
