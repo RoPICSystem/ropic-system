@@ -31,14 +31,15 @@ import { Icon } from "@iconify/react";
 import { AnimatePresence, motion } from 'framer-motion';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { createWarehouse, deleteWarehouse, getWarehouseByUuid, getWarehouseLayout, getWarehouses, updateWarehouse, Warehouse } from './actions';
+import { createWarehouse, deleteWarehouse, getWarehouseByUuid, getWarehouses, updateWarehouse, Warehouse } from './actions';
 
-import { copyToClipboard } from '@/utils/tools';
+import { copyToClipboard, showErrorToast } from '@/utils/tools';
 import WarehouseLayoutEditorModal from './layout-editor-modal';
 import LoadingAnimation from '@/components/loading-animation';
 import ListLoadingAnimation from '@/components/list-loading-animation';
 import { getUserFromCookies } from '@/utils/supabase/server/user';
 import CustomScrollbar from '@/components/custom-scrollbar';
+import { createClient } from "@/utils/supabase/client";
 
 function generateFullAddress(
   street: string,
@@ -74,16 +75,16 @@ export default function WarehousePage() {
   const deleteModal = useDisclosure();
 
   // Warehouse list state
-  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [warehouses, setWarehouses] = useState<(Partial<Warehouse> & { floors_count: number, rows_count: number, columns_count: number })[]>([])
   const [warehouseToDelete, setWarehouseToDelete] = useState<string | null>(null);
   const [listLoading, setListLoading] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const [search, setSearch] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null);
 
   // Separate state for the selected warehouse details
   const [detailLoading, setDetailLoading] = useState<boolean>(false);
-  const [isAddressLoading, setIsAddressLoading] = useState<boolean>(true); // Separate loading state for address
+  const [isAddressLoading, setIsAddressLoading] = useState<boolean>(false); // Separate loading state for address
   const [currentWarehouse, setCurrentWarehouse] = useState<Partial<Warehouse> | null>(null);
 
   // Pagination state
@@ -110,8 +111,8 @@ export default function WarehousePage() {
 
   // Warehouse layout state
   const [warehouseLayout, setWarehouseLayout] = useState<FloorConfig[]>([]);
-  const [layoutRows, setLayoutRows] = useState<number>(10);
-  const [layoutColumns, setLayoutColumns] = useState<number>(10);
+  const [layoutRows, setLayoutRows] = useState<number>(17);
+  const [layoutColumns, setLayoutColumns] = useState<number>(33);
 
   // Layout editor state
   const [isLayoutEditorOpen, setIsLayoutEditorOpen] = useState(false);
@@ -128,113 +129,35 @@ export default function WarehousePage() {
 
   // Optimized function to load address data efficiently
   const loadAddressData = async (options?: {
-    regCode?: string
-    provCode?: string
-    citymunCode?: string
+    reg_code?: string
+    prov_code?: string
+    citymun_code?: string
   }) => {
     try {
       const addressData = await getAddressDropdownData(options)
 
       setRegions(addressData.regions)
 
-      if (options?.regCode) {
+      if (options?.reg_code) {
         setProvinces(addressData.provinces)
       }
 
-      if (options?.provCode) {
+      if (options?.prov_code) {
         setCityMunicipalities(addressData.cities)
       }
 
-      if (options?.citymunCode) {
+      if (options?.citymun_code) {
         setBarangays(addressData.barangays)
       }
 
       return addressData
     } catch (error) {
-      console.error('Error loading address data:', error)
+      showErrorToast('Error loading address data', (error instanceof Error ? error.message : 'Unknown error'));
       return { regions: [], provinces: [], cities: [], barangays: [] }
     }
   }
 
-  // Watch for URL search params to select warehouse
-  useEffect(() => {
-    setIsAddressLoading(true);
-    setDetailLoading(true);
-    const warehouseId = searchParams.get("warehouseId");
 
-    if (!warehouseId) {
-      const resetDetails = async () => {
-        await setSelectedWarehouseId(null);
-        await setWarehouseLayout([]);
-        await setCurrentWarehouse({});
-        await resetAddressFields();
-
-        setIsAddressLoading(false);
-        setDetailLoading(false);
-      }
-      resetDetails();
-      return;
-    }
-
-
-    if (warehouseId !== selectedWarehouseId) {
-      setSelectedWarehouseId(warehouseId);
-      fetchWarehouseAddress(warehouseId);
-      fetchWarehouseLayout(warehouseId);
-    }
-
-  }, [searchParams]);
-
-  useEffect(() => {
-    const fetchWarehousesAsync = async () => {
-      setListLoading(true);
-      const userData = await getUserFromCookies();
-      if (userData === null) {
-        setUser(null);
-        return
-      } else
-        setUser(userData);
-
-      await fetchWarehouses(userData.company_uuid);
-      setListLoading(false);
-    }
-    fetchWarehousesAsync();
-  }, []);
-
-  const fetchWarehouseAddress = async (warehouseId: string) => {
-    const { data, success } = await getWarehouseByUuid(warehouseId);
-
-    if (success && data) {
-      setCurrentWarehouse(data);
-      await initializeAddressFields(data);
-    }
-
-    setIsAddressLoading(false);
-  }
-
-  // Fetch warehouse layout
-  const fetchWarehouseLayout = async (warehouseId: string) => {
-    if (!warehouseId) return;
-
-    const { success, data, error } = await getWarehouseLayout(warehouseId);
-
-    if (success && data) {
-      setWarehouseLayout(data);
-      // Set rows/columns based on the loaded data
-      if (data[0]?.matrix?.length > 0) {
-        setLayoutRows(data[0].matrix.length);
-        setLayoutColumns(data[0].matrix[0].length);
-      }
-    } else {
-      console.error("Error loading warehouse layout:", error);
-      // Initialize with default layout if none exists
-      setWarehouseLayout([{
-        height: 5,
-        matrix: Array(layoutRows).fill(0).map(() => Array(layoutColumns).fill(0))
-      }]);
-    }
-    setDetailLoading(false);
-  };
 
   // Fetch warehouses with pagination
   const fetchWarehouses = async (companyUuid: string) => {
@@ -246,7 +169,7 @@ export default function WarehousePage() {
 
       const result = await getWarehouses(
         companyUuid,
-        search,
+        searchQuery,
         null, // year
         null, // month
         null, // week
@@ -259,49 +182,13 @@ export default function WarehousePage() {
         setWarehouses(result.data);
         setTotalWarehouses(result.totalCount);
         setTotalPages(result.totalPages || 1);
-      }
+      } else
+        showErrorToast(`Error fetching warehouses`, result.error);
+
     } catch (error) {
-      console.error("Error fetching warehouses:", error);
+      showErrorToast(`Error fetching warehouses`, (error instanceof Error ? error.message : 'Unknown error'));
     }
   };
-
-  // Effect to fetch warehouses when dependencies change
-  useEffect(() => {
-    const fetchWarehousesAsync = async () => {
-      if (!user?.company_uuid) return;
-      setListLoading(true);
-      await fetchWarehouses(user?.company_uuid || '');
-      setListLoading(false);
-    }
-    fetchWarehousesAsync();
-  }, [page, rowsPerPage, search, user]);
-
-  // Update the full address when components change
-  useEffect(() => {
-    if (!regions.length) return
-
-    const regionName = regions.find(r => compare(r.regCode, selectedRegion))?.regDesc || '';
-    const provinceName = provinces.find(p => compare(p.provCode, selectedProvince))?.provDesc || '';
-    const cityMunName = cityMunicipalities.find(c => compare(c.citymunCode, selectedCityMunicipality))?.citymunDesc || '';
-    const barangayName = barangays.find(b => compare(b.brgyCode, selectedBarangay))?.brgyDesc || '';
-
-    const generatedAddress = generateFullAddress(
-      inputStreetAddress,
-      barangayName,
-      cityMunName,
-      provinceName,
-      regionName,
-      'PHILIPPINES',
-      inputPostalCode
-    );
-
-    setFullAddress(generatedAddress);
-
-    // Update manual full address if it was empty or if we now have a complete address
-    if (!manualFullAddress || generatedAddress.includes(barangayName) && generatedAddress.includes(cityMunName)) {
-      setManualFullAddress(generatedAddress);
-    }
-  }, [selectedRegion, selectedProvince, selectedCityMunicipality, selectedBarangay, inputStreetAddress, inputPostalCode, regions, provinces, cityMunicipalities, barangays]);
 
   const resetAddressFields = () => {
     setSelectedRegion('');
@@ -327,23 +214,22 @@ export default function WarehousePage() {
     setInputPostalCode(address.postalCode || '');
 
     // Load address data based on warehouse data efficiently
-    const regCode = address.region?.code
-    const provCode = address.province?.code
-    const citymunCode = address.municipality?.code
+    const reg_code = address.region?.code
+    const prov_code = address.province?.code
+    const citymun_code = address.municipality?.code
 
-    let addressData;
-    if (regCode && provCode && citymunCode) {
+    if (reg_code && prov_code && citymun_code) {
       // Load all levels at once
-      addressData = await loadAddressData({ regCode, provCode, citymunCode })
-    } else if (regCode && provCode) {
+      await loadAddressData({ reg_code, prov_code, citymun_code })
+    } else if (reg_code && prov_code) {
       // Load up to cities
-      addressData = await loadAddressData({ regCode, provCode })
-    } else if (regCode) {
+      await loadAddressData({ reg_code, prov_code })
+    } else if (reg_code) {
       // Load up to provinces
-      addressData = await loadAddressData({ regCode })
+      await loadAddressData({ reg_code })
     } else {
       // Load only regions
-      addressData = await loadAddressData()
+      await loadAddressData()
     }
 
     // Set selected values after data is loaded
@@ -368,11 +254,42 @@ export default function WarehousePage() {
     router.push(`?`, { scroll: false });
   };
 
+
+
+
+  const fetchWarehouse = async (warehouseId: string) => {
+    setIsAddressLoading(true);
+    setDetailLoading(true);
+
+    if (!warehouseId) {
+      setSelectedWarehouseId(null);
+      setWarehouseLayout([]);
+      setCurrentWarehouse({});
+      resetAddressFields();
+
+      setIsAddressLoading(false);
+      setDetailLoading(false);
+      return;
+    }
+
+    const { data, success } = await getWarehouseByUuid(warehouseId);
+
+    if (success && data) {
+      setCurrentWarehouse(data);
+      setWarehouseLayout(data.layout || []);
+      setDetailLoading(false);
+      await initializeAddressFields(data);
+    }
+
+    setIsAddressLoading(false);
+  }
+
   const handleSelectWarehouse = async (warehouseId: string) => {
     // Update the URL with the selected warehouse ID
     const params = new URLSearchParams(searchParams.toString());
     params.set("warehouseId", warehouseId);
     router.push(`?${params.toString()}`, { scroll: false });
+
   };
 
   // Handle region selection change
@@ -383,7 +300,7 @@ export default function WarehousePage() {
     setSelectedBarangay('');
 
     // Load provinces for the selected region
-    loadAddressData({ regCode: value })
+    loadAddressData({ reg_code: value })
   };
 
   // Handle province selection change
@@ -393,7 +310,7 @@ export default function WarehousePage() {
     setSelectedBarangay('');
 
     // Load cities for the selected province
-    loadAddressData({ provCode: value })
+    loadAddressData({ prov_code: value })
   };
 
   // Handle city/municipality selection change
@@ -402,8 +319,10 @@ export default function WarehousePage() {
     setSelectedBarangay('');
 
     // Load barangays for the selected city/municipality
-    loadAddressData({ citymunCode: value })
+    loadAddressData({ citymun_code: value })
   };
+
+
 
   const handleDeleteWarehouseClick = () => {
     if (!selectedWarehouseId) return;
@@ -441,14 +360,12 @@ export default function WarehousePage() {
 
     setIsSubmitting(true);
 
-    const regionName = regions.find(r => compare(r.regCode, selectedRegion))?.regDesc || '';
-    const provinceName = provinces.find(p => compare(p.provCode, selectedProvince))?.provDesc || '';
-    const cityMunName = cityMunicipalities.find(c => compare(c.citymunCode, selectedCityMunicipality))?.citymunDesc || '';
-    const barangayName = barangays.find(b => compare(b.brgyCode, selectedBarangay))?.brgyDesc || '';
+    const regionName = regions.find(r => compare(r.reg_code, selectedRegion))?.reg_desc || '';
+    const provinceName = provinces.find(p => compare(p.prov_code, selectedProvince))?.prov_desc || '';
+    const cityMunName = cityMunicipalities.find(c => compare(c.citymun_code, selectedCityMunicipality))?.citymun_desc || '';
+    const barangayName = barangays.find(b => compare(b.brgy_code, selectedBarangay))?.brgy_desc || '';
 
     const warehouseData = {
-      uuid: currentWarehouse.uuid!,
-      company_uuid: currentWarehouse.company_uuid!,
       name: currentWarehouse.name,
       address: {
         country: { code: "PH", desc: "PHILIPPINES" },
@@ -458,31 +375,34 @@ export default function WarehousePage() {
         barangay: { code: selectedBarangay, desc: barangayName },
         street: inputStreetAddress,
         postalCode: inputPostalCode,
-        fullAddress: manualFullAddress // Use manual full address instead
-      }
+        fullAddress: manualFullAddress
+      },
+      layout: warehouseLayout
     };
 
     let result;
     if (currentWarehouse.uuid) {
-      result = await updateWarehouse(warehouseData);
+      result = await updateWarehouse(currentWarehouse.uuid, warehouseData);
     } else {
-      result = await createWarehouse(warehouseData);
+      result = await createWarehouse({ company_uuid: user.company_uuid, ...warehouseData });
     }
-
-    setIsSubmitting(false);
 
     if (!result.error) {
       // Refresh warehouse list
       fetchWarehouses(user?.company_uuid || '');
 
       // If creating a new warehouse, update the URL with the new ID
-      if (!currentWarehouse.uuid && result.data[0]?.uuid) {
-        const newWarehouseId = result.data[0].uuid;
+      if (!currentWarehouse.uuid && result.data?.uuid) {
+        const newWarehouseId = result.data.uuid;
         const params = new URLSearchParams(searchParams.toString());
         params.set("warehouseId", newWarehouseId);
         router.push(`?${params.toString()}`, { scroll: false });
       }
+    } else {
+      showErrorToast(`Error ${currentWarehouse.uuid ? 'updating' : 'creating'} warehouse`, result.error);
     }
+
+    setIsSubmitting(false);
   };
 
   // Handle page change
@@ -491,9 +411,9 @@ export default function WarehousePage() {
     // The useEffect will trigger fetchWarehouses with the new page
   };
 
-  // Handle search with pagination reset
+  // Handle searchQuery with pagination reset
   const handleSearch = (value: string) => {
-    setSearch(value);
+    setSearchQuery(value);
     setPage(1); // Reset to first page when searching
   };
 
@@ -504,6 +424,103 @@ export default function WarehousePage() {
       day: 'numeric'
     });
   };
+
+  useEffect(() => {
+    const fetchWarehousesAsync = async () => {
+      setListLoading(true);
+      const userData = await getUserFromCookies();
+      if (userData === null) {
+        setUser(null);
+        return
+      } else {
+        setUser(userData);
+        setRowsPerPage(userData.settings.pageSize);
+      }
+
+      await fetchWarehouses(userData.company_uuid);
+      await loadAddressData();
+      setListLoading(false);
+    }
+    fetchWarehousesAsync();
+
+  }, []);
+
+  // Effect to fetch warehouses when dependencies change
+  useEffect(() => {
+    const fetchWarehousesAsync = async () => {
+      if (!user?.company_uuid) return;
+      setListLoading(true);
+      await fetchWarehouses(user?.company_uuid || '');
+      setListLoading(false);
+    }
+    fetchWarehousesAsync();
+  }, [page, rowsPerPage, searchQuery, user]);
+
+  // Update the full address when components change
+  useEffect(() => {
+    if (!regions.length) return
+
+    const regionName = regions.find(r => compare(r.reg_code, selectedRegion))?.reg_desc || '';
+    const provinceName = provinces.find(p => compare(p.prov_code, selectedProvince))?.prov_desc || '';
+    const cityMunName = cityMunicipalities.find(c => compare(c.citymun_code, selectedCityMunicipality))?.citymun_desc || '';
+    const barangayName = barangays.find(b => compare(b.brgy_code, selectedBarangay))?.brgy_desc || '';
+
+    const generatedAddress = generateFullAddress(
+      inputStreetAddress,
+      barangayName,
+      cityMunName,
+      provinceName,
+      regionName,
+      'PHILIPPINES',
+      inputPostalCode
+    );
+
+    setFullAddress(generatedAddress);
+
+    // Update manual full address if it was empty or if we now have a complete address
+    if (!manualFullAddress || generatedAddress.includes(barangayName) && generatedAddress.includes(cityMunName)) {
+      setManualFullAddress(generatedAddress);
+    }
+  }, [selectedRegion, selectedProvince, selectedCityMunicipality, selectedBarangay, inputStreetAddress, inputPostalCode, regions, provinces, cityMunicipalities, barangays]);
+
+  // Watch for URL searchQuery params to select warehouse
+  useEffect(() => {
+    const warehouseId = searchParams.get("warehouseId");
+
+    if (warehouseId !== selectedWarehouseId) {
+      setSelectedWarehouseId(warehouseId);
+      fetchWarehouse(warehouseId!);
+    }
+
+  }, [searchParams]);
+
+  // Handle real-time updates (including deletions)
+  useEffect(() => {
+    if (!user?.company_uuid) return;
+
+    const supabase = createClient();
+
+    const channel = supabase
+      .channel('warehouses-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*', 
+          schema: 'public',
+          table: 'warehouses',
+          filter: `company_uuid=eq.${user.company_uuid}`
+        },
+        async (payload) => {
+          console.log(payload);
+          fetchWarehouses(user.company_uuid);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.company_uuid, searchQuery, page, rowsPerPage]);
 
   const renderLayoutPreview = () => {
     if (!warehouseLayout || !Array.isArray(warehouseLayout) || warehouseLayout.length === 0) {
@@ -564,17 +581,19 @@ export default function WarehousePage() {
     );
   };
 
-  const openLayoutEditor = (warehouseId: string, mode: 'editor' | 'preview') => {
+  const openLayoutEditor = (mode: 'editor' | 'preview') => {
     setSelectedTab(mode);
-    setSelectedWarehouseId(warehouseId);
-    fetchWarehouseLayout(warehouseId).then(() => {
-      setIsLayoutEditorOpen(true);
-    });
+    setIsLayoutEditorOpen(true);
   };
 
   const handleLayoutSaved = (newLayout: FloorConfig[]) => {
     setWarehouseLayout(newLayout);
-    // You might want to refresh warehouse data here
+    console.log("SAVE")
+    setIsLayoutEditorOpen(false);
+  };
+
+  const handleLayoutClose = () => {
+    setIsLayoutEditorOpen(false);
   };
 
   return (
@@ -617,22 +636,21 @@ export default function WarehousePage() {
                 <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouses</h2>
                 <Input
                   placeholder="Search warehouses..."
-                  value={search}
+                  value={searchQuery}
                   onChange={(e) => handleSearch(e.target.value)}
                   isClearable
                   onClear={() => handleSearch("")}
                   startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
                 />
-
               </div>
               <div className="h-full absolute w-full">
                 <CustomScrollbar
-                  scrollShadow
+                  scrollShadow={warehouses.length <= rowsPerPage}
                   scrollShadowTop={false}
                   scrollbarMarginTop="7.25rem"
-                  scrollbarMarginBottom="0.5rem"
+                  scrollbarMarginBottom={warehouses.length > rowsPerPage ? "6.5rem" : "0.5rem"}
                   disabled={!user || listLoading}
-                  className="space-y-4 p-4 mt-1 pt-32 h-full relative">
+                  className={`space-y-4 p-4 mt-1 pt-32 h-full relative ${warehouses.length > rowsPerPage && "pb-28"}`}>
                   <ListLoadingAnimation
                     condition={listLoading}
                     containerClassName="space-y-4"
@@ -665,18 +683,18 @@ export default function WarehousePage() {
                             )}
                             <div className={`flex items-center gap-2 mt-3 border-t ${selectedWarehouseId === warehouse.uuid ? 'border-primary-300' : 'border-default-100'
                               } px-4 pt-4`}>
-                              {(warehouse.warehouse_layout && warehouse.warehouse_layout.length > 0) ? (
+                              {warehouse.floors_count ? (
                                 <>
                                   <Chip color="secondary" variant={selectedWarehouseId === warehouse.uuid ? "shadow" : "flat"} size="sm">
                                     <div className="flex items-center">
                                       <Icon icon="material-symbols:warehouse-rounded" className="mr-1" />
-                                      {warehouse.warehouse_layout?.length ?? 0} floor{(warehouse.warehouse_layout?.length ?? 0) > 1 ? 's' : ''}
+                                      {warehouse.floors_count} floor{warehouse.floors_count > 1 ? 's' : ''}
                                     </div>
                                   </Chip>
                                   <Chip color="warning" variant={selectedWarehouseId === warehouse.uuid ? "shadow" : "flat"} size="sm">
                                     <div className="flex items-center">
                                       <Icon icon="tabler:layout-2-filled" className="mr-1" />
-                                      {warehouse.warehouse_layout?.[0]?.matrix.length ?? 0} × {warehouse.warehouse_layout?.[0]?.matrix[0].length ?? 0}
+                                      {warehouse.rows_count} × {warehouse.columns_count}
                                     </div>
                                   </Chip>
                                 </>
@@ -698,10 +716,7 @@ export default function WarehousePage() {
                     {listLoading && (
                       <motion.div
                         className="absolute inset-0 flex items-center justify-center"
-                        initial={{ opacity: 0, filter: "blur(8px)" }}
-                        animate={{ opacity: 1, filter: "blur(0px)" }}
-                        exit={{ opacity: 0, filter: "blur(8px)" }}
-                        transition={{ duration: 0.3, delay: 0.3 }}
+                        {...motionTransitionScale}
                       >
                         <div className="absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-background to-transparent pointer-events-none" />
                         <div className="py-4 flex absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
@@ -710,61 +725,52 @@ export default function WarehousePage() {
                       </motion.div>
                     )}
                   </AnimatePresence>
+
+                  {/* Pagination fixed at the bottom */}
+                  {warehouses.length > 15 && (
+                    <div className="flex fixed h-24 flex-col items-center justify-center pt-2 pb-4 px-2 border-t border-default-200 bg-background/80 backdrop-blur-lg bottom-0 left-0 right-0">
+                      <div className="text-sm text-default-500 mb-2">
+                        Showing {(page - 1) * rowsPerPage + 1} to {Math.min(page * rowsPerPage, totalWarehouses)} of {totalWarehouses} {totalWarehouses === 1 ? 'warehouse' : 'warehouses'}
+                      </div>
+                      <Pagination
+                        total={totalPages}
+                        initialPage={1}
+                        page={page}
+                        onChange={handlePageChange}
+                        color="primary"
+                        size="sm"
+                        showControls
+                      />
+                    </div>
+                  )}
                 </CustomScrollbar>
 
-                {/* Add pagination */}
-                {warehouses.length > 0 && (
-                  <div className="flex flex-col items-center pt-2 pb-4 px-2">
-                    <div className="text-sm text-default-500 mb-2">
-                      Showing {(page - 1) * rowsPerPage + 1} to {Math.min(page * rowsPerPage, totalWarehouses)} of {totalWarehouses} {totalWarehouses === 1 ? 'warehouse' : 'warehousess'}
-                    </div>
-                    <Pagination
-                      total={totalPages}
-                      initialPage={1}
-                      page={page}
-                      onChange={handlePageChange}
-                      color="primary"
-                      size="sm"
-                      showControls
-                    />
-                  </div>
-                )}
 
+
+
+                {/* No items found state */}
                 <AnimatePresence>
                   {!listLoading && warehouses.length === 0 && (
                     <motion.div
-                      className="xl:h-full h-[42rem] absolute w-full"
-                      initial={{ opacity: 0, filter: "blur(8px)" }}
-                      animate={{ opacity: 1, filter: "blur(0px)" }}
-                      exit={{ opacity: 0, filter: "blur(8px)" }}
-                      transition={{ duration: 0.3 }}
+                      className="absolute inset-0 flex items-center justify-center"
+                      {...motionTransitionScale}
                     >
-                      <div className="py-4 flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
+                      <div className="py-4 px-8 w-full flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
                         <Icon icon="material-symbols:warehouse-rounded" className="text-5xl text-default-300" />
-                        <p className="text-default-500 mt-2">No warehouses found.</p>
+                        <p className="text-default-500 mt-2">No warehouses found</p>
                         <Button
                           color="primary"
-                          variant="light"
+                          variant="flat"
                           size="sm"
                           className="mt-4"
                           onPress={handleAddWarehouse}
-                          startContent={<Icon icon="mdi:plus" width={20} height={20} />}
-                        >
+                          startContent={<Icon icon="mdi:plus" className="text-default-500" />}>
                           Add Warehouse
                         </Button>
                       </div>
                     </motion.div>
                   )}
                 </AnimatePresence>
-
-                {!listLoading && warehouses.length === 0 && (
-                  <div className="xl:h-full h-[42rem] absolute w-full">
-                    <div className="py-4 flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
-                      <Icon icon="material-symbols:warehouse-rounded" className="text-5xl text-default-300" />
-                      <p className="text-default-500 mt-2">No warehouses found.</p>
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -825,33 +831,6 @@ export default function WarehousePage() {
                   </div>
                 </LoadingAnimation>
 
-
-                <LoadingAnimation
-                  condition={detailLoading}
-                  skeleton={
-                    <div>
-                      <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" /> {/* Section Title */}
-                      <div className="space-y-4">
-                        <Skeleton className="h-16 w-full rounded-xl" />
-                      </div>
-                    </div>}>
-                  <div>
-                    <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouse Information</h2>
-                    <div className="space-y-4">
-                      <Input
-                        name="name"
-                        label="Warehouse Name"
-                        classNames={inputStyle}
-                        placeholder="Enter warehouse name"
-                        value={currentWarehouse?.name || ""}
-                        onChange={(e) => setCurrentWarehouse(prev => ({ ...prev, name: e.target.value }))}
-                        isRequired
-                      />
-                    </div>
-                  </div>
-                </LoadingAnimation>
-
-
                 {/* Location Details */}
                 <LoadingAnimation
                   condition={isAddressLoading}
@@ -899,8 +878,8 @@ export default function WarehousePage() {
                         onSelectionChange={(e) => handleRegionChange(`${e}`)}
                       >
                         {regions.map(region => (
-                          <AutocompleteItem key={region.regCode}>
-                            {region.regDesc}
+                          <AutocompleteItem key={region.reg_code}>
+                            {region.reg_desc}
                           </AutocompleteItem>
                         ))}
                       </Autocomplete>
@@ -915,8 +894,8 @@ export default function WarehousePage() {
                         isDisabled={!selectedRegion}
                       >
                         {provinces.map(province => (
-                          <AutocompleteItem key={province.provCode}>
-                            {province.provDesc}
+                          <AutocompleteItem key={province.prov_code}>
+                            {province.prov_desc}
                           </AutocompleteItem>
                         ))}
                       </Autocomplete>
@@ -933,8 +912,8 @@ export default function WarehousePage() {
                         isDisabled={!selectedProvince}
                       >
                         {cityMunicipalities.map(city => (
-                          <AutocompleteItem key={city.citymunCode}>
-                            {city.citymunDesc}
+                          <AutocompleteItem key={city.citymun_code}>
+                            {city.citymun_desc}
                           </AutocompleteItem>
                         ))}
                       </Autocomplete>
@@ -949,8 +928,8 @@ export default function WarehousePage() {
                         isDisabled={!selectedCityMunicipality}
                       >
                         {barangays.map(barangay => (
-                          <AutocompleteItem key={barangay.brgyCode}>
-                            {barangay.brgyDesc}
+                          <AutocompleteItem key={barangay.brgy_code}>
+                            {barangay.brgy_desc}
                           </AutocompleteItem>
                         ))}
                       </Autocomplete>
@@ -1016,21 +995,21 @@ export default function WarehousePage() {
                         <Button
                           color="primary"
                           variant="flat"
-                          onPress={() => openLayoutEditor(selectedWarehouseId || '', 'editor')}
+                          onPress={() => openLayoutEditor('editor')}
                           startContent={<Icon icon="mdi:edit" className="w-4 h-4" />}
-                          isDisabled={!selectedWarehouseId}
                         >
-                          Edit Layout
+                          {warehouseLayout.length > 0 ? 'Edit Layout' : 'Add Layout'}
                         </Button>
-                        <Button
-                          color="secondary"
-                          variant="flat"
-                          onPress={() => openLayoutEditor(selectedWarehouseId || '', 'preview')}
-                          startContent={<Icon icon="mdi:eye" className="w-4 h-4" />}
-                          isDisabled={!selectedWarehouseId}
-                        >
-                          View 3D Layout
-                        </Button>
+                        {warehouseLayout.length > 0 && (
+                          <Button
+                            color="secondary"
+                            variant="flat"
+                            onPress={() => openLayoutEditor('preview')}
+                            startContent={<Icon icon="mdi:eye" className="w-4 h-4" />}
+                          >
+                            View 3D Layout
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </LoadingAnimation>
@@ -1159,8 +1138,7 @@ export default function WarehousePage() {
         {/* Layout Editor Modal */}
         <WarehouseLayoutEditorModal
           isOpen={isLayoutEditorOpen}
-          onClose={() => setIsLayoutEditorOpen(false)}
-          warehouseId={selectedWarehouseId || ''}
+          onClose={handleLayoutClose}
           initialLayout={warehouseLayout}
           openedTab={selectedTab}
           onSave={handleLayoutSaved}

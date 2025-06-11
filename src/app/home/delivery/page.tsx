@@ -29,7 +29,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { QRCodeCanvas } from 'qrcode.react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { ShelfSelectorColorAssignment } from '@/components/shelf-selector-3d';
+import { ShelfLocation, ShelfSelectorColorAssignment } from '@/components/shelf-selector-3d';
 import { formatCode, parseColumn } from '@/utils/floorplan';
 
 // Import server actions
@@ -58,7 +58,7 @@ import LoadingAnimation from '@/components/loading-animation';
 import { getUserFromCookies } from '@/utils/supabase/server/user';
 import { copyToClipboard, formatDate, formatNumber, toNormalCase, toTitleCase } from '@/utils/tools';
 import jsQR from "jsqr";
-import { InventoryItem, InventoryItemBulk, InventoryItemUnit } from '../inventory/actions';
+import { Inventory, InventoryItem } from '../inventory/actions';
 import { Warehouse } from '../warehouses/actions';
 
 // Import at the top of your DeliveryPage component 
@@ -92,7 +92,7 @@ export default function DeliveryPage() {
   const [searchQuery, setSearchQuery] = useState("");
 
   // Available inventory items for delivery
-  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const [inventoryItems, setInventoryItems] = useState<Inventory[]>([]);
   const [selectedItem, setSelectedItem] = useState<string>("");
 
   // Inventory bulk items
@@ -103,14 +103,13 @@ export default function DeliveryPage() {
 
   // Bulk details state
   const [expandedBulkDetails, setExpandedBulkDetails] = useState<Set<string>>(new Set());
-  const [bulkDetails, setBulkDetails] = useState<Map<string, InventoryItemBulk & { inventory_item_units: InventoryItemUnit[] }>>(new Map());
+  const [bulkDetails, setBulkDetails] = useState<Map<string, InventoryItem & { inventory_item_units: InventoryItemUnit[] }>>(new Map());
   const [loadingBulkDetails, setLoadingBulkDetails] = useState<Set<string>>(new Set());
 
 
   // Location management
   const [currentBulkLocationIndex, setCurrentBulkLocationIndex] = useState<number>(0);
   const [locations, setLocations] = useState<any[]>([]);
-  const [locationCodes, setLocationCodes] = useState<string[]>([]);
 
   // Operator assignment
   const [operators, setOperators] = useState<Operator[]>([]);
@@ -141,8 +140,8 @@ export default function DeliveryPage() {
   const [selectedColumn, setSelectedColumn] = useState<number | null>(null);
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<number | null>(null);
-  const [selectedCode, setSelectedCode] = useState("");
   const [selectedDepth, setSelectedDepth] = useState<number | null>(null);
+  const [selectedCode, setSelectedCode] = useState("");
   const [floorOptions, setFloorOptions] = useState<string[]>([]);
   const [occupiedLocations, setOccupiedLocations] = useState<any[]>([]);
 
@@ -155,8 +154,8 @@ export default function DeliveryPage() {
   const [tempSelectedColumn, setTempSelectedColumn] = useState<number | null>(null);
   const [tempSelectedRow, setTempSelectedRow] = useState<number | null>(null);
   const [tempSelectedGroup, setTempSelectedGroup] = useState<number | null>(null);
-  const [tempSelectedCode, setTempSelectedCode] = useState("");
   const [tempSelectedDepth, setTempSelectedDepth] = useState<number | null>(null);
+  const [tempSelectedCode, setTempSelectedCode] = useState<string>("");
 
   // Add state for maximum values
   const [maxGroupId, setMaxGroupId] = useState(0);
@@ -172,7 +171,7 @@ export default function DeliveryPage() {
   const isShelfChangeAnimate = true;
   const isGroupChangeAnimate = false;
   const [isSelectedLocationOccupied, setIsSelectedLocationOccupied] = useState(false);
-  const [externalSelection, setExternalSelection] = useState<any | undefined>(undefined);
+  const [externalSelection, setExternalSelection] = useState<ShelfLocation | undefined>(undefined);
   const [floorConfigs, setFloorConfigs] = useState<any[]>([]);
 
   // Create a state for shelf color assignments
@@ -294,7 +293,6 @@ export default function DeliveryPage() {
     delivery_date: format(new Date(), "yyyy-MM-dd"),
     locations: [], // Changed from location to locations array
     operator_uuids: [], // Changed from operator_uuid
-    location_codes: [], // Changed from location_code to location_codes array
     notes: "",
     status: "PENDING",
   });
@@ -316,8 +314,6 @@ export default function DeliveryPage() {
     setSelectedDepth(null);
     setSelectedColumnCode("");
     setSelectedCode("");
-    setLocations([]);
-    setLocationCodes([]);
 
     setTempSelectedFloor(null);
     setTempSelectedColumn(null);
@@ -327,6 +323,7 @@ export default function DeliveryPage() {
     setTempSelectedColumnCode("");
     setTempSelectedCode("");
 
+    setLocations([]);
     setFloorConfigs([]);
     setFloorOptions([]);
     setOccupiedLocations([]);
@@ -404,7 +401,8 @@ export default function DeliveryPage() {
         loc.group === location.group &&
         loc.row === location.row &&
         loc.column === location.column &&
-        loc.depth === location.depth
+        loc.depth === location.depth &&
+        loc.code === location.code
     );
   };
 
@@ -416,7 +414,7 @@ export default function DeliveryPage() {
           assignment.group === loc.group &&
           assignment.row === loc.row &&
           assignment.column === loc.column &&
-          assignment.depth === (loc.depth || 0)
+          assignment.depth === loc.depth
       )
     );
   }, [occupiedLocations, shelfColorAssignments]);
@@ -430,13 +428,12 @@ export default function DeliveryPage() {
         group: tempSelectedGroup,
         row: tempSelectedRow,
         column: tempSelectedColumn,
-        depth: tempSelectedDepth !== null ? tempSelectedDepth : 0
+        depth: tempSelectedDepth,
+        code: tempSelectedCode
       };
       setIsSelectedLocationOccupied(checkIfLocationOccupied(location));
     }
   };
-
-
 
   // Helper function to determine chip color based on status
   function getStatusColor(status: string): "default" | "primary" | "secondary" | "success" | "warning" | "danger" {
@@ -456,7 +453,6 @@ export default function DeliveryPage() {
       setSelectedBulks([]);
       setPrevSelectedBulks([]);
       setLocations([]);
-      setLocationCodes([]);
       return;
     }
 
@@ -472,7 +468,6 @@ export default function DeliveryPage() {
           setSelectedBulks([]);
           setPrevSelectedBulks([]);
           setLocations([]);
-          setLocationCodes([]);
         }
       } else {
         console.error("Failed to load inventory bulks:", result.error);
@@ -508,24 +503,22 @@ export default function DeliveryPage() {
         formData.warehouse_uuid as string,
         selectedBulks.length,
         // Optionally provide a starting shelf
-        selectedFloor !== null && selectedGroup !== null && selectedRow !== null && selectedColumn !== null
+        selectedFloor !== null && selectedGroup !== null && selectedRow !== null && selectedColumn !== null 
           ? { floor: selectedFloor, group: selectedGroup, row: selectedRow, column: selectedColumn }
           : undefined
       );
 
       if (result.success && result.data) {
         // Get locations and location codes from the result
-        const { locations, locationCodes } = result.data;
+        const { locations } = result.data;
 
         // Update state with the suggested locations and codes
         setLocations(locations);
-        setLocationCodes(locationCodes);
 
         // Update formData with the new locations
         setFormData(prev => ({
           ...prev,
-          locations: locations,
-          location_codes: locationCodes
+          locations: locations
         }));
 
         // Select the first location in the 3D view
@@ -537,9 +530,8 @@ export default function DeliveryPage() {
           setSelectedGroup(firstLocation.group);
           setSelectedRow(firstLocation.row);
           setSelectedColumn(firstLocation.column);
-          setSelectedDepth(firstLocation.depth || 0);
+          setSelectedDepth(firstLocation.depth);
           setSelectedColumnCode(parseColumn(firstLocation.column) || "");
-          setSelectedCode(locationCodes[0]);
 
           // Set external selection for the 3D viewer
           setExternalSelection(firstLocation);
@@ -576,7 +568,7 @@ export default function DeliveryPage() {
             group: location.group,
             row: location.row,
             column: location.column,
-            depth: location.depth || 0,
+            depth: location.depth,
             colorType: 'secondary'
           });
         }
@@ -590,7 +582,7 @@ export default function DeliveryPage() {
         group: currentLocation.group,
         row: currentLocation.row,
         column: currentLocation.column,
-        depth: currentLocation.depth || 0,
+        depth: currentLocation.depth,
         colorType: 'tertiary'
       });
     }
@@ -671,9 +663,8 @@ export default function DeliveryPage() {
       setSelectedGroup(location.group);
       setSelectedRow(location.row);
       setSelectedColumn(location.column);
-      setSelectedDepth(location.depth || 0);
+      setSelectedDepth(location.depth);
       setSelectedColumnCode(parseColumn(location.column) || "");
-      setSelectedCode(locationCodes[bulkIndex] || "");
 
       // Set external selection for the 3D viewer
       setExternalSelection(location);
@@ -683,9 +674,9 @@ export default function DeliveryPage() {
       setTempSelectedGroup(location.group);
       setTempSelectedRow(location.row);
       setTempSelectedColumn(location.column);
-      setTempSelectedDepth(location.depth || 0);
+      setTempSelectedDepth(location.depth);
+      setTempSelectedCode(location.code);
       setTempSelectedColumnCode(parseColumn(location.column) || "");
-      setTempSelectedCode(locationCodes[bulkIndex] || "");
     } else {
       // Reset all shelf selection state if no location exists for this bulk
       setSelectedFloor(null);
@@ -694,7 +685,6 @@ export default function DeliveryPage() {
       setSelectedColumn(null);
       setSelectedDepth(null);
       setSelectedColumnCode("");
-      setSelectedCode("");
 
       // Also reset temporary selection values
       setTempSelectedFloor(null);
@@ -1038,7 +1028,6 @@ export default function DeliveryPage() {
     // Reset selected bulks and locations
     setSelectedBulks([]);
     setLocations([]);
-    setLocationCodes([]);
 
     // Update form data
     setFormData(prev => ({
@@ -1046,7 +1035,6 @@ export default function DeliveryPage() {
       inventory_uuid: inventoryItemUuid,
       inventory_item_bulk_uuids: [], // Reset bulk selection
       locations: [], // Reset locations
-      location_codes: [] // Reset location codes
     }));
 
     // Load bulk items for this inventory item (without preserving selection)
@@ -1163,7 +1151,6 @@ export default function DeliveryPage() {
     if (status === "DELIVERED" &&
       (formData.inventory_item_bulk_uuids?.length === 0 ||
         formData.locations?.length === 0 ||
-        formData.location_codes?.length === 0 ||
         formData.locations?.length !== formData.inventory_item_bulk_uuids?.length)) {
       return { error: "Please assign warehouse locations for all selected bulk items before marking as delivered." };
     }
@@ -1216,8 +1203,7 @@ export default function DeliveryPage() {
               formData.warehouse_uuid as string,
               deliveryData.uuid,
               formData.inventory_item_bulk_uuids,
-              formData.locations,
-              formData.location_codes || []
+              formData.locations
             );
 
             if (!warehouseResult.success) {
@@ -1396,7 +1382,6 @@ export default function DeliveryPage() {
         delivery_address: formData.delivery_address || "",
         delivery_date: formData.delivery_date || "",
         locations: formData.locations || [],
-        location_codes: formData.location_codes || [],
         notes: formData.notes || "",
         // Include operator_uuids if any operators are selected
         ...(formData.operator_uuids && formData.operator_uuids.length > 0 ? {
@@ -1468,13 +1453,14 @@ export default function DeliveryPage() {
 
   /* 3D Shelf Selector */
 
-  const handleShelfSelection = (location: any) => {
+  const handleShelfSelection = (location: ShelfLocation) => {
     const floorNumber = location.floor || 0;
     const columnNumber = location.column || 0;
-    const columnCode = String.fromCharCode(65 + (columnNumber || 0));
+    const columnCode = String.fromCharCode(65 + columnNumber);
     const rowNumber = location.row || 0;
     const groupNumber = location.group || 0;
     const depthNumber = location.depth || 0;
+    const code = location.code || "";
 
     // Update temporary selections with numerical values
     setTempSelectedFloor(floorNumber);
@@ -1483,9 +1469,7 @@ export default function DeliveryPage() {
     setTempSelectedRow(rowNumber);
     setTempSelectedGroup(groupNumber);
     setTempSelectedDepth(depthNumber);
-
-    // Use formatCode for consistent code formatting
-    setTempSelectedCode(formatCode(location));
+    setTempSelectedCode(code)
 
     // Set the highlighted floor
     setHighlightedFloor(location.floor || 0);
@@ -1511,12 +1495,10 @@ export default function DeliveryPage() {
         group: tempSelectedGroup,
         row: tempSelectedRow !== null ? tempSelectedRow : 0,
         column: tempSelectedColumn !== null ? tempSelectedColumn : 0,
-        depth: tempSelectedDepth !== null ? tempSelectedDepth : 0
+        depth: tempSelectedDepth !== null ? tempSelectedDepth : 0,
+        code: tempSelectedCode
       };
       setExternalSelection(location);
-
-      // Use formatCode for consistent formatting
-      setTempSelectedCode(formatCode(location));
 
       // Check if new location is occupied
       setTimeout(updateLocationOccupiedStatus, 0);
@@ -1533,11 +1515,11 @@ export default function DeliveryPage() {
         group: adjustedId,
         row: tempSelectedRow !== null ? tempSelectedRow : 0,
         column: tempSelectedColumn !== null ? tempSelectedColumn : 0,
-        depth: tempSelectedDepth !== null ? tempSelectedDepth : 0
+        depth: tempSelectedDepth !== null ? tempSelectedDepth : 0,
+        code: tempSelectedCode
       };
       setExternalSelection(location);
 
-      setTempSelectedCode(formatCode(location));
       setTimeout(updateLocationOccupiedStatus, 0);
     }
   };
@@ -1552,11 +1534,11 @@ export default function DeliveryPage() {
         group: tempSelectedGroup,
         row: adjustedRow,
         column: tempSelectedColumn !== null ? tempSelectedColumn : 0,
-        depth: tempSelectedDepth !== null ? tempSelectedDepth : 0
+        depth: tempSelectedDepth !== null ? tempSelectedDepth : 0,
+        code: tempSelectedCode
       };
       setExternalSelection(location);
 
-      setTempSelectedCode(formatCode(location));
       setTimeout(updateLocationOccupiedStatus, 0);
     }
   };
@@ -1574,11 +1556,11 @@ export default function DeliveryPage() {
         group: tempSelectedGroup,
         row: tempSelectedRow !== null ? tempSelectedRow : 0,
         column: adjustedCol,
-        depth: tempSelectedDepth !== null ? tempSelectedDepth : 0
+        depth: tempSelectedDepth !== null ? tempSelectedDepth : 0,
+        code: tempSelectedCode
       };
       setExternalSelection(location);
 
-      setTempSelectedCode(formatCode(location));
       setTimeout(updateLocationOccupiedStatus, 0);
     }
   };
@@ -1593,11 +1575,11 @@ export default function DeliveryPage() {
         group: tempSelectedGroup,
         row: tempSelectedRow !== null ? tempSelectedRow : 0,
         column: tempSelectedColumn !== null ? tempSelectedColumn : 0,
-        depth: adjustedDepth
+        depth: adjustedDepth,
+        code: tempSelectedCode
       };
       setExternalSelection(location);
 
-      setTempSelectedCode(formatCode(location));
       setTimeout(updateLocationOccupiedStatus, 0);
     }
   };
@@ -1639,7 +1621,7 @@ export default function DeliveryPage() {
       column: tempSelectedColumn,
       row: tempSelectedRow,
       group: tempSelectedGroup,
-      depth: tempSelectedDepth || 0
+      depth: tempSelectedDepth
     };
 
     // Update the locations array
@@ -1647,16 +1629,10 @@ export default function DeliveryPage() {
     newLocations[currentBulkLocationIndex] = location;
     setLocations(newLocations);
 
-    // Update the location codes array
-    const newLocationCodes = [...locationCodes];
-    newLocationCodes[currentBulkLocationIndex] = tempSelectedCode;
-    setLocationCodes(newLocationCodes);
-
     // Update formData
     setFormData(prev => ({
       ...prev,
-      locations: newLocations,
-      location_codes: newLocationCodes
+      locations: newLocations
     }));
 
     // Update local state for the selected location
@@ -1666,7 +1642,6 @@ export default function DeliveryPage() {
     setSelectedRow(tempSelectedRow);
     setSelectedGroup(tempSelectedGroup);
     setSelectedDepth(tempSelectedDepth);
-    setSelectedCode(tempSelectedCode);
 
     onClose();
   };
@@ -1678,7 +1653,6 @@ export default function DeliveryPage() {
     setTempSelectedRow(selectedRow);
     setTempSelectedDepth(selectedDepth);
     setTempSelectedGroup(selectedGroup);
-    setTempSelectedCode(selectedCode);
     onClose();
   };
 
@@ -1884,7 +1858,6 @@ export default function DeliveryPage() {
 
           // Create warehouse inventory item records if location data is present
           if (matchingDelivery.locations?.length > 0 &&
-            matchingDelivery.location_codes?.length > 0 &&
             matchingDelivery.inventory_item_bulk_uuids?.length > 0) {
 
             try {
@@ -1894,8 +1867,7 @@ export default function DeliveryPage() {
                 matchingDelivery.warehouse_uuid as string,
                 matchingDelivery.uuid,
                 matchingDelivery.inventory_item_bulk_uuids,
-                matchingDelivery.locations,
-                matchingDelivery.location_codes || []
+                matchingDelivery.locations
               );
 
               // Update status of the inventory item bulks
@@ -2008,8 +1980,7 @@ export default function DeliveryPage() {
                 targetDelivery.warehouse_uuid,
                 targetDelivery.uuid,
                 targetDelivery.inventory_item_bulk_uuids,
-                targetDelivery.locations,
-                targetDelivery.location_codes || []
+                targetDelivery.locations
               );
             } catch (error) {
               console.error("Error creating warehouse inventory items:", error);
@@ -2111,13 +2082,8 @@ export default function DeliveryPage() {
         setSelectedColumnCode(parseColumn(firstLoc.column) || "");
         setSelectedColumn(firstLoc.column);
         setSelectedRow(firstLoc.row);
-        setSelectedDepth(firstLoc.depth || 0);
+        setSelectedDepth(firstLoc.depth);
         setSelectedGroup(firstLoc.group);
-      }
-
-      if (delivery.location_codes && delivery.location_codes.length > 0) {
-        setLocationCodes(delivery.location_codes);
-        setSelectedCode(delivery.location_codes[0] || "");
       }
 
       handleWarehouseChange(delivery.warehouse_uuid || "");
@@ -2153,7 +2119,6 @@ export default function DeliveryPage() {
         // Set locations
         if (existingDelivery.locations && existingDelivery.locations.length > 0) {
           setLocations(existingDelivery.locations);
-          setLocationCodes(existingDelivery.location_codes || []);
         }
 
         // Check if there are operators assigned
@@ -2197,7 +2162,6 @@ export default function DeliveryPage() {
           notes: "",
           status: "PENDING",
           locations: [],
-          location_codes: [],
           warehouse_uuid: null
         });
 
@@ -2221,7 +2185,6 @@ export default function DeliveryPage() {
         delivery_address: "",
         delivery_date: format(new Date(), "yyyy-MM-dd"),
         locations: [],
-        location_codes: [],
         notes: "",
         status: "PENDING",
         warehouse_uuid: null
@@ -2229,7 +2192,6 @@ export default function DeliveryPage() {
       setSelectedItem("");
       setSelectedBulks([]);
       setLocations([]);
-      setLocationCodes([]);
       setSelectedOperators([]);
       setDeliveryInput("");
 
@@ -2366,10 +2328,6 @@ export default function DeliveryPage() {
                 // Update locations if they changed
                 if (updatedDelivery.locations) {
                   setLocations(updatedDelivery.locations);
-                }
-
-                if (updatedDelivery.location_codes) {
-                  setLocationCodes(updatedDelivery.location_codes);
                 }
               }
             }
@@ -2571,29 +2529,24 @@ export default function DeliveryPage() {
 
       // Create new locations and location codes arrays if needed
       const newLocations = [...locations];
-      const newLocationCodes = [...locationCodes];
 
       // Update for current bulk
       if (currentBulkLocationIndex < newLocations.length) {
         newLocations[currentBulkLocationIndex] = location;
-        newLocationCodes[currentBulkLocationIndex] = selectedCode || "";
       } else {
         newLocations.push(location);
-        newLocationCodes.push(selectedCode || "");
       }
 
       // Update form data
       setFormData(prev => ({
         ...prev,
-        locations: newLocations,
-        location_codes: newLocationCodes
+        locations: newLocations
       }));
 
       // Update local state
       setLocations(newLocations);
-      setLocationCodes(newLocationCodes);
     }
-  }, [selectedFloor, selectedColumn, selectedRow, selectedGroup, selectedDepth, formData.status, currentBulkLocationIndex, locations, locationCodes, selectedCode, selectedDeliveryId]);
+  }, [selectedFloor, selectedColumn, selectedRow, selectedGroup, selectedDepth, formData.status, currentBulkLocationIndex, locations, selectedDeliveryId]);
 
   return (
     <motion.div {...motionTransition}>
@@ -4300,7 +4253,6 @@ export default function DeliveryPage() {
 
                                           // Also clear locations data
                                           setLocations([]);
-                                          setLocationCodes([]);
                                         }
                                       }}
                                       isDisabled={formData.status !== "PENDING" || !(user === null || user.is_admin) || inventoryBulks.length === 0}
@@ -4394,7 +4346,7 @@ export default function DeliveryPage() {
                                                     {bulk.status}
                                                   </Chip>
                                                 )}
-                                                {selectedBulks.includes(bulk.uuid) && (
+                                                {/* {selectedBulks.includes(bulk.uuid) && (
                                                   <div className="flex flex-wrap justify-end items-center gap-2">
                                                     <Chip
                                                       size="sm"
@@ -4414,7 +4366,7 @@ export default function DeliveryPage() {
                                                         locationCodes[selectedBulks.indexOf(bulk.uuid)] ? "Change Location" : "Assign Location"}
                                                     </Button>
                                                   </div>
-                                                )}
+                                                )} */}
                                               </div>
                                             </div>
 
@@ -4484,16 +4436,12 @@ export default function DeliveryPage() {
                                                                   <span className="ml-2">{formatNumber(details.unit_value)} {details.unit}</span>
                                                                 </div>
                                                                 <div>
-                                                                  <span className="text-default-500">Bulk Unit:</span>
-                                                                  <span className="ml-2">{details.bulk_unit}</span>
+                                                                  <span className="text-default-500">Packkaging Unit:</span>
+                                                                  <span className="ml-2">{details.packaging_unit}</span>
                                                                 </div>
                                                                 <div>
                                                                   <span className="text-default-500">Total Cost:</span>
-                                                                  <span className="ml-2">₱{formatNumber(details.cost)}</span>
-                                                                </div>
-                                                                <div>
-                                                                  <span className="text-default-500">Type:</span>
-                                                                  <span className="ml-2">{details.is_single_item ? "Single Item" : "Multiple Units"}</span>
+                                                                  <span className="ml-2">₱{formatNumber(details.cost || 0)}</span>
                                                                 </div>
                                                               </div>
                                                               {/* Custom Properties */}
@@ -4514,97 +4462,7 @@ export default function DeliveryPage() {
                                                                 </div>
                                                               )}
                                                             </div>
-
-
                                                           </div>
-
-                                                          {/* Units Section */}
-                                                          {details.inventory_item_units && details.inventory_item_units.length > 0 && (
-                                                            <div className="space-y-4 border-2 border-default-200 rounded-xl bg-default-50/50 p-4">
-                                                              <div className="flex items-center justify-between">
-                                                                <h4 className="font-semibold text-lg">Units in this Bulk</h4>
-                                                                <Chip color="default" variant="flat" size="sm">
-                                                                  {details.inventory_item_units.length} unit{details.inventory_item_units.length > 1 ? 's' : ''}
-                                                                </Chip>
-                                                              </div>
-
-                                                              <div className="space-y-3">
-                                                                {details.inventory_item_units.map((unit, unitIndex) => (
-                                                                  <div key={unit.uuid} className="p-3 bg-default-50 rounded-xl border-2 space-y-3 border-default-200">
-                                                                    <div className="flex items-center justify-between mb-3">
-                                                                      <div className="flex items-center gap-2">
-                                                                        <Icon icon="mdi:cube-outline" className="text-default-500" width={16} />
-                                                                        <span className="font-medium">
-                                                                          {unit.name || `Unit ${unitIndex + 1}`}
-                                                                        </span>
-                                                                      </div>
-                                                                      <div className="flex items-center gap-2">
-                                                                        <Button
-                                                                          variant="flat"
-                                                                          color="default"
-                                                                          size="sm"
-                                                                          isIconOnly
-                                                                          onPress={() => copyToClipboard(unit.uuid)}
-                                                                        >
-                                                                          <Icon icon="mdi:content-copy" className="text-default-500" />
-                                                                        </Button>
-                                                                      </div>
-                                                                    </div>
-                                                                    <div className="grid grid-cols-1 gap-3 text-sm">
-                                                                      <div className="col-span-1">
-                                                                        <span className="text-default-500">Unit ID:</span>
-                                                                        <span className="ml-2 font-mono text-xs">{unit.uuid}</span>
-                                                                      </div>
-                                                                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                                                        <div>
-                                                                          <span className="text-default-500">Code:</span>
-                                                                          <span className="ml-2 font-mono">{unit.code || 'N/A'}</span>
-                                                                        </div>
-                                                                        <div>
-                                                                          <span className="text-default-500">Value:</span>
-                                                                          <span className="ml-2">{formatNumber(unit.unit_value)} {unit.unit}</span>
-                                                                        </div>
-                                                                        <div>
-                                                                          <span className="text-default-500">Cost:</span>
-                                                                          <span className="ml-2">₱{formatNumber(unit.cost)}</span>
-                                                                        </div>
-                                                                        <div>
-                                                                          <span className="text-default-500">Status:</span>
-                                                                          <span className={`text-${unit.status === "AVAILABLE" ? "success" : "danger"}-500 ml-2`}>{(unit.status || 'N/A').replaceAll('_', ' ')}</span>
-                                                                        </div>
-                                                                      </div>
-                                                                    </div>
-
-                                                                    {/* Unit Properties */}
-                                                                    {unit.properties && Object.keys(unit.properties).length > 0 && (
-                                                                      <div className="p-3 bg-default-100 rounded-xl border-2 border-default-200">
-                                                                        <div className="flex items-center gap-2 mb-2">
-                                                                          <Icon icon="mdi:tag" className="text-default-500" width={14} />
-                                                                          <span className="text-sm font-medium">Unit Properties</span>
-                                                                        </div>
-                                                                        <div className="grid grid-cols-2 gap-3 text-sm">
-                                                                          {Object.entries(unit.properties).map(([key, value]) => (
-                                                                            <div key={key}>
-                                                                              <span className="text-default-500">{toTitleCase(toNormalCase(key))}:</span>
-                                                                              <span className="ml-2">{String(value)}</span>
-                                                                            </div>
-                                                                          ))}
-                                                                        </div>
-                                                                      </div>
-                                                                    )}
-                                                                  </div>
-                                                                ))}
-                                                              </div>
-                                                            </div>
-                                                          )}
-
-                                                          {/* No units message for single items */}
-                                                          {(!details.inventory_item_units || details.inventory_item_units.length === 0) && details.is_single_item && (
-                                                            <div className="p-4 text-center text-default-500 border border-dashed border-default-200 rounded-lg h-32 flex flex-col items-center justify-center">
-                                                              <Icon icon="mdi:information-outline" className="mx-auto mb-2" width={24} height={24} />
-                                                              <p className="text-sm">This is a single item bulk with no individual units.</p>
-                                                            </div>
-                                                          )}
                                                         </div>
                                                       );
                                                     })()}
@@ -5612,7 +5470,7 @@ export default function DeliveryPage() {
 
                 {/* Shelf controls */}
                 <AnimatePresence>
-                  {tempSelectedCode && showControls &&
+                  {externalSelection && showControls &&
                     <motion.div {...motionTransition}
                       className="absolute overflow-hidden bottom-4 left-4 flex flex-col gap-2 bg-background/50 rounded-2xl backdrop-blur-lg w-auto">
                       <div className="grid md:grid-cols-2 grid-cols-1 gap-3 p-4">
@@ -5760,7 +5618,7 @@ export default function DeliveryPage() {
                 </AnimatePresence>
 
                 <AnimatePresence>
-                  {(tempSelectedCode || showControls) &&
+                  {(externalSelection || showControls) &&
                     <motion.div {...motionTransition}
                       className={`absolute overflow-hidden ${showControls ? "bottom-8 left-8 h-8 shadow-sm" : "bottom-4 left-4 h-10 shadow-lg"} w-[12.6rem] bg-default-200/50 rounded-xl backdrop-blur-lg z-10 transition-all duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]`}>
                       <Button
@@ -5778,9 +5636,9 @@ export default function DeliveryPage() {
                 </AnimatePresence>
 
                 <AnimatePresence>
-                  {tempSelectedCode &&
+                  {externalSelection &&
                     <motion.div {...motionTransition} className="absolute top-4 right-4 flex items-center gap-2 bg-background/50 rounded-2xl backdrop-blur-lg">
-                      <span className="text-sm font-semibold p-4">CODE: <b>{tempSelectedCode}</b></span>
+                      <span className="text-sm font-semibold p-4">CODE: <b>{externalSelection?.code}</b></span>
                     </motion.div>
                   }
                 </AnimatePresence>

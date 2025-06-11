@@ -3,6 +3,7 @@
 
 import { ShelfSelectorColors } from "@/components/shelf-selector-3d";
 import SplashScreen from "@/components/splashscreen";
+import { motionTransition } from "@/utils/anim";
 import { herouiColor } from "@/utils/colors";
 import { HeroUIProvider, Spinner } from "@heroui/react";
 import { ToastProvider } from "@heroui/toast";
@@ -71,9 +72,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, [resolvedTheme])
 
 
-  return     <HeroUIProvider navigate={router.push}>
-      <ToastProvider />
-      {children}
-    </HeroUIProvider>
+  return <HeroUIProvider navigate={router.push}>
+    <ToastProvider
+      toastProps={{
+        shadow: "lg",
+      }} />
+    {children}
+  </HeroUIProvider>
 
 }

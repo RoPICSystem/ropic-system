@@ -19,7 +19,7 @@ import {
 
 import CardList from '@/components/card-list';
 import { motionTransition } from '@/utils/anim';
-import { getCompaniesForRegistration } from '@/utils/supabase/server/companies';
+import { getExistingCompanies } from '@/utils/supabase/server/companies';
 import {
   EyeIcon,
   EyeSlashIcon,
@@ -51,23 +51,23 @@ import CustomScrollbar from '@/components/custom-scrollbar';
 
 // Types for address data
 interface Region {
-  regCode: string;
-  regDesc: string;
+  reg_code: string;
+  reg_desc: string;
 }
 
 interface Province {
-  provCode: string;
-  provDesc: string;
+  prov_code: string;
+  prov_desc: string;
 }
 
 interface CityMunicipality {
-  citymunCode: string;
-  citymunDesc: string;
+  citymun_code: string;
+  citymun_desc: string;
 }
 
 interface Barangay {
-  brgyCode: string;
-  brgyDesc: string;
+  brgy_code: string;
+  brgy_desc: string;
 }
 
 interface CompanyAddress {
@@ -267,7 +267,7 @@ export default function RegisterPage() {
   useEffect(() => {
     async function fetchExistingCompanies() {
       if (!isNewCompany) {
-        const { data, error } = await getCompaniesForRegistration();
+        const { data, error } = await getExistingCompanies();
         if (!error && data) {
           setExistingCompanies(data);
         } else {
@@ -366,10 +366,10 @@ export default function RegisterPage() {
   // Update the full address when components change
   useEffect(() => {
 
-    const regionName = regions.find(r => `${r.regCode}` === selectedRegion)?.regDesc || '';
-    const provinceName = provinces.find(p => `${p.provCode}` === selectedProvince)?.provDesc || '';
-    const cityMunName = cityMunicipalities.find(c => `${c.citymunCode}` === selectedCityMunicipality)?.citymunDesc || '';
-    const barangayName = barangays.find(b => `${b.brgyCode}` === selectedBarangay)?.brgyDesc || '';
+    const regionName = regions.find(r => `${r.reg_code}` === selectedRegion)?.reg_desc || '';
+    const provinceName = provinces.find(p => `${p.prov_code}` === selectedProvince)?.prov_desc || '';
+    const cityMunName = cityMunicipalities.find(c => `${c.citymun_code}` === selectedCityMunicipality)?.citymun_desc || '';
+    const barangayName = barangays.find(b => `${b.brgy_code}` === selectedBarangay)?.brgy_desc || '';
 
     setFullAddress(
       generateFullAddress(
@@ -389,10 +389,10 @@ export default function RegisterPage() {
 
   // Similar logic for company address
   useEffect(() => {
-    const regionName = regions.find(r => `${r.regCode}` === selectedCompanyRegion)?.regDesc || '';
-    const provinceName = companyProvinces.find(p => `${p.provCode}` === selectedCompanyProvince)?.provDesc || '';
-    const cityMunName = companyCityMunicipalities.find(c => `${c.citymunCode}` === selectedCompanyCityMunicipality)?.citymunDesc || '';
-    const barangayName = companyBarangays.find(b => `${b.brgyCode}` === selectedCompanyBarangay)?.brgyDesc || '';
+    const regionName = regions.find(r => `${r.reg_code}` === selectedCompanyRegion)?.reg_desc || '';
+    const provinceName = companyProvinces.find(p => `${p.prov_code}` === selectedCompanyProvince)?.prov_desc || '';
+    const cityMunName = companyCityMunicipalities.find(c => `${c.citymun_code}` === selectedCompanyCityMunicipality)?.citymun_desc || '';
+    const barangayName = companyBarangays.find(b => `${b.brgy_code}` === selectedCompanyBarangay)?.brgy_desc || '';
 
     setFullCompanyAddress(
       generateFullAddress(
@@ -666,8 +666,8 @@ export default function RegisterPage() {
                               isDisabled={isLoading}
                             >
                               {regions.map(region => (
-                                <AutocompleteItem key={region.regCode}>
-                                  {region.regDesc}
+                                <AutocompleteItem key={region.reg_code}>
+                                  {region.reg_desc}
                                 </AutocompleteItem>
                               ))}
                             </Autocomplete>
@@ -686,8 +686,8 @@ export default function RegisterPage() {
                               isDisabled={!selectedRegion || isLoading}
                             >
                               {provinces.map(province => (
-                                <AutocompleteItem key={province.provCode}>
-                                  {province.provDesc}
+                                <AutocompleteItem key={province.prov_code}>
+                                  {province.prov_desc}
                                 </AutocompleteItem>
                               ))}
                             </Autocomplete>
@@ -703,8 +703,8 @@ export default function RegisterPage() {
                               isDisabled={!selectedProvince || isLoading}
                             >
                               {cityMunicipalities.map(city => (
-                                <AutocompleteItem key={city.citymunCode}>
-                                  {city.citymunDesc}
+                                <AutocompleteItem key={city.citymun_code}>
+                                  {city.citymun_desc}
                                 </AutocompleteItem>
                               ))}
                             </Autocomplete>
@@ -723,8 +723,8 @@ export default function RegisterPage() {
                               isDisabled={!selectedCityMunicipality || isLoading}
                             >
                               {barangays.map(barangay => (
-                                <AutocompleteItem key={barangay.brgyCode}>
-                                  {barangay.brgyDesc}
+                                <AutocompleteItem key={barangay.brgy_code}>
+                                  {barangay.brgy_desc}
                                 </AutocompleteItem>
                               ))}
                             </Autocomplete>
@@ -850,8 +850,8 @@ export default function RegisterPage() {
                                   isDisabled={isLoading}
                                 >
                                   {regions.map(region => (
-                                    <AutocompleteItem key={region.regCode}>
-                                      {region.regDesc}
+                                    <AutocompleteItem key={region.reg_code}>
+                                      {region.reg_desc}
                                     </AutocompleteItem>
                                   ))}
                                 </Autocomplete>
@@ -869,8 +869,8 @@ export default function RegisterPage() {
                                   isDisabled={!selectedCompanyRegion || isLoading}
                                 >
                                   {companyProvinces.map(province => (
-                                    <AutocompleteItem key={province.provCode} >
-                                      {province.provDesc}
+                                    <AutocompleteItem key={province.prov_code} >
+                                      {province.prov_desc}
                                     </AutocompleteItem>
                                   ))}
                                 </Autocomplete>
@@ -886,8 +886,8 @@ export default function RegisterPage() {
                                   isDisabled={!selectedCompanyProvince || isLoading}
                                 >
                                   {companyCityMunicipalities.map(city => (
-                                    <AutocompleteItem key={city.citymunCode} >
-                                      {city.citymunDesc}
+                                    <AutocompleteItem key={city.citymun_code} >
+                                      {city.citymun_desc}
                                     </AutocompleteItem>
                                   ))}
                                 </Autocomplete>
@@ -905,8 +905,8 @@ export default function RegisterPage() {
                                   isDisabled={!selectedCompanyCityMunicipality || isLoading}
                                 >
                                   {companyBarangays.map(barangay => (
-                                    <AutocompleteItem key={barangay.brgyCode}>
-                                      {barangay.brgyDesc}
+                                    <AutocompleteItem key={barangay.brgy_code}>
+                                      {barangay.brgy_desc}
                                     </AutocompleteItem>
                                   ))}
                                 </Autocomplete>

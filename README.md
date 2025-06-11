@@ -749,7 +749,7 @@ const getUserProfile = async (uuid: string): Promise<UserProfile>
 #### Inventory Functions
 ```typescript
 // Fetch inventory with filtering
-const getInventoryItems = async (filters: InventoryFilters): Promise<InventoryItem[]>
+const getInventoryItems = async (filters: InventoryFilters): Promise<Inventory[]>
 
 // Update inventory status
 const updateInventoryStatus = async (uuid: string, status: InventoryStatus): Promise<void>

@@ -2,71 +2,33 @@
 
 import { createClient } from "@/utils/supabase/server";
 
-export interface InventoryItemUnit {
-  uuid: string;
-  company_uuid: string;
-  inventory_uuid: string;
-  inventory_item_bulk_uuid?: string;
-  code: string;
-  unit_value: number;
-  unit: string;
-  name: string;
-  cost: number;
-  properties: Record<string, any>;
-  status?: string;
-  created_at: Date;
-  updated_at: Date;
-}
-
-export interface InventoryItemBulk {
-  uuid: string;
-  company_uuid: string;
-  inventory_uuid: string;
-  unit: string;
-  unit_value: number;
-  bulk_unit: string;
-  cost: number;
-  is_single_item: boolean;
-  properties: Record<string, any>;
-  inventory_item_units?: InventoryItemUnit[];
-  status?: string;
-  created_at: Date;
-  updated_at: Date;
-}
-
 export interface InventoryItem {
+  uuid: string;
+  company_uuid: string;
+  inventory_uuid: string;
+  item_code: string;
+  unit: string;
+  unit_value: number;
+  packaging_unit: string;
+  cost?: number;
+  properties: Record<string, any>;
+  status?: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface Inventory {
   uuid: string;
   company_uuid: string;
   admin_uuid: string;
   name: string;
   description?: string;
-  unit: string;
-  inventory_item_bulks: string[];
-  inventory_item_bulks_length?: number;
-  status?: string;
+  measurement_unit: string;
+  inventory_items?: number;
   properties: Record<string, any>;
+  status?: string;
   created_at: Date;
   updated_at: Date;
-}
-
-/**
- * Fetches available units from the database or returns default ones
- */
-export async function getUnitOptions() {
-  return [
-    "kg", "g", "lb", "oz", "l", "ml", "m", "cm", "ft", "in",
-    "pcs", "units", "each", "dozen", "gross"
-  ];
-}
-
-/**
- * Fetches available bulk units from the database or returns default ones
- */
-export async function getBulkUnitOptions() {
-  return [
-    "roll", "box", "container", "drum", "pack", "sack",
-    "carton", "set", "pallet", "bag", "crate"
-  ];
 }
 
 
@@ -88,7 +50,7 @@ export async function getInventoryItems(
 
   try {
     const { data, error } = await supabase
-      .rpc('get_inventory_items', {
+      .rpc('get_inventories', {
         p_company_uuid: companyUuid || null,
         p_search: search || '',
         p_status: status || null,
@@ -132,7 +94,6 @@ export async function getInventoryItems(
   }
 }
 
-
 /**
  * Fetches a single inventory item with its bulks and units
  */
@@ -141,7 +102,7 @@ export async function getInventoryItem(uuid: string, getItemsInWarehouse: boolea
 
   try {
     const { data, error } = await supabase
-      .rpc('get_inventory_item_details', {
+      .rpc('get_inventory_details', {
         p_inventory_uuid: uuid,
         p_include_warehouse_items: getItemsInWarehouse
       });
@@ -172,103 +133,48 @@ export async function getInventoryItem(uuid: string, getItemsInWarehouse: boolea
 }
 
 /**
- * Creates a new inventory item with bulk and unit items
+ * Creates a new inventory item with bulk
  */
-
 export async function createInventoryItem(
-  item: Pick<InventoryItem, "company_uuid" | "name" | "description" | "admin_uuid" | "unit"> & { properties?: Record<string, any> },
-  bulks: Pick<InventoryItemBulk, "company_uuid" | "unit" | "unit_value" | "bulk_unit" | "cost" | "is_single_item" | "properties">[],
-  units: (Pick<InventoryItemUnit, "company_uuid" | "code" | "unit_value" | "unit" | "name" | "cost" | "properties"> & { _bulkIndex?: number })[]
+  inventory: Pick<Inventory, "company_uuid" | "name" | "description" | "admin_uuid" | "measurement_unit" | "properties">,
+  inventoryItems: Pick<InventoryItem, "company_uuid" | "item_code" | "unit" | "unit_value" | "packaging_unit" | "cost" | "properties">[],
 ) {
   const supabase = await createClient();
 
   try {
-    // Create the inventory item with unit field
-    const { data: inventoryItem, error: inventoryError } = await supabase
-      .from("inventory_items")
+    const { data: inventoryData, error: inventoryError } = await supabase
+      .from("inventory")
       .insert({
-        company_uuid: item.company_uuid,
-        name: item.name,
-        description: item.description,
-        admin_uuid: item.admin_uuid,
-        unit: item.unit,
-        properties: item.properties || {}
+        company_uuid: inventory.company_uuid,
+        admin_uuid: inventory.admin_uuid,
+        name: inventory.name,
+        description: inventory.description,
+        measurement_unit: inventory.measurement_unit,
+        properties: inventory.properties 
       })
       .select()
       .single();
 
     if (inventoryError) throw inventoryError;
 
-    // When creating bulks, use the item's unit as default if not specified
-    const createdBulkUuids: string[] = [];
-    const singleItemBulkMap = new Map();
+    const bulkItemsToInsert = inventoryItems.map(inventoryItem => ({
+      company_uuid: inventoryItem.company_uuid,
+      inventory_uuid: inventoryData.uuid,
+      item_code: inventoryItem.item_code,
+      unit: inventoryItem.unit,
+      unit_value: inventoryItem.unit_value,
+      packaging_unit: inventoryItem.packaging_unit,
+      cost: inventoryItem.cost,
+      properties: inventoryItem.properties
+    }));
 
-    for (let i = 0; i < bulks.length; i++) {
-      const bulk = bulks[i];
-      const { data: bulkItem, error: bulkError } = await supabase
-        .from("inventory_item_bulk")
-        .insert({
-          company_uuid: bulk.company_uuid,
-          inventory_uuid: inventoryItem.uuid,
-          unit: item.unit,
-          unit_value: bulk.unit_value,
-          bulk_unit: bulk.bulk_unit,
-          cost: bulk.cost,
-          is_single_item: bulk.is_single_item,
-          properties: bulk.properties
-        })
-        .select()
-        .single();
+    const { error: bulkError } = await supabase
+      .from("inventory_items")
+      .insert(bulkItemsToInsert);
 
-      if (bulkError) throw bulkError;
+    if (bulkError) throw bulkError;
 
-      createdBulkUuids.push(bulkItem.uuid);
-
-      // Mark if this is a single item bulk
-      if (bulk.is_single_item) {
-        singleItemBulkMap.set(i, true);
-      }
-    }
-    // Track which units we've already created for single-item bulks
-    const processedSingleItemBulks = new Set();
-
-    // Create unit items
-    for (const unit of units) {
-      // Determine which bulk this unit belongs to
-      const bulkIndex = unit._bulkIndex !== undefined ? unit._bulkIndex : null;
-
-      // Skip if we've already created a unit for this single-item bulk
-      if (bulkIndex !== null && singleItemBulkMap.has(bulkIndex) && processedSingleItemBulks.has(bulkIndex)) {
-        continue;
-      }
-
-      const bulkUuid = bulkIndex !== null && bulkIndex >= 0 && bulkIndex < createdBulkUuids.length
-        ? createdBulkUuids[bulkIndex]
-        : null;
-
-      const { error: unitError } = await supabase
-        .from("inventory_item_unit")
-        .insert({
-          company_uuid: unit.company_uuid,
-          inventory_uuid: inventoryItem.uuid,
-          inventory_item_bulk_uuid: bulkUuid, // Will be null only if bulkIndex is invalid
-          code: unit.code,
-          unit_value: unit.unit_value,
-          unit: unit.unit,
-          name: unit.name,
-          cost: unit.cost,
-          properties: unit.properties
-        });
-
-      if (unitError) throw unitError;
-
-      // Mark this single-item bulk as processed
-      if (bulkIndex !== null && singleItemBulkMap.has(bulkIndex)) {
-        processedSingleItemBulks.add(bulkIndex);
-      }
-    }
-
-    return { success: true, data: inventoryItem };
+    return { success: true, data: inventoryData };
   } catch (error: any) {
     console.error("Error creating inventory item:", error);
     return {
@@ -283,13 +189,10 @@ export async function createInventoryItem(
  */
 export async function updateInventoryItem(
   uuid: string,
-  itemUpdates: Partial<InventoryItem> & { properties?: Record<string, any> },
-  bulkUpdates: (Partial<InventoryItemBulk> & { uuid: string })[],
-  unitUpdates: (Partial<InventoryItemUnit> & { uuid: string })[],
-  newBulks: Pick<InventoryItemBulk, "company_uuid" | "unit" | "unit_value" | "bulk_unit" | "cost" | "is_single_item" | "properties">[],
-  newUnits: (Pick<InventoryItemUnit, "company_uuid" | "code" | "unit_value" | "unit" | "name" | "cost" | "properties"> & { _bulkIndex?: number, inventory_item_bulk_uuid?: string })[],
-  deletedBulks: string[] = [],
-  deletedUnits: string[] = []
+  itemUpdates: Partial<Inventory> & { properties?: Record<string, any> },
+  bulkUpdates: (Partial<InventoryItem> & { uuid: string })[],
+  newBulks: Pick<InventoryItem, "company_uuid" | "item_code" | "unit" | "unit_value" | "packaging_unit" | "cost" | "properties">[] = [],
+  deletedBulks: string[] = []
 ) {
   const supabase = await createClient();
 
@@ -298,7 +201,7 @@ export async function updateInventoryItem(
     const cleanItemUpdates: Record<string, any> = {};
     if (itemUpdates.name !== undefined) cleanItemUpdates.name = itemUpdates.name;
     if (itemUpdates.description !== undefined) cleanItemUpdates.description = itemUpdates.description;
-    if (itemUpdates.unit !== undefined) cleanItemUpdates.unit = itemUpdates.unit;
+    if (itemUpdates.measurement_unit !== undefined) cleanItemUpdates.unit = itemUpdates.measurement_unit;
     if (itemUpdates.properties !== undefined) cleanItemUpdates.properties = itemUpdates.properties;
 
     // Prepare bulk updates - remove uuid from update data
@@ -307,22 +210,13 @@ export async function updateInventoryItem(
       ...rest
     }));
 
-    // Prepare unit updates - remove uuid from update data
-    const cleanUnitUpdates = unitUpdates.map(({ uuid: unitUuid, ...rest }) => ({
-      uuid: unitUuid,
-      ...rest
-    }));
-
     const { data, error } = await supabase
       .rpc('update_inventory_item_details', {
         p_inventory_uuid: uuid,
         p_item_updates: Object.keys(cleanItemUpdates).length > 0 ? cleanItemUpdates : {},
         p_bulk_updates: cleanBulkUpdates,
-        p_unit_updates: cleanUnitUpdates,
         p_new_bulks: newBulks,
-        p_new_units: newUnits,
         p_deleted_bulks: deletedBulks,
-        p_deleted_units: deletedUnits
       });
 
     if (error) throw error;
@@ -387,30 +281,6 @@ export async function deleteInventoryItemBulk(uuid: string) {
     return { success: true };
   } catch (error) {
     console.error("Error deleting bulk item:", error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error occurred"
-    };
-  }
-}
-
-/**
- * Deletes a unit item
- */
-export async function deleteInventoryItemUnit(uuid: string) {
-  const supabase = await createClient();
-
-  try {
-    const { error } = await supabase
-      .from("inventory_item_unit")
-      .delete()
-      .eq("uuid", uuid);
-
-    if (error) throw error;
-
-    return { success: true };
-  } catch (error) {
-    console.error("Error deleting unit item:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error occurred"

@@ -64,13 +64,6 @@ export async function updateProfile(formData: FormData):
   }
 
   try {
-    // Begin database transaction
-    const { data: client } = await supabase.auth.getSession();
-
-    if (!client.session) {
-      return { error: 'Session not found' }
-    }
-
     const metadata = {
       name,
       full_name: `${name.first_name} ${name.middle_name ? name.middle_name + ' ' : ''}${name.last_name}${name.suffix ? ' ' + name.suffix : ''}`,
@@ -79,7 +72,6 @@ export async function updateProfile(formData: FormData):
       birthday,
       phone_number: formData.get('phoneNumber') as string,
       address,
-      full_address: formData.get('address.fullAddress') as string,
     }
 
     // Update user metadata in auth

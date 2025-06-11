@@ -1,20 +1,23 @@
 'use client';
 
 import CardList from "@/components/card-list";
+import CustomProperties from "@/components/custom-properties";
+import CustomScrollbar from "@/components/custom-scrollbar";
+import ListLoadingAnimation from "@/components/list-loading-animation";
 import LoadingAnimation from '@/components/loading-animation';
 import { motionTransition, motionTransitionScale } from "@/utils/anim";
+import { getMeasurementUnitOptions, getPackagingUnitOptions, getUnitFullName, getUnitOptions } from "@/utils/measurements";
 import { createClient } from "@/utils/supabase/client";
 import { getUserFromCookies } from '@/utils/supabase/server/user';
+import { copyToClipboard, formatDate, formatNumber } from "@/utils/tools";
 import {
   Accordion,
   AccordionItem,
-  addToast,
   Alert,
   Autocomplete,
   AutocompleteItem,
   Button,
   Chip,
-  Divider,
   Form,
   Input,
   Modal,
@@ -29,33 +32,22 @@ import {
   PopoverTrigger,
   Skeleton,
   Spinner,
-  Switch,
   Textarea,
-  Tooltip,
   useDisclosure
 } from "@heroui/react";
-import { Icon, loadIcon } from "@iconify/react";
+import { Icon } from "@iconify/react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from "react";
 import {
-  InventoryItem,
-  InventoryItemBulk,
-  InventoryItemUnit,
   createInventoryItem,
   deleteInventoryItem,
-  deleteInventoryItemBulk,
-  deleteInventoryItemUnit,
-  getBulkUnitOptions,
   getInventoryItem,
   getInventoryItems,
-  getUnitOptions,
+  Inventory,
+  InventoryItem,
   updateInventoryItem
 } from './actions';
-import { copyToClipboard, formatDate, formatNumber } from "@/utils/tools";
-import ListLoadingAnimation from "@/components/list-loading-animation";
-import CustomProperties from "@/components/custom-properties";
-import CustomScrollbar from "@/components/custom-scrollbar";
 
 
 export default function InventoryPage() {
@@ -63,13 +55,14 @@ export default function InventoryPage() {
   const searchParams = useSearchParams();
   const [user, setUser] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [measurementUnitOptions, setMeasurementUnitOptions] = useState<string[]>([]);
+  const [packagingUnitOptions, setPackagingUnitOptions] = useState<string[]>([]);
   const [unitOptions, setUnitOptions] = useState<string[]>([]);
-  const [bulkUnitOptions, setBulkUnitOptions] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
   // Inventory list state
-  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const [inventoryItems, setInventoryItems] = useState<(Partial<Inventory> & { inventory_items_length: number })[]>([]);
   const [isLoadingItems, setIsLoadingItems] = useState(true);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 
@@ -78,167 +71,114 @@ export default function InventoryPage() {
   const [rowsPerPage, setRowsPerPage] = useState(15);
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
+  // Bulk items state
+  const [bulkItems, setBulkItems] = useState<(Partial<InventoryItem> & { id: number, isNew?: boolean, groupId?: string })[]>([]);
+  const [nextBulkId, setNextBulkId] = useState(1);
+
+  // Delete confirmation
+  const deleteModal = useDisclosure();
+  const [itemToDelete, setItemToDelete] = useState<{ type: 'item' | 'bulk', id: string | number }>();
+
+  const [originalBulkItems, setOriginalBulkItems] = useState<(Partial<InventoryItem> & { id: number })[]>([]);
+
+  // Duplication state
+  const [duplicateCount, setDuplicateCount] = useState(1);
+  const [duplicatePopoverOpen, setDuplicatePopoverOpen] = useState(false);
+  const [itemToDuplicate, setItemToDuplicate] = useState<{ type: 'bulk', id: number }>();
+
+  // Add these state variables after other state declarations
+  const [expandedBulks, setExpandedBulks] = useState<Set<string>>(new Set());
+
+  // Add these new state variables after other state declarationsconst [groupView, setGroupView] = useState(true); // 3. Toggle for group/flat view
+  const [groupView, setGroupView] = useState(true); // 3. Toggle for group/flat view
+  const [groupIdCounter, setGroupIdCounter] = useState(1);
+  const [duplicatedGroups, setDuplicatedGroups] = useState<Set<string>>(new Set()); // 4. Track duplicated group IDs
+
+  const [adjustGroupPopoverOpen, setAdjustGroupPopoverOpen] = useState(false);
+  const [groupToAdjust, setGroupToAdjust] = useState<{ groupKey: string, currentCount: number }>();
+  const [newGroupCount, setNewGroupCount] = useState(1);
+
+  const defaultMeasurementUnit = "length";
+  const defaultPackagingUnit = "roll";
+  const defaultUnit = "m";
+  const [showMergeWarning, setShowMergeWarning] = useState(false);
 
   // Form state
   const [inventoryForm, setInventoryForm] = useState<{
     uuid?: string;
     name: string;
     description: string;
-    unit: string;
+    measurement_unit: string;
     company_uuid: string;
     properties?: Record<string, any>;
   }>({
     name: "",
     description: "",
-    unit: "",
+    measurement_unit: defaultMeasurementUnit,
     company_uuid: "",
     properties: {}
   });
-
-  // Bulk items state
-  const [bulkItems, setBulkItems] = useState<(Partial<InventoryItemBulk> & { id: number, isNew?: boolean })[]>([]);
-  const [nextBulkId, setNextBulkId] = useState(1);
-
-  // Unit items state
-  const [unitItems, setUnitItems] = useState<(Partial<InventoryItemUnit> & { id: number, bulkId: number, isNew?: boolean })[]>([]);
-  const [nextUnitId, setNextUnitId] = useState(1);
-
-  // Delete confirmation
-  const deleteModal = useDisclosure();
-  const [itemToDelete, setItemToDelete] = useState<{ type: 'item' | 'bulk' | 'unit', id: string | number }>();
-
-  const [originalBulkItems, setOriginalBulkItems] = useState<(Partial<InventoryItemBulk> & { id: number })[]>([]);
-  const [originalUnitItems, setOriginalUnitItems] = useState<(Partial<InventoryItemUnit> & { id: number, bulkId: number })[]>([]);
-
-
-  // Duplication state
-  const [duplicateCount, setDuplicateCount] = useState(1);
-  const [duplicatePopoverOpen, setDuplicatePopoverOpen] = useState(false);
-  const [itemToDuplicate, setItemToDuplicate] = useState<{ type: 'bulk' | 'unit', id: number }>();
-
-  // Add these state variables after other state declarations
-  const [expandedBulks, setExpandedBulks] = useState<Set<string>>(new Set());
-  const [expandedUnits, setExpandedUnits] = useState<Set<string>>(new Set());
 
   const inputStyle = {
     inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
   };
   const autoCompleteStyle = { classNames: inputStyle };
 
-  // Initialize page data
-  useEffect(() => {
-    const initPage = async () => {
-      try {
-        const userData = await getUserFromCookies();
-        if (userData === null) {
-          setError('User not found');
-          return;
+  const generateGroupId = () => `group-${Date.now()}-${groupIdCounter}`;
+
+  // Helper function to generate group key based on bulk item properties
+  const generateGroupKey = (bulk: Partial<InventoryItem> & { id: number, groupId?: string }) => {
+    if (groupView && bulk.groupId) return bulk.groupId;
+    return `${bulk.item_code || ''}-${bulk.unit || ''}-${bulk.unit_value || 0}-${bulk.packaging_unit || ''}-${bulk.cost || 0}-${JSON.stringify(bulk.properties || {})}`;
+  };
+
+  // Helper function to check if items belong to the same group
+  const getGroupInfo = (bulk: Partial<InventoryItem> & { id: number, groupId?: string }) => {
+    const groupKey = generateGroupKey(bulk);
+    const sameGroupItems = bulkItems.filter(item =>
+      generateGroupKey(item) === groupKey && item.isNew
+    );
+
+    if (groupView && sameGroupItems.length > 1) {
+      const groupIndex = sameGroupItems.findIndex(item => item.id === bulk.id);
+      // Get all unique group keys up to this point to determine group number
+      const uniqueGroupKeys = new Set();
+      let currentGroupNumber = 1;
+
+      for (const item of bulkItems) {
+        const itemGroupKey = generateGroupKey(item);
+        if (!uniqueGroupKeys.has(itemGroupKey) &&
+          bulkItems.filter(b => generateGroupKey(b) === itemGroupKey && b.isNew).length > 1) {
+          if (itemGroupKey === groupKey) {
+            break;
+          }
+          currentGroupNumber++;
+          uniqueGroupKeys.add(itemGroupKey);
         }
-
-        setUser(userData);
-
-        setInventoryForm(prev => ({
-          ...prev,
-          company_uuid: userData.company_uuid
-        }));
-
-        const units = await getUnitOptions();
-        setUnitOptions(units);
-
-        const bulkUnits = await getBulkUnitOptions();
-        setBulkUnitOptions(bulkUnits);
-
-        if (userData.company_uuid) {
-          // Use pagination parameters
-          const result = await getInventoryItems(
-            userData.company_uuid,
-            searchQuery,
-            null, // status
-            null, // year
-            null, // month
-            null, // week
-            null, // day
-            rowsPerPage, // limit
-            0 // offset for first page
-          );
-
-          setInventoryItems(result.data || []);
-          setTotalPages(result.totalPages || 1);
-          setTotalItems(result.totalCount || 0);
-          setIsLoadingItems(false);
-        }
-      } catch (error) {
-        console.error("Error initializing page:", error);
-        setError("Failed to load inventory data");
-      }
-    };
-
-    initPage();
-  }, []);
-
-  // Initialize page data
-  useEffect(() => {
-
-    const handleUserData = async () => {
-      setIsLoadingItems(true);
-
-      if (user.company_uuid) {
-        const result = await getInventoryItems(user.company_uuid, searchQuery);
-        setInventoryItems(result.data || []);
-        setIsLoadingItems(false);
       }
 
-      setIsLoadingItems(false);
+      return {
+        isGroup: true,
+        groupKey,
+        groupSize: sameGroupItems.length,
+        isFirstInGroup: groupIndex === 0,
+        groupNumber: currentGroupNumber,
+        groupId: bulk.groupId
+      };
     }
 
-    if (user) {
-      handleUserData();
-    }
+    return { isGroup: false, groupKey, groupSize: 1, isFirstInGroup: true, groupId: bulk.groupId };
+  };
 
-  }, [user, searchQuery]);
+  const getItemDisplayNumber = (bulk: Partial<InventoryItem> & { id: number }) => {
+    const nonGroupItems = bulkItems.filter(item => {
+      const itemGroupInfo = getGroupInfo(item);
+      return !itemGroupInfo.isGroup || (itemGroupInfo.isGroup && itemGroupInfo.isFirstInGroup);
+    });
 
-  // Handle real-time updates
-  useEffect(() => {
-    if (!user?.company_uuid) return;
+    return nonGroupItems.findIndex(item => item.id === bulk.id) + 1;
+  };
 
-    const supabase = createClient();
-
-    const channel = supabase
-      .channel('inventory-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'inventory_items',
-          filter: `company_uuid=eq.${user.company_uuid}`
-        },
-        async () => {
-          // Use current page and search query when refreshing
-          const offset = (page - 1) * rowsPerPage;
-          const refreshedItems = await getInventoryItems(
-            user.company_uuid,
-            searchQuery,
-            null, // status
-            null, // year
-            null, // month
-            null, // week
-            null, // day
-            rowsPerPage,
-            offset
-          );
-
-          setInventoryItems(refreshedItems.data || []);
-          setTotalPages(refreshedItems.totalPages || 1);
-          setTotalItems(refreshedItems.totalCount || 0);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user?.company_uuid, searchQuery, page, rowsPerPage]);
 
   const fetchItemDetails = async (itemId: string) => {
     setIsLoading(true);
@@ -254,7 +194,7 @@ export default function InventoryPage() {
           uuid: item.uuid,
           name: item.name,
           description: item.description || "",
-          unit: item.unit || "",
+          measurement_unit: item.measurement_unit || "",
           company_uuid: item.company_uuid,
           properties: item.properties || {}
         });
@@ -274,39 +214,11 @@ export default function InventoryPage() {
           id: bulk.id // Keep the same ID structure
         })));
 
-        const newUnitItems: (Partial<InventoryItemUnit> & { id: number, bulkId: number, isNew?: boolean })[] = [];
-        let unitId = 1;
-
-        bulks.forEach((bulk: { inventory_item_units: never[]; }, bulkIndex: number) => {
-          const units = bulk.inventory_item_units || [];
-
-          units.forEach((unit: Partial<InventoryItemUnit> & { id: number; bulkId: number; isNew?: boolean; }) => {
-            newUnitItems.push({
-              ...unit,
-              id: unitId++,
-              bulkId: bulkIndex + 1,
-            });
-          });
-        });
-
-        setUnitItems(newUnitItems);
-        setNextUnitId(unitId);
-
-        // Store original unit items for deletion tracking
-        setOriginalUnitItems(newUnitItems.map(unit => ({
-          ...unit,
-          id: unit.id, // Keep the same ID structure
-          bulkId: unit.bulkId
-        })));
-
         // Set expanded states to first items
         if (newBulkItems.length > 0) {
           setExpandedBulks(new Set([`${newBulkItems[0].id}`]));
         }
 
-        if (newUnitItems.length > 0) {
-          setExpandedUnits(new Set([`${newUnitItems[0].id}`]));
-        }
       } else {
         setError("Failed to load item details");
       }
@@ -318,32 +230,8 @@ export default function InventoryPage() {
     }
   };
 
-  // Load selected item details
-  useEffect(() => {
-    // Clear form when no item is selected
-    if (!selectedItemId) {
-      resetForm();
-      setIsLoading(false);
-      return;
-    }
-
-    fetchItemDetails(selectedItemId);
-  }, [selectedItemId]);
-
-  // Check URL for itemId param on load
-  useEffect(() => {
-    const itemId = searchParams.get("itemId");
-    if (itemId) setSelectedItemId(itemId);
-  }, [searchParams]);
-
-
   const isBulkEditable = (bulk: any) => {
     return !bulk.status || bulk.status === "AVAILABLE";
-  };
-
-  const calculateBulkTotalUnits = (bulkId: number) => {
-    const units = unitItems.filter(unit => unit.bulkId === bulkId);
-    return units.reduce((total, unit) => total + (unit.unit_value || 0), 0);
   };
 
   const handleNewItem = () => {
@@ -400,8 +288,6 @@ export default function InventoryPage() {
     handleSearch(searchQuery, newPage);
   };
 
-
-
   // Add handler for inventory form properties
   const handleInventoryPropertiesChange = (properties: Record<string, any>) => {
     setInventoryForm(prev => ({ ...prev, properties }));
@@ -412,23 +298,6 @@ export default function InventoryPage() {
     setBulkItems(prev => prev.map(bulk =>
       bulk.id === bulkId ? { ...bulk, properties } : bulk
     ));
-
-    // If this is a single item bulk, automatically inherit properties to the unit
-    const bulk = bulkItems.find(b => b.id === bulkId);
-    if (bulk?.is_single_item) {
-      const unit = unitItems.find(u => u.bulkId === bulkId);
-      if (unit) {
-        handleUnitPropertiesChange(unit.id, { ...properties });
-      }
-    }
-  };
-
-
-  // Add handler for unit properties
-  const handleUnitPropertiesChange = (unitId: number, properties: Record<string, any>) => {
-    setUnitItems(prev => prev.map(unit =>
-      unit.id === unitId ? { ...unit, properties } : unit
-    ));
   };
 
   // Add inherit functions
@@ -437,30 +306,19 @@ export default function InventoryPage() {
     handleBulkPropertiesChange(bulkId, properties);
   };
 
-  const handleInheritUnitProperties = (unitId: number) => {
-    const unit = unitItems.find(u => u.id === unitId);
-    if (!unit) return;
-
-    const bulk = bulkItems.find(b => b.id === unit.bulkId);
-    const properties = bulk?.properties || {};
-    handleUnitPropertiesChange(unitId, properties);
-  };
-
   // Update resetForm to include properties
   const resetForm = () => {
     setInventoryForm({
       name: "",
       description: "",
-      unit: "",
+      measurement_unit: defaultMeasurementUnit,
       company_uuid: user?.company_uuid || "",
       properties: {}
     });
+    setUnitOptions(getUnitOptions(defaultMeasurementUnit));
     setBulkItems([]);
-    setUnitItems([]);
     setOriginalBulkItems([]);
-    setOriginalUnitItems([]);
     setNextBulkId(1);
-    setNextUnitId(1);
   };
 
 
@@ -469,11 +327,10 @@ export default function InventoryPage() {
     const newBulk = {
       id: nextBulkId,
       company_uuid: user?.company_uuid || "",
-      unit: inventoryForm.unit,
+      unit: defaultUnit,
       unit_value: 0,
-      bulk_unit: "",
+      packaging_unit: defaultPackagingUnit,
       cost: 0,
-      is_single_item: false,
       properties: {},
       isNew: true
     };
@@ -484,90 +341,20 @@ export default function InventoryPage() {
   };
 
   const handleInventoryFormChange = (field: string, value: any) => {
+    if (field === 'measurement_unit') {
+      setUnitOptions(getUnitOptions(value));
+
+      // Reset bulk.unit_value when measurement unit changes
+      setBulkItems(prev => prev.map(bulk => ({
+        ...bulk,
+        unit_value: 0, // Reset unit_value for all bulks
+        unit: undefined, // Reset unit for all bulks
+      })));
+    }
+
     setInventoryForm(prev => {
-      // When fundamental item details change, reset properties
-      if (field === 'name' || field === 'unit') {
-        return {
-          ...prev,
-          [field]: value,
-          properties: {} // This is clearing properties unexpectedly
-        };
-      }
       return { ...prev, [field]: value };
     });
-
-    // If unit changed, update all bulks and units and reset their properties
-    if (field === 'unit') {
-      setBulkItems(prev => prev.map(bulk => ({
-        ...bulk,
-        unit: value,
-        properties: {} // This is clearing bulk properties
-      })));
-      setUnitItems(prev => prev.map(unit => ({
-        ...unit,
-        unit: value,
-        properties: {} // This is clearing unit properties
-      })));
-    }
-
-    // If name changed, reset properties for all bulks and units
-    if (field === 'name') {
-      setBulkItems(prev => prev.map(bulk => ({
-        ...bulk,
-        properties: {} // This is clearing bulk properties
-      })));
-      setUnitItems(prev => prev.map(unit => ({
-        ...unit,
-        properties: {} // This is clearing unit properties
-      })));
-    }
-  };
-
-  // Modify the handleAddUnit function
-  const handleAddUnit = (bulkId: number) => {
-    // Check if all existing units in this bulk have the same item name
-    const bulkUnits = unitItems.filter(unit => unit.bulkId === bulkId);
-    let inheritedItemName = inventoryForm.name; // Start with the form name as default
-
-    if (bulkUnits.length > 0) {
-      const uniqueNames = new Set(bulkUnits.map(u => u.name).filter(Boolean));
-      if (uniqueNames.size === 1) {
-        // All units have the same name, inherit it
-        inheritedItemName = bulkUnits[0].name || inventoryForm.name;
-      }
-    }
-
-    // Get the parent bulk to inherit its unit
-    const parentBulk = bulkItems.find(b => b.id === bulkId);
-    if (!parentBulk) return;
-
-    const newUnit = {
-      id: nextUnitId,
-      bulkId,
-      company_uuid: user?.company_uuid || "",
-      code: "",
-      unit_value: 0,
-      unit: parentBulk.unit || "",
-      name: inheritedItemName,
-      cost: 0,
-      properties: {},
-      isNew: true
-    };
-
-    // Add new unit at the top of the list filtered by bulkId
-    setUnitItems(prevUnits => {
-      const bulkUnits = prevUnits.filter(unit => unit.bulkId === bulkId);
-      const otherUnits = prevUnits.filter(unit => unit.bulkId !== bulkId);
-      const newUnits = [newUnit, ...bulkUnits, ...otherUnits];
-
-      // Immediately update the bulk after adding the unit
-      updateBulkFromUnits(bulkId, newUnits);
-
-      return newUnits;
-    });
-
-    setNextUnitId(nextUnitId + 1);
-    setExpandedUnits(new Set([`${nextUnitId}`]));
   };
 
   // Also update handleDuplicateBulk to add items at the top
@@ -575,386 +362,123 @@ export default function InventoryPage() {
     const bulkToDuplicate = bulkItems.find(b => b.id === bulkId);
     if (!bulkToDuplicate) return;
 
-    const newBulks: typeof bulkItems = [];
-    const newUnits: typeof unitItems = [];
+    const groupInfo = getGroupInfo(bulkToDuplicate);
+
+    let newBulks: typeof bulkItems = [];
     let firstNewBulkId = nextBulkId;
 
-    // Create the specified number of duplicates
-    for (let i = 0; i < count; i++) {
-      const newBulkId = nextBulkId + i;
-
-      // Duplicate the bulk
-      newBulks.push({
-        ...bulkToDuplicate,
-        id: newBulkId,
-        uuid: undefined,
-        isNew: true
-      });
-
-      // Duplicate any units in this bulk - for both single and non-single items
-      const unitsInBulk = unitItems.filter(u => u.bulkId === bulkId);
-
-      unitsInBulk.forEach((unit, idx) => {
-        newUnits.push({
-          ...unit,
-          id: nextUnitId + i * unitsInBulk.length + idx,
-          bulkId: newBulkId,
-          inventory_item_bulk_uuid: undefined,
-          unit: bulkToDuplicate.unit || unit.unit, // Ensure it inherits parent bulk's unit
-          uuid: undefined,
-          isNew: true
-        });
-      });
-
-      // If it's a single item but no unit exists yet, create one
-      if (bulkToDuplicate.is_single_item && unitsInBulk.length === 0) {
-        newUnits.push({
-          id: nextUnitId + i,
-          bulkId: newBulkId,
-          company_uuid: user?.company_uuid || "",
-          code: "",
-          unit_value: bulkToDuplicate.unit_value || 0,
-          unit: bulkToDuplicate.unit || "", // Always use bulk's unit
-          name: "",
-          cost: bulkToDuplicate.cost || 0,
-          properties: { ...(bulkToDuplicate.properties || {}) },
+    if (groupView && groupInfo.isGroup && groupInfo.isFirstInGroup) {
+      // Duplicate the whole group
+      const groupItems = bulkItems.filter(item =>
+        generateGroupKey(item) === groupInfo.groupKey && item.isNew
+      );
+      for (let c = 0; c < count; c++) {
+        const newGroupId = generateGroupId();
+        for (let i = 0; i < groupItems.length; i++) {
+          newBulks.push({
+            ...groupItems[i],
+            id: nextBulkId + newBulks.length,
+            uuid: undefined,
+            isNew: true,
+            groupId: newGroupId,
+          });
+        }
+        setGroupIdCounter(g => g + 1);
+        setDuplicatedGroups(prev => new Set(prev).add(newGroupId));
+      }
+    } else {
+      // Duplicate single item
+      for (let i = 0; i < count; i++) {
+        newBulks.push({
+          ...bulkToDuplicate,
+          id: nextBulkId + i,
           uuid: undefined,
           isNew: true
         });
       }
     }
 
-    // Add new bulks at the top
     setBulkItems([...newBulks, ...bulkItems]);
-    setUnitItems([...newUnits, ...unitItems]);
-
-    // Update next IDs
-    setNextBulkId(nextBulkId + count);
-
-    // Calculate total new units we added
-    const totalNewUnits = newUnits.length;
-    setNextUnitId(nextUnitId + totalNewUnits);
-
-    // Expand only the first new bulk
+    setNextBulkId(nextBulkId + newBulks.length);
     setExpandedBulks(new Set([`${firstNewBulkId}`]));
-
-    console.log(`List of bulk items after duplication:`, [...newBulks, ...bulkItems]);
   };
 
-  // Update handleDuplicateUnit similarly to add at the top
-  const handleDuplicateUnit = (unitId: number, count: number) => {
-    const unitToDuplicate = unitItems.find(u => u.id === unitId);
-    if (!unitToDuplicate) return;
+  // New function to handle group adjustment
+  const handleAdjustGroup = (groupKey: string, newCount: number) => {
+    const groupItems = bulkItems.filter(item =>
+      generateGroupKey(item) === groupKey && item.isNew
+    );
 
-    const newUnits: typeof unitItems = [];
-    let firstNewUnitId = nextUnitId;
-    const bulkId = unitToDuplicate.bulkId;
+    const currentCount = groupItems.length;
 
-    // Get the parent bulk to ensure we use its unit
-    const parentBulk = bulkItems.find(b => b.id === bulkId);
-    if (!parentBulk) return;
+    if (newCount > currentCount) {
+      // Add more items to the group
+      const itemTemplate = groupItems[0];
+      const newBulks: typeof bulkItems = [];
 
-    // Create the specified number of duplicates
-    for (let i = 0; i < count; i++) {
-      newUnits.push({
-        ...unitToDuplicate,
-        id: nextUnitId + i,
-        uuid: undefined,
-        inventory_item_bulk_uuid: undefined,
-        unit: parentBulk.unit || unitToDuplicate.unit, // Ensure it inherits parent bulk's unit
-        isNew: true
-      });
-    }
-
-    // Add new units at the top with functional state updates
-    setUnitItems(prevUnits => {
-      const updatedUnits = [...newUnits, ...prevUnits];
-
-      // Immediately recalculate bulk cost with current values
-      const allBulkUnits = [
-        ...newUnits,
-        ...prevUnits.filter(u => u.bulkId === bulkId)
-      ];
-
-      const totalCost = allBulkUnits.reduce((sum, u) => sum + (u.cost || 0), 0);
-
-      // Update the bulk's cost
-      setBulkItems(prevBulks => prevBulks.map(bulk =>
-        bulk.id === bulkId ? { ...bulk, cost: totalCost } : bulk
-      ));
-
-      // Immediately update bulk's unit and value
-      updateBulkFromUnits(bulkId, updatedUnits);
-
-      return updatedUnits;
-    });
-
-    setNextUnitId(nextUnitId + count);
-    setExpandedUnits(new Set([`${firstNewUnitId}`]));
-  };
-
-  const handleBulkChange = (bulkId: number, field: keyof InventoryItemBulk, value: any) => {
-    setBulkItems(bulkItems.map(bulk =>
-      bulk.id === bulkId ? { ...bulk, [field]: value } : bulk
-    ));
-
-    // When the unit changes, update all child units
-    if (field === 'unit') {
-      setUnitItems(prevUnits => prevUnits.map(unit =>
-        unit.bulkId === bulkId ? { ...unit, unit: value } : unit
-      ));
-    }
-
-    // When the bulk unit value changes, distribute it proportionally to all units
-    if (field === 'unit_value' && typeof value === 'number') {
-      setUnitItems(prevUnits => {
-        // Get units belonging to this bulk
-        const bulkUnits = prevUnits.filter(unit => unit.bulkId === bulkId);
-
-        if (bulkUnits.length === 0) return prevUnits;
-
-        // Calculate current total unit value
-        const currentTotal = bulkUnits.reduce((sum, unit) => sum + (unit.unit_value || 0), 0);
-
-        // Handle cases where current total is zero (avoid division by zero)
-        if (currentTotal <= 0) {
-          // Distribute evenly among all units
-          const equalValue = value / bulkUnits.length;
-          return prevUnits.map(unit =>
-            unit.bulkId === bulkId ? { ...unit, unit_value: equalValue } : unit
-          );
-        }
-
-        // Otherwise distribute proportionally
-        const ratio = value / currentTotal;
-
-        return prevUnits.map(unit => {
-          if (unit.bulkId === bulkId) {
-            // Apply the ratio to maintain proportional distribution
-            return { ...unit, unit_value: (unit.unit_value || 0) * ratio };
-          }
-          return unit;
+      for (let i = 0; i < (newCount - currentCount); i++) {
+        const newBulkId = nextBulkId + i;
+        newBulks.push({
+          ...itemTemplate,
+          id: newBulkId,
+          uuid: undefined,
+          isNew: true
         });
-      });
-    }
-
-    // Special handling for single item mode
-    if (field === 'is_single_item') {
-      if (value === true) {
-        // When enabling single item mode during editing
-        const existingUnits = unitItems.filter(u => u.bulkId === bulkId);
-        const bulk = bulkItems.find(b => b.id === bulkId);
-
-        if (existingUnits.length === 0 && bulk) {
-          // No units exist, create a single unit with inherited properties
-          const newUnit = {
-            id: nextUnitId,
-            bulkId: bulkId,
-            company_uuid: user?.company_uuid || "",
-            code: "",
-            unit_value: bulk.unit_value || 0,
-            unit: bulk.unit || "",
-            name: "",
-            cost: bulk.cost || 0,
-            properties: bulk.properties || {}, // Inherit bulk properties
-            isNew: true
-          };
-          setUnitItems([...unitItems, newUnit]);
-          setNextUnitId(nextUnitId + 1);
-        } else if (existingUnits.length > 1) {
-          // Multiple units exist, keep only the first one and remove the rest
-          const unitToKeep = existingUnits[0];
-
-          // Update the kept unit with bulk properties including custom properties
-          const updatedUnit = {
-            ...unitToKeep,
-            unit_value: bulk?.unit_value || unitToKeep.unit_value,
-            unit: bulk?.unit || unitToKeep.unit,
-            cost: bulk?.cost || unitToKeep.cost,
-            properties: bulk?.properties || {} // Inherit bulk properties
-          };
-
-          // Remove all units for this bulk and add back only the kept one (updated)
-          setUnitItems(prevUnits => [
-            ...prevUnits.filter(u => u.bulkId !== bulkId),
-            updatedUnit
-          ]);
-        } else if (existingUnits.length === 1) {
-          // Exactly one unit exists, update it with bulk properties including custom properties
-          const existingUnit = existingUnits[0];
-          handleUnitChange(existingUnit.id, 'unit_value', bulk?.unit_value || existingUnit.unit_value);
-          handleUnitChange(existingUnit.id, 'unit', bulk?.unit || existingUnit.unit);
-          handleUnitChange(existingUnit.id, 'cost', bulk?.cost || existingUnit.cost);
-          handleUnitPropertiesChange(existingUnit.id, bulk?.properties || {}); // Inherit bulk properties
-        }
-      } else {
-        // When disabling single item mode, don't remove the unit
-        // Just let the user manage units manually
       }
-    }
 
-    // Handle custom properties changes for single items
-    if (field === 'properties') {
-      const bulk = bulkItems.find(b => b.id === bulkId);
-      if (bulk?.is_single_item) {
-        const unit = unitItems.find(u => u.bulkId === bulkId);
-        if (unit) {
-          // Automatically inherit bulk properties to the single unit
-          handleUnitPropertiesChange(unit.id, { ...value });
-        }
-      }
-    }
-
-    // If this is a single item, update the corresponding unit properties
-    const bulk = bulkItems.find(b => b.id === bulkId);
-    if (bulk?.is_single_item || (field === 'is_single_item' && value === true)) {
-      const unit = unitItems.find(u => u.bulkId === bulkId);
-
-      if (unit) {
-        // Synchronize specific properties between bulk and unit
-        switch (field) {
-          case 'unit':
-            handleUnitChange(unit.id, 'unit', value);
-            break;
-          case 'unit_value':
-            handleUnitChange(unit.id, 'unit_value', value);
-            break;
-          case 'cost':
-            handleUnitChange(unit.id, 'cost', value);
-            break;
-        }
-      }
-    } else if (field === 'cost') {
-      // For non-single items, update all units in this bulk proportionally
-      const bulkUnits = unitItems.filter(unit => unit.bulkId === bulkId);
-
-      if (bulkUnits.length > 0) {
-        const totalUnitValue = bulkUnits.reduce((sum, unit) => sum + (unit.unit_value || 0), 0);
-
-        if (totalUnitValue > 0) {
-          setUnitItems(unitItems.map(unit => {
-            if (unit.bulkId === bulkId) {
-              const unitRatio = (unit.unit_value || 0) / totalUnitValue;
-              return {
-                ...unit,
-                cost: unitRatio * value
-              };
-            }
-            return unit;
-          }));
-        }
-      }
-    }
-
-  };
-
-  const updateAllUnits = (field: keyof InventoryItemUnit, value: any) => {
-    // Update all units to match the new bulk field value
-    setUnitItems(prevUnits => prevUnits.map(unit => ({
-      ...unit,
-      [field]: value
-    })));
-  }
-
-  // Add this helper function before handleUnitChange
-  const updateSimilarUnitsInBulk = (bulkId: number, field: keyof InventoryItemUnit, value: any) => {
-    if (field !== 'name') return;
-
-    const bulkUnits = unitItems.filter(u => u.bulkId === bulkId);
-
-    // Check if all units have same item name or empty name
-    const existingNames = bulkUnits
-      .map(u => u.name)
-      .filter(name => name && name !== value);
-
-    // If there are different non-empty names, don't perform auto-fill
-    if (existingNames.length > 0) return;
-
-    // Update all units in this bulk that have empty name
-    setUnitItems(units => units.map(unit => {
-      if (unit.bulkId === bulkId && (!unit.name || unit.name === '')) {
-        return {
-          ...unit,
-          name: value
-        };
-      }
-      return unit;
-    }));
-  };
-
-  const calculateTotalInventoryUnits = () => {
-    return bulkItems.reduce((total, bulk) => {
-      const bulkUnits = unitItems.filter(unit => unit.bulkId === bulk.id);
-      const bulkTotal = bulkUnits.reduce((sum, unit) => sum + (unit.unit_value || 0), 0);
-      return total + bulkTotal;
-    }, 0);
-  };
-
-  // Modify handleUnitChange to include the auto-fill logic
-  const handleUnitChange = (unitId: number, field: keyof InventoryItemUnit, value: any) => {
-    // Update unit immediately and get the new state
-    setUnitItems(prevUnits => {
-      const newUnits = prevUnits.map(unit =>
-        unit.id === unitId ? { ...unit, [field]: value } : unit
+      // Insert new items after the last item in the group
+      const lastGroupItemIndex = bulkItems.findLastIndex(item =>
+        generateGroupKey(item) === groupKey && item.isNew
       );
 
-      // Find the modified unit to get its bulkId
-      const unit = newUnits.find(u => u.id === unitId);
+      const updatedBulkItems = [...bulkItems];
+      updatedBulkItems.splice(lastGroupItemIndex + 1, 0, ...newBulks);
 
-      if (unit) {
-        // Only recalculate bulk cost when the cost field changes
-        if (field === 'cost') {
-          const bulkUnits = newUnits.filter(u => u.bulkId === unit.bulkId);
-          const totalCost = bulkUnits.reduce((sum, u) => sum + (u.cost || 0), 0);
+      setBulkItems(updatedBulkItems);
+      setNextBulkId(nextBulkId + (newCount - currentCount));
 
-          setBulkItems(prev => prev.map(bulk =>
-            bulk.id === unit.bulkId ? { ...bulk, cost: totalCost } : bulk
-          ));
+    } else if (newCount < currentCount) {
+      // Remove items from the group (keep the first one, remove others)
+      const itemsToKeep = groupItems.slice(0, newCount);
+      const itemIdsToKeep = new Set(itemsToKeep.map(item => item.id));
+
+      setBulkItems(bulkItems.filter(item => {
+        const itemGroupKey = generateGroupKey(item);
+        if (itemGroupKey === groupKey && item.isNew) {
+          return itemIdsToKeep.has(item.id);
         }
+        return true;
+      }));
+    }
+  };
 
-        // If the unit type or value changed, update the bulk immediately
-        if (field === 'unit' || field === 'unit_value') {
-          // Run with the latest unit items state
-          updateBulkFromUnits(unit.bulkId, newUnits);
-        }
+  const handleBulkChange = (bulkId: number, field: keyof InventoryItem, value: any) => {
+    setBulkItems(prev => {
+      const changedBulk = prev.find(b => b.id === bulkId);
+      if (!changedBulk) return prev;
 
-        // Auto-fill item name for all units in the bulk if they're the same
-        if (field === 'name' && value) {
-          updateSimilarUnitsInBulk(unit.bulkId, field, value);
-        }
+      const groupInfo = getGroupInfo(changedBulk);
+
+      // 2. If groupView and this is the first in group, update all in group
+      if (groupView && groupInfo.isGroup && groupInfo.isFirstInGroup) {
+        return prev.map(bulk =>
+          generateGroupKey(bulk) === groupInfo.groupKey && bulk.isNew
+            ? { ...bulk, [field]: value }
+            : bulk
+        );
       }
 
-      return newUnits;
+      // Otherwise, only update the single item
+      return prev.map(bulk =>
+        bulk.id === bulkId ? { ...bulk, [field]: value } : bulk
+      );
     });
   };
 
-  // Improved updateBulkFromUnits function
-  const updateBulkFromUnits = (bulkId: number, latestUnitItems = unitItems) => {
-    const bulkUnits = latestUnitItems.filter(unit => unit.bulkId === bulkId);
-
-    setBulkItems(prevBulks => {
-      const bulk = prevBulks.find(b => b.id === bulkId);
-      if (!bulk) return prevBulks;
-
-      // If it's a single-item bulk, units are managed separately
-      if (bulk.is_single_item) return prevBulks;
-
-      // Calculate total, default to current bulk value if no units
-      const totalUnitValue = bulkUnits.length > 0
-        ? bulkUnits.reduce((sum, unit) => sum + (unit.unit_value || 0), 0)
-        : bulk.unit_value;
-
-      return prevBulks.map(b => {
-        if (b.id !== bulkId) return b;
-        return { ...b, unit_value: totalUnitValue };
-      });
-    });
-  };
 
   const handleDeleteBulk = (bulkId: number) => {
     // Simply remove from state without confirmation
     setBulkItems(bulkItems.filter(b => b.id !== bulkId));
-    setUnitItems(unitItems.filter(u => u.bulkId !== bulkId));
 
     // Set the expandedBulks to the first bulk in the list
     const firstBulk = bulkItems.find(b => b.id !== bulkId);
@@ -962,37 +486,7 @@ export default function InventoryPage() {
       setExpandedBulks(new Set([`${firstBulk.id}`]));
     }
 
-
     console.log(`List of bulk items after change:`, bulkItems);
-  };
-
-  const handleDeleteUnit = (unitId: number) => {
-    const unit = unitItems.find(u => u.id === unitId);
-    if (!unit) return;
-
-    // Remove from state and update bulk immediately
-    setUnitItems(prevUnits => {
-      const newUnits = prevUnits.filter(u => u.id !== unitId);
-
-      // Recalculate bulk cost
-      const remainingUnits = newUnits.filter(u => u.bulkId === unit.bulkId);
-      const totalCost = remainingUnits.reduce((sum, u) => sum + (u.cost || 0), 0);
-
-      setBulkItems(prev => prev.map(bulk =>
-        bulk.id === unit.bulkId ? { ...bulk, cost: totalCost } : bulk
-      ));
-
-      // Update bulk unit and value with fresh state
-      updateBulkFromUnits(unit.bulkId, newUnits);
-
-      return newUnits;
-    });
-
-    // Set the expandedUnits to the first unit in the list
-    const firstUnit = unitItems.find(u => u.id !== unitId);
-    if (firstUnit) {
-      setExpandedUnits(new Set([`${firstUnit.id}`]));
-    }
   };
 
   const handleDeleteItem = () => {
@@ -1048,38 +542,26 @@ export default function InventoryPage() {
 
     // Add this in the validateForm function
     for (const bulk of bulkItems) {
-      // Existing validation...
-
-      // Ensure unit values match bulk value (with minimal rounding error)
-      const bulkUnits = unitItems.filter(unit => unit.bulkId === bulk.id);
-      const unitTotal = bulkUnits.reduce((sum, unit) => sum + (unit.unit_value || 0), 0);
-
-      // Allow small rounding errors (0.001 or 0.1% difference)
-      const discrepancy = Math.abs(unitTotal - (bulk.unit_value || 0));
-      const discrepancyPercent = (bulk.unit_value || 0) > 0 ? (discrepancy / (bulk.unit_value || 0)) * 100 : 0;
-
-      if (discrepancy > 0.001 && discrepancyPercent > 0.1) {
-        setError(`Bulk "${bulk.bulk_unit}" total units (${unitTotal}) don't match bulk value (${bulk.unit_value})`);
+      if (!bulk.unit_value && bulk.unit_value !== 0) {
+        setError("Unit value is required for all bulks");
         return false;
       }
-    }
 
-    for (const unit of unitItems) {
-      // Remove unit check since it's inherited from the bulk
-      // Skip unit validation for single items since they inherit from bulk
-      const bulk = bulkItems.find(b => b.id === unit.bulkId);
-      if (!bulk?.is_single_item) {
-        if (!unit.code || !unit.name || typeof unit.unit_value !== 'number' || unit.unit_value <= 0 || typeof unit.cost !== 'number' || unit.cost <= 0) {
-          setError("All units require item code, name, valid unit value, and cost");
-          return false;
-        }
+      if (!bulk.unit) {
+        setError("Metric Unit is required for all bulks");
+        return false;
+      }
+
+      if (!bulk.item_code) {
+        setError("Item code is required for all bulks");
+        return false;
       }
     }
 
     return true;
   };
 
-
+  // Modified handleSubmit function - expand groups before submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -1088,7 +570,50 @@ export default function InventoryPage() {
     setIsLoading(true);
     setError(null);
 
+    if (duplicatedGroups.size > 0) {
+      const unchangedGroups = Array.from(duplicatedGroups).filter(groupId => {
+        // Find all items with this groupId
+        const groupItems = bulkItems.filter(b => b.groupId === groupId);
+        // Compare with other groups: if another group has the same details, warn
+        return bulkItems.some(b =>
+          b.groupId !== groupId &&
+          JSON.stringify(
+            groupItems.map(({ item_code, unit, unit_value, packaging_unit, cost, properties }) =>
+              ({ item_code, unit, unit_value, packaging_unit, cost, properties })
+            )
+          ) ===
+          JSON.stringify(
+            bulkItems.filter(x => x.groupId === b.groupId).map(({ item_code, unit, unit_value, packaging_unit, cost, properties }) =>
+              ({ item_code, unit, unit_value, packaging_unit, cost, properties })
+            )
+          )
+        );
+      });
+      if (unchangedGroups.length > 0) {
+        setShowMergeWarning(true);
+        return;
+      }
+    }
+
     try {
+      // Expand groups into individual items for database submission
+      const expandedBulkItems = bulkItems.flatMap(bulk => {
+        const groupInfo = getGroupInfo(bulk);
+        if (groupInfo.isGroup && groupInfo.isFirstInGroup) {
+          // For groups, create individual database entries
+          const groupItems = bulkItems.filter(item =>
+            generateGroupKey(item) === groupInfo.groupKey && item.isNew
+          );
+          return groupItems.map(item => ({
+            ...item,
+            // Remove group-specific properties if any
+          }));
+        } else if (!groupInfo.isGroup) {
+          return [bulk];
+        }
+        return []; // Skip non-first group items as they're already included
+      });
+
       if (selectedItemId) {
         // Update existing item
         const itemUpdates = {
@@ -1097,117 +622,41 @@ export default function InventoryPage() {
           properties: inventoryForm.properties,
         };
 
-        const bulkUpdates = bulkItems
+        const bulkUpdates = expandedBulkItems
           .filter(bulk => bulk.uuid)
           .map(bulk => ({
             uuid: bulk.uuid as string,
-            unit: bulk.unit,
-            unit_value: bulk.unit_value as number,
-            bulk_unit: bulk.bulk_unit,
-            cost: bulk.cost as number,
-            is_single_item: bulk.is_single_item,
-            properties: bulk.properties,
-          }));
-
-        const unitUpdates = unitItems
-          .filter(unit => unit.uuid)
-          .map(unit => ({
-            uuid: unit.uuid as string,
-            code: unit.code,
-            unit_value: unit.unit_value as number,
-            unit: unit.unit,
-            name: unit.name,
-            cost: unit.cost as number,
-            properties: unit.properties,
-          }));
-
-        const newBulks = bulkItems
-          .filter(bulk => !bulk.uuid)
-          .map(bulk => ({
-            company_uuid: user.company_uuid,
+            item_code: bulk.item_code as string,
             unit: bulk.unit as string,
             unit_value: bulk.unit_value as number,
-            bulk_unit: bulk.bulk_unit as string,
+            packaging_unit: bulk.packaging_unit as string,
             cost: bulk.cost as number,
-            is_single_item: bulk.is_single_item as boolean,
             properties: bulk.properties as Record<string, any>,
           }));
 
-        // Fix: Calculate deleted bulks correctly by comparing UUIDs
-        const currentBulkUuids = new Set(bulkItems.map(bulk => bulk.uuid).filter(Boolean));
+        const newBulks = expandedBulkItems
+          .filter(bulk => !bulk.uuid)
+          .map(bulk => ({
+            company_uuid: user.company_uuid,
+            item_code: bulk.item_code as string,
+            unit: bulk.unit as string,
+            unit_value: bulk.unit_value as number,
+            packaging_unit: bulk.packaging_unit as string,
+            cost: bulk.cost as number,
+            properties: bulk.properties as Record<string, any>,
+          }));
+
+        const currentBulkUuids = new Set(expandedBulkItems.map(bulk => bulk.uuid).filter(Boolean));
         const deletedBulks = originalBulkItems
           .filter(bulk => bulk.uuid && !currentBulkUuids.has(bulk.uuid))
           .map(bulk => bulk.uuid as string);
-
-        // Fix: Calculate deleted units correctly by comparing UUIDs
-        const currentUnitUuids = new Set(unitItems.map(unit => unit.uuid).filter(Boolean));
-        const deletedUnits = originalUnitItems
-          .filter(unit => unit.uuid && !currentUnitUuids.has(unit.uuid))
-          .map(unit => unit.uuid as string);
-
-        // Debug logging
-        console.log('Original bulk items:', originalBulkItems);
-        console.log('Current bulk items:', bulkItems);
-        console.log('Deleted bulks:', deletedBulks);
-        console.log('Original unit items:', originalUnitItems);
-        console.log('Current unit items:', unitItems);
-        console.log('Deleted units:', deletedUnits);
-
-        // Create a mapping of bulkId to new bulk array index
-        const bulkIdToIndexMap = new Map();
-        bulkItems
-          .filter(bulk => !bulk.uuid)
-          .forEach((bulk, index) => {
-            bulkIdToIndexMap.set(bulk.id, index);
-          });
-
-        const newUnits = unitItems
-          .filter(unit => !unit.uuid)
-          .map(unit => {
-            // Find the parent bulk for this unit
-            const parentBulk = bulkItems.find(bulk => bulk.id === unit.bulkId);
-
-            if (!parentBulk) {
-              throw new Error(`Parent bulk not found for unit ${unit.id}`);
-            }
-
-            // If the parent bulk has a UUID, this unit should be associated with it
-            if (parentBulk.uuid) {
-              return {
-                company_uuid: user.company_uuid,
-                code: unit.code as string,
-                unit_value: unit.unit_value as number,
-                unit: unit.unit as string,
-                name: unit.name as string,
-                cost: unit.cost as number,
-                properties: unit.properties as Record<string, any>,
-                inventory_item_bulk_uuid: parentBulk.uuid,
-              };
-            } else {
-              // If the parent bulk is new, use the index mapping
-              const bulkIndex = bulkIdToIndexMap.get(unit.bulkId);
-              return {
-                company_uuid: user.company_uuid,
-                code: unit.code as string,
-                unit_value: unit.unit_value as number,
-                unit: unit.unit as string,
-                name: unit.name as string,
-                cost: unit.cost as number,
-                properties: unit.properties as Record<string, any>,
-                _bulkIndex: bulkIndex !== undefined ? bulkIndex : undefined,
-              };
-            }
-          });
 
         const result = await updateInventoryItem(
           selectedItemId,
           itemUpdates,
           bulkUpdates,
-          unitUpdates,
           newBulks,
-          newUnits,
-          deletedBulks,
-          deletedUnits
+          deletedBulks
         );
 
         if (!result.success) {
@@ -1215,67 +664,32 @@ export default function InventoryPage() {
         }
 
         await fetchItemDetails(selectedItemId);
-
-        // Show success message (uncomment if needed)
-        // addToast({
-        //   title: "Success",
-        //   description: "Inventory item updated successfully",
-        //   type: "success"
-        // });
       } else {
-        // Create new item (existing code remains the same)
+        // Create new item
         const newItem = {
           company_uuid: user.company_uuid,
           name: inventoryForm.name,
-          unit: inventoryForm.unit,
+          measurement_unit: inventoryForm.measurement_unit,
           description: inventoryForm.description,
           admin_uuid: user.uuid,
           properties: inventoryForm.properties,
         };
 
-        const newBulks = bulkItems.map(bulk => ({
+        const newBulks = expandedBulkItems.map(bulk => ({
           company_uuid: user.company_uuid,
+          item_code: bulk.item_code as string,
           unit: bulk.unit as string,
           unit_value: bulk.unit_value as number,
-          bulk_unit: bulk.bulk_unit as string,
+          packaging_unit: bulk.packaging_unit as string,
           cost: bulk.cost as number,
-          is_single_item: bulk.is_single_item as boolean,
           properties: bulk.properties as Record<string, any>,
         }));
 
-        // Create a mapping of bulkId to array index
-        const bulkIdToIndexMap = new Map();
-        bulkItems.forEach((bulk, index) => {
-          bulkIdToIndexMap.set(bulk.id, index);
-        });
-
-        const newUnits = unitItems.map(unit => ({
-          company_uuid: user.company_uuid,
-          code: unit.code as string,
-          unit_value: unit.unit_value as number,
-          unit: unit.unit as string,
-          name: unit.name as string,
-          cost: unit.cost as number,
-          properties: unit.properties as Record<string, any>,
-          _bulkIndex: bulkIdToIndexMap.get(unit.bulkId),
-        }));
-
-        const result = await createInventoryItem(
-          newItem,
-          newBulks,
-          newUnits
-        );
+        const result = await createInventoryItem(newItem, newBulks);
 
         if (!result.success) {
           throw new Error(result.error || "Failed to create inventory item");
         }
-
-        // Show success message (uncomment if needed)
-        // addToast({
-        //   title: "Success",
-        //   description: "Inventory item created successfully",
-        //   type: "success"
-        // });
 
         if (result.data) {
           setSelectedItemId(result.data.uuid);
@@ -1291,6 +705,141 @@ export default function InventoryPage() {
       setIsLoading(false);
     }
   };
+
+  // Initialize page data
+  useEffect(() => {
+    const initPage = async () => {
+      try {
+        const userData = await getUserFromCookies();
+        if (userData === null) {
+          setError('User not found');
+          return;
+        }
+
+        setUser(userData);
+
+        setInventoryForm(prev => ({
+          ...prev,
+          company_uuid: userData.company_uuid
+        }));
+
+        setMeasurementUnitOptions(await getMeasurementUnitOptions());
+        setPackagingUnitOptions(await getPackagingUnitOptions());
+
+        if (userData.company_uuid) {
+          // Use pagination parameters
+          const result = await getInventoryItems(
+            userData.company_uuid,
+            searchQuery,
+            null, // status
+            null, // year
+            null, // month
+            null, // week
+            null, // day
+            rowsPerPage, // limit
+            0 // offset for first page
+          );
+
+          setInventoryItems(result.data || []);
+          setTotalPages(result.totalPages || 1);
+          setTotalItems(result.totalCount || 0);
+          setIsLoadingItems(false);
+        }
+      } catch (error) {
+        console.error("Error initializing page:", error);
+        setError("Failed to load inventory data");
+      }
+    };
+
+    initPage();
+
+    const defaultView = localStorage.getItem('defaultItemView') || 'grouped';
+    setGroupView(defaultView === 'grouped');
+  }, []);
+
+
+  // Initialize page data
+  useEffect(() => {
+
+    const handleUserData = async () => {
+      setIsLoadingItems(true);
+
+      if (user.company_uuid) {
+        const result = await getInventoryItems(user.company_uuid, searchQuery);
+        setInventoryItems(result.data || []);
+        setIsLoadingItems(false);
+      }
+
+      setIsLoadingItems(false);
+    }
+
+    if (user) {
+      handleUserData();
+    }
+
+  }, [user, searchQuery]);
+
+  // Handle real-time updates
+  useEffect(() => {
+    if (!user?.company_uuid) return;
+
+    const supabase = createClient();
+
+    const channel = supabase
+      .channel('inventory-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'inventory',
+          filter: `company_uuid=eq.${user.company_uuid}`
+        },
+        async () => {
+          // Use current page and search query when refreshing
+          const offset = (page - 1) * rowsPerPage;
+          const refreshedItems = await getInventoryItems(
+            user.company_uuid,
+            searchQuery,
+            null, // status
+            null, // year
+            null, // month
+            null, // week
+            null, // day
+            rowsPerPage,
+            offset
+          );
+
+          setInventoryItems(refreshedItems.data || []);
+          setTotalPages(refreshedItems.totalPages || 1);
+          setTotalItems(refreshedItems.totalCount || 0);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.company_uuid, searchQuery, page, rowsPerPage]);
+
+  // Load selected item details
+  useEffect(() => {
+    // Clear form when no item is selected
+    if (!selectedItemId) {
+      resetForm();
+      setIsLoading(false);
+      return;
+    }
+
+    fetchItemDetails(selectedItemId);
+  }, [selectedItemId]);
+
+  // Check URL for itemId param on load
+  useEffect(() => {
+    const itemId = searchParams.get("itemId");
+    if (itemId) setSelectedItemId(itemId);
+  }, [searchParams]);
+
 
   return (
     <motion.div {...motionTransition}>
@@ -1358,7 +907,7 @@ export default function InventoryPage() {
                     {inventoryItems.map((item) => (
                       <Button
                         key={item.uuid}
-                        onPress={() => handleSelectItem(item.uuid)}
+                        onPress={() => handleSelectItem(item.uuid || "")}
                         variant="shadow"
                         className={`w-full min-h-[7.5rem] !transition-all duration-200 rounded-xl p-0 ${selectedItemId === item.uuid ?
                           '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' :
@@ -1371,7 +920,7 @@ export default function InventoryPage() {
                                 {item.name}
                               </span>
                               <Chip color="default" variant={selectedItemId === item.uuid ? "shadow" : "flat"} size="sm">
-                                {item.inventory_item_bulks_length || 0} bulk(s)
+                                {item.inventory_items_length || 0} item{item.inventory_items_length !== 1 ? 's' : ''}
                               </Chip>
                             </div>
                             {item.description && (
@@ -1433,30 +982,29 @@ export default function InventoryPage() {
 
                 {/* No items found state */}
                 <AnimatePresence>
-                  {user && !isLoadingItems && inventoryItems.length === 0 && (
+                  {!isLoadingItems && inventoryItems.length === 0 && (
                     <motion.div
-                      className="xl:h-full h-[42rem] absolute w-full"
-                      initial={{ opacity: 0, filter: "blur(8px)" }}
-                      animate={{ opacity: 1, filter: "blur(0px)" }}
-                      exit={{ opacity: 0, filter: "blur(8px)" }}
-                      transition={{ duration: 0.3 }}
+                      className="absolute inset-0 flex items-center justify-center"
+                      {...motionTransitionScale}
                     >
-                      <div className="py-4 flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
+                      <div className="py-4 px-8 w-full flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
                         <Icon icon="mdi:package-variant" className="text-5xl text-default-300" />
                         <p className="text-default-500 mt-2">No inventory items found</p>
                         <Button
                           color="primary"
-                          variant="light"
+                          variant="flat"
                           size="sm"
                           className="mt-4"
                           onPress={handleNewItem}
                           startContent={<Icon icon="mdi:plus" className="text-default-500" />}>
-                          Create New Item
+                          Create Inventory
                         </Button>
                       </div>
                     </motion.div>
                   )}
                 </AnimatePresence>
+
+
               </div>
             </div>
           </div>
@@ -1518,10 +1066,7 @@ export default function InventoryPage() {
                         <Input
                           label="Item Name"
                           value={inventoryForm.name}
-                          onChange={(e) => {
-                            setInventoryForm({ ...inventoryForm, name: e.target.value })
-                            updateAllUnits('name', e.target.value);
-                          }}
+                          onChange={(e) => handleInventoryFormChange('name', e.target.value)}
                           isRequired
                           placeholder="Enter item name"
                           classNames={inputStyle}
@@ -1529,16 +1074,16 @@ export default function InventoryPage() {
                         />
 
                         <Autocomplete
-                          label="Item Unit"
-                          placeholder="Select unit"
-                          selectedKey={inventoryForm.unit}
-                          onSelectionChange={(key) => handleInventoryFormChange('unit', key)}
+                          label="Measurement Unit"
+                          placeholder="Select metric unit"
+                          selectedKey={inventoryForm.measurement_unit}
+                          onSelectionChange={(key) => handleInventoryFormChange('measurement_unit', key)}
                           startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.1rem]" />}
                           isRequired
                           inputProps={autoCompleteStyle}
                         >
-                          {unitOptions.map((unit) => (
-                            <AutocompleteItem key={unit}>{unit}</AutocompleteItem>
+                          {measurementUnitOptions.map((measurement_unit) => (
+                            <AutocompleteItem key={measurement_unit}>{measurement_unit.charAt(0).toUpperCase() + measurement_unit.slice(1)}</AutocompleteItem>
                           ))}
                         </Autocomplete>
                       </div>
@@ -1546,7 +1091,7 @@ export default function InventoryPage() {
                       <Textarea
                         label="Description"
                         value={inventoryForm.description}
-                        onChange={(e) => setInventoryForm({ ...inventoryForm, description: e.target.value })}
+                        onChange={(e) => handleInventoryFormChange('description', e.target.value)}
                         placeholder="Enter item description (optional)"
                         classNames={inputStyle}
                         startContent={<Icon icon="mdi:text-box" className="text-default-500 mt-[0.1rem]" />}
@@ -1672,36 +1217,44 @@ export default function InventoryPage() {
 
                   }>
                   <div>
-                    <h2 className="text-xl font-semibold mb-4 w-full text-center">Bulk Items</h2>
+                    <h2 className="text-xl font-semibold mb-4 w-full text-center">Items</h2>
                     <div className="space-y-4">
                       <div className="flex justify-between items-center mb-4">
                         <div className="flex items-center gap-2">
                           {bulkItems.length > 0 && (
-                            <Chip color="default" variant="flat" size="sm">
-                              {bulkItems.length} bulk{bulkItems.length > 1 ? "s" : ""}
-                            </Chip>
-                          )}
-                          {unitItems.length > 0 && (
-                            <Chip color="default" variant="flat" size="sm">
-                              {unitItems.length} unit{unitItems.length > 1 ? "s" : ""}
-                            </Chip>
-                          )}
-                          {calculateTotalInventoryUnits() > 0 && (
-                            <Chip color="default" variant="flat" size="sm">
-                              {formatNumber(calculateTotalInventoryUnits())} {inventoryForm.unit}
-                            </Chip>
+                            <>
+                              <Chip color="default" variant="flat" size="sm">
+                                {bulkItems.length} item{bulkItems.length > 1 ? "s" : ""}
+                              </Chip>
+                              <Chip color="primary" variant="flat" size="sm">
+                                {formatNumber(bulkItems.reduce((total, bulk) => total + (bulk.unit_value || 0), 0))} {bulkItems[0]?.unit || 'units'}
+                              </Chip>
+                              <Chip color="success" variant="flat" size="sm">
+                                ₱ {formatNumber(bulkItems.reduce((total, bulk) => total + (bulk.cost || 0), 0))}
+                              </Chip>
+                            </>
                           )}
                         </div>
-
-                        <Button
-                          color="primary"
-                          variant="shadow"
-                          size="sm"
-                          onPress={handleAddBulk}
-                          startContent={<Icon icon="mdi:plus" />}
-                        >
-                          Add Bulk
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button
+                            color={groupView ? "primary" : "default"}
+                            variant={groupView ? "shadow" : "flat"}
+                            size="sm"
+                            onPress={() => setGroupView(!groupView)}
+                            startContent={<Icon icon={groupView ? "mdi:format-list-group" : "mdi:format-list-bulleted"} />}
+                          >
+                            {groupView ? "Grouped" : "Flat"}
+                          </Button>
+                          <Button
+                            color="primary"
+                            variant="shadow"
+                            size="sm"
+                            onPress={handleAddBulk}
+                            startContent={<Icon icon="mdi:plus" />}
+                          >
+                            Add Item
+                          </Button>
+                        </div>
                       </div>
 
                       {/* Bulk items content */}
@@ -1741,44 +1294,83 @@ export default function InventoryPage() {
                                   indicator: "text-medium",
                                   content: "text-small p-0",
                                 }}>
-                                {bulkItems.map((bulk, index) => (
-                                  <AccordionItem
-                                    key={bulk.id}
-                                    aria-label={`Bulk ${bulk.id}`}
-                                    className={`${index === 0 ? 'mt-4' : ''} mx-2`}
-                                    title={
-                                      <div className="flex justify-between items-center w-full">
-                                        <div className="flex items-center gap-2">
-                                          <span className="font-medium">Bulk {bulk.id}</span>
+                                {bulkItems.map((bulk, index) => {
+                                  const groupInfo = getGroupInfo(bulk);
+
+                                  // Only render if it's the first item in a group or not a group at all
+                                  if (groupView && groupInfo.isGroup && !groupInfo.isFirstInGroup) {
+                                    return null;
+                                  }
+
+                                  return (
+                                    <AccordionItem
+                                      key={bulk.id}
+                                      aria-label={`Item ${bulk.id}`}
+                                      className={`${index === 0 ? 'mt-4' : ''} mx-2`}
+                                      title={
+                                        <div className="flex justify-between items-center w-full">
+                                          <div className="flex items-center gap-2">
+                                            {groupInfo.isGroup ? (
+                                              <span className="flex font-medium">
+                                                Group {groupInfo.groupNumber}
+                                              </span>
+                                            ) : (
+                                              <span className="font-medium">
+                                                Item {getItemDisplayNumber(bulk)}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div className="flex gap-2">
+                                            {bulk.unit && bulk.unit !== "" && bulk.unit_value! > 0 && (
+                                              <Chip color="primary" variant="flat" size="sm">
+                                                {groupInfo.isGroup
+                                                  ? `${formatNumber((bulk.unit_value || 0) * groupInfo.groupSize)} ${bulk.unit}`
+                                                  : `${formatNumber(bulk.unit_value || 0)} ${bulk.unit}`
+                                                }
+                                              </Chip>
+                                            )}
+                                            {bulk.status && bulk.status !== "AVAILABLE" && (
+                                              <Chip color="warning" variant="flat" size="sm">
+                                                {bulk.status}
+                                              </Chip>
+                                            )}
+                                            <Chip color="secondary" variant="flat" size="sm" className="flex">
+                                              {groupInfo.groupSize} items
+                                            </Chip>
+                                          </div>
                                         </div>
-                                        <div className="flex gap-2">
-                                          {bulk.unit && bulk.unit !== "" && bulk.unit_value! > 0 && (
-                                            <Chip color="primary" variant="flat" size="sm">
-                                              {formatNumber(bulk.unit_value || 0)} {bulk.unit}
-                                            </Chip>
-                                          )}
-                                          {bulk.bulk_unit && (
-                                            <Chip color="secondary" variant="flat" size="sm">
-                                              {bulk.bulk_unit}
-                                            </Chip>
-                                          )}
-                                          {bulk.status && bulk.status !== "AVAILABLE" && (
-                                            <Chip color="warning" variant="flat" size="sm">
-                                              {bulk.status}
-                                            </Chip>
-                                          )}
-                                        </div>
-                                      </div>
-                                    }
-                                  >
-                                    <div>
-                                      {bulk.uuid && (
+                                      }
+                                    >
+                                      <div>
+                                        {bulk.uuid && (
+                                          <Input
+                                            label="Bulk Identifier"
+                                            value={bulk.uuid}
+                                            isReadOnly
+                                            classNames={{ inputWrapper: inputStyle.inputWrapper, base: "p-4 pb-0" }}
+                                            startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
+                                            endContent={
+                                              <Button
+                                                variant="flat"
+                                                color="default"
+                                                isIconOnly
+                                                onPress={() => copyToClipboard(bulk.uuid || "")}
+                                              >
+                                                <Icon icon="mdi:content-copy" className="text-default-500" />
+                                              </Button>
+                                            }
+                                          />
+                                        )}
+
                                         <Input
-                                          label="Bulk Identifier"
-                                          value={bulk.uuid}
-                                          isReadOnly
+                                          label="Item Code"
+                                          placeholder="Enter item code"
+                                          value={bulk.item_code || ""}
+                                          onChange={(e) => handleBulkChange(bulk.id, 'item_code', e.target.value)}
+                                          isRequired
+                                          isDisabled={!isBulkEditable(bulk)}
                                           classNames={{ inputWrapper: inputStyle.inputWrapper, base: "p-4 pb-0" }}
-                                          startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
+                                          startContent={<Icon icon="mdi:barcode" className="text-default-500 mb-[0.2rem]" />}
                                           endContent={
                                             <Button
                                               variant="flat"
@@ -1790,556 +1382,248 @@ export default function InventoryPage() {
                                             </Button>
                                           }
                                         />
-                                      )}
 
-                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pb-0">
-                                        <NumberInput
-                                          label="Unit Value"
-                                          placeholder="0"
-                                          value={bulk.unit_value || 0}
-                                          onValueChange={(value) => handleBulkChange(bulk.id, 'unit_value', value)}
-                                          isRequired
-                                          isDisabled={!isBulkEditable(bulk)}
-                                          minValue={0}
-                                          classNames={inputStyle}
-                                          endContent={
-                                            <div className="absolute right-10 bottom-2">
-                                              {inventoryForm.unit && (
-                                                <Chip
-                                                  color="primary"
-                                                  variant="flat"
-                                                  size="sm"
-                                                >
-                                                  {inventoryForm.unit}
-                                                </Chip>
-                                              )}
-                                            </div>
-
-                                          }
-                                          startContent={<Icon icon="mdi:numeric" className="text-default-500 mb-[0.1rem]" width={16} />}
-                                        />
-
-                                        <NumberInput
-                                          label="Total Cost"
-                                          placeholder="0.00"
-                                          value={bulk.cost || 0}
-                                          onValueChange={(value) => handleBulkChange(bulk.id, 'cost', value)}
-                                          isRequired
-                                          isDisabled={!isBulkEditable(bulk)}
-                                          minValue={0}
-                                          classNames={inputStyle}
-                                          startContent={
-                                            <div className="flex items-center">
-                                              <Icon icon="mdi:currency-php" className="text-default-500 mb-[0.2rem]" />
-                                            </div>
-                                          }
-                                        />
-
-                                      </div>
-
-                                      <Autocomplete
-                                        label="Bulk Unit"
-                                        placeholder="Select bulk unit"
-                                        selectedKey={bulk.bulk_unit || ""}
-                                        onSelectionChange={(key) => handleBulkChange(bulk.id, 'bulk_unit', key)}
-                                        isRequired
-                                        isDisabled={!isBulkEditable(bulk)}
-                                        inputProps={autoCompleteStyle}
-                                        classNames={{ base: "p-4 pb-0" }}
-                                        startContent={<Icon icon="mdi:cube-outline"
-                                          className="text-default-500 -mb-[0.1rem]" width={24} />}
-                                      >
-                                        {bulkUnitOptions.map((unit) => (
-                                          <AutocompleteItem key={unit}>{unit}</AutocompleteItem>
-                                        ))}
-                                      </Autocomplete>
-
-                                      <div className="p-4 pb-0">
-                                        <CustomProperties
-                                          properties={bulk.properties || {}}
-                                          onPropertiesChange={(properties) => handleBulkPropertiesChange(bulk.id, properties)}
-                                          onInheritFrom={() => handleInheritBulkProperties(bulk.id)}
-                                          showInheritButton={true}
-                                          isDisabled={!isBulkEditable(bulk)}
-                                        />
-                                      </div>
-
-                                      <div className="flex items-center">
-                                        <Switch
-                                          isSelected={bulk.is_single_item}
-                                          onValueChange={(value) => handleBulkChange(bulk.id, 'is_single_item', value)}
-                                          color="primary"
-                                          isDisabled={!isBulkEditable(bulk)}
-                                          className="p-4"
-                                        />
-                                        <span className="ml-2">This is a single large item (e.g., mother roll)</span>
-                                      </div>
-
-                                      <div className="overflow-hidden px-4 pb-4">
-                                        <AnimatePresence>
-                                          {bulk.is_single_item && (
-                                            <motion.div
-                                              {...motionTransition}
-                                            >
-                                              <div className="border-2 border-default-200 rounded-xl p-4">
-                                                <div className="flex justify-between items-center">
-                                                  <h3 className="text-lg font-semibold">Single Item Details</h3>
-                                                  <Tooltip
-                                                    content="For single items, these details will be used for the automatically generated unit">
-                                                    <span>
-                                                      <Icon icon="mdi:information-outline" className="text-default-500" width={16} height={16} />
-                                                    </span>
-                                                  </Tooltip>
-                                                </div>
-
-                                                {unitItems.find(u => u.bulkId === bulk.id)?.uuid && (
-                                                  <Input
-                                                    label="Item Unit Identifier"
-                                                    value={unitItems.find(u => u.bulkId === bulk.id)?.uuid || ""}
-                                                    isReadOnly
-                                                    className="mt-4"
-                                                    classNames={{ inputWrapper: inputStyle.inputWrapper }}
-                                                    startContent={<Icon icon="mdi:cube-outline" className="text-default-500 mb-[0.2rem]" />}
-                                                    endContent={
-                                                      <Button
-                                                        variant="flat"
-                                                        color="default"
-                                                        isIconOnly
-                                                        onPress={() => copyToClipboard(unitItems.find(u => u.bulkId === bulk.id)?.uuid || "")}
-                                                      >
-                                                        <Icon icon="mdi:content-copy" className="text-default-500" />
-                                                      </Button>
-                                                    }
-                                                  />
-                                                )}
-
-                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                                                  <Input
-                                                    label="Item Code"
-                                                    placeholder="Enter code"
-                                                    value={
-                                                      unitItems.find(u => u.bulkId === bulk.id)?.code || ""
-                                                    }
-                                                    onChange={(e) => {
-                                                      // Find existing unit or create one
-                                                      let unit = unitItems.find(u => u.bulkId === bulk.id);
-                                                      if (unit) {
-                                                        handleUnitChange(unit.id, 'code', e.target.value);
-                                                      } else {
-                                                        // Create a single unit for this bulk with inherited unit
-                                                        const newUnit = {
-                                                          id: nextUnitId,
-                                                          bulkId: bulk.id,
-                                                          company_uuid: user.company_uuid,
-                                                          code: e.target.value,
-                                                          unit_value: bulk.unit_value || 0,
-                                                          unit: bulk.unit || "", // Always inherit from bulk
-                                                          name: "",
-                                                          cost: bulk.cost || 0,
-                                                          properties: {},
-                                                          isNew: true
-                                                        };
-                                                        setUnitItems([...unitItems, newUnit]);
-                                                        setNextUnitId(nextUnitId + 1);
-                                                      }
-                                                    }}
-                                                    isDisabled={!isBulkEditable(bulk)}
-                                                    isRequired
-                                                    classNames={inputStyle}
-                                                    startContent={<Icon icon="mdi:barcode" className="text-default-500 mb-[0.2rem]" />}
-                                                  />
-
-                                                  <Input
-                                                    label="Item Name"
-                                                    placeholder="Enter name"
-                                                    value={
-                                                      unitItems.find(u => u.bulkId === bulk.id)?.name || inventoryForm.name
-                                                    }
-                                                    onChange={(e) => {
-                                                      // Find existing unit or create one
-                                                      let unit = unitItems.find(u => u.bulkId === bulk.id);
-                                                      if (unit) {
-                                                        handleUnitChange(unit.id, 'name', e.target.value);
-                                                      } else {
-                                                        // Create a single unit for this bulk
-                                                        const newUnit = {
-                                                          id: nextUnitId,
-                                                          bulkId: bulk.id,
-                                                          company_uuid: user.company_uuid,
-                                                          code: "",
-                                                          unit_value: bulk.unit_value || 0,
-                                                          unit: bulk.unit || "", // Always inherit from bulk
-                                                          name: e.target.value,
-                                                          cost: bulk.cost || 0,
-                                                          properties: {},
-                                                          isNew: true
-                                                        };
-                                                        setUnitItems([...unitItems, newUnit]);
-                                                        setNextUnitId(nextUnitId + 1);
-                                                      }
-                                                    }}
-                                                    isDisabled={!isBulkEditable(bulk)}
-                                                    isRequired
-                                                    classNames={inputStyle}
-                                                    startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
-                                                  />
-                                                </div>
-
-
-                                              </div>
-                                            </motion.div>
-                                          )}
-
-                                        </AnimatePresence>
-                                        <AnimatePresence>
-
-                                          {!bulk.is_single_item && (
-                                            <motion.div
-                                              {...motionTransition}
-                                            >
-                                              <div className="border-2 border-default-200 rounded-xl">
-                                                <div className="flex justify-between items-center p-4 pb-0">
-                                                  <h3 className="text-lg font-semibold">Units in this Bulk</h3>
-                                                  <Button
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pb-0">
+                                          <NumberInput
+                                            label={`${inventoryForm.measurement_unit ? inventoryForm.measurement_unit.charAt(0).toUpperCase() + inventoryForm.measurement_unit.slice(1) : "Item"} Value`}
+                                            placeholder="0"
+                                            value={bulk.unit_value || 0}
+                                            onValueChange={(value) => handleBulkChange(bulk.id, 'unit_value', value)}
+                                            isRequired
+                                            isDisabled={!isBulkEditable(bulk)}
+                                            minValue={0}
+                                            classNames={inputStyle}
+                                            endContent={
+                                              <div className="absolute right-10 bottom-2">
+                                                {bulk.unit && (
+                                                  <Chip
                                                     color="primary"
                                                     variant="flat"
                                                     size="sm"
-                                                    onPress={() => handleAddUnit(bulk.id)}
-                                                    startContent={<Icon icon="mdi:plus" />}
-                                                    isDisabled={!isBulkEditable(bulk)}
                                                   >
-                                                    Add Unit
+                                                    {bulk.unit}
+                                                  </Chip>
+                                                )}
+                                              </div>
+
+                                            }
+                                            startContent={<Icon icon="mdi:numeric" className="text-default-500 mb-[0.1rem]" width={16} />}
+                                          />
+
+                                          <Autocomplete
+                                            label={`${inventoryForm.measurement_unit ? inventoryForm.measurement_unit.charAt(0).toUpperCase() + inventoryForm.measurement_unit.slice(1) : "Item"} Unit`}
+                                            placeholder={`Select ${inventoryForm.measurement_unit ? inventoryForm.measurement_unit.charAt(0).toUpperCase() + inventoryForm.measurement_unit.slice(1) : "Item"} unit`}
+                                            selectedKey={bulk.unit || ""}
+                                            onSelectionChange={(key) => { handleBulkChange(bulk.id, 'unit', key) }}
+                                            isRequired
+                                            isDisabled={!isBulkEditable(bulk)}
+                                            inputProps={autoCompleteStyle}
+                                            startContent={<Icon icon="mdi:cube-outline"
+                                              className="text-default-500 -mb-[0.1rem]" width={24} />}
+                                          >
+                                            {unitOptions.map((unit) => (
+                                              <AutocompleteItem key={unit}>{getUnitFullName(unit)}</AutocompleteItem>
+                                            ))}
+                                          </Autocomplete>
+
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pb-0">
+                                          <Autocomplete
+                                            label="Packaging Unit"
+                                            placeholder="Select packaging unit"
+                                            selectedKey={bulk.packaging_unit || ""}
+                                            onSelectionChange={(key) => handleBulkChange(bulk.id, 'packaging_unit', key)}
+                                            isRequired
+                                            isDisabled={!isBulkEditable(bulk)}
+                                            inputProps={autoCompleteStyle}
+                                            startContent={<Icon icon="mdi:cube-outline"
+                                              className="text-default-500 -mb-[0.1rem]" width={24} />}
+                                          >
+                                            {packagingUnitOptions.map((packaging_unit) => (
+                                              <AutocompleteItem key={packaging_unit}>{packaging_unit.charAt(0).toUpperCase() + packaging_unit.slice(1)}</AutocompleteItem>
+                                            ))}
+                                          </Autocomplete>
+
+                                          <NumberInput
+                                            label="Cost"
+                                            placeholder="0.00"
+                                            value={bulk.cost || 0}
+                                            onValueChange={(value) => handleBulkChange(bulk.id, 'cost', value)}
+                                            isDisabled={!isBulkEditable(bulk)}
+                                            minValue={0}
+                                            classNames={inputStyle}
+                                            startContent={
+                                              <div className="flex items-center">
+                                                <Icon icon="mdi:currency-php" className="text-default-500 mb-[0.2rem]" />
+                                              </div>
+                                            }
+                                          />
+
+                                        </div>
+                                        <div className="p-4">
+                                          <CustomProperties
+                                            properties={bulk.properties || {}}
+                                            onPropertiesChange={(properties) => handleBulkPropertiesChange(bulk.id, properties)}
+                                            onInheritFrom={() => handleInheritBulkProperties(bulk.id)}
+                                            showInheritButton={true}
+                                            isDisabled={!isBulkEditable(bulk)}
+                                          />
+                                        </div>
+
+                                        <div className="flex justify-end gap-2 bg-default-100/50 p-4">
+                                          <Popover
+                                            isOpen={duplicatePopoverOpen && itemToDuplicate?.type === 'bulk' && itemToDuplicate.id === bulk.id}
+                                            onOpenChange={(open) => {
+                                              setDuplicatePopoverOpen(open);
+                                              if (open) {
+                                                setItemToDuplicate({ type: 'bulk', id: bulk.id });
+                                                setDuplicateCount(1);
+                                              }
+                                            }}
+                                          >
+                                            <PopoverTrigger>
+                                              <Button
+                                                color="secondary"
+                                                variant="flat"
+                                                size="sm"
+                                                isDisabled={!isBulkEditable(bulk)}
+                                              >
+                                                <Icon icon="ion:duplicate" width={14} height={14} />
+                                                Duplicate
+                                              </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-56">
+                                              <div className="p-2 space-y-3">
+                                                <div className="text-sm font-medium">Duplicate {groupInfo.isGroup ? "Group" : "Item"}</div>
+                                                <NumberInput
+                                                  label="Number of copies"
+                                                  value={duplicateCount}
+                                                  onValueChange={setDuplicateCount}
+                                                  minValue={1}
+                                                  maxValue={10}
+                                                  classNames={{
+                                                    inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200"
+                                                  }}
+                                                />
+                                                <div className="flex justify-end gap-2 mt-2">
+                                                  <Button
+                                                    size="sm"
+                                                    variant="flat"
+                                                    onPress={() => setDuplicatePopoverOpen(false)}
+                                                  >
+                                                    Cancel
+                                                  </Button>
+                                                  <Button
+                                                    size="sm"
+                                                    color="primary"
+                                                    variant="shadow"
+                                                    onPress={() => {
+                                                      handleDuplicateBulk(bulk.id, duplicateCount);
+                                                      setDuplicatePopoverOpen(false);
+                                                    }}
+                                                  >
+                                                    Duplicate
                                                   </Button>
                                                 </div>
-
-                                                <AnimatePresence>
-                                                  {unitItems.filter(unit => unit.bulkId === bulk.id).length === 0 && (
-                                                    <motion.div
-                                                      {...motionTransition}
-                                                    >
-                                                      <div className="py-4 m-4 h-48 text-center text-default-500 border border-dashed border-default-200 rounded-lg justify-center flex flex-col items-center">
-                                                        <Icon icon="ant-design:product-filled" className="mx-auto mb-2 opacity-50" width={40} height={40} />
-                                                        <p className="text-sm">No units added to this bulk yet</p>
-                                                        <Button
-                                                          color="primary"
-                                                          variant="light"
-                                                          size="sm"
-                                                          className="mt-2"
-                                                          onPress={() => handleAddUnit(bulk.id)}
-                                                        >
-                                                          Add your first unit
-                                                        </Button>
-                                                      </div>
-                                                    </motion.div>
-                                                  )}
-                                                </AnimatePresence>
-                                                <AnimatePresence>
-                                                  {unitItems.filter(unit => unit.bulkId === bulk.id).length > 0 && (
-                                                    <motion.div
-                                                      {...motionTransition}
-                                                    >
-                                                      <Accordion
-                                                        selectionMode="multiple"
-                                                        variant="splitted"
-                                                        selectedKeys={expandedUnits}
-                                                        onSelectionChange={(keys) => setExpandedUnits(keys as Set<string>)}
-                                                        itemClasses={
-                                                          {
-                                                            base: "p-0 w-full bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
-                                                            title: "font-normal text-lg font-semibold",
-                                                            trigger: "p-4 data-[hover=true]:bg-default-100 h-14 flex items-center transition-colors",
-                                                            indicator: "text-medium",
-                                                            content: "text-small p-0",
-                                                          }
-                                                        }
-                                                        className="p-4 overflow-hidden"
-                                                      >
-                                                        {unitItems
-                                                          .filter(unit => unit.bulkId === bulk.id)
-                                                          .map((unit) => (
-                                                            <AccordionItem
-                                                              key={unit.id}
-                                                              title={
-                                                                <div className="flex justify-between items-center w-full">
-                                                                  <div className="flex items-center gap-2">
-                                                                    <span>
-                                                                      {unit.name ?
-                                                                        `${unit.name}` :
-                                                                        `Unit ${unit.id}`}
-                                                                    </span>
-                                                                  </div>
-                                                                  {unit.unit_value! > 0 && unit.unit && unit.unit !== "" &&
-                                                                    <Chip size="sm" color="primary" variant="flat">
-                                                                      {formatNumber(unit.unit_value || 0)} {unit.unit}
-                                                                    </Chip>
-                                                                  }
-                                                                </div>
-                                                              }
-                                                            >
-                                                              <div className="">
-                                                                {unit.uuid && (
-                                                                  <Input
-                                                                    label="Item Unit Identifier"
-                                                                    value={unit.uuid}
-                                                                    isReadOnly
-                                                                    classNames={{ inputWrapper: inputStyle.inputWrapper, base: "p-4 pb-0" }}
-                                                                    startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
-                                                                    endContent={
-                                                                      <Button
-                                                                        variant="flat"
-                                                                        color="default"
-                                                                        isIconOnly
-                                                                        onPress={() => copyToClipboard(unit.uuid || "")}
-                                                                      >
-                                                                        <Icon icon="mdi:content-copy" className="text-default-500" />
-                                                                      </Button>
-                                                                    }
-                                                                  />
-                                                                )}
-
-                                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 my-4 py-0">
-                                                                  <Input
-                                                                    label="Item Code"
-                                                                    placeholder="Enter code"
-                                                                    value={unit.code || ""}
-                                                                    onChange={(e) => handleUnitChange(unit.id, 'code', e.target.value)}
-                                                                    isDisabled={!isBulkEditable(bulk)}
-                                                                    isRequired
-                                                                    classNames={inputStyle}
-                                                                    startContent={<Icon icon="mdi:barcode" className="text-default-500 mb-[0.2rem]" />}
-                                                                  />
-
-                                                                  <Input
-                                                                    label="Item Name"
-                                                                    placeholder="Enter name"
-                                                                    value={unit.name || inventoryForm.name}
-                                                                    onChange={(e) => handleUnitChange(unit.id, 'name', e.target.value)}
-                                                                    isDisabled={!isBulkEditable(bulk)}
-                                                                    isRequired
-                                                                    classNames={inputStyle}
-                                                                    startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.2rem]" />}
-                                                                  />
-
-                                                                  <NumberInput
-                                                                    label="Unit Value"
-                                                                    placeholder="0"
-                                                                    value={unit.unit_value || 0}
-                                                                    onValueChange={(value) => handleUnitChange(unit.id, 'unit_value', value)}
-                                                                    isDisabled={!isBulkEditable(bulk)}
-                                                                    isRequired
-                                                                    minValue={0}
-                                                                    classNames={inputStyle}
-                                                                    endContent={
-                                                                      <div className="absolute right-10 bottom-2">
-                                                                        {unit.unit && unit.unit !== "" &&
-                                                                          <Chip
-                                                                            color="primary"
-                                                                            variant="flat"
-                                                                            size="sm"
-                                                                          >
-                                                                            {unit.unit}
-                                                                          </Chip>
-                                                                        }
-                                                                      </div>
-                                                                    }
-                                                                    startContent={<Icon icon="mdi:numeric" className="text-default-500 mb-[0.2rem] w-6" />}
-                                                                  />
-
-                                                                  <NumberInput
-                                                                    label="Cost"
-                                                                    placeholder="0.00"
-                                                                    value={unit.cost || 0}
-                                                                    onValueChange={(value) => handleUnitChange(unit.id, 'cost', value)}
-                                                                    isDisabled={!isBulkEditable(bulk)}
-                                                                    isRequired
-                                                                    minValue={0}
-                                                                    classNames={{
-                                                                      inputWrapper: `${inputStyle.inputWrapper} md:col-span-2`
-                                                                    }}
-                                                                    startContent={
-                                                                      <div className="flex items-center">
-                                                                        <Icon icon="mdi:currency-php" className="text-default-500 mb-[0.2rem]" />
-                                                                      </div>
-                                                                    }
-                                                                  />
-                                                                </div>
-
-                                                                <div className="p-4 pt-0">
-                                                                  <CustomProperties
-                                                                    properties={unit.properties || {}}
-                                                                    onPropertiesChange={(properties) => handleUnitPropertiesChange(unit.id, properties)}
-                                                                    onInheritFrom={() => handleInheritUnitProperties(unit.id)}
-                                                                    showInheritButton={true}
-                                                                    isDisabled={!isBulkEditable(bulk)}
-                                                                  />
-                                                                </div>
-
-                                                                <div className="flex justify-end gap-2 bg-default-100/50 p-4">
-                                                                  <Popover
-                                                                    isOpen={duplicatePopoverOpen && itemToDuplicate?.type === 'unit' && itemToDuplicate.id === unit.id}
-                                                                    onOpenChange={(open) => {
-                                                                      setDuplicatePopoverOpen(open);
-                                                                      if (open) {
-                                                                        setItemToDuplicate({ type: 'unit', id: unit.id });
-                                                                        setDuplicateCount(1);
-                                                                      }
-                                                                    }}
-                                                                  >
-                                                                    <PopoverTrigger>
-                                                                      <Button
-                                                                        color="secondary"
-                                                                        variant="flat"
-                                                                        size="sm"
-                                                                        isDisabled={!isBulkEditable(bulk)}
-                                                                        {...(isBulkEditable(bulk) ? {
-                                                                          onPress: () => {
-                                                                            setDuplicatePopoverOpen(true);
-                                                                            setItemToDuplicate({ type: 'bulk', id: bulk.id });
-                                                                            setDuplicateCount(1);
-                                                                          }
-                                                                        } : {})}
-                                                                      >
-                                                                        <Icon icon="ion:duplicate" width={14} height={14} />
-                                                                        Duplicate
-                                                                      </Button>
-                                                                    </PopoverTrigger>
-                                                                    <PopoverContent className="w-56">
-                                                                      <div className="p-2 space-y-3">
-                                                                        <div className="text-sm font-medium">Duplicate Unit</div>
-                                                                        <NumberInput
-                                                                          label="Number of copies"
-                                                                          value={duplicateCount}
-                                                                          onValueChange={setDuplicateCount}
-                                                                          minValue={1}
-                                                                          maxValue={10}
-                                                                          classNames={{
-                                                                            inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200"
-                                                                          }}
-                                                                        />
-                                                                        <div className="flex justify-end gap-2 mt-2">
-
-                                                                          <Button
-                                                                            size="sm"
-                                                                            variant="flat"
-                                                                            onPress={() => setDuplicatePopoverOpen(false)}
-                                                                          >
-                                                                            Cancel
-                                                                          </Button>
-                                                                          <Button
-                                                                            size="sm"
-                                                                            color="primary"
-                                                                            variant="shadow"
-                                                                            onPress={() => {
-                                                                              handleDuplicateUnit(unit.id, duplicateCount);
-                                                                              setDuplicatePopoverOpen(false);
-                                                                            }}
-                                                                          >
-                                                                            Duplicate
-                                                                          </Button>
-                                                                        </div>
-                                                                      </div>
-                                                                    </PopoverContent>
-                                                                  </Popover>
-
-                                                                  <Button
-                                                                    color="danger"
-                                                                    variant="flat"
-                                                                    size="sm"
-                                                                    onPress={() => handleDeleteUnit(unit.id)}
-                                                                    startContent={<Icon icon="mdi:delete" width={16} height={16} />}
-                                                                    isDisabled={!isBulkEditable(bulk)}
-                                                                  >
-                                                                    Remove
-                                                                  </Button>
-                                                                </div>
-                                                              </div>
-                                                            </AccordionItem>
-                                                          ))}
-                                                      </Accordion>
-                                                    </motion.div>
-                                                  )}
-                                                </AnimatePresence>
-
                                               </div>
-                                            </motion.div>
-                                          )}
-                                        </AnimatePresence>
-                                      </div>
+                                            </PopoverContent>
+                                          </Popover>
 
-                                      <div className="flex justify-end gap-2 bg-default-100/50 p-4">
-                                        <Popover
-                                          isOpen={duplicatePopoverOpen && itemToDuplicate?.type === 'bulk' && itemToDuplicate.id === bulk.id}
-                                          onOpenChange={(open) => {
-                                            setDuplicatePopoverOpen(open);
-                                            if (open) {
-                                              setItemToDuplicate({ type: 'bulk', id: bulk.id });
-                                              setDuplicateCount(1);
-                                            }
-                                          }}
-                                        >
-                                          <PopoverTrigger>
-                                            <Button
-                                              color="secondary"
-                                              variant="flat"
-                                              size="sm"
-                                              isDisabled={!isBulkEditable(bulk)}
+                                          {/* New Adjust Group button - only show for groups */}
+                                          {groupInfo.isGroup && (
+                                            <Popover
+                                              isOpen={adjustGroupPopoverOpen && groupToAdjust?.groupKey === groupInfo.groupKey}
+                                              onOpenChange={(open) => {
+                                                setAdjustGroupPopoverOpen(open);
+                                                if (open) {
+                                                  setGroupToAdjust({
+                                                    groupKey: groupInfo.groupKey,
+                                                    currentCount: groupInfo.groupSize
+                                                  });
+                                                  setNewGroupCount(groupInfo.groupSize);
+                                                }
+                                              }}
                                             >
-                                              <Icon icon="ion:duplicate" width={14} height={14} />
-                                              Duplicate
-                                            </Button>
-                                          </PopoverTrigger>
-                                          <PopoverContent className="w-56">
-                                            <div className="p-2 space-y-3">
-                                              <div className="text-sm font-medium">Duplicate Bulk</div>
-                                              <NumberInput
-                                                label="Number of copies"
-                                                value={duplicateCount}
-                                                onValueChange={setDuplicateCount}
-                                                minValue={1}
-                                                maxValue={10}
-                                                classNames={{
-                                                  inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200"
-                                                }}
-                                              />
-                                              <div className="flex justify-end gap-2 mt-2">
+                                              <PopoverTrigger>
                                                 <Button
-                                                  size="sm"
+                                                  color="warning"
                                                   variant="flat"
-                                                  onPress={() => setDuplicatePopoverOpen(false)}
-                                                >
-                                                  Cancel
-                                                </Button>
-                                                <Button
                                                   size="sm"
-                                                  color="primary"
-                                                  variant="shadow"
-                                                  onPress={() => {
-                                                    handleDuplicateBulk(bulk.id, duplicateCount);
-                                                    setDuplicatePopoverOpen(false);
-                                                  }}
+                                                  isDisabled={!isBulkEditable(bulk)}
                                                 >
-                                                  Duplicate
+                                                  <Icon icon="mdi:tune" width={14} height={14} />
+                                                  Adjust
                                                 </Button>
-                                              </div>
-                                            </div>
-                                          </PopoverContent>
-                                        </Popover>
+                                              </PopoverTrigger>
+                                              <PopoverContent className="w-56">
+                                                <div className="p-2 space-y-3">
+                                                  <div className="text-sm font-medium">Adjust Group Size</div>
+                                                  <div className="text-xs text-default-500">
+                                                    Current: {groupInfo.groupSize} items
+                                                  </div>
+                                                  <NumberInput
+                                                    label="New group size"
+                                                    value={newGroupCount}
+                                                    onValueChange={setNewGroupCount}
+                                                    minValue={1}
+                                                    maxValue={20}
+                                                    classNames={{
+                                                      inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200"
+                                                    }}
+                                                  />
+                                                  <div className="flex justify-end gap-2 mt-2">
+                                                    <Button
+                                                      size="sm"
+                                                      variant="flat"
+                                                      onPress={() => setAdjustGroupPopoverOpen(false)}
+                                                    >
+                                                      Cancel
+                                                    </Button>
+                                                    <Button
+                                                      size="sm"
+                                                      color="warning"
+                                                      variant="shadow"
+                                                      onPress={() => {
+                                                        if (groupToAdjust) {
+                                                          handleAdjustGroup(groupToAdjust.groupKey, newGroupCount);
+                                                        }
+                                                        setAdjustGroupPopoverOpen(false);
+                                                      }}
+                                                    >
+                                                      Adjust
+                                                    </Button>
+                                                  </div>
+                                                </div>
+                                              </PopoverContent>
+                                            </Popover>
+                                          )}
 
-                                        <Button
-                                          color="danger"
-                                          variant="flat"
-                                          size="sm"
-                                          onPress={() => handleDeleteBulk(bulk.id)}
-                                          startContent={<Icon icon="mdi:delete" width={16} height={16} />}
-                                          isDisabled={!isBulkEditable(bulk)}
-                                        >
-                                          Remove
-                                        </Button>
+                                          <Button
+                                            color="danger"
+                                            variant="flat"
+                                            size="sm"
+                                            onPress={() => {
+                                              if (groupInfo.isGroup) {
+                                                // Remove entire group
+                                                const groupKey = groupInfo.groupKey;
+                                                setBulkItems(bulkItems.filter(item =>
+                                                  !(generateGroupKey(item) === groupKey && item.isNew)
+                                                ));
+                                              } else {
+                                                handleDeleteBulk(bulk.id);
+                                              }
+                                            }}
+                                            startContent={<Icon icon="mdi:delete" width={16} height={16} />}
+                                            isDisabled={!isBulkEditable(bulk)}
+                                          >
+                                            Remove
+                                          </Button>
+                                        </div>
                                       </div>
-
-                                    </div>
-                                  </AccordionItem>
-                                ))}
+                                    </AccordionItem>
+                                  );
+                                }).filter(Boolean)}
                               </Accordion>
                             </motion.div>
                           )}
@@ -2389,7 +1673,7 @@ export default function InventoryPage() {
                           variant="shadow"
                           className="w-full"
                           isLoading={isLoading}
-                          isDisabled={!inventoryForm.name || !inventoryForm.unit}
+                          isDisabled={!inventoryForm.name || !inventoryForm.measurement_unit}
                         >
                           <Icon icon="mdi:content-save" className="mr-1" />
                           {selectedItemId ? "Update Item" : "Save Item"}
@@ -2427,6 +1711,24 @@ export default function InventoryPage() {
             </ModalFooter>
           </ModalContent>
         </Modal>
+        <Modal
+          isOpen={showMergeWarning}
+          onClose={() => setShowMergeWarning(false)}
+          backdrop="blur"
+        >
+          <ModalContent>
+            <ModalHeader>Duplicate Group Detected</ModalHeader>
+            <ModalBody>
+              You have duplicated a group but did not change its details. If you save, these groups will be merged. Please modify the details of the duplicated group(s) to keep them separate.
+            </ModalBody>
+            <ModalFooter>
+              <Button variant="flat" onPress={() => setShowMergeWarning(false)}>
+                OK
+              </Button>
+            </ModalFooter>
+          </ModalContent>
+        </Modal>
+
       </div>
     </motion.div>
   );

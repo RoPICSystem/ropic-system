@@ -2,7 +2,7 @@
 
 import { FloorConfig, ShelfLocation } from "@/components/shelf-selector-3d";
 import { createClient } from "@/utils/supabase/server";
-import { InventoryItem } from "../inventory/actions";
+import { Inventory } from "../inventory/actions";
 import { formatCode } from '@/utils/floorplan';
 
 
@@ -478,7 +478,7 @@ export async function createWarehouseInventoryItems(
       .from("inventory_items")
       .select("*")
       .eq("uuid", inventoryUuid)
-      .single<InventoryItem>();
+      .single<Inventory>();
 
     if (invError) throw invError;
 

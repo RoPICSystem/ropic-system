@@ -81,24 +81,24 @@ export default function ProfileEditPage() {
 
   // Optimized function to load address data efficiently
   const loadAddressData = async (options?: {
-    regCode?: string
-    provCode?: string
-    citymunCode?: string
+    reg_code?: string
+    prov_code?: string
+    citymun_code?: string
   }) => {
     try {
       const addressData = await getAddressDropdownData(options)
 
       setRegions(addressData.regions)
 
-      if (options?.regCode) {
+      if (options?.reg_code) {
         setProvinces(addressData.provinces)
       }
 
-      if (options?.provCode) {
+      if (options?.prov_code) {
         setCityMunicipalities(addressData.cities)
       }
 
-      if (options?.citymunCode) {
+      if (options?.citymun_code) {
         setBarangays(addressData.barangays)
       }
 
@@ -128,7 +128,7 @@ export default function ProfileEditPage() {
     setSelectedBarangay('')
 
     // Load provinces for the selected region
-    loadAddressData({ regCode: value })
+    loadAddressData({ reg_code: value })
   }
 
   // Handle province selection change
@@ -138,7 +138,7 @@ export default function ProfileEditPage() {
     setSelectedBarangay('')
 
     // Load cities for the selected province
-    loadAddressData({ provCode: value })
+    loadAddressData({ prov_code: value })
   }
 
   // Handle city/municipality selection change
@@ -147,7 +147,7 @@ export default function ProfileEditPage() {
     setSelectedBarangay('')
 
     // Load barangays for the selected city/municipality
-    loadAddressData({ citymunCode: value })
+    loadAddressData({ citymun_code: value })
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -219,20 +219,20 @@ export default function ProfileEditPage() {
         setIsLoading(false)
 
         // Load address data based on user data efficiently
-        const regCode = data?.address?.region?.code
-        const provCode = data?.address?.province?.code
-        const citymunCode = data?.address?.municipality?.code
+        const reg_code = data?.address?.region?.code
+        const prov_code = data?.address?.province?.code
+        const citymun_code = data?.address?.municipality?.code
 
         let addressData;
-        if (regCode && provCode && citymunCode) {
+        if (reg_code && prov_code && citymun_code) {
           // Load all levels at once
-          addressData = await loadAddressData({ regCode, provCode, citymunCode })
-        } else if (regCode && provCode) {
+          addressData = await loadAddressData({ reg_code, prov_code, citymun_code })
+        } else if (reg_code && prov_code) {
           // Load up to cities
-          addressData = await loadAddressData({ regCode, provCode })
-        } else if (regCode) {
+          addressData = await loadAddressData({ reg_code, prov_code })
+        } else if (reg_code) {
           // Load up to provinces
-          addressData = await loadAddressData({ regCode })
+          addressData = await loadAddressData({ reg_code })
         } else {
           // Load only regions
           addressData = await loadAddressData()
@@ -253,9 +253,9 @@ export default function ProfileEditPage() {
             setSelectedBarangay(data.address.barangay.code)
           }
 
-          setInputStreetAddress(data.address.street || '')
-          setInputPostalCode(data.address.postalCode ? Number(data.address.postalCode) : undefined)
-          setFullAddress(data.full_address || '')
+          setInputStreetAddress(data.address.street || '');
+          setInputPostalCode(data.address.postalCode ? Number(data.address.postalCode) : undefined);
+          setFullAddress(data.address.fullAddress);
 
           setIsAddressLoading(false) // Set address loading to false when done
         }
@@ -276,10 +276,10 @@ export default function ProfileEditPage() {
   useEffect(() => {
     if (!regions.length) return
 
-    const regionName = regions.find(r => r.regCode === selectedRegion)?.regDesc || '';
-    const provinceName = provinces.find(p => p.provCode === selectedProvince)?.provDesc || '';
-    const cityMunName = cityMunicipalities.find(c => c.citymunCode === selectedCityMunicipality)?.citymunDesc || '';
-    const barangayName = barangays.find(b => b.brgyCode === selectedBarangay)?.brgyDesc || '';
+    const regionName = regions.find(r => r.reg_code === selectedRegion)?.reg_desc || '';
+    const provinceName = provinces.find(p => p.prov_code === selectedProvince)?.prov_desc || '';
+    const cityMunName = cityMunicipalities.find(c => c.citymun_code === selectedCityMunicipality)?.citymun_desc || '';
+    const barangayName = barangays.find(b => b.brgy_code === selectedBarangay)?.brgy_desc || '';
 
     const addressParts = [
       inputStreetAddress,
@@ -555,8 +555,8 @@ export default function ProfileEditPage() {
                         isDisabled={isAddressLoading}
                       >
                         {regions.map(region => (
-                          <AutocompleteItem key={region.regCode}>
-                            {region.regDesc}
+                          <AutocompleteItem key={region.reg_code}>
+                            {region.reg_desc}
                           </AutocompleteItem>
                         ))}
                       </Autocomplete>
@@ -575,8 +575,8 @@ export default function ProfileEditPage() {
                         isDisabled={!selectedRegion || isAddressLoading}
                       >
                         {provinces.map(province => (
-                          <AutocompleteItem key={province.provCode}>
-                            {province.provDesc}
+                          <AutocompleteItem key={province.prov_code}>
+                            {province.prov_desc}
                           </AutocompleteItem>
                         ))}
                       </Autocomplete>
@@ -592,8 +592,8 @@ export default function ProfileEditPage() {
                         isDisabled={!selectedProvince || isAddressLoading}
                       >
                         {cityMunicipalities.map(city => (
-                          <AutocompleteItem key={city.citymunCode}>
-                            {city.citymunDesc}
+                          <AutocompleteItem key={city.citymun_code}>
+                            {city.citymun_desc}
                           </AutocompleteItem>
                         ))}
                       </Autocomplete>
@@ -612,8 +612,8 @@ export default function ProfileEditPage() {
                         isDisabled={!selectedCityMunicipality || isAddressLoading}
                       >
                         {barangays.map(barangay => (
-                          <AutocompleteItem key={barangay.brgyCode}>
-                            {barangay.brgyDesc}
+                          <AutocompleteItem key={barangay.brgy_code}>
+                            {barangay.brgy_desc}
                           </AutocompleteItem>
                         ))}
                       </Autocomplete>

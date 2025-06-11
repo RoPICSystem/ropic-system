@@ -197,8 +197,12 @@ export async function register(formData: FormData) :
         birthday,
         phone_number: formData.get('phoneNumber') as string,
         address,
-        full_address: formData.get('address.fullAddress') as string,
         company_uuid: companyUuid,
+        settings: {
+          fullScreen: false,
+          defaultView: 'grouped',
+          pageSize: 15
+        }
       }
 
       // Step 3: Create user in auth.users

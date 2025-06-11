@@ -19,15 +19,14 @@ export type UserProfile = {
   uuid: string
   email: string
   full_name: string
-  is_admin: boolean
   name: Map<string, string>
+  is_admin: boolean
   profile_image: string
   gender: string
   birthday: string
   phonenumber: string
   address: Address
   company_uuid: string
-  full_address: string
   role: string
   created_at: string
   updated_at: string

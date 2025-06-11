@@ -31,25 +31,46 @@ export const formatNumber = (value: number): string => {
 
 export const copyToClipboard = (str: string): void => {
   navigator.clipboard.writeText(str).then(() => {
-      addToast({
-        description: "Text copied successfully",
-        variant: "flat",
-        timeout: 2000,
-        classNames: {
-          wrapper: "p-2",
-          title: "m-0",
-          description: "m-0 text-default-700",
-          closeButton: "opacity-100 absolute right-4 w-8 h-8 rounded-full top-1/2 translate-y-[-50%]"
-        },
-        closeIcon: (
-          <Icon icon="mdi:close"
-            className="bg-default-200/50 p-1 hover:bg-default-200 transition-all duration-200 text-default-500"
-            width={32} height={32} />
-        ),
-      })
+    addToast({
+      title: "Text copied successfully",
+      variant: "solid",
+      timeout: 2000,
+      classNames: {
+        base: "bg-default-50",
+        wrapper: "p-2",
+        closeButton: "opacity-100 absolute right-4 w-8 h-8 rounded-full top-1/2 translate-y-[-50%]"
+      },
+      closeIcon: (
+        <Icon icon="mdi:close"
+          className="bg-default-100/50 p-1 hover:bg-default-200 transition-all duration-200 text-default-800"
+          width={32} height={32} />
+      ),
+    })
 
-    });
-  }
+  });
+}
+
+export const showErrorToast = (error: string = "Error", message: string = '') => {
+  console.error(error, message);
+  
+  addToast({
+    ...(message && {description: message.length > 50 ? message.substring(0, 50) + '...' : message}),
+    variant: "solid",
+    color: "danger",
+    timeout: 5000,
+    title: error,
+    classNames: {
+      wrapper: "p-2",
+      closeButton: "opacity-100 absolute right-4 w-8 h-8 rounded-full top-1/2 translate-y-[-50%]",
+      icon: "-mr-2 ml-1"
+    },
+    closeIcon: (
+      <Icon icon="mdi:close"
+        className="dark:bg-danger-500/50 bg-danger-300/50 hover:bg-danger-300 hover:dark:bg-danger-500 p-1 transition-all duration-200 dark:text-danger-100 text-danger-900"
+        width={32} height={32} />
+    ),
+  });
+}
 
 export const toSnakeCase = (str: string) => {
   return str.toLowerCase().replace(/\s+/g, '_');

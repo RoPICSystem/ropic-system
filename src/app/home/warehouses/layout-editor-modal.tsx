@@ -27,7 +27,6 @@ import {
 import { Icon } from '@iconify-icon/react/dist/iconify.mjs';
 import { AnimatePresence, motion } from 'framer-motion';
 import React, { Suspense, useEffect, useState } from 'react';
-import { saveWarehouseLayout } from './actions';
 import CustomScrollbar from '@/components/custom-scrollbar';
 import { herouiColor } from '@/utils/colors';
 
@@ -35,7 +34,6 @@ import { herouiColor } from '@/utils/colors';
 interface WarehouseLayoutEditorProps {
   isOpen: boolean;
   onClose: () => void;
-  warehouseId: string;
   initialLayout: FloorConfig[];
   openedTab?: "editor" | "preview";
   onSave: (layout: FloorConfig[]) => void;
@@ -44,7 +42,6 @@ interface WarehouseLayoutEditorProps {
 export default function WarehouseLayoutEditorModal({
   isOpen,
   onClose,
-  warehouseId,
   initialLayout,
   openedTab,
   onSave
@@ -52,8 +49,8 @@ export default function WarehouseLayoutEditorModal({
   // Layout state
   const [warehouseLayout, setWarehouseLayout] = useState<FloorConfig[]>([]);
   const [currentFloor, setCurrentFloor] = useState(0);
-  const [layoutRows, setLayoutRows] = useState(18);
-  const [layoutColumns, setLayoutColumns] = useState(32);
+  const [layoutRows, setLayoutRows] = useState(17);
+  const [layoutColumns, setLayoutColumns] = useState(33);
   const [selectedCellValue, setSelectedCellValue] = useState(5);
 
   // Selection state
@@ -66,7 +63,6 @@ export default function WarehouseLayoutEditorModal({
 
   // Status state
   const [error, setError] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
 
   // Tab state for switching between editor and 3D preview
   const [activeTab, setActiveTab] = useState<"editor" | "preview">(openedTab || "editor");
@@ -92,7 +88,7 @@ export default function WarehouseLayoutEditorModal({
     } else {
       initializeNewLayout();
     }
-  }, [initialLayout]);
+  }, [initialLayout, isOpen]);
 
   // Layout management functions
   const initializeMatrix = (rows: number, cols: number) => {
@@ -360,15 +356,6 @@ export default function WarehouseLayoutEditorModal({
 
 
 
-  // Location state
-  const [selectedFloor, setSelectedFloor] = useState<number | null>(null);
-  const [selectedColumnCode, setSelectedColumnCode] = useState<string>("");
-  const [selectedColumn, setSelectedColumn] = useState<number | null>(null);
-  const [selectedRow, setSelectedRow] = useState<number | null>(null);
-  const [selectedGroup, setSelectedGroup] = useState<number | null>(null);
-  const [selectedCode, setSelectedCode] = useState("");
-  const [selectedDepth, setSelectedDepth] = useState<number | null>(null);
-  const [floorOptions, setFloorOptions] = useState<string[]>([]);
   const [occupiedLocations, setOccupiedLocations] = useState<any[]>([]);
 
   // 3D shelf selector states
@@ -639,27 +626,7 @@ export default function WarehouseLayoutEditorModal({
     };
   }, [selectionStart, selectionEnd, selectedCellValue, isCtrlPressed]);
 
-  // Save layout to the warehouse
-  const handleSaveLayout = async () => {
-    setIsSaving(true);
-    setError(null);
-
-    try {
-      const { success, error } = await saveWarehouseLayout(warehouseId, warehouseLayout);
-
-      if (error) {
-        setError(error);
-      } else if (success) {
-        onSave(warehouseLayout);
-        onClose();
-      }
-    } catch (err) {
-      setError("An unexpected error occurred while saving the layout");
-      console.error("Save layout error:", err);
-    } finally {
-      setIsSaving(false);
-    }
-  };
+ 
 
   const inputStyle = { inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200" };
   const autoCompleteStyle = { classNames: inputStyle };
@@ -1277,17 +1244,14 @@ export default function WarehouseLayoutEditorModal({
               color="default"
               onPress={onClose}
               className="mr-2"
-              isDisabled={isSaving}
             >
               Cancel
             </Button>
             <Button
               color="primary"
-              onPress={handleSaveLayout}
-              isLoading={isSaving}
-              isDisabled={isSaving}
+              onPress={() => onSave(warehouseLayout)}
             >
-              Save Layout
+              Apply Layout
             </Button>
           </div>
         </ModalFooter>

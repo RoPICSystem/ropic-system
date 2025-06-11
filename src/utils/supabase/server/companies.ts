@@ -3,30 +3,47 @@
 import { createClient } from '@/utils/supabase/server'
 
 // Function to get existing companies for dropdown selection
-export async function getExistingCompanies() {
+export async function getExistingCompanies(isLogoRequired: boolean = false) {
   const supabase = await createClient()
 
+  // get all companies without rpc
   try {
-    // Get the user's auth ID
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      throw new Error('Not authenticated')
-    }
-
-    // Query companies directly with a stronger approach that avoids recursion
-    const { data, error } = await supabase.rpc(
-      'get_accessible_companies',  // This is a function we'll create in SQL
-      { user_id: user.id }
-    )
+    const { data, error } = await supabase
+      .from('companies')
+      .select('*')
 
     if (error) {
-      console.error('Error fetching companies:', error)
+      console.error('Error fetching existing companies:', error)
       return { error: error.message }
     }
 
-    return { data }
+    if (isLogoRequired) {
+      // Get logo image URLs
+      const companiesWithLogoUrls = await Promise.all(data.map(async (company) => {
+        let logoImageData = null
+        if (company.logo_image) {
+          try {
+            const { data } = supabase
+              .storage
+              .from('company-images')
+              .getPublicUrl(company.logo_image)
+
+            logoImageData = data?.publicUrl || null
+          } catch (err) {
+            console.error('Error getting image URL:', err)
+          }
+        }
+        return { ...company, logo_url: logoImageData }
+      }))
+
+      return { data: companiesWithLogoUrls, error: null }
+    } else {
+      // Return companies without logo URLs
+      return { data, error: null }
+    }
+
   } catch (error) {
-    console.error('Error fetching companies:', error)
+    console.error('Error fetching existing companies:', error)
     return { error }
   }
 }
@@ -37,7 +54,7 @@ export async function getUserCompanyDetails(userId: string) {
 
   try {
     const { data, error } = await supabase.rpc(
-      'get_accessible_companies',  // This is a function we'll create in SQL
+      'get_user_company',  // This is a function we'll create in SQL
       { user_id: userId }
     )
 
@@ -54,49 +71,29 @@ export async function getUserCompanyDetails(userId: string) {
     if (company.logo_image) {
       try {
         // Construct the full path according to storage policy structure
-        const fullPath = company.logo_image 
-        
+        const fullPath = company.logo_image
+
         const { data } = supabase
           .storage
           .from('company-images')
           .getPublicUrl(fullPath)
-          
+
         logoImageData = data?.publicUrl || null
       } catch (err) {
         console.error('Error getting image URL:', err)
       }
     }
 
-    return { 
+    return {
       data: {
         ...company,
         logo_url: logoImageData,
         logo_path: company.logo_image || null
-      }, 
-      error: null}
+      },
+      error: null
+    }
   } catch (error) {
     console.error(`Error fetching company details for user ${userId}:`, error)
-    return { error }
-  }
-}
-
-// Add this new function specifically for registration page
-export async function getCompaniesForRegistration() {
-  const supabase = await createClient()
-
-  try {
-    const { data, error } = await supabase.rpc(
-      'get_companies_for_registration'
-    )
-
-    if (error) {
-      console.error('Error fetching companies for registration:', error)
-      return { error: error.message }
-    }
-
-    return { data }
-  } catch (error) {
-    console.error('Error fetching companies for registration:', error)
     return { error }
   }
 }

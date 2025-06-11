@@ -10,29 +10,29 @@ export type Country = {
 }
 
 export type Region = {
-  regCode: string
-  regDesc: string
+  reg_code: string
+  reg_desc: string
 }
 
 export type Province = {
-  regCode: string
-  provCode: string
-  provDesc: string
+  reg_code: string
+  prov_code: string
+  prov_desc: string
 }
 
 export type CityMunicipality = {
-  regCode: string
-  provCode: string
-  citymunCode: string
-  citymunDesc: string
+  reg_code: string
+  prov_code: string
+  citymun_code: string
+  citymun_desc: string
 }
 
 export type Barangay = {
-  regCode: string
-  provCode: string
-  citymunCode: string
-  brgyCode: string
-  brgyDesc: string
+  reg_code: string
+  prov_code: string
+  citymun_code: string
+  brgy_code: string
+  brgy_desc: string
 }
 
 // New type for RPC response
@@ -63,16 +63,16 @@ export type Address = {
 
 // New efficient RPC function
 export async function getAddressDropdownData(options?: {
-  regCode?: string
-  provCode?: string
-  citymunCode?: string
+  reg_code?: string
+  prov_code?: string
+  citymun_code?: string
 }): Promise<AddressDropdownData> {
   const supabase = await createClient()
 
   const { data, error } = await supabase.rpc('get_address_dropdown_data', {
-    target_reg_code: options?.regCode || null,
-    target_prov_code: options?.provCode || null,
-    target_citymun_code: options?.citymunCode || null
+    target_reg_code: options?.reg_code || null,
+    target_prov_code: options?.prov_code || null,
+    target_citymun_code: options?.citymun_code || null
   })
 
   if (error) {
@@ -94,17 +94,17 @@ export async function getRegions() {
   return data.regions
 }
 
-export async function getProvinces(regCode: string) {
-  const data = await getAddressDropdownData({ regCode })
+export async function getProvinces(reg_code: string) {
+  const data = await getAddressDropdownData({ reg_code })
   return data.provinces
 }
 
-export async function getCityMunicipalities(provCode: string) {
-  const data = await getAddressDropdownData({ provCode })
+export async function getCityMunicipalities(prov_code: string) {
+  const data = await getAddressDropdownData({ prov_code })
   return data.cities
 }
 
-export async function getBarangays(citymunCode: string) {
-  const data = await getAddressDropdownData({ citymunCode })
+export async function getBarangays(citymun_code: string) {
+  const data = await getAddressDropdownData({ citymun_code })
   return data.barangays
 }

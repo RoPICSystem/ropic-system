@@ -4,6 +4,8 @@ import { Icon } from '@iconify/react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { motionTransition } from "@/utils/anim";
 import { toSnakeCase, toNormalCase } from '@/utils/tools';
+import CustomScrollbar from './custom-scrollbar';
+import { herouiColor } from '@/utils/colors';
 
 interface CustomProperty {
   key: string;
@@ -53,22 +55,6 @@ export default function CustomProperties({
   const inputStyle = {
     inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
   };
-  const autoCompleteStyle = { classNames: inputStyle };
-
-  const animationConfig = {
-    initial: { opacity: 0, transform: 'scale3d(0.95, 0.95, 1) translateZ(0)', filter: "blur(8px)" },
-    animate: { opacity: 1, transform: 'scale3d(1, 1, 1) translateZ(0)', filter: "blur(0px)" },
-    exit: { opacity: 0, transform: 'scale3d(0.95, 0.95, 1) translateZ(0)', filter: "blur(8px)" },
-    transition: {
-      duration: 0.3,
-      ease: "easeOut",
-      type: "spring",
-      stiffness: 150,
-      damping: 15,
-      mass: 1.2,
-    }
-  };
-
   // Check if there's any empty property to disable the Add button
   const hasEmptyProperty = () => {
     return localProperties.some(prop => prop.key.trim() === "" || prop.value.trim() === "");
@@ -138,8 +124,8 @@ export default function CustomProperties({
 
   return (
     <Card className={`border-2 border-default-200 ${className} bg-default-50`}>
-      <CardBody className="p-4">
-        <div className="flex justify-between items-center mb-4">
+      <CardBody className="p-0 overflow-hidden">
+        <div className="flex justify-between items-center p-4">
           <h4 className="text-lg font-semibold">Custom Properties</h4>
           <div className="flex flex-wrap justify-end gap-2">
             {showInheritButton && onInheritFrom && (
@@ -170,7 +156,7 @@ export default function CustomProperties({
         <AnimatePresence mode="popLayout">
           {localProperties.length === 0 ? (
             <motion.div {...motionTransition}>
-              <div className="py-8 text-center text-default-500 border border-dashed border-default-300 rounded-lg h-48 flex flex-col items-center justify-center">
+              <div className="py-8 text-center m-4 mt-0 text-default-500 border border-dashed border-default-300 rounded-lg h-48 flex flex-col items-center justify-center">
                 <Icon icon="mdi:tag-outline" className="mx-auto mb-2 opacity-50" width={32} height={32} />
                 <p className="text-sm">No custom properties added yet</p>
                 <Button
@@ -186,9 +172,13 @@ export default function CustomProperties({
               </div>
             </motion.div>
           ) : (
-            <ScrollShadow className='max-h-96 overflow-y-auto p-4 -m-4 -mt-2' isEnabled={localProperties.length > 4}>
+            <CustomScrollbar 
+              className='max-h-96 p-4 pt-2' 
+              hideHorizontalScrollbar
+              scrollbarMarginBottom='.5rem'
+              scrollShadow
+              scrollShadowColor={herouiColor('default-50', 'hex') as string}>
               <div className="space-y-3">
-
                 <AnimatePresence>
                   {localProperties.map((property, index) => {
                     return (
@@ -211,11 +201,11 @@ export default function CustomProperties({
                               size="sm"
                               inputProps={{
                                 classNames: {
-                                  inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16 rounded-r-none rounded-l-xl border-r-1",
+                                  inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16 rounded-r-none rounded-l-xl border-r-1 pb-2",
                                 }
                               }}
                               disabledKeys={usedKeys}
-                              startContent={<Icon icon="mdi:tag" className="text-default-500" width={16} height={16} />}
+                              startContent={<Icon icon="mdi:tag" className="text-default-500 mb-[0.1rem]" width={16} />}
                             >
                               {commonPropertyKeys.map((key) => (
                                 <AutocompleteItem key={toSnakeCase(key)}>
@@ -231,12 +221,10 @@ export default function CustomProperties({
                               onChange={(e) => handlePropertyChange(index, 'value', e.target.value)}
                               isDisabled={isDisabled}
                               size="sm"
-                              classNames={
-                                {
-                                  inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16 rounded-r-xl rounded-l-none border-l-1",
-                                }
-                              }
-                              startContent={<Icon icon="mdi:text" className="text-default-500" width={16} height={16} />}
+                              classNames={{
+                                inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16 rounded-r-xl rounded-l-none border-l-1 pb-2",
+                              }}
+                              startContent={<Icon icon="mdi:text" className="text-default-500 mb-[0.1rem]" width={16}  />}
                             />
                           </div>
 
@@ -256,7 +244,7 @@ export default function CustomProperties({
                   })}
                 </AnimatePresence>
               </div>
-            </ScrollShadow>
+            </CustomScrollbar>
           )}
 
         </AnimatePresence>
