@@ -227,7 +227,6 @@ export default function InventoryPage() {
   };
 
   const handleSelectItem = (itemId: string) => {
-    setSelectedItemId(itemId);
     const params = new URLSearchParams(searchParams.toString());
     params.set("itemId", itemId);
     router.push(`?${params.toString()}`, { scroll: false });
@@ -644,7 +643,12 @@ export default function InventoryPage() {
   // Check URL for itemId param on load
   useEffect(() => {
     const itemId = searchParams.get("itemId");
-    if (itemId) setSelectedItemId(itemId);
+    if (itemId) {
+      setSelectedItemId(itemId);
+    } else {
+      // When there's no itemId in URL, switch to new item mode
+      setSelectedItemId(null);
+    }
   }, [searchParams]);
 
   return (
@@ -763,15 +767,54 @@ export default function InventoryPage() {
                     <div className="space-y-4">
                       <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" />
                       <div className="space-y-4">
+                        {/* UUID Field Skeleton - conditional */}
+                        {selectedItemId && (
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                        )}
+                        {/* Item Name Skeleton */}
                         <Skeleton className="h-16 w-full rounded-xl" />
-                        <div className="flex items-center justify-between gap-4">
-                          <Skeleton className="h-16 w-1/2 rounded-xl" />
-                          <Skeleton className="h-16 w-1/2 rounded-xl" />
+                        {/* Measurement Unit and Standard Unit Skeleton */}
+                        <div className="flex items-start justify-between gap-4 md:flex-row flex-col">
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                          <Skeleton className="h-16 w-full rounded-xl" />
                         </div>
-                        <Skeleton className="h-28 w-full rounded-xl" />
+                        {/* Description Skeleton */}
+                        <Skeleton className="h-24 w-full rounded-xl" />
+                        {/* Unit Values Grid Skeleton - only when editing */}
+                        {selectedItemId && (
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-default-100/50 rounded-xl">
+                            <div className="text-center space-y-2">
+                              <Skeleton className="h-8 w-16 rounded-xl mx-auto" />
+                              <Skeleton className="h-4 w-12 rounded-xl mx-auto" />
+                            </div>
+                            <div className="text-center space-y-2">
+                              <Skeleton className="h-8 w-20 rounded-xl mx-auto" />
+                              <Skeleton className="h-4 w-16 rounded-xl mx-auto" />
+                            </div>
+                            <div className="text-center space-y-2">
+                              <Skeleton className="h-8 w-24 rounded-xl mx-auto" />
+                              <Skeleton className="h-4 w-20 rounded-xl mx-auto" />
+                            </div>
+                          </div>
+                        )}
+                        {/* Custom Properties Skeleton */}
+                        <div className="mt-6">
+                          <div className="border-2 border-default-200 bg-default-50 rounded-xl">
+                            <div className="flex justify-between items-center p-4">
+                              <Skeleton className="h-6 w-32 rounded-xl" />
+                              <Skeleton className="h-8 w-16 rounded-xl" />
+                            </div>
+                            <div className="py-8 text-center m-4 mt-0 border border-dashed border-default-300 rounded-lg h-48 flex flex-col items-center justify-center">
+                              <Skeleton className="h-8 w-8 rounded-full mx-auto mb-2" />
+                              <Skeleton className="h-4 w-40 rounded-xl mx-auto" />
+                              <Skeleton className="h-6 w-32 rounded-xl mx-auto mt-2" />
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   }>
+
                   <div>
                     <h2 className="text-xl font-semibold mb-4 w-full text-center">
                       {selectedItemId ? "Edit Inventory Item" : "Create Inventory Item"}
@@ -859,39 +902,35 @@ export default function InventoryPage() {
 
                       {/* Display aggregated values if they exist */}
                       {inventoryForm.unit_values && (
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-default-100/50 rounded-xl">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-default-100/50 rounded-xl">
                           <div className="text-center">
-                            <div className="text-2xl font-bold text-primary">
+                            <div className="text-xl inline-flex items-end gap-1 font-bold text-default">
                               {formatNumber(inventoryForm.unit_values.total)}
+                              <span className="text-sm">{inventoryForm.standard_unit}</span>
                             </div>
                             <div className="text-sm text-default-600">
-                              Total {inventoryForm.standard_unit}
+                              Total
                             </div>
                           </div>
                           <div className="text-center">
-                            <div className="text-2xl font-bold text-success">
+                            <div className="text-xl inline-flex items-end gap-1 font-bold text-success">
                               {formatNumber(inventoryForm.unit_values.available)}
+                              <span className="text-sm">{inventoryForm.standard_unit}</span>
                             </div>
-                            <div className="text-sm text-default-600">
-                              Available {inventoryForm.standard_unit}
+                            <div className="text-sm text-success-600">
+                              Available
                             </div>
                           </div>
                           <div className="text-center">
-                            <div className="text-2xl font-bold text-warning">
+                            <div className="text-xl inline-flex items-end gap-1 font-bold text-warning">
                               {formatNumber(inventoryForm.unit_values.warehouse)}
+                              <span className="text-sm">{inventoryForm.standard_unit}</span>
                             </div>
-                            <div className="text-sm text-default-600">
-                              In Warehouse {inventoryForm.standard_unit}
-                            </div>
-                          </div>
-                          <div className="text-center">
-                            <div className="text-2xl font-bold text-default-700">
-                              {formatNumber(inventoryForm.unit_values.inventory)}
-                            </div>
-                            <div className="text-sm text-default-600">
-                              Inventory {inventoryForm.standard_unit}
+                            <div className="text-sm text-warning-600">
+                              In Warehouse
                             </div>
                           </div>
+
                         </div>
                       )}
 
@@ -906,27 +945,96 @@ export default function InventoryPage() {
                   </div>
                 </LoadingAnimation>
 
+
                 <LoadingAnimation
                   condition={isLoading}
                   skeleton={
                     <div>
                       <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" />
                       <div className="space-y-4">
+                        {/* Header with stats and buttons */}
                         <div className="flex justify-between items-center mb-4">
-                          <Skeleton className="h-6 w-20 rounded-xl" />
-                          <Skeleton className="h-8 w-28 rounded-xl" />
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <div className="p-4 border-2 border-default-200 rounded-xl space-y-4">
-                          <div className="flex justify-between items-center mb-8">
-                            <Skeleton className="h-6 w-40 rounded-full" />
-                            <div className="flex items-center gap-4">
-                              <Skeleton className="h-5 w-16 rounded-full" />
-                              <Skeleton className="h-5 w-5 rounded-full" />
-                            </div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Skeleton className="h-6 w-16 rounded-full" />
+                            <Skeleton className="h-6 w-20 rounded-full" />
+                            <Skeleton className="h-6 w-18 rounded-full" />
                           </div>
-                          <Skeleton className="h-16 w-full rounded-xl" />
+                          <div className="flex gap-2 flex-wrap">
+                            <Skeleton className="h-8 w-20 rounded-xl" />
+                            <Skeleton className="h-8 w-24 rounded-xl" />
+                          </div>
+                        </div>
+
+                        {/* Accordion-style Inventory Items Skeleton */}
+                        <div className="-m-4">
+                          <div className="space-y-4 mx-4">
+                            {[1, 2].map((i) => (
+                              <div key={i} className="mt-4 p-0 bg-transparent rounded-xl overflow-hidden border-2 border-default-200">
+                                {/* Accordion Header */}
+                                <div className="p-4 bg-default-100/25">
+                                  <div className="flex justify-between items-center w-full">
+                                    <div className="flex items-center gap-2">
+                                      <Skeleton className="h-6 w-16 rounded-xl" />
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <Skeleton className="h-6 w-20 rounded-full" />
+                                      <Skeleton className="h-6 w-24 rounded-full" />
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Accordion Content */}
+                                <div className="space-y-4">
+                                  {/* Identifiers Section */}
+                                  <div className="space-y-4 px-4 pt-4">
+                                    <Skeleton className="h-16 w-full rounded-xl" />
+                                  </div>
+
+                                  {/* Item Code */}
+                                  <div className="p-4 pb-0">
+                                    <Skeleton className="h-16 w-full rounded-xl" />
+                                  </div>
+
+                                  {/* Unit Value and Unit */}
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pb-0">
+                                    <Skeleton className="h-16 w-full rounded-xl" />
+                                    <Skeleton className="h-16 w-full rounded-xl" />
+                                  </div>
+
+                                  {/* Packaging Unit and Cost */}
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pb-0">
+                                    <Skeleton className="h-16 w-full rounded-xl" />
+                                    <Skeleton className="h-16 w-full rounded-xl" />
+                                  </div>
+
+                                  {/* Custom Properties */}
+                                  <div className="p-4">
+                                    <div className="border-2 border-default-200 bg-default-50 rounded-xl">
+                                      <div className="flex justify-between items-center p-4">
+                                        <Skeleton className="h-6 w-32 rounded-xl" />
+                                        <div className="flex gap-2">
+                                          <Skeleton className="h-8 w-16 rounded-xl" />
+                                          <Skeleton className="h-8 w-12 rounded-xl" />
+                                        </div>
+                                      </div>
+                                      <div className="py-8 text-center m-4 mt-0 border border-dashed border-default-300 rounded-lg h-48 flex flex-col items-center justify-center">
+                                        <Skeleton className="h-8 w-8 rounded-full mx-auto mb-2" />
+                                        <Skeleton className="h-4 w-40 rounded-xl mx-auto" />
+                                        <Skeleton className="h-6 w-32 rounded-xl mx-auto mt-2" />
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Action Buttons */}
+                                  <div className="flex justify-end gap-2 bg-default-100/50 p-4 flex-wrap">
+                                    <Skeleton className="h-8 w-28 rounded-xl" />
+                                    <Skeleton className="h-8 w-32 rounded-xl" />
+                                    <Skeleton className="h-8 w-24 rounded-xl" />
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       </div>
                     </div>

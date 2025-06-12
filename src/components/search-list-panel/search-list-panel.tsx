@@ -42,7 +42,7 @@ export interface SearchListPanelProps {
   searchPlaceholder: string;
   searchLimit: number;
   filters?: Record<string, FilterOption>;
-  dateFilters?: DateFilterType[]; // Add this new property
+  dateFilters?: DateFilterType[];
   companyUuid: string;
   renderItem: (item: any) => ReactNode;
   renderSkeletonItem: (index: number) => ReactNode;
@@ -50,6 +50,7 @@ export interface SearchListPanelProps {
   onItemSelect: (item: any) => void;
   supabaseFunction: string;
   className?: string;
+  isLoadingList?: (loading: boolean) => void;
 }
 
 export function SearchListPanel({
@@ -65,7 +66,8 @@ export function SearchListPanel({
   renderEmptyCard,
   onItemSelect,
   supabaseFunction,
-  className = ""
+  className = "",
+  isLoadingList
 }: SearchListPanelProps) {
   // States for search and pagination
   const [searchQuery, setSearchQuery] = useState("");
@@ -74,6 +76,13 @@ export function SearchListPanel({
   const [totalItems, setTotalItems] = useState(0);
   const [items, setItems] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Call the isLoading function whenever the loading state changes
+  useEffect(() => {
+    if (isLoading && isLoadingList) {
+      isLoadingList(isLoading); // Pass the current loading state to the parent
+    }
+  }, [isLoading, isLoadingList]);
 
   // Filter states
   const [activeFilters, setActiveFilters] = useState<Record<string, any>>({});

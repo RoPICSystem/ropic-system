@@ -183,7 +183,7 @@ export default function CustomProperties({
                   {localProperties.map((property, index) => {
                     return (
                       <motion.div key={index} {...motionTransition}>
-                        <div className="flex gap-2 items-center">
+                        <div className="flex gap-3 items-center">
                           <div className="flex-1 flex items-center">
                             <Autocomplete
                               label="Name"

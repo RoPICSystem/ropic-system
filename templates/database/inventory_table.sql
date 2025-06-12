@@ -355,7 +355,7 @@ BEGIN
     ) AS inventory
   FROM inventory i
   LEFT JOIN inventory_items ii ON i.uuid = ii.inventory_uuid
-    AND (p_include_warehouse_items OR ii.status != 'IN_WAREHOUSE' OR ii.status IS NULL)
+    AND (p_include_warehouse_items OR ii.status != 'IN_WAREHOUSE' OR ii.status != 'USED' OR ii.status IS NULL)
   WHERE i.uuid = p_inventory_uuid
   GROUP BY 
     i.uuid,
@@ -371,6 +371,114 @@ BEGIN
     i.properties,
     i.created_at,
     i.updated_at;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.update_inventory_details(
+  p_inventory_uuid uuid, 
+  p_inventory_updates jsonb DEFAULT '{}'::jsonb, 
+  p_inventory_item_updates jsonb DEFAULT '[]'::jsonb, 
+  p_new_inventory_item jsonb DEFAULT '[]'::jsonb, 
+  p_deleted_inventory_item uuid[] DEFAULT '{}'::uuid[]
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $function$
+DECLARE
+  v_inventory_item_record RECORD;
+  v_new_item_record RECORD;
+BEGIN
+  -- Update inventory if updates provided
+  IF jsonb_typeof(p_inventory_updates) = 'object' AND p_inventory_updates != '{}' THEN
+    UPDATE inventory 
+    SET 
+      name = COALESCE((p_inventory_updates->>'name')::TEXT, name),
+      description = COALESCE((p_inventory_updates->>'description')::TEXT, description),
+      measurement_unit = COALESCE((p_inventory_updates->>'measurement_unit')::TEXT, measurement_unit),
+      standard_unit = COALESCE((p_inventory_updates->>'standard_unit')::TEXT, standard_unit),
+      properties = COALESCE((p_inventory_updates->'properties')::JSONB, properties),
+      updated_at = NOW()
+    WHERE uuid = p_inventory_uuid;
+    
+    IF NOT FOUND THEN
+      RETURN jsonb_build_object(
+        'success', false,
+        'error', 'Inventory not found'
+      );
+    END IF;
+  END IF;
+
+  -- Delete inventory items
+  IF array_length(p_deleted_inventory_item, 1) > 0 THEN
+    DELETE FROM inventory_items 
+    WHERE uuid = ANY(p_deleted_inventory_item);
+  END IF;
+
+  -- Update existing inventory items using bulk operations
+  IF jsonb_typeof(p_inventory_item_updates) = 'array' AND jsonb_array_length(p_inventory_item_updates) > 0 THEN
+    FOR v_inventory_item_record IN 
+      SELECT 
+        (elem->>'uuid')::UUID as uuid,
+        (elem->>'item_code')::TEXT as item_code,
+        (elem->>'unit')::TEXT as unit,
+        (elem->>'unit_value')::NUMERIC as unit_value,
+        (elem->>'packaging_unit')::TEXT as packaging_unit,
+        (elem->>'cost')::NUMERIC as cost,
+        (elem->>'group_id')::TEXT as group_id,
+        (elem->'properties')::JSONB as properties
+      FROM jsonb_array_elements(p_inventory_item_updates) as elem
+    LOOP
+      UPDATE inventory_items
+      SET 
+        item_code = COALESCE(v_inventory_item_record.item_code, item_code),
+        unit = COALESCE(v_inventory_item_record.unit, unit),
+        unit_value = COALESCE(v_inventory_item_record.unit_value, unit_value),
+        packaging_unit = COALESCE(v_inventory_item_record.packaging_unit, packaging_unit),
+        cost = COALESCE(v_inventory_item_record.cost, cost),
+        group_id = COALESCE(v_inventory_item_record.group_id, group_id),
+        properties = COALESCE(v_inventory_item_record.properties, properties),
+        updated_at = NOW()
+      WHERE uuid = v_inventory_item_record.uuid;
+    END LOOP;
+  END IF;
+
+  -- Create new inventory items using bulk insert
+  IF jsonb_typeof(p_new_inventory_item) = 'array' AND jsonb_array_length(p_new_inventory_item) > 0 THEN
+    INSERT INTO inventory_items (
+      company_uuid,
+      inventory_uuid,
+      item_code,
+      unit,
+      unit_value,
+      packaging_unit,
+      cost,
+      group_id,
+      properties
+    )
+    SELECT 
+      (elem->>'company_uuid')::UUID,
+      p_inventory_uuid,
+      (elem->>'item_code')::TEXT,
+      (elem->>'unit')::TEXT,
+      (elem->>'unit_value')::NUMERIC,
+      (elem->>'packaging_unit')::TEXT,
+      (elem->>'cost')::NUMERIC,
+      (elem->>'group_id')::TEXT,
+      (elem->'properties')::JSONB
+    FROM jsonb_array_elements(p_new_inventory_item) as elem;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'success', true
+  );
+
+EXCEPTION
+  WHEN OTHERS THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', SQLERRM
+    );
 END;
 $function$;
 
