@@ -223,3 +223,4 @@ export function getDisplayItems(items: InventoryItem[]): InventoryItem[] {
     return !groupInfo.isGroup || groupInfo.isFirstInGroup;
   });
 }
+

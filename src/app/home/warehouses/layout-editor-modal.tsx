@@ -29,6 +29,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import React, { Suspense, useEffect, useState } from 'react';
 import CustomScrollbar from '@/components/custom-scrollbar';
 import { herouiColor } from '@/utils/colors';
+import { Popover3dNavigationHelp } from '@/components/popover-3dnavigation-help';
 
 
 interface WarehouseLayoutEditorProps {
@@ -88,6 +89,9 @@ export default function WarehouseLayoutEditorModal({
     } else {
       initializeNewLayout();
     }
+
+    // reset the external selection when layout changes
+    setExternalSelection(undefined);
   }, [initialLayout, isOpen]);
 
   // Layout management functions
@@ -470,6 +474,8 @@ export default function WarehouseLayoutEditorModal({
 
     // Check if location is occupied
     setIsSelectedLocationOccupied(checkIfLocationOccupied(location));
+
+    setExternalSelection(location);
   };
 
   const handleFloorChange = (floorNum: number) => {
@@ -806,50 +812,8 @@ export default function WarehouseLayoutEditorModal({
 
                   {/* Selection controls */}
                   <div className="flex justify-between items-center mt-4 flex-shrink-0">
-                    <Popover
-                      classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
-                      motionProps={popoverTransition(false)}
-                      placement="top">
-                      <PopoverTrigger>
-                        <Button className="capitalize" color="warning" variant="flat">
-                          <Icon
-                            icon="heroicons:question-mark-circle-solid"
-                            className="w-4 h-4 mr-1"
-                          />
-                          Help
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="p-4 max-w-xs">
-                        <div className="flex items-center gap-2 mb-2">
-                          <Icon icon="heroicons:question-mark-circle" className="w-5 h-5 text-warning-500" />
-                          <h3 className="font-semibold text-lg">Layout Help</h3>
-                        </div>
-                        <div className="space-y-2 text-sm">
-                          <div className="flex items-start gap-2">
-                            <Icon icon="heroicons:cursor-arrow-rays" className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary-600" />
-                            <p>Click or drag to toggle between container and empty space</p>
-                          </div>
-                          <div className="flex items-start gap-2">
-                            <Icon icon="heroicons:arrow-top-right-on-square" className="w-4 h-4 mt-0.5 flex-shrink-0 text-success-600" />
-                            <p>Hold <strong>Shift</strong> and drag to select multiple cells for adding shelves</p>
-                          </div>
-                          <div className="flex items-start gap-2">
-                            <Icon icon="heroicons:trash" className="w-4 h-4 mt-0.5 flex-shrink-0 text-danger-600" />
-                            <p>Hold <strong>Ctrl</strong> and drag to select and clear multiple cells</p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <div className="w-4 h-4 bg-default-200 rounded-full"></div>
-                            <span className="text-sm">Indicates that the cell is empty</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <div className="w-4 h-4 bg-primary-400 rounded-full"></div>
-                            <span className="text-sm">
-                              Indicates that the cell contains a container
-                            </span>
-                          </div>
-                        </div>
-                      </PopoverContent>
-                    </Popover>
+                    <Popover3dNavigationHelp />
+                    
                     <div className="flex items-center gap-4">
                       <span className="text-sm">Current Floor</span>
                       <Pagination

@@ -19,7 +19,7 @@ export type UserProfile = {
   uuid: string
   email: string
   full_name: string
-  name: Map<string, string>
+  name: Name
   is_admin: boolean
   profile_image: string
   gender: string
@@ -253,5 +253,55 @@ export async function setUserInCookies(userData: UserProfile | null) {
     // remove cookie
     (await cookies())
       .delete('userData')
+  }
+}
+
+// Get users from company
+export async function getUsersFromCompany(
+  companyUuid: string,
+  userType: 'all' | 'admin' | 'operator' = 'all',
+  getImageUrl: boolean = false,
+  selectFields: string = 'uuid, email, full_name, is_admin'
+) {
+  const supabase = await createClient()
+
+  const queryFields = getImageUrl
+    ? `${selectFields}${selectFields.includes('profile_image') ? '' : ', profile_image'}${selectFields.includes('is_admin') ? '' : ', is_admin'}`
+    : selectFields.includes('is_admin') ? selectFields : `${selectFields}, is_admin`;
+
+  let query = supabase
+    .from('profiles')
+    .select(queryFields)
+    .eq('company_uuid', companyUuid);
+
+  if (userType === 'admin') {
+    query = query.eq('is_admin', true);
+  }
+  else if (userType === 'operator') {
+    query = query.eq('is_admin', false);
+  }
+  try {
+    const { data, error } = await query;
+    
+    if (error) {
+      console.error('Error fetching users:', error);
+      return { error: error.message, data: [], success: false  };
+    }
+
+    // If getImageUrl is true, fetch image URLs for each user
+    if (getImageUrl && data) {
+      for (const user of data as any[]) {
+        if (user.profile_image) {
+          const imageUrl = await getProfileImagePath(user.profile_image);
+          user.profile_image_url = imageUrl;
+        }
+      }
+    }
+
+    return { data: data || [], error: null, success: true };
+  }
+  catch (error: any) {
+    console.error('Error fetching users:', error);
+    return { error: error.message || 'Unknown error occurred', data: [], success: false  };
   }
 }

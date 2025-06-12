@@ -78,7 +78,6 @@ export async function updateWarehouse(
   }
 }
 
-
 /**
  * Deletes a warehouse
  */
@@ -135,6 +134,32 @@ export async function getWarehouseByUuid(uuid: string) {
     return {
       error: error instanceof Error ? error.message : 'Unknown error occurred',
       data: null,
+      success: false
+    };
+  }
+}
+
+/**
+ * Gets all warehouses for the user's company
+ */
+export async function getWarehouses(companyUuid: string, selectFields: string = 'uuid, name, address') {
+  const supabase = await createClient();
+
+  try {
+    const { data, error } = await supabase
+      .from('warehouses')
+      .select(selectFields)
+      .eq('company_uuid', companyUuid);
+
+    if (error) {
+      return { error: error.message, success: false };
+    }
+
+    return { success: true, data: (data || []) as Partial<Warehouse>[] };
+  } catch (error) {
+    console.error('Error fetching warehouses:', error);
+    return {
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
       success: false
     };
   }

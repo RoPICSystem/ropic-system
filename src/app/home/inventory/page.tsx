@@ -4,7 +4,7 @@ import CardList from "@/components/card-list";
 import CustomProperties from "@/components/custom-properties";
 import LoadingAnimation from '@/components/loading-animation';
 import { SearchListPanel } from "@/components/search-list-panel/search-list-panel";
-import { getStatusColor } from "@/utils/colors";
+import { getStatusColor, herouiColor } from "@/utils/colors";
 import { motionTransition } from "@/utils/anim";
 import { getMeasurementUnitOptions, getPackagingUnitOptions, getUnitFullName, getUnitOptions, getDefaultStandardUnit, convertUnit } from "@/utils/measurements";
 import { getUserFromCookies } from '@/utils/supabase/server/user';
@@ -54,6 +54,7 @@ import {
   InventoryItem,
   updateInventoryItem
 } from './actions';
+import CustomScrollbar from "@/components/custom-scrollbar";
 
 
 export default function InventoryPage() {
@@ -675,7 +676,7 @@ export default function InventoryPage() {
         <div className="flex flex-col xl:flex-row gap-4">
           {/* Left side: Item List */}
           <SearchListPanel
-            title="Inventory"
+            title="Inventory Items"
             tableName="inventory"
             searchPlaceholder="Search inventory..."
             searchLimit={10}
@@ -686,53 +687,116 @@ export default function InventoryPage() {
                 key={inventory.uuid}
                 onPress={() => handleSelectItem(inventory.uuid || "")}
                 variant="shadow"
-                className={`w-full min-h-[7.5rem] !transition-all duration-200 rounded-xl p-0 ${selectedItemId === inventory.uuid ?
-                  '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' :
-                  '!bg-default-100/50 shadow-none hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
+                className={`w-full !transition-all duration-300 rounded-2xl p-0 group overflow-hidden
+                  ${inventory.description ? 'min-h-[9.5rem]' : 'min-h-[7rem]'}
+                  ${selectedItemId === inventory.uuid ?
+                    '!bg-gradient-to-br from-primary-500 to-primary-600 hover:from-primary-400 hover:to-primary-500 !shadow-xl hover:!shadow-2xl !shadow-primary-300/50 border-2 border-primary-300/30' :
+                    '!bg-gradient-to-br from-background to-default-50 hover:from-default-50 hover:to-default-100 !shadow-lg hover:!shadow-xl !shadow-default-300/30 border-2 border-default-200/50 hover:border-default-300/50'}`}
               >
-                <div className="w-full flex flex-col h-full">
-                  <div className="flex-grow flex flex-col justify-center px-3 pt-3">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold">{inventory.name}</span>
-                      <Chip color="default" variant={selectedItemId === inventory.uuid ? "shadow" : "flat"} size="sm">
-                        {inventory.count?.total || 0} item{(inventory.count?.total || 0) !== 1 ? 's' : ''}
-                      </Chip>
-                    </div>
-                    {inventory.description && (
-                      <div className={`w-full mt-1 text-sm ${selectedItemId === inventory.uuid ? 'text-default-800 ' : 'text-default-600'} text-start text-ellipsis overflow-hidden whitespace-nowrap`}>
-                        {inventory.description}
-                      </div>
-                    )}
+                <div className="w-full flex flex-col h-full relative">
+                  {/* Background pattern */}
+                  <div className={`absolute inset-0 opacity-5 ${selectedItemId === inventory.uuid ? 'bg-white' : 'bg-primary-500'}`}>
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_80%,_var(--tw-gradient-stops))] from-current via-transparent to-transparent"></div>
                   </div>
 
-                  <div className={`flex items-center gap-2 border-t ${selectedItemId === inventory.uuid ? 'border-primary-300' : 'border-default-100'} p-3`}>
-                    <Chip color={selectedItemId === inventory.uuid ? "default" : "primary"} variant={selectedItemId === inventory.uuid ? "shadow" : "flat"} size="sm">
-                      {formatDate(inventory.created_at.toString())}
-                    </Chip>
-                    {inventory.unit_values.available > 0 && (
-                      <Chip
-                        color="success"
-                        variant={selectedItemId === inventory.uuid ? "shadow" : "flat"}
-                        size="sm"
-                      >
-                        {formatNumber(inventory.unit_values.available)} available
-                      </Chip>
-                    )}
-                    {inventory.unit_values.warehouse > 0 && (
-                      <Chip
-                        color="warning"
-                        variant={selectedItemId === inventory.uuid ? "shadow" : "flat"}
-                        size="sm"
-                      >
-                        {formatNumber(inventory.unit_values.warehouse)} in warehouse
-                      </Chip>
-                    )}
+                  {/* Item details */}
+                  <div className="flex-grow flex flex-col justify-center px-4 relative z-10">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0 text-left">
+                        <span className={`font-bold text-lg leading-tight block truncate text-left
+                                ${selectedItemId === inventory.uuid ? 'text-primary-50' : 'text-default-800'}`}>
+                          {inventory.name}
+                        </span>
+                        {inventory.description && (
+                          <div className={`w-full mt-2 text-sm leading-relaxed text-left break-words whitespace-normal
+                            ${selectedItemId === inventory.uuid ? 'text-primary-100' : 'text-default-600'}`}
+                            style={{
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                              lineHeight: '1.3'
+                            }}>
+                            {inventory.description}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-shrink-0 self-start">
+                        <Chip
+                          color={selectedItemId === inventory.uuid ? "default" : "primary"}
+                          variant="shadow"
+                          size="sm"
+                          className={`font-semibold ${selectedItemId === inventory.uuid ? 'bg-primary-50 text-primary-600' : ''}`}
+                        >
+                          <div className="flex items-center gap-1">
+                            <Icon icon="mdi:package-variant" width={14} height={14} />
+                            {inventory.count?.total || 0} item{(inventory.count?.total || 0) !== 1 ? 's' : ''}
+                          </div>
+                        </Chip>
+                      </div>
+                    </div>
                   </div>
+
+                  {/* Item metadata */}
+                  <div className={`flex items-center gap-2 backdrop-blur-sm rounded-b-2xl border-t relative z-10 justify-start
+                  ${selectedItemId === inventory.uuid ?
+                      'border-primary-300/30 bg-primary-700/20' :
+                      'border-default-200/50 bg-default-100/50'} p-4`}>
+                    <CustomScrollbar
+                      direction="horizontal"
+                      hideScrollbars
+                      gradualOpacity
+                      className="flex items-center gap-2 ">
+
+                      <Chip
+                        color={selectedItemId === inventory.uuid ? "default" : "secondary"}
+                        variant="flat"
+                        size="sm"
+                        className={`font-medium ${selectedItemId === inventory.uuid ? 'bg-primary-100/80 text-primary-700 border-primary-200/60' : 'bg-secondary-100/80'}`}
+                      >
+                        <div className="flex items-center gap-1">
+                          <Icon icon="mdi:calendar" width={12} height={12} />
+                          {formatDate(inventory.created_at.toString())}
+                        </div>
+                      </Chip>
+
+                      {inventory.unit_values.available > 0 && (
+                        <Chip
+                          color="success"
+                          variant="flat"
+                          size="sm"
+                          className={`font-medium ${selectedItemId === inventory.uuid ? 'bg-success-100/80 text-success-700 border-success-200/60' : 'bg-success-100/80'}`}
+                        >
+                          <div className="flex items-center gap-1">
+                            <Icon icon="mdi:check-circle" width={12} height={12} />
+                            {formatNumber(inventory.unit_values.available)} available
+                          </div>
+                        </Chip>
+                      )}
+
+                      {inventory.unit_values.warehouse > 0 && (
+                        <Chip
+                          color="warning"
+                          variant="flat"
+                          size="sm"
+                          className={`font-medium ${selectedItemId === inventory.uuid ? 'bg-warning-100/80 text-warning-700 border-warning-200/60' : 'bg-warning-100/80'}`}
+                        >
+                          <div className="flex items-center gap-1">
+                            <Icon icon="mdi:warehouse" width={12} height={12} />
+                            {formatNumber(inventory.unit_values.warehouse)} in warehouse
+                          </div>
+                        </Chip>
+                      )}
+                    </CustomScrollbar>
+                  </div>
+
+                  {/* Hover effect overlay */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 transform -skew-x-12 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700"></div>
                 </div>
               </Button>
             )}
             renderSkeletonItem={(i) => (
-              <Skeleton key={i} className="w-full min-h-[9rem] rounded-xl" />
+              <Skeleton key={i} className="w-full min-h-[8.5rem] rounded-xl" />
             )}
             renderEmptyCard={(
               <>
@@ -922,11 +986,11 @@ export default function InventoryPage() {
                             </div>
                           </div>
                           <div className="text-center">
-                            <div className="text-xl inline-flex items-end gap-1 font-bold text-warning">
+                            <div className="text-xl inline-flex items-end gap-1 font-bold text-secondary">
                               {formatNumber(inventoryForm.unit_values.warehouse)}
                               <span className="text-sm">{inventoryForm.standard_unit}</span>
                             </div>
-                            <div className="text-sm text-warning-600">
+                            <div className="text-sm text-secondary-600">
                               In Warehouse
                             </div>
                           </div>
@@ -1600,6 +1664,6 @@ export default function InventoryPage() {
         </Modal>
 
       </div>
-    </motion.div>
+    </motion.div >
   );
 }

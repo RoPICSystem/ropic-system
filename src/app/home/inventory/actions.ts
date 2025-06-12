@@ -86,6 +86,40 @@ export async function getInventoryItem(uuid: string, getItemsInWarehouse: boolea
   }
 }
 
+/**
+ * Fetches all inventory items for a company
+ *
+ */
+export async function getInventoryItems(companyUuid: string, getAvailableItems: boolean = true, selectFields: string = "uuid, name, standard_unit, unit_values, count, status") {
+  const supabase = await createClient();
+  
+  try {
+    let query = supabase
+      .from("inventory")
+      .select(selectFields)
+      .eq("company_uuid", companyUuid);
+
+    if (getAvailableItems) {
+      query = query.eq("status", "AVAILABLE");
+    }
+
+    const { data, error } = await query;
+
+    if (error) throw error;
+
+    return {
+      success: true,
+      data: (data || []) as Partial<Inventory>[]
+    };
+  }
+  catch (error: any) {
+    return {
+      success: false,
+      error: error.message || "Unknown error occurred"
+    };
+  }
+}
+  
 
 /**
  * Creates a new inventory item with bulk

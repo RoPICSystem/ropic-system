@@ -28,6 +28,13 @@ interface CustomScrollbarProps {
   scrollShadowColor?: string;
   scrollShadowSize?: number;
   scrollShadowOpacity?: number;
+  scrollShadowTransparent?: boolean;
+  gradualOpacity?: boolean;
+  gradualOpacityTop?: boolean;
+  gradualOpacityBottom?: boolean;
+  gradualOpacityLeft?: boolean;
+  gradualOpacityRight?: boolean;
+  gradualOpacitySize?: number;
   direction?: 'vertical' | 'horizontal' | 'both';
   hideScrollbars?: boolean;
   hideVerticalScrollbar?: boolean;
@@ -59,6 +66,13 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
   scrollShadowColor = herouiColor('background', 'hex') as string,
   scrollShadowSize = 40,
   scrollShadowOpacity = 1,
+  scrollShadowTransparent = false,
+  gradualOpacity = false,
+  gradualOpacityTop = true,
+  gradualOpacityBottom = true,
+  gradualOpacityLeft = true,
+  gradualOpacityRight = true,
+  gradualOpacitySize = 40,
   direction = 'vertical',
   hideScrollbars = false,
   hideVerticalScrollbar = false,
@@ -129,9 +143,68 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
     return pixels;
   };
 
-  // Update scroll shadows
+  // Gradual opacity mask style
+  const getGradualOpacityMask = (): React.CSSProperties => {
+    if (!gradualOpacity || disabled) return {};
+
+    const container = scrollContainerRef.current;
+    if (!container) return {};
+
+    const { scrollTop, scrollHeight, clientHeight, scrollLeft, scrollWidth, clientWidth } = container;
+    const scrollThreshold = 5;
+
+    const masks: string[] = [];
+
+    // Vertical gradual opacity
+    if (showVertical) {
+      const canScrollUp = scrollTop > scrollThreshold;
+      const canScrollDown = scrollTop < scrollHeight - clientHeight - scrollThreshold;
+
+      if (gradualOpacityTop && canScrollUp) {
+        masks.push(`linear-gradient(to bottom, transparent, black ${gradualOpacitySize}px)`);
+      }
+      if (gradualOpacityBottom && canScrollDown) {
+        masks.push(`linear-gradient(to top, transparent, black ${gradualOpacitySize}px)`);
+      }
+    }
+
+    // Horizontal gradual opacity
+    if (showHorizontal) {
+      const canScrollLeft = scrollLeft > scrollThreshold;
+      const canScrollRight = scrollLeft < scrollWidth - clientWidth - scrollThreshold;
+
+      if (gradualOpacityLeft && canScrollLeft) {
+        masks.push(`linear-gradient(to right, transparent, black ${gradualOpacitySize}px)`);
+      }
+      if (gradualOpacityRight && canScrollRight) {
+        masks.push(`linear-gradient(to left, transparent, black ${gradualOpacitySize}px)`);
+      }
+    }
+
+    // If no masks are needed, return full opacity
+    if (masks.length === 0) {
+      return {
+        maskImage: 'none',
+        WebkitMaskImage: 'none',
+        transition: 'mask-image 200ms ease-in-out, -webkit-mask-image 200ms ease-in-out',
+      };
+    }
+
+    // Combine masks for both directions
+    const combinedMask = masks.length === 1 ? masks[0] : masks.join(', ');
+
+    return {
+      maskImage: combinedMask,
+      WebkitMaskImage: combinedMask,
+      maskComposite: 'intersect',
+      WebkitMaskComposite: 'source-in',
+      transition: 'mask-image 200ms ease-in-out, -webkit-mask-image 200ms ease-in-out',
+    };
+  };
+
+  // Update scroll shadows (modified to also trigger gradual opacity updates)
   const updateScrollShadows = () => {
-    if (!scrollShadow || disabled) return;
+    if ((!scrollShadow && !gradualOpacity) || disabled) return;
 
     const container = scrollContainerRef.current;
     if (!container) return;
@@ -147,6 +220,12 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
     if (showHorizontal) {
       setShowLeftShadow(scrollShadowLeft && scrollLeft > scrollThreshold);
       setShowRightShadow(scrollShadowRight && scrollLeft < scrollWidth - clientWidth - scrollThreshold);
+    }
+
+    // Force re-render for gradual opacity mask updates
+    if (gradualOpacity) {
+      // Trigger a state update to re-render the mask
+      setIsScrolling(prev => prev);
     }
   };
 
@@ -628,16 +707,41 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
     else if (side === 'left') showShadow = showLeftShadow;
     else if (side === 'right') showShadow = showRightShadow;
 
+    // Create gradient based on transparency mode
+    const createGradient = () => {
+      if (scrollShadowTransparent) {
+        // Use mask with opacity gradient for transparency effect
+        const direction = isVerticalShadow 
+          ? (isTopOrLeft ? 'to bottom' : 'to top')
+          : (isTopOrLeft ? 'to right' : 'to left');
+        
+        return {
+          background: scrollShadowColor,
+          maskImage: `linear-gradient(${direction}, rgba(0,0,0,${scrollShadowOpacity}), transparent)`,
+          WebkitMaskImage: `linear-gradient(${direction}, rgba(0,0,0,${scrollShadowOpacity}), transparent)`,
+        };
+      } else {
+        // Use traditional color gradient
+        const direction = isVerticalShadow 
+          ? (isTopOrLeft ? 'to bottom' : 'to top')
+          : (isTopOrLeft ? 'to right' : 'to left');
+        
+        const opacityHex = Math.round(scrollShadowOpacity * 255).toString(16).padStart(2, '0');
+        
+        return {
+          background: `linear-gradient(${direction}, ${scrollShadowColor}${opacityHex}, transparent)`,
+        };
+      }
+    };
+
+    const gradientStyle = createGradient();
+
     return {
       position: 'absolute',
       ...(isVerticalShadow ? { left: 0, right: 0, height: scrollShadowSize } : { top: 0, bottom: 0, width: scrollShadowSize }),
       pointerEvents: 'none',
       zIndex: 999,
-      background: `linear-gradient(${
-        isVerticalShadow 
-          ? (isTopOrLeft ? 'to bottom' : 'to top')
-          : (isTopOrLeft ? 'to right' : 'to left')
-      }, ${scrollShadowColor}${Math.round(scrollShadowOpacity * 255).toString(16).padStart(2, '0')}, transparent)`,
+      ...gradientStyle,
       opacity: showShadow ? 1 : 0,
       transition: 'opacity 200ms ease-in-out',
       ...(side === 'top' && { top: 0 }),
@@ -676,6 +780,7 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
       <div
         ref={scrollContainerRef}
         className={`h-full w-full ${overflowClass} ${className}`}
+        style={gradualOpacity ? getGradualOpacityMask() : {}}
       >
         {children}
       </div>

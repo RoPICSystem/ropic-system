@@ -1760,6 +1760,7 @@ export const ShelfSelector3D = memo(({
       max_row,
       max_column,
       max_depth,
+      code: formatCode(location),
       depth: location.depth !== undefined ? location.depth : 0 // Default to 0 if not specified
     };
 
