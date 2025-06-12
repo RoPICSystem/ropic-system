@@ -372,6 +372,7 @@ export async function createWarehouseInventoryItems(
   }
 }
 
+
 /**
  * Gets occupied shelf locations
  */
@@ -382,7 +383,7 @@ export async function getOccupiedShelfLocations(warehouseUuid: string) {
     // Get all occupied locations from delivery_items
     const { data: deliveryData, error: deliveryError } = await supabase
       .from("delivery_items")
-      .select("locations")
+      .select("inventory_locations")
       .eq("warehouse_uuid", warehouseUuid)
       .neq("status", "CANCELLED");
 
@@ -390,9 +391,12 @@ export async function getOccupiedShelfLocations(warehouseUuid: string) {
       throw deliveryError;
     }
 
-    // Flatten the array of location arrays and filter nulls
+    // Extract locations from inventory_locations objects and filter nulls
     const occupiedLocations = deliveryData
-      .flatMap(item => item.locations || [])
+      .flatMap(item => {
+        if (!item.inventory_locations) return [];
+        return Object.values(item.inventory_locations as Record<string, ShelfLocation>);
+      })
       .filter(location => location !== null);
 
     return {
@@ -673,8 +677,6 @@ export async function getInventoryItemDetails(inventoryItemUuids: string[]) {
     };
   }
 }
-
-
 
 
 
