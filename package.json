@@ -34,7 +34,8 @@
     "react-starfield": "^1.0.3",
     "recharts": "^2.15.3",
     "three": "^0.175.0",
-    "three-stdlib": "^2.35.15"
+    "three-stdlib": "^2.35.15",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
     "@iconify-icon/react": "^2.3.0",

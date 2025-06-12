@@ -2,14 +2,24 @@
 
 import CardList from "@/components/card-list";
 import CustomProperties from "@/components/custom-properties";
-import CustomScrollbar from "@/components/custom-scrollbar";
-import ListLoadingAnimation from "@/components/list-loading-animation";
 import LoadingAnimation from '@/components/loading-animation';
-import { motionTransition, motionTransitionScale } from "@/utils/anim";
-import { getMeasurementUnitOptions, getPackagingUnitOptions, getUnitFullName, getUnitOptions } from "@/utils/measurements";
-import { createClient } from "@/utils/supabase/client";
+import { SearchListPanel } from "@/components/search-list-panel/search-list-panel";
+import { getStatusColor } from "@/utils/colors";
+import { motionTransition } from "@/utils/anim";
+import { getMeasurementUnitOptions, getPackagingUnitOptions, getUnitFullName, getUnitOptions, getDefaultStandardUnit, convertUnit } from "@/utils/measurements";
 import { getUserFromCookies } from '@/utils/supabase/server/user';
 import { copyToClipboard, formatDate, formatNumber } from "@/utils/tools";
+import {
+  groupInventoryItems,
+  getGroupInfo,
+  getItemDisplayNumber,
+  createGroupFromItem,
+  duplicateInventoryGroup,
+  adjustGroupSize,
+  removeGroup,
+  ungroupItems,
+  createGroupId
+} from "@/utils/inventory-group";
 import {
   Accordion,
   AccordionItem,
@@ -26,12 +36,10 @@ import {
   ModalFooter,
   ModalHeader,
   NumberInput,
-  Pagination,
   Popover,
   PopoverContent,
   PopoverTrigger,
   Skeleton,
-  Spinner,
   Textarea,
   useDisclosure
 } from "@heroui/react";
@@ -43,8 +51,6 @@ import {
   createInventoryItem,
   deleteInventoryItem,
   getInventoryItem,
-  getInventoryItems,
-  Inventory,
   InventoryItem,
   updateInventoryItem
 } from './actions';
@@ -59,49 +65,37 @@ export default function InventoryPage() {
   const [packagingUnitOptions, setPackagingUnitOptions] = useState<string[]>([]);
   const [unitOptions, setUnitOptions] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
 
   // Inventory list state
-  const [inventoryItems, setInventoryItems] = useState<(Partial<Inventory> & { inventory_items_length: number })[]>([]);
-  const [isLoadingItems, setIsLoadingItems] = useState(true);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 
-  // Pagination state
-  const [page, setPage] = useState(1);
-  const [rowsPerPage, setRowsPerPage] = useState(15);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalItems, setTotalItems] = useState(0);
-  // Bulk items state
-  const [bulkItems, setBulkItems] = useState<(Partial<InventoryItem> & { id: number, isNew?: boolean, groupId?: string })[]>([]);
-  const [nextBulkId, setNextBulkId] = useState(1);
+  // Inventory items state
+  const [inventoryItemsList, setInventoryItemsList] = useState<(Partial<InventoryItem> & { company_uuid: string, id: number, is_new?: boolean })[]>([]);
+  const [nextItemId, setNextItemId] = useState(1);
+
+  // View mode state
+  const [viewMode, setViewMode] = useState<'grouped' | 'flat'>('grouped');
 
   // Delete confirmation
   const deleteModal = useDisclosure();
-  const [itemToDelete, setItemToDelete] = useState<{ type: 'item' | 'bulk', id: string | number }>();
+  const [itemToDelete, setItemToDelete] = useState<{ type: 'item' | 'inventoryItem' | 'group', id: string | number, groupId?: string }>();
 
-  const [originalBulkItems, setOriginalBulkItems] = useState<(Partial<InventoryItem> & { id: number })[]>([]);
+  const [originalInventoryItems, setOriginalInventoryItems] = useState<(Partial<InventoryItem> & { id: number })[]>([]);
 
   // Duplication state
   const [duplicateCount, setDuplicateCount] = useState(1);
   const [duplicatePopoverOpen, setDuplicatePopoverOpen] = useState(false);
-  const [itemToDuplicate, setItemToDuplicate] = useState<{ type: 'bulk', id: number }>();
 
-  // Add these state variables after other state declarations
-  const [expandedBulks, setExpandedBulks] = useState<Set<string>>(new Set());
+  // Grouping state
+  const [groupSize, setGroupSize] = useState(2);
+  const [groupPopoverOpen, setGroupPopoverOpen] = useState(false);
 
-  // Add these new state variables after other state declarationsconst [groupView, setGroupView] = useState(true); // 3. Toggle for group/flat view
-  const [groupView, setGroupView] = useState(true); // 3. Toggle for group/flat view
-  const [groupIdCounter, setGroupIdCounter] = useState(1);
-  const [duplicatedGroups, setDuplicatedGroups] = useState<Set<string>>(new Set()); // 4. Track duplicated group IDs
-
-  const [adjustGroupPopoverOpen, setAdjustGroupPopoverOpen] = useState(false);
-  const [groupToAdjust, setGroupToAdjust] = useState<{ groupKey: string, currentCount: number }>();
-  const [newGroupCount, setNewGroupCount] = useState(1);
+  // Expanded items state
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
 
   const defaultMeasurementUnit = "length";
   const defaultPackagingUnit = "roll";
   const defaultUnit = "m";
-  const [showMergeWarning, setShowMergeWarning] = useState(false);
 
   // Form state
   const [inventoryForm, setInventoryForm] = useState<{
@@ -109,12 +103,26 @@ export default function InventoryPage() {
     name: string;
     description: string;
     measurement_unit: string;
+    standard_unit: string;
     company_uuid: string;
     properties?: Record<string, any>;
+    unit_values?: {
+      inventory: number;
+      warehouse: number;
+      available: number;
+      total: number;
+    };
+    count?: {
+      inventory: number;
+      warehouse: number;
+      available: number;
+      total: number;
+    };
   }>({
     name: "",
     description: "",
     measurement_unit: defaultMeasurementUnit,
+    standard_unit: defaultUnit,
     company_uuid: "",
     properties: {}
   });
@@ -124,61 +132,36 @@ export default function InventoryPage() {
   };
   const autoCompleteStyle = { classNames: inputStyle };
 
-  const generateGroupId = () => `group-${Date.now()}-${groupIdCounter}`;
+  // Helper functions
+  const getGroupedItems = () => groupInventoryItems(inventoryItemsList);
 
-  // Helper function to generate group key based on bulk item properties
-  const generateGroupKey = (bulk: Partial<InventoryItem> & { id: number, groupId?: string }) => {
-    if (groupView && bulk.groupId) return bulk.groupId;
-    return `${bulk.item_code || ''}-${bulk.unit || ''}-${bulk.unit_value || 0}-${bulk.packaging_unit || ''}-${bulk.cost || 0}-${JSON.stringify(bulk.properties || {})}`;
-  };
-
-  // Helper function to check if items belong to the same group
-  const getGroupInfo = (bulk: Partial<InventoryItem> & { id: number, groupId?: string }) => {
-    const groupKey = generateGroupKey(bulk);
-    const sameGroupItems = bulkItems.filter(item =>
-      generateGroupKey(item) === groupKey && item.isNew
-    );
-
-    if (groupView && sameGroupItems.length > 1) {
-      const groupIndex = sameGroupItems.findIndex(item => item.id === bulk.id);
-      // Get all unique group keys up to this point to determine group number
-      const uniqueGroupKeys = new Set();
-      let currentGroupNumber = 1;
-
-      for (const item of bulkItems) {
-        const itemGroupKey = generateGroupKey(item);
-        if (!uniqueGroupKeys.has(itemGroupKey) &&
-          bulkItems.filter(b => generateGroupKey(b) === itemGroupKey && b.isNew).length > 1) {
-          if (itemGroupKey === groupKey) {
-            break;
-          }
-          currentGroupNumber++;
-          uniqueGroupKeys.add(itemGroupKey);
-        }
-      }
-
-      return {
-        isGroup: true,
-        groupKey,
-        groupSize: sameGroupItems.length,
-        isFirstInGroup: groupIndex === 0,
-        groupNumber: currentGroupNumber,
-        groupId: bulk.groupId
-      };
+  const getDisplayItemsList = () => {
+    if (viewMode === 'flat') {
+      return inventoryItemsList;
     }
 
-    return { isGroup: false, groupKey, groupSize: 1, isFirstInGroup: true, groupId: bulk.groupId };
-  };
-
-  const getItemDisplayNumber = (bulk: Partial<InventoryItem> & { id: number }) => {
-    const nonGroupItems = bulkItems.filter(item => {
-      const itemGroupInfo = getGroupInfo(item);
-      return !itemGroupInfo.isGroup || (itemGroupInfo.isGroup && itemGroupInfo.isFirstInGroup);
+    const groupedItems = getGroupedItems();
+    return inventoryItemsList.filter(item => {
+      const groupInfo = getGroupInfo(item, groupedItems);
+      return !groupInfo.isGroup || groupInfo.isFirstInGroup;
     });
-
-    return nonGroupItems.findIndex(item => item.id === bulk.id) + 1;
   };
 
+  // Calculate total units in standard unit
+  const getTotalStandardUnits = () => {
+    return inventoryItemsList.reduce((total, item) => {
+      if (item.unit && item.unit_value && inventoryForm.standard_unit) {
+        const convertedValue = convertUnit(item.unit_value, item.unit, inventoryForm.standard_unit);
+        return total + convertedValue;
+      }
+      return total;
+    }, 0);
+  };
+
+  // Calculate total cost
+  const getTotalCost = () => {
+    return inventoryItemsList.reduce((total, item) => total + (item.cost || 0), 0);
+  };
 
   const fetchItemDetails = async (itemId: string) => {
     setIsLoading(true);
@@ -195,28 +178,29 @@ export default function InventoryPage() {
           name: item.name,
           description: item.description || "",
           measurement_unit: item.measurement_unit || "",
+          standard_unit: item.standard_unit || getDefaultStandardUnit(item.measurement_unit || ""),
           company_uuid: item.company_uuid,
-          properties: item.properties || {}
+          properties: item.properties || {},
+          unit_values: item.unit_values,
+          count: item.count
         });
 
-        const bulks = item.inventory_item_bulks || [];
-        const newBulkItems = bulks.map((bulk: any, index: number) => ({
-          ...bulk,
+        const inventoryItems = item.inventory_items || [];
+        const newInventoryItems = inventoryItems.map((invItem: any, index: number) => ({
+          ...invItem,
           id: index + 1,
         }));
 
-        setBulkItems(newBulkItems);
-        setNextBulkId(newBulkItems.length + 1);
-
-        // Store original bulk items for deletion tracking
-        setOriginalBulkItems(newBulkItems.map((bulk: { id: any; }) => ({
-          ...bulk,
-          id: bulk.id // Keep the same ID structure
+        setInventoryItemsList(newInventoryItems);
+        setNextItemId(newInventoryItems.length + 1);
+        setOriginalInventoryItems(newInventoryItems.map((invItem: { id: any; }) => ({
+          ...invItem,
+          id: invItem.id
         })));
 
         // Set expanded states to first items
-        if (newBulkItems.length > 0) {
-          setExpandedBulks(new Set([`${newBulkItems[0].id}`]));
+        if (newInventoryItems.length > 0) {
+          setExpandedItems(new Set([`${newInventoryItems[0].id}`]));
         }
 
       } else {
@@ -230,8 +214,8 @@ export default function InventoryPage() {
     }
   };
 
-  const isBulkEditable = (bulk: any) => {
-    return !bulk.status || bulk.status === "AVAILABLE";
+  const isItemEditable = (item: any) => {
+    return !item.status || item.status === "AVAILABLE";
   };
 
   const handleNewItem = () => {
@@ -249,249 +233,193 @@ export default function InventoryPage() {
     router.push(`?${params.toString()}`, { scroll: false });
   };
 
-  // Handle search with pagination
-  const handleSearch = async (query: string, currentPage: number = page) => {
-    setSearchQuery(query);
-    setIsLoadingItems(true);
-
-    try {
-      if (user?.company_uuid) {
-        // Calculate offset based on current page and rows per page
-        const offset = (currentPage - 1) * rowsPerPage;
-
-        const result = await getInventoryItems(
-          user.company_uuid,
-          query,
-          null, // status
-          null, // year
-          null, // month
-          null, // week
-          null, // day
-          rowsPerPage, // limit
-          offset // offset
-        );
-
-        setInventoryItems(result.data || []);
-        setTotalPages(result.totalPages || 1);
-        setTotalItems(result.totalCount || 0);
-      }
-    } catch (error) {
-      console.error("Error searching inventory items:", error);
-    } finally {
-      setIsLoadingItems(false);
-    }
-  };
-
-  // Function to handle page changes
-  const handlePageChange = (newPage: number) => {
-    setPage(newPage);
-    handleSearch(searchQuery, newPage);
-  };
-
-  // Add handler for inventory form properties
   const handleInventoryPropertiesChange = (properties: Record<string, any>) => {
     setInventoryForm(prev => ({ ...prev, properties }));
   };
 
-  // Add handler for bulk properties
-  const handleBulkPropertiesChange = (bulkId: number, properties: Record<string, any>) => {
-    setBulkItems(prev => prev.map(bulk =>
-      bulk.id === bulkId ? { ...bulk, properties } : bulk
+  const handleInventoryItemPropertiesChange = (itemId: number, properties: Record<string, any>) => {
+    setInventoryItemsList(prev => prev.map(item =>
+      item.id === itemId ? { ...item, properties } : item
     ));
   };
 
-  // Add inherit functions
-  const handleInheritBulkProperties = (bulkId: number) => {
+  const handleInheritItemProperties = (itemId: number) => {
     const properties = inventoryForm.properties || {};
-    handleBulkPropertiesChange(bulkId, properties);
+    handleInventoryItemPropertiesChange(itemId, properties);
   };
 
-  // Update resetForm to include properties
   const resetForm = () => {
     setInventoryForm({
       name: "",
       description: "",
       measurement_unit: defaultMeasurementUnit,
+      standard_unit: defaultUnit,
       company_uuid: user?.company_uuid || "",
       properties: {}
     });
     setUnitOptions(getUnitOptions(defaultMeasurementUnit));
-    setBulkItems([]);
-    setOriginalBulkItems([]);
-    setNextBulkId(1);
+    setInventoryItemsList([]);
+    setOriginalInventoryItems([]);
+    setNextItemId(1);
   };
 
-
-  // Modify the handleAddBulk function
-  const handleAddBulk = () => {
-    const newBulk = {
-      id: nextBulkId,
+  const handleAddInventoryItem = () => {
+    const newItem = {
+      id: nextItemId,
       company_uuid: user?.company_uuid || "",
       unit: defaultUnit,
       unit_value: 0,
       packaging_unit: defaultPackagingUnit,
       cost: 0,
       properties: {},
-      isNew: true
+      is_new: true,
+      group_id: ''
     };
 
-    setBulkItems([newBulk, ...bulkItems]);
-    setNextBulkId(nextBulkId + 1);
-    setExpandedBulks(new Set([`${nextBulkId}`]));
+    setInventoryItemsList([newItem, ...inventoryItemsList]);
+    setNextItemId(nextItemId + 1);
+    setExpandedItems(new Set([`${nextItemId}`]));
   };
 
   const handleInventoryFormChange = (field: string, value: any) => {
     if (field === 'measurement_unit') {
+      const newStandardUnit = getDefaultStandardUnit(value);
       setUnitOptions(getUnitOptions(value));
-
-      // Reset bulk.unit_value when measurement unit changes
-      setBulkItems(prev => prev.map(bulk => ({
-        ...bulk,
-        unit_value: 0, // Reset unit_value for all bulks
-        unit: undefined, // Reset unit for all bulks
+      setInventoryForm(prev => ({
+        ...prev,
+        [field]: value,
+        standard_unit: newStandardUnit
+      }));
+      setInventoryItemsList(prev => prev.map(item => ({
+        ...item,
+        unit_value: 0,
+        unit: undefined,
       })));
+    } else {
+      setInventoryForm(prev => ({ ...prev, [field]: value }));
     }
-
-    setInventoryForm(prev => {
-      return { ...prev, [field]: value };
-    });
   };
 
-  // Also update handleDuplicateBulk to add items at the top
-  const handleDuplicateBulk = (bulkId: number, count: number) => {
-    const bulkToDuplicate = bulkItems.find(b => b.id === bulkId);
-    if (!bulkToDuplicate) return;
+  const handleCreateGroup = (itemId: number, count: number) => {
+    const itemToGroup = inventoryItemsList.find(item => item.id === itemId);
+    if (!itemToGroup) return;
 
-    const groupInfo = getGroupInfo(bulkToDuplicate);
+    const groupItems = createGroupFromItem(itemToGroup, count, nextItemId);
+    const otherItems = inventoryItemsList.filter(item => item.id !== itemId);
 
-    let newBulks: typeof bulkItems = [];
-    let firstNewBulkId = nextBulkId;
+    // Find the position of the original item and replace it with the group
+    const originalIndex = inventoryItemsList.findIndex(item => item.id === itemId);
+    const newItems = [...otherItems];
+    newItems.splice(originalIndex, 0, ...groupItems as (Partial<InventoryItem> & { company_uuid: string, id: number, is_new?: boolean })[]);
 
-    if (groupView && groupInfo.isGroup && groupInfo.isFirstInGroup) {
-      // Duplicate the whole group
-      const groupItems = bulkItems.filter(item =>
-        generateGroupKey(item) === groupInfo.groupKey && item.isNew
-      );
-      for (let c = 0; c < count; c++) {
-        const newGroupId = generateGroupId();
-        for (let i = 0; i < groupItems.length; i++) {
-          newBulks.push({
-            ...groupItems[i],
-            id: nextBulkId + newBulks.length,
-            uuid: undefined,
-            isNew: true,
-            groupId: newGroupId,
-          });
-        }
-        setGroupIdCounter(g => g + 1);
-        setDuplicatedGroups(prev => new Set(prev).add(newGroupId));
+    setInventoryItemsList(newItems);
+    setNextItemId(nextItemId + count);
+    setExpandedItems(new Set([`${groupItems[0].id}`]));
+  };
+
+  const handleDuplicateItem = (itemId: number, count: number) => {
+    const groupedItems = getGroupedItems();
+    const itemToDuplicate = inventoryItemsList.find(item => item.id === itemId);
+    if (!itemToDuplicate) return;
+
+    const groupInfo = getGroupInfo(itemToDuplicate, groupedItems);
+
+    if (groupInfo.isGroup) {
+      // Duplicate entire group
+      const groupItems = inventoryItemsList.filter(item => item.group_id === groupInfo.groupId);
+      let newItems: typeof inventoryItemsList = [];
+      let currentNextId = nextItemId;
+
+      for (let i = 0; i < count; i++) {
+        const newGroupId = createGroupId();
+        const duplicatedGroup = duplicateInventoryGroup(groupItems, newGroupId, currentNextId) as (Partial<InventoryItem> & { company_uuid: string, id: number, is_new?: boolean })[];
+        newItems.push(...duplicatedGroup);
+        currentNextId += duplicatedGroup.length;
       }
+
+      setInventoryItemsList([...newItems, ...inventoryItemsList]);
+      setNextItemId(currentNextId);
+      setExpandedItems(new Set([`${newItems[0].id}`]));
     } else {
       // Duplicate single item
+      let newItems: typeof inventoryItemsList = [];
+
       for (let i = 0; i < count; i++) {
-        newBulks.push({
-          ...bulkToDuplicate,
-          id: nextBulkId + i,
+        newItems.push({
+          ...itemToDuplicate,
+          id: nextItemId + i,
           uuid: undefined,
-          isNew: true
-        });
-      }
-    }
-
-    setBulkItems([...newBulks, ...bulkItems]);
-    setNextBulkId(nextBulkId + newBulks.length);
-    setExpandedBulks(new Set([`${firstNewBulkId}`]));
-  };
-
-  // New function to handle group adjustment
-  const handleAdjustGroup = (groupKey: string, newCount: number) => {
-    const groupItems = bulkItems.filter(item =>
-      generateGroupKey(item) === groupKey && item.isNew
-    );
-
-    const currentCount = groupItems.length;
-
-    if (newCount > currentCount) {
-      // Add more items to the group
-      const itemTemplate = groupItems[0];
-      const newBulks: typeof bulkItems = [];
-
-      for (let i = 0; i < (newCount - currentCount); i++) {
-        const newBulkId = nextBulkId + i;
-        newBulks.push({
-          ...itemTemplate,
-          id: newBulkId,
-          uuid: undefined,
-          isNew: true
+          is_new: true,
+          group_id: ''
         });
       }
 
-      // Insert new items after the last item in the group
-      const lastGroupItemIndex = bulkItems.findLastIndex(item =>
-        generateGroupKey(item) === groupKey && item.isNew
-      );
-
-      const updatedBulkItems = [...bulkItems];
-      updatedBulkItems.splice(lastGroupItemIndex + 1, 0, ...newBulks);
-
-      setBulkItems(updatedBulkItems);
-      setNextBulkId(nextBulkId + (newCount - currentCount));
-
-    } else if (newCount < currentCount) {
-      // Remove items from the group (keep the first one, remove others)
-      const itemsToKeep = groupItems.slice(0, newCount);
-      const itemIdsToKeep = new Set(itemsToKeep.map(item => item.id));
-
-      setBulkItems(bulkItems.filter(item => {
-        const itemGroupKey = generateGroupKey(item);
-        if (itemGroupKey === groupKey && item.isNew) {
-          return itemIdsToKeep.has(item.id);
-        }
-        return true;
-      }));
+      setInventoryItemsList([...newItems, ...inventoryItemsList]);
+      setNextItemId(nextItemId + newItems.length);
+      setExpandedItems(new Set([`${newItems[0].id}`]));
     }
   };
 
-  const handleBulkChange = (bulkId: number, field: keyof InventoryItem, value: any) => {
-    setBulkItems(prev => {
-      const changedBulk = prev.find(b => b.id === bulkId);
-      if (!changedBulk) return prev;
+  const handleInventoryItemChange = (itemId: number, field: keyof InventoryItem, value: any) => {
+    setInventoryItemsList(prev => {
+      const itemToUpdate = prev.find(item => item.id === itemId);
+      if (!itemToUpdate) return prev;
 
-      const groupInfo = getGroupInfo(changedBulk);
+      // Check if the item is part of a group
+      const groupedItems = groupInventoryItems(prev);
+      const groupInfo = getGroupInfo(itemToUpdate, groupedItems);
 
-      // 2. If groupView and this is the first in group, update all in group
-      if (groupView && groupInfo.isGroup && groupInfo.isFirstInGroup) {
-        return prev.map(bulk =>
-          generateGroupKey(bulk) === groupInfo.groupKey && bulk.isNew
-            ? { ...bulk, [field]: value }
-            : bulk
+      if (groupInfo.isGroup && groupInfo.groupId) {
+        // Update all items in the same group
+        return prev.map(item => {
+          if (item.group_id === groupInfo.groupId) {
+            return { ...item, [field]: value };
+          }
+          return item;
+        });
+      } else {
+        // Update only the single item
+        return prev.map(item =>
+          item.id === itemId ? { ...item, [field]: value } : item
         );
       }
-
-      // Otherwise, only update the single item
-      return prev.map(bulk =>
-        bulk.id === bulkId ? { ...bulk, [field]: value } : bulk
-      );
     });
   };
 
+  const handleGroupSizeChange = (groupId: string, newSize: number) => {
+    const result = adjustGroupSize(groupId, newSize, inventoryItemsList, nextItemId);
+    setInventoryItemsList(result.updatedItems as (Partial<InventoryItem> & { company_uuid: string, id: number, is_new?: boolean })[]);
+    setNextItemId(result.newNextItemId);
+  };
 
-  const handleDeleteBulk = (bulkId: number) => {
-    // Simply remove from state without confirmation
-    setBulkItems(bulkItems.filter(b => b.id !== bulkId));
+  const handleDeleteInventoryItem = (itemId: number) => {
+    const groupedItems = getGroupedItems();
+    const itemToDelete = inventoryItemsList.find(item => item.id === itemId);
+    if (!itemToDelete) return;
 
-    // Set the expandedBulks to the first bulk in the list
-    const firstBulk = bulkItems.find(b => b.id !== bulkId);
-    if (firstBulk) {
-      setExpandedBulks(new Set([`${firstBulk.id}`]));
+    const groupInfo = getGroupInfo(itemToDelete, groupedItems);
+
+    if (groupInfo.isGroup && viewMode === 'grouped') {
+      setItemToDelete({ type: 'group', id: itemId, groupId: groupInfo.groupId! });
+      deleteModal.onOpen();
+    } else {
+      // Delete single item directly
+      setInventoryItemsList(inventoryItemsList.filter(item => item.id !== itemId));
+
+      const firstItem = inventoryItemsList.find(item => item.id !== itemId);
+      if (firstItem) {
+        setExpandedItems(new Set([`${firstItem.id}`]));
+      }
     }
+  };
 
-    console.log(`List of bulk items after change:`, bulkItems);
+  const handleUngroupItems = (groupId: string) => {
+    const updatedItems = ungroupItems(groupId, inventoryItemsList);
+    setInventoryItemsList(updatedItems as (Partial<InventoryItem> & { company_uuid: string, id: number, is_new?: boolean })[]);
   };
 
   const handleDeleteItem = () => {
     if (!selectedItemId) return;
-
     setItemToDelete({ type: 'item', id: selectedItemId });
     deleteModal.onOpen();
   };
@@ -504,7 +432,6 @@ export default function InventoryPage() {
     try {
       let result;
 
-      // Only handle item deletion here, bulk and unit deletions are handled during update
       if (itemToDelete.type === 'item') {
         result = await deleteInventoryItem(itemToDelete.id as string);
         if (result.success) {
@@ -514,9 +441,21 @@ export default function InventoryPage() {
           router.push(`?${params.toString()}`, { scroll: false });
           resetForm();
         }
+      } else if (itemToDelete.type === 'group' && itemToDelete.groupId) {
+        // Remove entire group
+        const updatedItems = removeGroup(itemToDelete.groupId, inventoryItemsList);
+        setInventoryItemsList(updatedItems as (Partial<InventoryItem> & { company_uuid: string, id: number, is_new?: boolean })[]);
+
+        const firstItem = updatedItems[0];
+        if (firstItem) {
+          setExpandedItems(new Set([`${firstItem.id}`]));
+        }
+        deleteModal.onClose();
+        setIsLoading(false);
+        return;
       }
 
-      if (!result?.success) {
+      if (!result?.success && itemToDelete.type === 'item') {
         setError(`Failed to delete ${itemToDelete.type}`);
       }
     } catch (err) {
@@ -534,26 +473,26 @@ export default function InventoryPage() {
       return false;
     }
 
-    if (bulkItems.length === 0) {
-      setError("At least one bulk item is required");
+    if (inventoryItemsList.length === 0) {
+      setError("At least one inventory item is required");
       return false;
     }
 
+    console.log("Validating inventory items:", inventoryItemsList);
 
-    // Add this in the validateForm function
-    for (const bulk of bulkItems) {
-      if (!bulk.unit_value && bulk.unit_value !== 0) {
-        setError("Unit value is required for all bulks");
+    for (const item of inventoryItemsList) {
+      if (!item.unit_value && item.unit_value !== 0) {
+        setError("Unit value is required for all items");
         return false;
       }
 
-      if (!bulk.unit) {
-        setError("Metric Unit is required for all bulks");
+      if (!item.unit) {
+        setError("Metric Unit is required for all items");
         return false;
       }
 
-      if (!bulk.item_code) {
-        setError("Item code is required for all bulks");
+      if (!item.item_code) {
+        setError("Item code is required for all items");
         return false;
       }
     }
@@ -561,7 +500,6 @@ export default function InventoryPage() {
     return true;
   };
 
-  // Modified handleSubmit function - expand groups before submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -570,50 +508,7 @@ export default function InventoryPage() {
     setIsLoading(true);
     setError(null);
 
-    if (duplicatedGroups.size > 0) {
-      const unchangedGroups = Array.from(duplicatedGroups).filter(groupId => {
-        // Find all items with this groupId
-        const groupItems = bulkItems.filter(b => b.groupId === groupId);
-        // Compare with other groups: if another group has the same details, warn
-        return bulkItems.some(b =>
-          b.groupId !== groupId &&
-          JSON.stringify(
-            groupItems.map(({ item_code, unit, unit_value, packaging_unit, cost, properties }) =>
-              ({ item_code, unit, unit_value, packaging_unit, cost, properties })
-            )
-          ) ===
-          JSON.stringify(
-            bulkItems.filter(x => x.groupId === b.groupId).map(({ item_code, unit, unit_value, packaging_unit, cost, properties }) =>
-              ({ item_code, unit, unit_value, packaging_unit, cost, properties })
-            )
-          )
-        );
-      });
-      if (unchangedGroups.length > 0) {
-        setShowMergeWarning(true);
-        return;
-      }
-    }
-
     try {
-      // Expand groups into individual items for database submission
-      const expandedBulkItems = bulkItems.flatMap(bulk => {
-        const groupInfo = getGroupInfo(bulk);
-        if (groupInfo.isGroup && groupInfo.isFirstInGroup) {
-          // For groups, create individual database entries
-          const groupItems = bulkItems.filter(item =>
-            generateGroupKey(item) === groupInfo.groupKey && item.isNew
-          );
-          return groupItems.map(item => ({
-            ...item,
-            // Remove group-specific properties if any
-          }));
-        } else if (!groupInfo.isGroup) {
-          return [bulk];
-        }
-        return []; // Skip non-first group items as they're already included
-      });
-
       if (selectedItemId) {
         // Update existing item
         const itemUpdates = {
@@ -622,41 +517,43 @@ export default function InventoryPage() {
           properties: inventoryForm.properties,
         };
 
-        const bulkUpdates = expandedBulkItems
-          .filter(bulk => bulk.uuid)
-          .map(bulk => ({
-            uuid: bulk.uuid as string,
-            item_code: bulk.item_code as string,
-            unit: bulk.unit as string,
-            unit_value: bulk.unit_value as number,
-            packaging_unit: bulk.packaging_unit as string,
-            cost: bulk.cost as number,
-            properties: bulk.properties as Record<string, any>,
+        const itemUpdates_list = inventoryItemsList
+          .filter(item => item.uuid)
+          .map(item => ({
+            uuid: item.uuid as string,
+            item_code: item.item_code as string,
+            unit: item.unit as string,
+            unit_value: item.unit_value as number,
+            packaging_unit: item.packaging_unit as string,
+            cost: item.cost as number,
+            group_id: item.group_id || '',
+            properties: item.properties as Record<string, any>,
           }));
 
-        const newBulks = expandedBulkItems
-          .filter(bulk => !bulk.uuid)
-          .map(bulk => ({
+        const newItems = inventoryItemsList
+          .filter(item => !item.uuid)
+          .map(item => ({
             company_uuid: user.company_uuid,
-            item_code: bulk.item_code as string,
-            unit: bulk.unit as string,
-            unit_value: bulk.unit_value as number,
-            packaging_unit: bulk.packaging_unit as string,
-            cost: bulk.cost as number,
-            properties: bulk.properties as Record<string, any>,
+            item_code: item.item_code as string,
+            unit: item.unit as string,
+            unit_value: item.unit_value as number,
+            packaging_unit: item.packaging_unit as string,
+            cost: item.cost as number,
+            group_id: item.group_id || '',
+            properties: item.properties as Record<string, any>,
           }));
 
-        const currentBulkUuids = new Set(expandedBulkItems.map(bulk => bulk.uuid).filter(Boolean));
-        const deletedBulks = originalBulkItems
-          .filter(bulk => bulk.uuid && !currentBulkUuids.has(bulk.uuid))
-          .map(bulk => bulk.uuid as string);
+        const currentItemUuids = new Set(inventoryItemsList.map(item => item.uuid).filter(Boolean));
+        const deletedItems = originalInventoryItems
+          .filter(item => item.uuid && !currentItemUuids.has(item.uuid))
+          .map(item => item.uuid as string);
 
         const result = await updateInventoryItem(
           selectedItemId,
           itemUpdates,
-          bulkUpdates,
-          newBulks,
-          deletedBulks
+          itemUpdates_list,
+          newItems,
+          deletedItems
         );
 
         if (!result.success) {
@@ -670,22 +567,24 @@ export default function InventoryPage() {
           company_uuid: user.company_uuid,
           name: inventoryForm.name,
           measurement_unit: inventoryForm.measurement_unit,
+          standard_unit: inventoryForm.standard_unit,
           description: inventoryForm.description,
           admin_uuid: user.uuid,
-          properties: inventoryForm.properties,
+          properties: inventoryForm.properties || {},
         };
 
-        const newBulks = expandedBulkItems.map(bulk => ({
+        const newItems = inventoryItemsList.map(item => ({
           company_uuid: user.company_uuid,
-          item_code: bulk.item_code as string,
-          unit: bulk.unit as string,
-          unit_value: bulk.unit_value as number,
-          packaging_unit: bulk.packaging_unit as string,
-          cost: bulk.cost as number,
-          properties: bulk.properties as Record<string, any>,
+          item_code: item.item_code as string,
+          unit: item.unit as string,
+          unit_value: item.unit_value as number,
+          packaging_unit: item.packaging_unit as string,
+          cost: item.cost as number,
+          group_id: item.group_id || '',
+          properties: item.properties as Record<string, any>,
         }));
 
-        const result = await createInventoryItem(newItem, newBulks);
+        const result = await createInventoryItem(newItem, newItems);
 
         if (!result.success) {
           throw new Error(result.error || "Failed to create inventory item");
@@ -717,34 +616,12 @@ export default function InventoryPage() {
         }
 
         setUser(userData);
-
-        setInventoryForm(prev => ({
-          ...prev,
-          company_uuid: userData.company_uuid
-        }));
-
+        setViewMode(userData.settings?.defaultView || 'grouped');
+        setInventoryForm(prev => ({ ...prev, company_uuid: userData.company_uuid }));
         setMeasurementUnitOptions(await getMeasurementUnitOptions());
         setPackagingUnitOptions(await getPackagingUnitOptions());
+        setUnitOptions(getUnitOptions(defaultMeasurementUnit));
 
-        if (userData.company_uuid) {
-          // Use pagination parameters
-          const result = await getInventoryItems(
-            userData.company_uuid,
-            searchQuery,
-            null, // status
-            null, // year
-            null, // month
-            null, // week
-            null, // day
-            rowsPerPage, // limit
-            0 // offset for first page
-          );
-
-          setInventoryItems(result.data || []);
-          setTotalPages(result.totalPages || 1);
-          setTotalItems(result.totalCount || 0);
-          setIsLoadingItems(false);
-        }
       } catch (error) {
         console.error("Error initializing page:", error);
         setError("Failed to load inventory data");
@@ -752,85 +629,15 @@ export default function InventoryPage() {
     };
 
     initPage();
-
-    const defaultView = localStorage.getItem('defaultItemView') || 'grouped';
-    setGroupView(defaultView === 'grouped');
   }, []);
-
-
-  // Initialize page data
-  useEffect(() => {
-
-    const handleUserData = async () => {
-      setIsLoadingItems(true);
-
-      if (user.company_uuid) {
-        const result = await getInventoryItems(user.company_uuid, searchQuery);
-        setInventoryItems(result.data || []);
-        setIsLoadingItems(false);
-      }
-
-      setIsLoadingItems(false);
-    }
-
-    if (user) {
-      handleUserData();
-    }
-
-  }, [user, searchQuery]);
-
-  // Handle real-time updates
-  useEffect(() => {
-    if (!user?.company_uuid) return;
-
-    const supabase = createClient();
-
-    const channel = supabase
-      .channel('inventory-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'inventory',
-          filter: `company_uuid=eq.${user.company_uuid}`
-        },
-        async () => {
-          // Use current page and search query when refreshing
-          const offset = (page - 1) * rowsPerPage;
-          const refreshedItems = await getInventoryItems(
-            user.company_uuid,
-            searchQuery,
-            null, // status
-            null, // year
-            null, // month
-            null, // week
-            null, // day
-            rowsPerPage,
-            offset
-          );
-
-          setInventoryItems(refreshedItems.data || []);
-          setTotalPages(refreshedItems.totalPages || 1);
-          setTotalItems(refreshedItems.totalCount || 0);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user?.company_uuid, searchQuery, page, rowsPerPage]);
 
   // Load selected item details
   useEffect(() => {
-    // Clear form when no item is selected
     if (!selectedItemId) {
       resetForm();
       setIsLoading(false);
       return;
     }
-
     fetchItemDetails(selectedItemId);
   }, [selectedItemId]);
 
@@ -840,27 +647,19 @@ export default function InventoryPage() {
     if (itemId) setSelectedItemId(itemId);
   }, [searchParams]);
 
-
   return (
     <motion.div {...motionTransition}>
       <div className="container mx-auto p-2 max-w-5xl">
         <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
           <div className="flex flex-col w-full xl:text-left text-center">
             <h1 className="text-2xl font-bold">Inventory Management</h1>
-            {isLoadingItems ? (
-              <div className="text-default-500 flex xl:justify-start justify-center items-center">
-                <p className='my-auto mr-1'>Loading inventory data</p>
-                <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
-              </div>
-            ) : (
-              <p className="text-default-500">Manage your inventory items efficiently.</p>
-            )}
+            <p className="text-default-500">Manage your inventory items efficiently.</p>
           </div>
           <div className="flex gap-4 xl:mt-0 mt-4 text-center">
             <Button
               color="primary"
               variant="shadow"
-              isDisabled={!user || isLoadingItems}
+              isDisabled={!user}
               startContent={<Icon icon="mdi:plus" />}
               onPress={handleNewItem}
             >
@@ -871,143 +670,88 @@ export default function InventoryPage() {
 
         <div className="flex flex-col xl:flex-row gap-4">
           {/* Left side: Item List */}
-          <div className={`xl:w-1/3 shadow-xl shadow-primary/10
-          xl:min-h-[calc(100vh-6.5rem)] 2xl:min-h-[calc(100vh-9rem)] min-h-[42rem] 
-          xl:min-w-[350px] w-full rounded-2xl overflow-hidden bg-background border 
-          border-default-200 backdrop-blur-lg xl:sticky top-0 self-start max-h-[calc(100vh-2rem)]`}
-          >
-            <div className="flex flex-col h-full">
-              <div className="p-4 sticky top-0 z-20 bg-background/80 border-b border-default-200 backdrop-blur-lg shadow-sm">
-
-                <h2 className="text-xl font-semibold mb-4 w-full text-center">Inventory Items</h2>
-                <Input
-                  placeholder="Search items..."
-                  value={searchQuery}
-                  onChange={(e) => handleSearch(e.target.value, 1)}
-                  isClearable
-                  onClear={() => handleSearch("", 1)}
-                  startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
-                />
-              </div>
-              <div className="h-full absolute w-full">
-                <CustomScrollbar
-                  scrollShadow
-                  scrollShadowTop={false}
-                  scrollbarMarginTop="7.25rem"
-                  scrollbarMarginBottom="0.5rem"
-                  disabled={!user || isLoadingItems}
-                  className="space-y-4 p-4 mt-1 pt-32 h-full relative">
-                  <ListLoadingAnimation
-                    condition={!user || isLoadingItems}
-                    containerClassName="space-y-4"
-                    skeleton={[...Array(10)].map((_, i) => (
-                      <Skeleton key={i} className="w-full min-h-[7.5rem] rounded-xl" />
-                    ))}
-                  >
-                    {inventoryItems.map((item) => (
-                      <Button
-                        key={item.uuid}
-                        onPress={() => handleSelectItem(item.uuid || "")}
-                        variant="shadow"
-                        className={`w-full min-h-[7.5rem] !transition-all duration-200 rounded-xl p-0 ${selectedItemId === item.uuid ?
-                          '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' :
-                          '!bg-default-100/50 shadow-none hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
-                      >
-                        <div className="w-full flex flex-col h-full">
-                          <div className="flex-grow flex flex-col justify-center px-3">
-                            <div className="flex items-center justify-between">
-                              <span className="font-semibold">
-                                {item.name}
-                              </span>
-                              <Chip color="default" variant={selectedItemId === item.uuid ? "shadow" : "flat"} size="sm">
-                                {item.inventory_items_length || 0} item{item.inventory_items_length !== 1 ? 's' : ''}
-                              </Chip>
-                            </div>
-                            {item.description && (
-                              <div className={`w-full mt-1 text-sm ${selectedItemId === item.uuid ? 'text-default-800 ' : 'text-default-600'} text-start text-ellipsis overflow-hidden whitespace-nowrap`}>
-                                {item.description}
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Footer - always at the bottom */}
-                          <div className={`flex items-center gap-2 border-t ${selectedItemId === item.uuid ? 'border-primary-300' : 'border-default-100'} p-3`}>
-                            <Chip
-                              color={selectedItemId === item.uuid ? "default" : "primary"}
-                              variant={selectedItemId === item.uuid ? "shadow" : "flat"}
-                              size="sm"
-                            >
-                              {formatDate(item.created_at.toString())}
-                            </Chip>
-                          </div>
-                        </div>
-                      </Button>
-                    ))}
-                  </ListLoadingAnimation>
-                  {/* Add pagination */}
-                  {inventoryItems.length > 0 && (
-                    <div className="flex flex-col items-center pt-2 pb-4 px-2">
-                      <div className="text-sm text-default-500 mb-2">
-                        Showing {(page - 1) * rowsPerPage + 1} to {Math.min(page * rowsPerPage, totalItems)} of {totalItems} {totalItems === 1 ? 'item' : 'items'}
-                      </div>
-                      <Pagination
-                        total={totalPages}
-                        initialPage={1}
-                        page={page}
-                        onChange={handlePageChange}
-                        color="primary"
-                        size="sm"
-                        showControls
-                      />
+          <SearchListPanel
+            title="Inventory"
+            tableName="inventory"
+            searchPlaceholder="Search inventory..."
+            searchLimit={10}
+            dateFilters={["weekFilter", "specificDate"]}
+            companyUuid={user?.company_uuid}
+            renderItem={(inventory) => (
+              <Button
+                key={inventory.uuid}
+                onPress={() => handleSelectItem(inventory.uuid || "")}
+                variant="shadow"
+                className={`w-full min-h-[7.5rem] !transition-all duration-200 rounded-xl p-0 ${selectedItemId === inventory.uuid ?
+                  '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' :
+                  '!bg-default-100/50 shadow-none hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
+              >
+                <div className="w-full flex flex-col h-full">
+                  <div className="flex-grow flex flex-col justify-center px-3 pt-3">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold">{inventory.name}</span>
+                      <Chip color="default" variant={selectedItemId === inventory.uuid ? "shadow" : "flat"} size="sm">
+                        {inventory.count?.total || 0} item{(inventory.count?.total || 0) !== 1 ? 's' : ''}
+                      </Chip>
                     </div>
-                  )}
-                  {/* Empty state and loading animations */}
-                  <AnimatePresence>
-                    {(!user || isLoadingItems) && (
-                      <motion.div
-                        className="absolute inset-0 flex items-center justify-center"
-                        initial={{ opacity: 0, filter: "blur(8px)" }}
-                        animate={{ opacity: 1, filter: "blur(0px)" }}
-                        exit={{ opacity: 0, filter: "blur(8px)" }}
-                        transition={{ duration: 0.3, delay: 0.3 }}
-                      >
-                        <div className="absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-background to-transparent pointer-events-none" />
-                        <div className="py-4 flex absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
-                          <Spinner />
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </CustomScrollbar>
-
-                {/* No items found state */}
-                <AnimatePresence>
-                  {!isLoadingItems && inventoryItems.length === 0 && (
-                    <motion.div
-                      className="absolute inset-0 flex items-center justify-center"
-                      {...motionTransitionScale}
-                    >
-                      <div className="py-4 px-8 w-full flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
-                        <Icon icon="mdi:package-variant" className="text-5xl text-default-300" />
-                        <p className="text-default-500 mt-2">No inventory items found</p>
-                        <Button
-                          color="primary"
-                          variant="flat"
-                          size="sm"
-                          className="mt-4"
-                          onPress={handleNewItem}
-                          startContent={<Icon icon="mdi:plus" className="text-default-500" />}>
-                          Create Inventory
-                        </Button>
+                    {inventory.description && (
+                      <div className={`w-full mt-1 text-sm ${selectedItemId === inventory.uuid ? 'text-default-800 ' : 'text-default-600'} text-start text-ellipsis overflow-hidden whitespace-nowrap`}>
+                        {inventory.description}
                       </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                    )}
+                  </div>
 
-
-              </div>
-            </div>
-          </div>
+                  <div className={`flex items-center gap-2 border-t ${selectedItemId === inventory.uuid ? 'border-primary-300' : 'border-default-100'} p-3`}>
+                    <Chip color={selectedItemId === inventory.uuid ? "default" : "primary"} variant={selectedItemId === inventory.uuid ? "shadow" : "flat"} size="sm">
+                      {formatDate(inventory.created_at.toString())}
+                    </Chip>
+                    {inventory.unit_values.available > 0 && (
+                      <Chip
+                        color="success"
+                        variant={selectedItemId === inventory.uuid ? "shadow" : "flat"}
+                        size="sm"
+                      >
+                        {formatNumber(inventory.unit_values.available)} available
+                      </Chip>
+                    )}
+                    {inventory.unit_values.warehouse > 0 && (
+                      <Chip
+                        color="warning"
+                        variant={selectedItemId === inventory.uuid ? "shadow" : "flat"}
+                        size="sm"
+                      >
+                        {formatNumber(inventory.unit_values.warehouse)} in warehouse
+                      </Chip>
+                    )}
+                  </div>
+                </div>
+              </Button>
+            )}
+            renderSkeletonItem={(i) => (
+              <Skeleton key={i} className="w-full min-h-[9rem] rounded-xl" />
+            )}
+            renderEmptyCard={(
+              <>
+                <Icon icon="mdi:package-variant" className="text-5xl text-default-300" />
+                <p className="text-default-500 mt-2">No inventory items found</p>
+                <Button
+                  color="primary"
+                  variant="flat"
+                  size="sm"
+                  className="mt-4"
+                  onPress={handleNewItem}
+                  startContent={<Icon icon="mdi:plus" className="text-default-500" />}>
+                  Create Inventory
+                </Button>
+              </>
+            )}
+            onItemSelect={handleSelectItem}
+            supabaseFunction="get_inventory_filtered"
+            className={`xl:w-1/3 shadow-xl shadow-primary/10 
+                      xl:min-h-[calc(100vh-6.5rem)] 2xl:min-h-[calc(100vh-9rem)] min-h-[42rem] 
+                      xl:min-w-[350px] w-full rounded-2xl overflow-hidden bg-background border 
+                      border-default-200 backdrop-blur-lg xl:sticky top-0 self-start max-h-[calc(100vh-2rem)]`}
+          />
 
           {/* Right side: Inventory Form */}
           <div className="xl:w-2/3 overflow-hidden">
@@ -1025,14 +769,6 @@ export default function InventoryPage() {
                           <Skeleton className="h-16 w-1/2 rounded-xl" />
                         </div>
                         <Skeleton className="h-28 w-full rounded-xl" />
-                      </div>
-
-                      <div className="p-4 border-2 border-default-200 rounded-xl bg-default-50">
-                        <div className="flex justify-between items-center mb-4">
-                          <Skeleton className="h-6 w-32 rounded-full" />
-                          <Skeleton className="h-8 w-16 rounded-lg" />
-                        </div>
-                        <Skeleton className="h-48 w-full rounded-xl bg-transparent" />
                       </div>
                     </div>
                   }>
@@ -1062,28 +798,52 @@ export default function InventoryPage() {
                         />
                       )}
 
-                      <div className="flex items-center justify-between gap-4">
-                        <Input
-                          label="Item Name"
-                          value={inventoryForm.name}
-                          onChange={(e) => handleInventoryFormChange('name', e.target.value)}
-                          isRequired
-                          placeholder="Enter item name"
-                          classNames={inputStyle}
-                          startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
-                        />
+                      <Input
+                        label="Item Name"
+                        value={inventoryForm.name}
+                        onChange={(e) => handleInventoryFormChange('name', e.target.value)}
+                        isRequired
+                        placeholder="Enter item name"
+                        classNames={inputStyle}
+                        startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
+                      />
 
+                      <div className="flex items-start justify-between gap-4 md:flex-row flex-col">
                         <Autocomplete
                           label="Measurement Unit"
                           placeholder="Select metric unit"
                           selectedKey={inventoryForm.measurement_unit}
                           onSelectionChange={(key) => handleInventoryFormChange('measurement_unit', key)}
                           startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.1rem]" />}
-                          isRequired
+                          isRequired={!selectedItemId}
+                          isReadOnly={!selectedItemId}
+                          isClearable={!selectedItemId}
                           inputProps={autoCompleteStyle}
+
+                          popoverProps={{ className: !!selectedItemId ? "collapse" : "" }}
+                          selectorButtonProps={{ className: !!selectedItemId ? "collapse" : "" }}
                         >
                           {measurementUnitOptions.map((measurement_unit) => (
                             <AutocompleteItem key={measurement_unit}>{measurement_unit.charAt(0).toUpperCase() + measurement_unit.slice(1)}</AutocompleteItem>
+                          ))}
+                        </Autocomplete>
+
+                        {/* Standard Unit Selection */}
+                        <Autocomplete
+                          label="Standard Unit"
+                          placeholder="Select standard unit for conversions"
+                          selectedKey={inventoryForm.standard_unit}
+                          onSelectionChange={(key) => handleInventoryFormChange('standard_unit', key)}
+                          startContent={<Icon icon="mdi:scale-balance" className="text-default-500 mb-[0.1rem]" />}
+                          isRequired={!selectedItemId}
+                          isReadOnly={!selectedItemId}
+                          isClearable={!selectedItemId}
+                          inputProps={autoCompleteStyle}
+                          popoverProps={{ className: !!selectedItemId ? "collapse" : "" }}
+                          selectorButtonProps={{ className: !!selectedItemId ? "collapse" : "" }}
+                        >
+                          {getUnitOptions(inventoryForm.measurement_unit).map((unit) => (
+                            <AutocompleteItem key={unit}>{getUnitFullName(unit)}</AutocompleteItem>
                           ))}
                         </Autocomplete>
                       </div>
@@ -1097,11 +857,49 @@ export default function InventoryPage() {
                         startContent={<Icon icon="mdi:text-box" className="text-default-500 mt-[0.1rem]" />}
                       />
 
+                      {/* Display aggregated values if they exist */}
+                      {inventoryForm.unit_values && (
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-default-100/50 rounded-xl">
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-primary">
+                              {formatNumber(inventoryForm.unit_values.total)}
+                            </div>
+                            <div className="text-sm text-default-600">
+                              Total {inventoryForm.standard_unit}
+                            </div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-success">
+                              {formatNumber(inventoryForm.unit_values.available)}
+                            </div>
+                            <div className="text-sm text-default-600">
+                              Available {inventoryForm.standard_unit}
+                            </div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-warning">
+                              {formatNumber(inventoryForm.unit_values.warehouse)}
+                            </div>
+                            <div className="text-sm text-default-600">
+                              In Warehouse {inventoryForm.standard_unit}
+                            </div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-default-700">
+                              {formatNumber(inventoryForm.unit_values.inventory)}
+                            </div>
+                            <div className="text-sm text-default-600">
+                              Inventory {inventoryForm.standard_unit}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                       <div className="mt-6">
                         <CustomProperties
                           properties={inventoryForm.properties || {}}
                           onPropertiesChange={handleInventoryPropertiesChange}
-                          isDisabled={!user || isLoadingItems}
+                          isDisabled={!user}
                         />
                       </div>
                     </div>
@@ -1111,7 +909,6 @@ export default function InventoryPage() {
                 <LoadingAnimation
                   condition={isLoading}
                   skeleton={
-
                     <div>
                       <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" />
                       <div className="space-y-4">
@@ -1130,126 +927,46 @@ export default function InventoryPage() {
                             </div>
                           </div>
                           <Skeleton className="h-16 w-full rounded-xl" />
-
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <Skeleton className="h-16 w-full rounded-xl" />
-                            <Skeleton className="h-16 w-full rounded-xl" />
-                          </div>
-
-                          <Skeleton className="h-16 w-full rounded-xl" />
-
-
-                          <div className="p-4 border-2 border-default-200 rounded-xl bg-default-50">
-                            <div className="flex justify-between items-center mb-4">
-                              <Skeleton className="h-6 w-32 rounded-full" />
-                              <Skeleton className="h-8 w-16 rounded-lg" />
-                            </div>
-                            <Skeleton className="h-48 w-full rounded-xl bg-transparent" />
-                          </div>
-
-                          <div className="p-4 border-2 border-default-200 rounded-xl space-y-2">
-                            <div className="flex justify-between items-center mb-4">
-                              <Skeleton className="h-6 w-40 rounded-full" />
-                              <Skeleton className="h-5 w-5 rounded-full" />
-                            </div>
-                            <div className="p-4 border-2 border-default-200 rounded-xl space-y-4">
-                              <div className="flex justify-between items-center mb-8">
-                                <Skeleton className="h-6 w-32 rounded-full" />
-                                <div className="flex items-center gap-4">
-                                  <Skeleton className="h-5 w-16 rounded-full" />
-                                  <Skeleton className="h-5 w-5 rounded-full" />
-                                </div>
-                              </div>
-                              <Skeleton className="h-16 w-full rounded-xl" />
-
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <Skeleton className="h-16 w-full rounded-xl" />
-                                <Skeleton className="h-16 w-full rounded-xl" />
-                                <Skeleton className="h-16 w-full rounded-xl" />
-                                <Skeleton className="h-16 w-full rounded-xl" />
-                              </div>
-
-
-                              <div className="p-4 border-2 border-default-200 rounded-xl bg-default-50">
-                                <div className="flex justify-between items-center mb-4">
-                                  <Skeleton className="h-6 w-32 rounded-full" />
-                                  <Skeleton className="h-8 w-16 rounded-lg" />
-                                </div>
-                                <Skeleton className="h-48 w-full rounded-xl bg-transparent" />
-                              </div>
-                            </div>
-
-                            <div className="p-4 border-2 border-default-200 rounded-xl flex justify-between">
-                              <Skeleton className="h-6 w-40 rounded-full" />
-                              <div className="flex items-center gap-4">
-                                <Skeleton className="h-5 w-16 rounded-full" />
-                                <Skeleton className="h-5 w-5 rounded-full" />
-                              </div>
-                            </div>
-
-                            <div className="p-4 border-2 border-default-200 rounded-xl flex justify-between">
-                              <Skeleton className="h-6 w-40 rounded-full" />
-                              <div className="flex items-center gap-4">
-                                <Skeleton className="h-5 w-16 rounded-full" />
-                                <Skeleton className="h-5 w-5 rounded-full" />
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="p-4 border-2 border-default-200 rounded-xl flex justify-between">
-                          <Skeleton className="h-6 w-40 rounded-full" />
-                          <div className="flex items-center gap-4">
-                            <Skeleton className="h-5 w-16 rounded-full" />
-                            <Skeleton className="h-5 w-5 rounded-full" />
-                          </div>
-                        </div>
-
-                        <div className="p-4 border-2 border-default-200 rounded-xl flex justify-between">
-                          <Skeleton className="h-6 w-40 rounded-full" />
-                          <div className="flex items-center gap-4">
-                            <Skeleton className="h-5 w-16 rounded-full" />
-                            <Skeleton className="h-5 w-5 rounded-full" />
-                          </div>
                         </div>
                       </div>
                     </div>
-
                   }>
                   <div>
-                    <h2 className="text-xl font-semibold mb-4 w-full text-center">Items</h2>
+                    <h2 className="text-xl font-semibold mb-4 w-full text-center">Inventory Items</h2>
                     <div className="space-y-4">
                       <div className="flex justify-between items-center mb-4">
-                        <div className="flex items-center gap-2">
-                          {bulkItems.length > 0 && (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {inventoryItemsList.length > 0 && (
                             <>
                               <Chip color="default" variant="flat" size="sm">
-                                {bulkItems.length} item{bulkItems.length > 1 ? "s" : ""}
+                                {inventoryItemsList.length} item{inventoryItemsList.length > 1 ? "s" : ""}
                               </Chip>
-                              <Chip color="primary" variant="flat" size="sm">
-                                {formatNumber(bulkItems.reduce((total, bulk) => total + (bulk.unit_value || 0), 0))} {bulkItems[0]?.unit || 'units'}
-                              </Chip>
+                              {inventoryForm.standard_unit && (
+                                <Chip color="primary" variant="flat" size="sm">
+                                  {formatNumber(getTotalStandardUnits())} {inventoryForm.standard_unit}
+                                </Chip>
+                              )}
                               <Chip color="success" variant="flat" size="sm">
-                                ₱ {formatNumber(bulkItems.reduce((total, bulk) => total + (bulk.cost || 0), 0))}
+                                ₱ {formatNumber(getTotalCost())}
                               </Chip>
                             </>
                           )}
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 flex-wrap">
                           <Button
-                            color={groupView ? "primary" : "default"}
-                            variant={groupView ? "shadow" : "flat"}
+                            color={viewMode === 'grouped' ? "primary" : "default"}
+                            variant={viewMode === 'grouped' ? "shadow" : "flat"}
                             size="sm"
-                            onPress={() => setGroupView(!groupView)}
-                            startContent={<Icon icon={groupView ? "mdi:format-list-group" : "mdi:format-list-bulleted"} />}
+                            onPress={() => setViewMode(viewMode === 'grouped' ? 'flat' : 'grouped')}
+                            startContent={<Icon icon={viewMode === 'grouped' ? "mdi:format-list-group" : "mdi:format-list-bulleted"} />}
                           >
-                            {groupView ? "Grouped" : "Flat"}
+                            {viewMode === 'grouped' ? 'Grouped' : 'Flat'}
                           </Button>
                           <Button
                             color="primary"
                             variant="shadow"
                             size="sm"
-                            onPress={handleAddBulk}
+                            onPress={handleAddInventoryItem}
                             startContent={<Icon icon="mdi:plus" />}
                           >
                             Add Item
@@ -1257,22 +974,23 @@ export default function InventoryPage() {
                         </div>
                       </div>
 
-                      {/* Bulk items content */}
+
+                      {/* Inventory items content */}
                       <div>
                         <AnimatePresence>
-                          {bulkItems.length === 0 ? (
+                          {inventoryItemsList.length === 0 ? (
                             <motion.div {...motionTransition}>
                               <div className="py-8 h-48 text-center text-default-500 border border-dashed border-default-300 rounded-lg justify-center flex flex-col items-center">
                                 <Icon icon="mdi:package-variant-closed" className="mx-auto mb-2 opacity-50" width={40} height={40} />
-                                <p>No bulk items added yet</p>
+                                <p>No inventory items added yet</p>
                                 <Button
                                   color="primary"
                                   variant="light"
                                   size="sm"
                                   className="mt-3"
-                                  onPress={handleAddBulk}
+                                  onPress={handleAddInventoryItem}
                                 >
-                                  Add your first bulk item
+                                  Add your first inventory item
                                 </Button>
                               </div>
                             </motion.div>
@@ -1280,13 +998,13 @@ export default function InventoryPage() {
                         </AnimatePresence>
 
                         <AnimatePresence>
-                          {!isLoading && bulkItems.length > 0 && (
+                          {!isLoading && inventoryItemsList.length > 0 && (
                             <motion.div {...motionTransition} className="-m-4">
                               <Accordion
                                 selectionMode="multiple"
                                 variant="splitted"
-                                selectedKeys={expandedBulks}
-                                onSelectionChange={(keys) => setExpandedBulks(keys as Set<string>)}
+                                selectedKeys={expandedItems}
+                                onSelectionChange={(keys) => setExpandedItems(keys as Set<string>)}
                                 itemClasses={{
                                   base: "p-0 bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
                                   title: "font-normal text-lg font-semibold",
@@ -1294,81 +1012,150 @@ export default function InventoryPage() {
                                   indicator: "text-medium",
                                   content: "text-small p-0",
                                 }}>
-                                {bulkItems.map((bulk, index) => {
-                                  const groupInfo = getGroupInfo(bulk);
-
-                                  // Only render if it's the first item in a group or not a group at all
-                                  if (groupView && groupInfo.isGroup && !groupInfo.isFirstInGroup) {
-                                    return null;
-                                  }
+                                {getDisplayItemsList().map((item) => {
+                                  const groupedItems = getGroupedItems();
+                                  const groupInfo = getGroupInfo(item, groupedItems);
+                                  const displayNumber = getItemDisplayNumber(item, inventoryItemsList, groupedItems);
 
                                   return (
                                     <AccordionItem
-                                      key={bulk.id}
-                                      aria-label={`Item ${bulk.id}`}
-                                      className={`${index === 0 ? 'mt-4' : ''} mx-2`}
+                                      key={item.id}
+                                      aria-label={`Item ${item.id}`}
+                                      className={`${displayNumber === 1 ? 'mt-4' : ''} mx-2`}
                                       title={
                                         <div className="flex justify-between items-center w-full">
                                           <div className="flex items-center gap-2">
-                                            {groupInfo.isGroup ? (
-                                              <span className="flex font-medium">
-                                                Group {groupInfo.groupNumber}
-                                              </span>
-                                            ) : (
-                                              <span className="font-medium">
-                                                Item {getItemDisplayNumber(bulk)}
-                                              </span>
-                                            )}
+                                            <span className="font-medium">
+                                              {viewMode === 'grouped' && groupInfo.isGroup ? `Group ${displayNumber}` : `Item ${viewMode === 'flat' ? item.id : displayNumber}`}
+                                            </span>
                                           </div>
                                           <div className="flex gap-2">
-                                            {bulk.unit && bulk.unit !== "" && bulk.unit_value! > 0 && (
+                                            {viewMode === 'grouped' && groupInfo.isGroup && (
+                                              <Chip color="secondary" variant="flat" size="sm">
+                                                {groupInfo.groupSize} items
+                                              </Chip>
+                                            )}
+                                            {item.unit && item.unit !== "" && item.unit_value! > 0 && (
                                               <Chip color="primary" variant="flat" size="sm">
-                                                {groupInfo.isGroup
-                                                  ? `${formatNumber((bulk.unit_value || 0) * groupInfo.groupSize)} ${bulk.unit}`
-                                                  : `${formatNumber(bulk.unit_value || 0)} ${bulk.unit}`
-                                                }
+                                                {(() => {
+                                                  if (viewMode === 'grouped' && groupInfo.isGroup) {
+                                                    // Calculate total for the group in standard unit
+                                                    const groupItems = inventoryItemsList.filter(groupItem =>
+                                                      groupItem.group_id === groupInfo.groupId
+                                                    );
+                                                    const totalInStandardUnit = groupItems.reduce((total, groupItem) => {
+                                                      if (groupItem.unit && groupItem.unit_value && inventoryForm.standard_unit) {
+                                                        return total + convertUnit(groupItem.unit_value, groupItem.unit, inventoryForm.standard_unit);
+                                                      }
+                                                      return total;
+                                                    }, 0);
+
+                                                    // Show both original unit total and converted total
+                                                    const totalInOriginalUnit = groupItems.reduce((total, groupItem) => {
+                                                      if (groupItem.unit === item.unit && groupItem.unit_value) {
+                                                        return total + groupItem.unit_value;
+                                                      }
+                                                      return total;
+                                                    }, 0);
+
+                                                    if (inventoryForm.standard_unit && item.unit !== inventoryForm.standard_unit) {
+                                                      return `${formatNumber(totalInOriginalUnit)} ${item.unit} (${formatNumber(totalInStandardUnit)} ${inventoryForm.standard_unit})`;
+                                                    } else {
+                                                      return `${formatNumber(totalInOriginalUnit)} ${item.unit}`;
+                                                    }
+                                                  } else {
+                                                    // Individual item - show conversion if different from standard unit
+                                                    if (inventoryForm.standard_unit && item.unit !== inventoryForm.standard_unit) {
+                                                      const convertedValue = convertUnit(item.unit_value || 0, item.unit, inventoryForm.standard_unit);
+                                                      return `${formatNumber(item.unit_value || 0)} ${item.unit} (${formatNumber(convertedValue)} ${inventoryForm.standard_unit})`;
+                                                    } else {
+                                                      return `${formatNumber(item.unit_value || 0)} ${item.unit}`;
+                                                    }
+                                                  }
+                                                })()}
                                               </Chip>
                                             )}
-                                            {bulk.status && bulk.status !== "AVAILABLE" && (
+                                            {item.status && item.status !== "AVAILABLE" && (
                                               <Chip color="warning" variant="flat" size="sm">
-                                                {bulk.status}
+                                                {item.status}
                                               </Chip>
                                             )}
-                                            <Chip color="secondary" variant="flat" size="sm" className="flex">
-                                              {groupInfo.groupSize} items
-                                            </Chip>
                                           </div>
                                         </div>
                                       }
                                     >
                                       <div>
-                                        {bulk.uuid && (
-                                          <Input
-                                            label="Bulk Identifier"
-                                            value={bulk.uuid}
-                                            isReadOnly
-                                            classNames={{ inputWrapper: inputStyle.inputWrapper, base: "p-4 pb-0" }}
-                                            startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
-                                            endContent={
-                                              <Button
-                                                variant="flat"
-                                                color="default"
-                                                isIconOnly
-                                                onPress={() => copyToClipboard(bulk.uuid || "")}
-                                              >
-                                                <Icon icon="mdi:content-copy" className="text-default-500" />
-                                              </Button>
-                                            }
-                                          />
+                                        {/* Identifiers Section */}
+                                        {(groupInfo.isGroup && groupInfo.groupId || item.uuid && !groupInfo.isGroup) && (
+                                          <div className="space-y-4 px-4 pt-4">
+                                            {/* Group Identifier - show when item is part of a group */}
+                                            {groupInfo.isGroup && groupInfo.groupId && (
+                                              <Input
+                                                label="Group Identifier"
+                                                value={groupInfo.groupId}
+                                                isReadOnly
+                                                classNames={{ inputWrapper: inputStyle.inputWrapper }}
+                                                startContent={<Icon icon="mdi:group" className="text-default-500 mb-[0.2rem]" />}
+                                                endContent={
+                                                  <Button
+                                                    variant="flat"
+                                                    color="default"
+                                                    isIconOnly
+                                                    onPress={() => copyToClipboard(groupInfo.groupId!)}
+                                                  >
+                                                    <Icon icon="mdi:content-copy" className="text-default-500" />
+                                                  </Button>
+                                                }
+                                              />
+                                            )}
+
+                                            {/* Item Identifier - show when item has UUID */}
+                                            {item.uuid && !groupInfo.isGroup && (
+                                              <Input
+                                                label="Item Identifier"
+                                                value={item.uuid}
+                                                isReadOnly
+                                                classNames={{ inputWrapper: inputStyle.inputWrapper }}
+                                                startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
+                                                endContent={
+                                                  <Button
+                                                    variant="flat"
+                                                    color="default"
+                                                    isIconOnly
+                                                    onPress={() => copyToClipboard(item.uuid || "")}
+                                                  >
+                                                    <Icon icon="mdi:content-copy" className="text-default-500" />
+                                                  </Button>
+                                                }
+                                              />
+                                            )}
+                                          </div>
+                                        )}
+
+                                        {/* Group Size Control */}
+                                        {viewMode === 'grouped' && groupInfo.isGroup && (
+                                          <div className="p-4 pb-0">
+                                            <NumberInput
+                                              label="Group Size"
+                                              placeholder="2"
+                                              value={groupInfo.groupSize}
+                                              onValueChange={(value) => handleGroupSizeChange(groupInfo.groupId!, value)}
+                                              minValue={1}
+                                              maxValue={50}
+                                              isDisabled={!isItemEditable(item)}
+                                              classNames={inputStyle}
+                                              startContent={<Icon icon="mdi:group" className="text-default-500 mb-[0.2rem]" />}
+                                            />
+                                          </div>
                                         )}
 
                                         <Input
                                           label="Item Code"
                                           placeholder="Enter item code"
-                                          value={bulk.item_code || ""}
-                                          onChange={(e) => handleBulkChange(bulk.id, 'item_code', e.target.value)}
+                                          value={item.item_code || ""}
+                                          onChange={(e) => handleInventoryItemChange(item.id!, 'item_code', e.target.value)}
                                           isRequired
-                                          isDisabled={!isBulkEditable(bulk)}
+                                          isDisabled={!isItemEditable(item)}
                                           classNames={{ inputWrapper: inputStyle.inputWrapper, base: "p-4 pb-0" }}
                                           startContent={<Icon icon="mdi:barcode" className="text-default-500 mb-[0.2rem]" />}
                                           endContent={
@@ -1376,7 +1163,7 @@ export default function InventoryPage() {
                                               variant="flat"
                                               color="default"
                                               isIconOnly
-                                              onPress={() => copyToClipboard(bulk.uuid || "")}
+                                              onPress={() => copyToClipboard(item.item_code || "")}
                                             >
                                               <Icon icon="mdi:content-copy" className="text-default-500" />
                                             </Button>
@@ -1387,25 +1174,24 @@ export default function InventoryPage() {
                                           <NumberInput
                                             label={`${inventoryForm.measurement_unit ? inventoryForm.measurement_unit.charAt(0).toUpperCase() + inventoryForm.measurement_unit.slice(1) : "Item"} Value`}
                                             placeholder="0"
-                                            value={bulk.unit_value || 0}
-                                            onValueChange={(value) => handleBulkChange(bulk.id, 'unit_value', value)}
+                                            value={item.unit_value || 0}
+                                            onValueChange={(value) => handleInventoryItemChange(item.id!, 'unit_value', value)}
                                             isRequired
-                                            isDisabled={!isBulkEditable(bulk)}
+                                            isDisabled={!isItemEditable(item)}
                                             minValue={0}
                                             classNames={inputStyle}
                                             endContent={
                                               <div className="absolute right-10 bottom-2">
-                                                {bulk.unit && (
+                                                {item.unit && (
                                                   <Chip
                                                     color="primary"
                                                     variant="flat"
                                                     size="sm"
                                                   >
-                                                    {bulk.unit}
+                                                    {item.unit}
                                                   </Chip>
                                                 )}
                                               </div>
-
                                             }
                                             startContent={<Icon icon="mdi:numeric" className="text-default-500 mb-[0.1rem]" width={16} />}
                                           />
@@ -1413,10 +1199,10 @@ export default function InventoryPage() {
                                           <Autocomplete
                                             label={`${inventoryForm.measurement_unit ? inventoryForm.measurement_unit.charAt(0).toUpperCase() + inventoryForm.measurement_unit.slice(1) : "Item"} Unit`}
                                             placeholder={`Select ${inventoryForm.measurement_unit ? inventoryForm.measurement_unit.charAt(0).toUpperCase() + inventoryForm.measurement_unit.slice(1) : "Item"} unit`}
-                                            selectedKey={bulk.unit || ""}
-                                            onSelectionChange={(key) => { handleBulkChange(bulk.id, 'unit', key) }}
+                                            selectedKey={item.unit || ""}
+                                            onSelectionChange={(key) => { handleInventoryItemChange(item.id!, 'unit', key) }}
                                             isRequired
-                                            isDisabled={!isBulkEditable(bulk)}
+                                            isDisabled={!isItemEditable(item)}
                                             inputProps={autoCompleteStyle}
                                             startContent={<Icon icon="mdi:cube-outline"
                                               className="text-default-500 -mb-[0.1rem]" width={24} />}
@@ -1425,17 +1211,16 @@ export default function InventoryPage() {
                                               <AutocompleteItem key={unit}>{getUnitFullName(unit)}</AutocompleteItem>
                                             ))}
                                           </Autocomplete>
-
                                         </div>
 
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pb-0">
                                           <Autocomplete
                                             label="Packaging Unit"
                                             placeholder="Select packaging unit"
-                                            selectedKey={bulk.packaging_unit || ""}
-                                            onSelectionChange={(key) => handleBulkChange(bulk.id, 'packaging_unit', key)}
+                                            selectedKey={item.packaging_unit || ""}
+                                            onSelectionChange={(key) => handleInventoryItemChange(item.id!, 'packaging_unit', key)}
                                             isRequired
-                                            isDisabled={!isBulkEditable(bulk)}
+                                            isDisabled={!isItemEditable(item)}
                                             inputProps={autoCompleteStyle}
                                             startContent={<Icon icon="mdi:cube-outline"
                                               className="text-default-500 -mb-[0.1rem]" width={24} />}
@@ -1448,9 +1233,9 @@ export default function InventoryPage() {
                                           <NumberInput
                                             label="Cost"
                                             placeholder="0.00"
-                                            value={bulk.cost || 0}
-                                            onValueChange={(value) => handleBulkChange(bulk.id, 'cost', value)}
-                                            isDisabled={!isBulkEditable(bulk)}
+                                            value={item.cost || 0}
+                                            onValueChange={(value) => handleInventoryItemChange(item.id!, 'cost', value)}
+                                            isDisabled={!isItemEditable(item)}
                                             minValue={0}
                                             classNames={inputStyle}
                                             startContent={
@@ -1459,27 +1244,97 @@ export default function InventoryPage() {
                                               </div>
                                             }
                                           />
-
                                         </div>
+
                                         <div className="p-4">
                                           <CustomProperties
-                                            properties={bulk.properties || {}}
-                                            onPropertiesChange={(properties) => handleBulkPropertiesChange(bulk.id, properties)}
-                                            onInheritFrom={() => handleInheritBulkProperties(bulk.id)}
+                                            properties={item.properties || {}}
+                                            onPropertiesChange={(properties) => handleInventoryItemPropertiesChange(item.id!, properties)}
+                                            onInheritFrom={() => handleInheritItemProperties(item.id!)}
                                             showInheritButton={true}
-                                            isDisabled={!isBulkEditable(bulk)}
+                                            isDisabled={!isItemEditable(item)}
                                           />
                                         </div>
 
-                                        <div className="flex justify-end gap-2 bg-default-100/50 p-4">
+                                        <div className="flex justify-end gap-2 bg-default-100/50 p-4 flex-wrap">
+                                          {/* Group Controls - only show in grouped view for non-grouped items */}
+                                          {viewMode === 'grouped' && !groupInfo.isGroup && (
+                                            <Popover
+                                              isOpen={groupPopoverOpen}
+                                              onOpenChange={(open) => {
+                                                setGroupPopoverOpen(open);
+                                                if (open) setGroupSize(2);
+                                              }}
+                                            >
+                                              <PopoverTrigger>
+                                                <Button
+                                                  color="primary"
+                                                  variant="flat"
+                                                  size="sm"
+                                                  isDisabled={!isItemEditable(item)}
+                                                >
+                                                  <Icon icon="mdi:group" width={14} height={14} />
+                                                  Create group
+                                                </Button>
+                                              </PopoverTrigger>
+                                              <PopoverContent className="w-56">
+                                                <div className="p-2 space-y-3">
+                                                  <div className="text-sm font-medium">Create Group</div>
+                                                  <NumberInput
+                                                    label="Group size"
+                                                    value={groupSize}
+                                                    onValueChange={setGroupSize}
+                                                    minValue={2}
+                                                    maxValue={50}
+                                                    classNames={{
+                                                      inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200"
+                                                    }}
+                                                  />
+                                                  <div className="flex justify-end gap-2 mt-2">
+                                                    <Button
+                                                      size="sm"
+                                                      variant="flat"
+                                                      onPress={() => setGroupPopoverOpen(false)}
+                                                    >
+                                                      Cancel
+                                                    </Button>
+                                                    <Button
+                                                      size="sm"
+                                                      color="primary"
+                                                      variant="shadow"
+                                                      onPress={() => {
+                                                        handleCreateGroup(item.id!, groupSize);
+                                                        setGroupPopoverOpen(false);
+                                                      }}
+                                                    >
+                                                      Create Group
+                                                    </Button>
+                                                  </div>
+                                                </div>
+                                              </PopoverContent>
+                                            </Popover>
+                                          )}
+
+                                          {/* Ungroup button - only show for grouped items in grouped view */}
+                                          {viewMode === 'grouped' && groupInfo.isGroup && (
+                                            <Button
+                                              color="warning"
+                                              variant="flat"
+                                              size="sm"
+                                              onPress={() => handleUngroupItems(groupInfo.groupId!)}
+                                              isDisabled={!isItemEditable(item)}
+                                            >
+                                              <Icon icon="mdi:ungroup" width={14} height={14} />
+                                              Ungroup
+                                            </Button>
+                                          )}
+
+                                          {/* Duplicate Button */}
                                           <Popover
-                                            isOpen={duplicatePopoverOpen && itemToDuplicate?.type === 'bulk' && itemToDuplicate.id === bulk.id}
+                                            isOpen={duplicatePopoverOpen}
                                             onOpenChange={(open) => {
                                               setDuplicatePopoverOpen(open);
-                                              if (open) {
-                                                setItemToDuplicate({ type: 'bulk', id: bulk.id });
-                                                setDuplicateCount(1);
-                                              }
+                                              if (open) setDuplicateCount(1);
                                             }}
                                           >
                                             <PopoverTrigger>
@@ -1487,15 +1342,17 @@ export default function InventoryPage() {
                                                 color="secondary"
                                                 variant="flat"
                                                 size="sm"
-                                                isDisabled={!isBulkEditable(bulk)}
+                                                isDisabled={!isItemEditable(item)}
                                               >
                                                 <Icon icon="ion:duplicate" width={14} height={14} />
-                                                Duplicate
+                                                Duplicate {viewMode === 'grouped' && groupInfo.isGroup ? 'Group' : 'Item'}
                                               </Button>
                                             </PopoverTrigger>
                                             <PopoverContent className="w-56">
                                               <div className="p-2 space-y-3">
-                                                <div className="text-sm font-medium">Duplicate {groupInfo.isGroup ? "Group" : "Item"}</div>
+                                                <div className="text-sm font-medium">
+                                                  Duplicate {viewMode === 'grouped' && groupInfo.isGroup ? 'Group' : 'Item'}
+                                                </div>
                                                 <NumberInput
                                                   label="Number of copies"
                                                   value={duplicateCount}
@@ -1519,7 +1376,7 @@ export default function InventoryPage() {
                                                     color="primary"
                                                     variant="shadow"
                                                     onPress={() => {
-                                                      handleDuplicateBulk(bulk.id, duplicateCount);
+                                                      handleDuplicateItem(item.id!, duplicateCount);
                                                       setDuplicatePopoverOpen(false);
                                                     }}
                                                   >
@@ -1530,100 +1387,22 @@ export default function InventoryPage() {
                                             </PopoverContent>
                                           </Popover>
 
-                                          {/* New Adjust Group button - only show for groups */}
-                                          {groupInfo.isGroup && (
-                                            <Popover
-                                              isOpen={adjustGroupPopoverOpen && groupToAdjust?.groupKey === groupInfo.groupKey}
-                                              onOpenChange={(open) => {
-                                                setAdjustGroupPopoverOpen(open);
-                                                if (open) {
-                                                  setGroupToAdjust({
-                                                    groupKey: groupInfo.groupKey,
-                                                    currentCount: groupInfo.groupSize
-                                                  });
-                                                  setNewGroupCount(groupInfo.groupSize);
-                                                }
-                                              }}
-                                            >
-                                              <PopoverTrigger>
-                                                <Button
-                                                  color="warning"
-                                                  variant="flat"
-                                                  size="sm"
-                                                  isDisabled={!isBulkEditable(bulk)}
-                                                >
-                                                  <Icon icon="mdi:tune" width={14} height={14} />
-                                                  Adjust
-                                                </Button>
-                                              </PopoverTrigger>
-                                              <PopoverContent className="w-56">
-                                                <div className="p-2 space-y-3">
-                                                  <div className="text-sm font-medium">Adjust Group Size</div>
-                                                  <div className="text-xs text-default-500">
-                                                    Current: {groupInfo.groupSize} items
-                                                  </div>
-                                                  <NumberInput
-                                                    label="New group size"
-                                                    value={newGroupCount}
-                                                    onValueChange={setNewGroupCount}
-                                                    minValue={1}
-                                                    maxValue={20}
-                                                    classNames={{
-                                                      inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200"
-                                                    }}
-                                                  />
-                                                  <div className="flex justify-end gap-2 mt-2">
-                                                    <Button
-                                                      size="sm"
-                                                      variant="flat"
-                                                      onPress={() => setAdjustGroupPopoverOpen(false)}
-                                                    >
-                                                      Cancel
-                                                    </Button>
-                                                    <Button
-                                                      size="sm"
-                                                      color="warning"
-                                                      variant="shadow"
-                                                      onPress={() => {
-                                                        if (groupToAdjust) {
-                                                          handleAdjustGroup(groupToAdjust.groupKey, newGroupCount);
-                                                        }
-                                                        setAdjustGroupPopoverOpen(false);
-                                                      }}
-                                                    >
-                                                      Adjust
-                                                    </Button>
-                                                  </div>
-                                                </div>
-                                              </PopoverContent>
-                                            </Popover>
-                                          )}
-
+                                          {/* Delete Button */}
                                           <Button
                                             color="danger"
                                             variant="flat"
                                             size="sm"
-                                            onPress={() => {
-                                              if (groupInfo.isGroup) {
-                                                // Remove entire group
-                                                const groupKey = groupInfo.groupKey;
-                                                setBulkItems(bulkItems.filter(item =>
-                                                  !(generateGroupKey(item) === groupKey && item.isNew)
-                                                ));
-                                              } else {
-                                                handleDeleteBulk(bulk.id);
-                                              }
-                                            }}
+                                            onPress={() => handleDeleteInventoryItem(item.id!)}
                                             startContent={<Icon icon="mdi:delete" width={16} height={16} />}
-                                            isDisabled={!isBulkEditable(bulk)}
+                                            isDisabled={!isItemEditable(item)}
                                           >
-                                            Remove
+                                            Remove {viewMode === 'grouped' && groupInfo.isGroup ? 'Group' : 'Item'}
                                           </Button>
                                         </div>
                                       </div>
                                     </AccordionItem>
                                   );
-                                }).filter(Boolean)}
+                                })}
                               </Accordion>
                             </motion.div>
                           )}
@@ -1664,7 +1443,7 @@ export default function InventoryPage() {
                             isDisabled={isLoading}
                           >
                             <Icon icon="mdi:delete" className="mr-1" />
-                            Delete Item
+                            Delete Inventory
                           </Button>
                         )}
                         <Button
@@ -1698,7 +1477,7 @@ export default function InventoryPage() {
           <ModalContent>
             <ModalHeader>Confirm Deletion</ModalHeader>
             <ModalBody>
-              Are you sure you want to delete this {itemToDelete?.type}? This action cannot be undone.
+              Are you sure you want to delete this {itemToDelete?.type === 'group' ? 'group and all its items?' : `${itemToDelete?.type}? This action cannot be undone.`}
             </ModalBody>
             <ModalFooter className="flex justify-end p-4 gap-4">
               <Button variant="flat" onPress={deleteModal.onClose} isDisabled={isLoading}>
@@ -1707,23 +1486,6 @@ export default function InventoryPage() {
               <Button color="danger" variant="shadow" onPress={executeDelete} isLoading={isLoading}>
                 <Icon icon="mdi:delete" className="mr-1" />
                 Delete
-              </Button>
-            </ModalFooter>
-          </ModalContent>
-        </Modal>
-        <Modal
-          isOpen={showMergeWarning}
-          onClose={() => setShowMergeWarning(false)}
-          backdrop="blur"
-        >
-          <ModalContent>
-            <ModalHeader>Duplicate Group Detected</ModalHeader>
-            <ModalBody>
-              You have duplicated a group but did not change its details. If you save, these groups will be merged. Please modify the details of the duplicated group(s) to keep them separate.
-            </ModalBody>
-            <ModalFooter>
-              <Button variant="flat" onPress={() => setShowMergeWarning(false)}>
-                OK
               </Button>
             </ModalFooter>
           </ModalContent>

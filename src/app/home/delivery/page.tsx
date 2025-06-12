@@ -3334,9 +3334,10 @@ export default function DeliveryPage() {
           {/* Left side: Delivery List */}
           <SearchListPanel
             title="Delivery Items"
+            tableName="delivery_items"
             searchPlaceholder="Search deliveries..."
             searchLimit={10}
-            date_filters={["dateRange", "weekFilter", "specificDate"]}
+            dateFilters={["dateRange", "weekFilter", "specificDate"]}
             filters={deliveryFilters}
             companyUuid={user?.company_uuid}
             renderItem={(delivery) => (

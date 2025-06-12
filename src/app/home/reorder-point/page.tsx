@@ -44,7 +44,7 @@ import CardList from "@/components/card-list";
 import { motionTransition, motionTransitionScale, popoverTransition } from "@/utils/anim";
 import { getReorderPointLogs, updateCustomSafetyStock, triggerReorderPointCalculation, InventoryStatus, ReorderPointLog, getOperators, triggerSpecificReorderPointCalculation } from "./actions";
 import { getWarehouses } from "../warehouses/actions";
-import { getInventoryItems } from "../inventory/actions";
+// import { getInventoryItems } from "../inventory/actions";
 import { formatDate } from "@/utils/tools";
 
 // Add these imports to the existing imports at the top of the file

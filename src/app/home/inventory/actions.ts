@@ -1,5 +1,6 @@
 "use server";
 
+import { getDefaultStandardUnit } from "@/utils/measurements";
 import { createClient } from "@/utils/supabase/server";
 
 export interface InventoryItem {
@@ -13,6 +14,7 @@ export interface InventoryItem {
   cost?: number;
   properties: Record<string, any>;
   status?: string;
+  group_id?: string;
   created_at: Date;
   updated_at: Date;
 }
@@ -24,6 +26,19 @@ export interface Inventory {
   name: string;
   description?: string;
   measurement_unit: string;
+  standard_unit: string; // New field
+  unit_values?: {
+    inventory: number;
+    warehouse: number;
+    available: number;
+    total: number;
+  };
+  count?: {
+    inventory: number;
+    warehouse: number;
+    available: number;
+    total: number;
+  };
   inventory_items?: number;
   properties: Record<string, any>;
   status?: string;
@@ -31,71 +46,8 @@ export interface Inventory {
   updated_at: Date;
 }
 
-
 /**
- * Fetches inventory items for a company with pagination
- */
-export async function getInventoryItems(
-  companyUuid?: string,
-  search: string = "",
-  status?: string | null,
-  year?: number | null,
-  month?: number | null,
-  week?: number | null,
-  day?: number | null,
-  limit: number = 10,
-  offset: number = 0
-) {
-  const supabase = await createClient();
-
-  try {
-    const { data, error } = await supabase
-      .rpc('get_inventories', {
-        p_company_uuid: companyUuid || null,
-        p_search: search || '',
-        p_status: status || null,
-        p_year: year || null,
-        p_month: month || null,
-        p_week: week || null,
-        p_day: day || null,
-        p_limit: limit,
-        p_offset: offset
-      });
-
-    if (error) {
-      throw error;
-    }
-
-    // Extract total count from first row (all rows have the same total_count)
-    const totalCount = data && data.length > 0 ? data[0].total_count : 0;
-
-    // Remove total_count from each item and return clean inventory items
-    const items = data ? data.map(({ total_count, ...item }: { total_count: number } & Record<string, any>) => item) : [];
-
-    return {
-      success: true,
-      data: items,
-      totalCount: Number(totalCount),
-      hasMore: offset + items.length < totalCount,
-      currentPage: Math.floor(offset / limit) + 1,
-      totalPages: Math.ceil(totalCount / limit)
-    };
-  } catch (error: Error | any) {
-    console.error("Error fetching inventory items:", error);
-    return {
-      success: false,
-      data: [],
-      totalCount: 0,
-      hasMore: false,
-      currentPage: 1,
-      totalPages: 0,
-      error: `Failed to fetch inventory items: ${error.message || "Unknown error"}`,
-    };
-  }
-}
-
-/**
- * Fetches a single inventory item with its bulks and units
+ * Fetches a single inventory 
  */
 export async function getInventoryItem(uuid: string, getItemsInWarehouse: boolean = false) {
   const supabase = await createClient();
@@ -116,7 +68,9 @@ export async function getInventoryItem(uuid: string, getItemsInWarehouse: boolea
       };
     }
 
-    // The RPC function should return the inventory item with nested bulks and units
+    console.log(data);
+
+    // The RPC function should return the inventory 
     const inventoryItem = data[0];
 
     return {
@@ -132,16 +86,20 @@ export async function getInventoryItem(uuid: string, getItemsInWarehouse: boolea
   }
 }
 
+
 /**
  * Creates a new inventory item with bulk
  */
 export async function createInventoryItem(
-  inventory: Pick<Inventory, "company_uuid" | "name" | "description" | "admin_uuid" | "measurement_unit" | "properties">,
-  inventoryItems: Pick<InventoryItem, "company_uuid" | "item_code" | "unit" | "unit_value" | "packaging_unit" | "cost" | "properties">[],
+  inventory: Pick<Inventory, "company_uuid" | "name" | "description" | "admin_uuid" | "measurement_unit" | "standard_unit" | "properties">,
+  inventoryItems: Pick<InventoryItem, "company_uuid" | "item_code" | "unit" | "unit_value" | "packaging_unit" | "cost" | "properties"| "group_id">[],
 ) {
   const supabase = await createClient();
 
   try {
+    // Ensure standard_unit is set
+    const standard_unit = inventory.standard_unit || getDefaultStandardUnit(inventory.measurement_unit);
+
     const { data: inventoryData, error: inventoryError } = await supabase
       .from("inventory")
       .insert({
@@ -150,6 +108,7 @@ export async function createInventoryItem(
         name: inventory.name,
         description: inventory.description,
         measurement_unit: inventory.measurement_unit,
+        standard_unit: standard_unit,
         properties: inventory.properties 
       })
       .select()
@@ -165,7 +124,8 @@ export async function createInventoryItem(
       unit_value: inventoryItem.unit_value,
       packaging_unit: inventoryItem.packaging_unit,
       cost: inventoryItem.cost,
-      properties: inventoryItem.properties
+      properties: inventoryItem.properties,
+      group_id: inventoryItem.group_id || ""
     }));
 
     const { error: bulkError } = await supabase
@@ -185,38 +145,39 @@ export async function createInventoryItem(
 }
 
 /**
- * Updates an existing inventory item with its bulks and units using RPC
+ * Updates an existing inventory
  */
 export async function updateInventoryItem(
   uuid: string,
-  itemUpdates: Partial<Inventory> & { properties?: Record<string, any> },
-  bulkUpdates: (Partial<InventoryItem> & { uuid: string })[],
-  newBulks: Pick<InventoryItem, "company_uuid" | "item_code" | "unit" | "unit_value" | "packaging_unit" | "cost" | "properties">[] = [],
-  deletedBulks: string[] = []
+  inventoryUpdates: Partial<Inventory> & { properties?: Record<string, any> },
+  inventoryItemUpdates: (Partial<InventoryItem> & { uuid: string })[],
+  newInventoryItem: Pick<InventoryItem, "company_uuid" | "item_code" | "unit" | "unit_value" | "packaging_unit" | "cost" | "properties" | "group_id">[] = [],
+  deletedInventoryItem: string[] = []
 ) {
   const supabase = await createClient();
 
   try {
     // Prepare item updates - only include defined properties
-    const cleanItemUpdates: Record<string, any> = {};
-    if (itemUpdates.name !== undefined) cleanItemUpdates.name = itemUpdates.name;
-    if (itemUpdates.description !== undefined) cleanItemUpdates.description = itemUpdates.description;
-    if (itemUpdates.measurement_unit !== undefined) cleanItemUpdates.unit = itemUpdates.measurement_unit;
-    if (itemUpdates.properties !== undefined) cleanItemUpdates.properties = itemUpdates.properties;
+    const cleanInventoryUpdates: Record<string, any> = {};
+    if (inventoryUpdates.name !== undefined) cleanInventoryUpdates.name = inventoryUpdates.name;
+    if (inventoryUpdates.description !== undefined) cleanInventoryUpdates.description = inventoryUpdates.description;
+    if (inventoryUpdates.measurement_unit !== undefined) cleanInventoryUpdates.measurement_unit = inventoryUpdates.measurement_unit;
+    if (inventoryUpdates.standard_unit !== undefined) cleanInventoryUpdates.standard_unit = inventoryUpdates.standard_unit;
+    if (inventoryUpdates.properties !== undefined) cleanInventoryUpdates.properties = inventoryUpdates.properties;
 
     // Prepare bulk updates - remove uuid from update data
-    const cleanBulkUpdates = bulkUpdates.map(({ uuid: bulkUuid, ...rest }) => ({
+    const cleanInventoryItemUpdates = inventoryItemUpdates.map(({ uuid: bulkUuid, ...rest }) => ({
       uuid: bulkUuid,
       ...rest
     }));
 
     const { data, error } = await supabase
-      .rpc('update_inventory_item_details', {
+      .rpc('update_inventory_details', {
         p_inventory_uuid: uuid,
-        p_item_updates: Object.keys(cleanItemUpdates).length > 0 ? cleanItemUpdates : {},
-        p_bulk_updates: cleanBulkUpdates,
-        p_new_bulks: newBulks,
-        p_deleted_bulks: deletedBulks,
+        p_inventory_updates: Object.keys(cleanInventoryUpdates).length > 0 ? cleanInventoryUpdates : {},
+        p_inventory_item_updates: cleanInventoryItemUpdates,
+        p_new_inventory_item: newInventoryItem,
+        p_deleted_inventory_item: deletedInventoryItem,
       });
 
     if (error) throw error;
@@ -239,7 +200,7 @@ export async function updateInventoryItem(
 }
 
 /**
- * Deletes an inventory item with all its bulks and units
+ * Deletes an inventory
  */
 export async function deleteInventoryItem(uuid: string) {
   const supabase = await createClient();
@@ -247,7 +208,7 @@ export async function deleteInventoryItem(uuid: string) {
   try {
     // Due to the cascading deletes, we only need to delete the inventory item
     const { error } = await supabase
-      .from("inventory_items")
+      .from("inventory")
       .delete()
       .eq("uuid", uuid);
 
@@ -256,31 +217,6 @@ export async function deleteInventoryItem(uuid: string) {
     return { success: true };
   } catch (error) {
     console.error("Error deleting inventory item:", error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error occurred"
-    };
-  }
-}
-
-/**
- * Deletes a bulk item and all its units
- */
-export async function deleteInventoryItemBulk(uuid: string) {
-  const supabase = await createClient();
-
-  try {
-    // Due to the cascading deletes, we only need to delete the bulk item
-    const { error } = await supabase
-      .from("inventory_item_bulk")
-      .delete()
-      .eq("uuid", uuid);
-
-    if (error) throw error;
-
-    return { success: true };
-  } catch (error) {
-    console.error("Error deleting bulk item:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error occurred"

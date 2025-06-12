@@ -24,6 +24,7 @@ import { Icon } from "@iconify/react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ReactNode, useEffect, useState } from "react";
 import { getFilteredItems } from "./actions";
+import { createClient } from '@/utils/supabase/client';
 
 
 export type DateFilterType = "dateRange" | "weekFilter" | "specificDate";
@@ -37,10 +38,11 @@ export interface FilterOption {
 
 export interface SearchListPanelProps {
   title: string;
+  tableName: string;
   searchPlaceholder: string;
   searchLimit: number;
   filters?: Record<string, FilterOption>;
-  date_filters?: DateFilterType[]; // Add this new property
+  dateFilters?: DateFilterType[]; // Add this new property
   companyUuid: string;
   renderItem: (item: any) => ReactNode;
   renderSkeletonItem: (index: number) => ReactNode;
@@ -52,10 +54,11 @@ export interface SearchListPanelProps {
 
 export function SearchListPanel({
   title,
+  tableName,
   searchPlaceholder,
   searchLimit,
   filters,
-  date_filters,
+  dateFilters,
   companyUuid,
   renderItem,
   renderSkeletonItem,
@@ -125,15 +128,15 @@ export function SearchListPanel({
           ...acc,
           [`p_${key}`]: currentFilters[key],
         }), {}),
-        ...(date_filters?.includes("dateRange") && {
+        ...(dateFilters?.includes("dateRange") && {
           p_date_from: dateFromString,
           p_date_to: dateToString,
         }),
-        ...(date_filters?.includes("weekFilter") && {
+        ...(dateFilters?.includes("weekFilter") && {
           p_year: yearFilter,
           p_week: weekFilter,
         }),
-        ...(date_filters?.includes("specificDate") && {
+        ...(dateFilters?.includes("specificDate") && {
           p_year: yearFilter,
           p_month: monthFilter,
           p_day: dayFilter,
@@ -207,10 +210,31 @@ export function SearchListPanel({
     weekFilter ||
     dayFilter;
 
-  // Determine which date tabs should be visible
-  const hasSpecificDate = yearFilter || monthFilter || dayFilter;
-  const hasWeekFilter = yearFilter && weekFilter;
-  const hasDateRange = dateFrom || dateTo;
+
+  // Handle real-time updates
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`${tableName}-changes`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: tableName,
+          filter: `company_uuid=eq.${companyUuid}`
+        },
+        async () => {
+          console.log("Real-time change detected, reloading items...");
+          await handleSearch();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [searchQuery, page, searchLimit, companyUuid, tableName]);
 
   return (
     <div className={className}>
@@ -255,7 +279,7 @@ export function SearchListPanel({
             />
 
             {/* Filter section */}
-            {((filters && Object.keys(filters).length > 0) || (date_filters && date_filters.length > 0)) && (
+            {((filters && Object.keys(filters).length > 0) || (dateFilters && dateFilters.length > 0)) && (
               <div className="flex items-center gap-2 mt-4">
                 <ScrollShadow
                   orientation="horizontal"
@@ -321,7 +345,7 @@ export function SearchListPanel({
                                 )}
 
                               {/* Date filters */}
-                              {date_filters && date_filters.length > 0 && (
+                              {dateFilters && dateFilters.length > 0 && (
                                 <div className="space-y-3 border-2 border-default-200 rounded-xl p-4 bg-default-100/25">
                                   <div className="flex items-center gap-2">
                                     <Icon icon="mdi:calendar-range" className="text-default-500" />
@@ -351,7 +375,7 @@ export function SearchListPanel({
                                     }}
                                     className="w-full"
                                   >
-                                    {date_filters.includes("dateRange") && (
+                                    {dateFilters.includes("dateRange") && (
                                       <Tab key="range" title="Date Range">
                                         <DateRangePicker
                                           label="Select Date Range"
@@ -374,7 +398,7 @@ export function SearchListPanel({
                                       </Tab>
                                     )}
 
-                                    {date_filters.includes("weekFilter") && (
+                                    {dateFilters.includes("weekFilter") && (
                                       <Tab key="week" title="By Week">
                                         <div className="space-y-3">
                                           <div className="flex gap-2">
@@ -428,7 +452,7 @@ export function SearchListPanel({
                                       </Tab>
                                     )}
 
-                                    {date_filters.includes("specificDate") && (
+                                    {dateFilters.includes("specificDate") && (
                                       <Tab key="specific" title="Specific Date">
                                         <div className="space-y-3">
                                           <div className="grid grid-cols-3 gap-2">
@@ -498,7 +522,7 @@ export function SearchListPanel({
                               )}
                             </div>
 
-                            <div className="p-4 border-t border-default-200 flex justify-end gap-2 bg-default-100/50">
+                            <div className="p-4 border-t border-default-200 flex justify-end gap-2 bg-default-100/35">
                               {/* Clear All Filters Button */}
                               {(Object.keys(activeFilters).length > 0 ||
                                 dateFrom || dateTo || yearFilter || weekFilter || monthFilter || dayFilter) && (
@@ -592,10 +616,10 @@ export function SearchListPanel({
           <CustomScrollbar
             scrollShadow={items.length <= searchLimit}
             scrollShadowTop={false}
-            scrollbarMarginTop={(filters && Object.keys(filters).length > 0) || (date_filters && date_filters.length > 0) ? "10.75rem" : "7.25rem"}
+            scrollbarMarginTop={(filters && Object.keys(filters).length > 0) || (dateFilters && dateFilters.length > 0) ? "10.75rem" : "7.25rem"}
             scrollbarMarginBottom={items.length > searchLimit ? "6.5rem" : "0.5rem"}
             disabled={isLoading}
-            className={`space-y-4 p-4 mt-1 h-full relative ${items.length > searchLimit && "pb-28"} ${(filters && Object.keys(filters).length > 0) || (date_filters && date_filters.length > 0) ? "pt-[11.5rem]" : "pt-32"}`}>
+            className={`space-y-4 p-4 mt-1 h-full relative ${items.length > searchLimit && "pb-28"} ${(filters && Object.keys(filters).length > 0) || (dateFilters && dateFilters.length > 0) ? "pt-[11.5rem]" : "pt-32"}`}>
             <ListLoadingAnimation
               condition={isLoading}
               containerClassName="space-y-4"

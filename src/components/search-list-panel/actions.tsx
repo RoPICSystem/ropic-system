@@ -16,6 +16,8 @@ export async function getFilteredItems(
   try {
     const { data, error } = await supabase.rpc(functionName, params);
 
+
+    console.log(error);
     if (error) throw error;
 
     // Extract total count and remove from each item

@@ -31,7 +31,7 @@ import { Icon } from "@iconify/react";
 import { AnimatePresence, motion } from 'framer-motion';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { createWarehouse, deleteWarehouse, getWarehouseByUuid, getWarehouses, updateWarehouse, Warehouse } from './actions';
+import { createWarehouse, deleteWarehouse, getWarehouseByUuid, updateWarehouse, Warehouse } from './actions';
 
 import { copyToClipboard, showErrorToast } from '@/utils/tools';
 import WarehouseLayoutEditorModal from './layout-editor-modal';
@@ -157,39 +157,6 @@ export default function WarehousePage() {
       return { regions: [], provinces: [], cities: [], barangays: [] }
     }
   }
-
-
-
-  // Fetch warehouses with pagination
-  const fetchWarehouses = async (companyUuid: string) => {
-    if (!companyUuid) return;
-
-    try {
-      // Calculate offset based on current page and rows per page
-      const offset = (page - 1) * rowsPerPage;
-
-      const result = await getWarehouses(
-        companyUuid,
-        searchQuery,
-        null, // year
-        null, // month
-        null, // week
-        null, // day
-        rowsPerPage,
-        offset
-      );
-
-      if (result.success) {
-        setWarehouses(result.data);
-        setTotalWarehouses(result.totalCount);
-        setTotalPages(result.totalPages || 1);
-      } else
-        showErrorToast(`Error fetching warehouses`, result.error);
-
-    } catch (error) {
-      showErrorToast(`Error fetching warehouses`, (error instanceof Error ? error.message : 'Unknown error'));
-    }
-  };
 
   const resetAddressFields = () => {
     setSelectedRegion('');
@@ -342,8 +309,6 @@ export default function WarehousePage() {
       deleteModal.onClose();
       setWarehouseToDelete(null);
 
-      // Refresh warehouse list
-      fetchWarehouses(user?.company_uuid || '');
 
       setTimeout(() => {
         // Redirect to blank form after deletion
@@ -389,8 +354,6 @@ export default function WarehousePage() {
     }
 
     if (!result.error) {
-      // Refresh warehouse list
-      fetchWarehouses(user?.company_uuid || '');
 
       // If creating a new warehouse, update the URL with the new ID
       if (!currentWarehouse.uuid && result.data?.uuid) {
@@ -438,7 +401,6 @@ export default function WarehousePage() {
         setRowsPerPage(userData.settings.pageSize);
       }
 
-      await fetchWarehouses(userData.company_uuid);
       await loadAddressData();
       setListLoading(false);
     }
@@ -450,9 +412,6 @@ export default function WarehousePage() {
   useEffect(() => {
     const fetchWarehousesAsync = async () => {
       if (!user?.company_uuid) return;
-      setListLoading(true);
-      await fetchWarehouses(user?.company_uuid || '');
-      setListLoading(false);
     }
     fetchWarehousesAsync();
   }, [page, rowsPerPage, searchQuery, user]);
@@ -494,34 +453,6 @@ export default function WarehousePage() {
     }
 
   }, [searchParams]);
-
-  // Handle real-time updates (including deletions)
-  useEffect(() => {
-    if (!user?.company_uuid) return;
-
-    const supabase = createClient();
-
-    const channel = supabase
-      .channel('warehouses-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'warehouses',
-          filter: `company_uuid=eq.${user.company_uuid}`
-        },
-        async (payload) => {
-          console.log(payload);
-          fetchWarehouses(user.company_uuid);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user?.company_uuid, searchQuery, page, rowsPerPage]);
 
   const renderLayoutPreview = () => {
     if (!warehouseLayout || !Array.isArray(warehouseLayout) || warehouseLayout.length === 0) {
@@ -629,9 +560,10 @@ export default function WarehousePage() {
           {/* Left side: Warehouse List */}
           <SearchListPanel
             title="Warehouses"
+            tableName="warehouses"
             searchPlaceholder="Search warehouses..."
             searchLimit={10}
-            date_filters={["weekFilter", "specificDate"]}
+            dateFilters={["weekFilter", "specificDate"]}
             companyUuid={user?.company_uuid}
             renderItem={(warehouse) => (
               <Button

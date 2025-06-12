@@ -39,7 +39,7 @@ export const hslToHex = (h: number, s: number, l: number): string => {
 export const herouiColor = (color: string, colorType: 'hsl' | 'rgb' | 'hex' = 'hsl') => {
 
   // Check if we're in a browser environment
-  if (typeof window === 'undefined') 
+  if (typeof window === 'undefined')
     switch (colorType) {
       case 'hsl':
         return [0, 0, 0]; // Default HSL
@@ -50,8 +50,8 @@ export const herouiColor = (color: string, colorType: 'hsl' | 'rgb' | 'hex' = 'h
       default:
         return [0, 0, 0]; // Default HSL
     }
-  
-  const rootStyle = getComputedStyle(document.documentElement); 
+
+  const rootStyle = getComputedStyle(document.documentElement);
   const hsl = rootStyle.getPropertyValue(`--heroui-${color}`).trim().split(' ').map(val => {
     return parseFloat(val.replace('%', ''));
   })
@@ -65,15 +65,15 @@ export const herouiColor = (color: string, colorType: 'hsl' | 'rgb' | 'hex' = 'h
     default:
       return hsl;
   }
-} 
+}
 
 
 export const herouiColorOpacity = (color: string, opacity: number, colorType: 'hsl' | 'rgb' | 'hex' = 'hsl') => {
-  const rootStyle = getComputedStyle(document.documentElement); 
+  const rootStyle = getComputedStyle(document.documentElement);
   const hsl = rootStyle.getPropertyValue(`--heroui-${color}`).trim().split(' ').map(val => {
     return parseFloat(val.replace('%', ''));
   })
-  
+
   switch (colorType) {
     case 'hsl':
       return [hsl[0], hsl[1], hsl[2], opacity];
@@ -87,3 +87,16 @@ export const herouiColorOpacity = (color: string, opacity: number, colorType: 'h
       return [hsl[0], hsl[1], hsl[2], opacity];
   }
 }
+
+export const getStatusColor = (status: any) => {
+  switch (status) {
+    case 'AVAILABLE': return 'success';
+    case 'IN_WAREHOUSE': return 'primary';
+    case 'RESERVED': return 'warning';
+    case 'CRITICAL': return 'danger';
+    case 'IN_STOCK': return 'success';
+    case 'WARNING': return 'warning';
+    case 'OUT_OF_STOCK': return 'danger';
+    default: return 'default';
+  }
+};

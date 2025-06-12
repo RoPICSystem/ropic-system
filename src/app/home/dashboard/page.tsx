@@ -351,12 +351,22 @@ export default function DashboardPage() {
   // Helper function to determine chip color based on status
   const getStatusColor = (status: any) => {
     switch (status) {
-      case 'AVAILABLE': return 'success';
+      case "PENDING": return "primary";
+      case "PROCESSING": return "warning";
+      case "IN_TRANSIT": return "secondary";
+      case "DELIVERED": return "success";
+      case "CANCELLED": return "danger";
+      
       case 'IN_WAREHOUSE': return 'primary';
-      case 'RESERVED': return 'warning';
-      case 'CRITICAL': return 'danger';
+      case 'AVAILABLE': return 'success';
       case 'IN_STOCK': return 'success';
+      case 'ON_DELIVERY': return 'warning';
       case 'WARNING': return 'warning';
+      case "IN_USE": return "warning";
+      case 'RESERVED': return 'warning';
+      case 'WARNING': return 'warning';
+      case "USED": return "danger";
+      case 'CRITICAL': return 'danger';
       case 'OUT_OF_STOCK': return 'danger';
       default: return 'default';
     }
