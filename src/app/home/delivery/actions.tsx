@@ -145,47 +145,6 @@ export async function updateInventoryItemsStatus(inventoryItemUuids: string[], s
 
 
 /**
- * Fetches available inventory items for an inventory
- */
-export async function getInventoryItemsForDelivery(inventoryUuid: string, getItemsInWarehouse: boolean = false, condition: string = "") {
-  const supabase = await createClient();
-
-  try {
-    let query = supabase
-      .from("inventory_items")
-      .select("*")
-      .eq("inventory_uuid", inventoryUuid)
-      .order("created_at", { ascending: false });
-
-    if (!getItemsInWarehouse) {
-      query = query.neq("status", "IN_WAREHOUSE").neq("status", "USED");
-    }
-
-    if (condition) {
-      query = query.or(`${condition}`);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      throw error;
-    }
-
-    return {
-      success: true,
-      data: data || []
-    };
-  } catch (error: Error | any) {
-    console.error("Error fetching inventory items for delivery:", error);
-    return {
-      success: false,
-      data: [],
-      error: `Failed to fetch inventory items for delivery: ${error.message || "Unknown error"}`,
-    };
-  }
-}
-
-/**
  * Deletes a delivery item
  */
 export async function deleteDeliveryItem(uuid: string) {
@@ -423,7 +382,7 @@ export async function getOccupiedShelfLocations(warehouseUuid: string) {
     // Get all occupied locations from delivery_items
     const { data: deliveryData, error: deliveryError } = await supabase
       .from("delivery_items")
-      .select("inventory_locations")
+      .select("locations")
       .eq("warehouse_uuid", warehouseUuid)
       .neq("status", "CANCELLED");
 
@@ -431,12 +390,9 @@ export async function getOccupiedShelfLocations(warehouseUuid: string) {
       throw deliveryError;
     }
 
-    // Extract ShelfLocation values from inventory_locations objects and filter nulls
+    // Flatten the array of location arrays and filter nulls
     const occupiedLocations = deliveryData
-      .flatMap(item => {
-        if (!item.inventory_locations) return [];
-        return Object.values(item.inventory_locations);
-      })
+      .flatMap(item => item.locations || [])
       .filter(location => location !== null);
 
     return {
@@ -839,3 +795,5 @@ export async function getDeliveryDetails(
     };
   }
 }
+
+
