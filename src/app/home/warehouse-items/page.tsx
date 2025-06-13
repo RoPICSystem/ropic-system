@@ -1,541 +1,100 @@
-"use client";
+'use client';
 
-import ListLoadingAnimation from "@/components/list-loading-animation";
-import { createClient } from "@/utils/supabase/client";
+import CardList from "@/components/card-list";
+import CustomProperties from "@/components/custom-properties";
+import LoadingAnimation from '@/components/loading-animation';
+import { SearchListPanel } from "@/components/search-list-panel/search-list-panel";
+import { getStatusColor, herouiColor } from "@/utils/colors";
+import { motionTransition, motionTransitionScale, motionTransitionX, popoverTransition } from "@/utils/anim";
+import { getUserFromCookies } from '@/utils/supabase/server/user';
+import { copyToClipboard, formatDate, formatNumber, toNormalCase, toTitleCase } from "@/utils/tools";
+import { getGroupInfo, getItemDisplayNumber } from "@/utils/inventory-group";
 import {
   Accordion,
   AccordionItem,
   Alert,
-  Autocomplete,
-  AutocompleteItem,
   Button,
   Chip,
   Input,
-  Kbd,
   Modal,
   ModalBody,
   ModalContent,
   ModalFooter,
   ModalHeader,
-  Pagination,
   Popover,
   PopoverContent,
   PopoverTrigger,
-  ScrollShadow,
   Skeleton,
   Spinner,
   Switch,
   Textarea,
-  Tooltip,
   useDisclosure
 } from "@heroui/react";
-
 import { Icon } from "@iconify/react";
-import { format } from "date-fns";
-import { AnimatePresence, motion } from "framer-motion";
-import { useRouter, useSearchParams } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
 import { QRCodeCanvas } from "qrcode.react";
-import { lazy, memo, Suspense, useEffect, useMemo, useState } from "react";
-
-
-// Import server actions
-import CardList from "@/components/card-list";
-import LoadingAnimation from "@/components/loading-animation";
-import { ShelfLocation } from "@/components/shelf-selector-3d";
-import { motionTransition, motionTransitionScale, motionTransitionX, popoverTransition } from "@/utils/anim";
-import { formatCode, parseColumn } from '@/utils/floorplan';
-import { getUserFromCookies } from "@/utils/supabase/server/user";
-import { copyToClipboard, formatDate, formatNumber, toNormalCase, toTitleCase } from "@/utils/tools";
-import { getOccupiedShelfLocations } from "../delivery/actions";
-import {
-  getWarehouseInventoryItem,
-  getWarehouseInventoryItems,
-  getWarehouseItemByInventory,
-  getWarehouses,
-  markWarehouseBulkAsUsed,
-  markWarehouseUnitAsUsed,
-  WarehouseInventoryItem,
-  WarehouseInventoryItemBulk,
-  WarehouseInventoryItemComplete
-} from "./actions";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import CustomScrollbar from "@/components/custom-scrollbar";
-import { Popover3dNavigationHelp } from "@/components/popover-3dnavigation-help";
-// Lazy load 3D shelf selector
-const ShelfSelector3D = memo(lazy(() =>
-  import("@/components/shelf-selector-3d").then(mod => ({
-    default: mod.ShelfSelector3D
-  }))
-));
+import { createClient } from "@/utils/supabase/client";
+
+import {
+  getWarehouseInventoryItems,
+  getWarehouseInventoryItem,
+  getWarehouseItemByInventory,
+  markWarehouseItemAsUsed,
+  markWarehouseGroupAsUsed,
+  getWarehouses
+} from "./actions";
+import { getUnitFullName } from "@/utils/measurements";
 
 export default function WarehouseItemsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [user, setUser] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingItems, setIsLoadingItems] = useState(true);
-  const [isLoadingWarehouses, setIsLoadingWarehouses] = useState(false);
 
-  // Warehouse items state
-  const [warehouseItems, setWarehouseItems] = useState<WarehouseInventoryItem[]>([]);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedWarehouse, setSelectedWarehouse] = useState<string | null>(null);
-  const [warehouses, setWarehouses] = useState<any[]>([]);
+  const [formData, setFormData] = useState<any>({});
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+  const [expandedGroupDetails, setExpandedGroupDetails] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<'flat' | 'grouped'>('grouped');
 
-  // Add status filter state
-  const [statusFilter, setStatusFilter] = useState<string | null>(null);
-
-  // Expanded accordion state
-  const [expandedBulks, setExpandedBulks] = useState<Set<string>>(new Set());
-  const [expandedUnits, setExpandedUnits] = useState<Set<string>>(new Set());
-
-  // QR code modal state
-  const qrCodeModal = useDisclosure();
-  const locationModal = useDisclosure();
-
-  // Add new state for QR code data
-  const [qrCodeData, setQrCodeData] = useState<{
-    url: string;
-    title: string;
-    description: string;
-    itemId: string;
-    itemName: string;
-    isBulkItem: boolean;
-    autoMarkAsUsed: boolean;
-  }>({
-    url: "",
-    title: "",
-    description: "",
-    itemId: "",
-    itemName: "",
-    isBulkItem: false,
-    autoMarkAsUsed: true
+  // QR Code modal
+  const qrModal = useDisclosure();
+  const [qrData, setQrData] = useState({
+    itemId: '',
+    itemName: '',
+    url: '',
+    autoMarkAsUsed: false,
+    description: ''
   });
 
-
-  // Form state
-  const [formData, setFormData] = useState<Partial<WarehouseInventoryItemComplete>>();
-
-  // 3D shelf selector states
-  const [floorConfigs, setFloorConfigs] = useState<any[]>([]);
-  const [occupiedLocations, setOccupiedLocations] = useState<any[]>([]);
-  const [highlightedFloor, setHighlightedFloor] = useState<number | null>(null);
-  const [externalSelection, setExternalSelection] = useState<any | undefined>(undefined);
-  const [shelfColorAssignments, setShelfColorAssignments] = useState<Array<any>>([]);
-
-  const [isSearchFilterOpen, setIsSearchFilterOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Add this derived state
-  const [locationCode, setLocationCode] = useState("");
-
-  // Add state for maximum values
-  const [maxGroupId, setMaxGroupId] = useState(0);
-  const [maxRow, setMaxRow] = useState(0);
-  const [maxColumn, setMaxColumn] = useState(0);
-  const [maxDepth, setMaxDepth] = useState(0);
+  // Mark as used loading states
   const [isLoadingMarkAsUsed, setIsLoadingMarkAsUsed] = useState(false);
-  const [isLoadingMarkUnitAsUsed, setIsLoadingMarkUnitAsUsed] = useState<string | null>(null);
+  const [isLoadingMarkGroupAsUsed, setIsLoadingMarkGroupAsUsed] = useState(false);
 
-  const [showControls, setShowControls] = useState(false);
+  const [showInventorySearch, setShowInventorySearch] = useState(false);
+  const [showInventorySearchFilter, setShowInventorySearchFilter] = useState(false);
+  const [inventorySearchQuery, setInventorySearchQuery] = useState("");
+  const [inventorySearchFilters, setInventorySearchFilters] = useState({
+    status: null as string | null,
+    unit: null as string | null,
+    unit_value: null as number | null,
+    packaging_unit: null as string | null,
+  });
 
   // Input style for consistency
   const inputStyle = {
-    inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
-  };
-  const autoCompleteStyle = { classNames: inputStyle };
-
-  // Add pagination state
-  const [page, setPage] = useState(1);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalItems, setTotalItems] = useState(0);
-
-  // Add these new state variables after the existing state declarations (around line 135)
-  const [bulkSearchQuery, setBulkSearchQuery] = useState("");
-  const [bulkSearchFilters, setBulkSearchFilters] = useState({
-    status: null as string | null,
-    bulk_unit: null as string | null,
-    unit: null as string | null,
-  });
-  const [isBulkSearchFilterOpen, setIsBulkSearchFilterOpen] = useState(false);
-  const [showBulkSearch, setShowBulkSearch] = useState(false); // Add this new state
-
-  // Add this helper function to filter bulks and units (around line 170, after calculateBulkTotals)
-  const filterBulksAndUnits = (bulks: any[]) => {
-    if (!bulkSearchQuery && !bulkSearchFilters.status && !bulkSearchFilters.bulk_unit && !bulkSearchFilters.unit) {
-      return bulks;
-    }
-
-    return bulks.filter(bulk => {
-      // Search query filter
-      const searchLower = bulkSearchQuery.toLowerCase();
-      const bulkMatchesSearch = !bulkSearchQuery ||
-        bulk.uuid?.toLowerCase().includes(searchLower) ||
-        bulk.bulk_unit?.toLowerCase().includes(searchLower) ||
-        bulk.unit?.toLowerCase().includes(searchLower) ||
-        bulk.status?.toLowerCase().includes(searchLower) ||
-        bulk.location_code?.toLowerCase().includes(searchLower) ||
-        bulk.units?.some((unit: any) =>
-          unit.uuid?.toLowerCase().includes(searchLower) ||
-          unit.code?.toLowerCase().includes(searchLower) ||
-          unit.name?.toLowerCase().includes(searchLower) ||
-          unit.status?.toLowerCase().includes(searchLower) ||
-          unit.unit?.toLowerCase().includes(searchLower)
-        );
-
-      // Status filter
-      const statusMatches = !bulkSearchFilters.status ||
-        bulk.status === bulkSearchFilters.status ||
-        bulk.units?.some((unit: any) => unit.status === bulkSearchFilters.status);
-
-      // Bulk unit filter
-      const bulkUnitMatches = !bulkSearchFilters.bulk_unit ||
-        bulk.bulk_unit === bulkSearchFilters.bulk_unit;
-
-      // Unit filter
-      const unitMatches = !bulkSearchFilters.unit ||
-        bulk.unit === bulkSearchFilters.unit ||
-        bulk.units?.some((unit: any) => unit.unit === bulkSearchFilters.unit);
-
-      return bulkMatchesSearch && statusMatches && bulkUnitMatches && unitMatches;
-    });
+    inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200"
   };
 
-  // Add this helper function to get unique filter options (around line 200)
-  const getFilterOptions = (bulks: any[]) => {
-    const statuses = new Set<string>();
-    const bulkUnits = new Set<string>();
-    const units = new Set<string>();
-
-    bulks.forEach(bulk => {
-      if (bulk.status) statuses.add(bulk.status);
-      if (bulk.bulk_unit) bulkUnits.add(bulk.bulk_unit);
-      if (bulk.unit) units.add(bulk.unit);
-
-      bulk.units?.forEach((unit: any) => {
-        if (unit.status) statuses.add(unit.status);
-        if (unit.unit) units.add(unit.unit);
-      });
-    });
-
-    return {
-      statuses: Array.from(statuses).sort(),
-      bulkUnits: Array.from(bulkUnits).sort(),
-      units: Array.from(units).sort()
-    };
-  };
-
-  const calculateBulkTotals = (bulk: any) => {
-    if (!bulk.units || bulk.units.length === 0) {
-      return {
-        currentUnitValue: 0,
-        totalUnitValue: 0,
-        currentCost: 0,
-        totalCost: 0
-      };
-    }
-
-    const units = bulk.units;
-    const availableUnits = units.filter((unit: any) => unit.status === 'AVAILABLE');
-
-    return {
-      currentUnitValue: availableUnits.reduce((sum: number, unit: any) => sum + (parseFloat(unit.unit_value) || 0), 0),
-      totalUnitValue: units.reduce((sum: number, unit: any) => sum + (parseFloat(unit.unit_value) || 0), 0),
-      currentCost: availableUnits.reduce((sum: number, unit: any) => sum + (parseFloat(unit.cost) || 0), 0),
-      totalCost: units.reduce((sum: number, unit: any) => sum + (parseFloat(unit.cost) || 0), 0)
-    };
-  };
-
-  const handleViewBulkLocation = (location: ShelfLocation | null) => {
-
-    let updatedAssignments = shelfColorAssignments;
-    if (!location) {
-      // reset all assignments to secondary
-      updatedAssignments = shelfColorAssignments.map(assignment => ({
-        ...assignment,
-        colorType: 'secondary'
-      }));
-    } else {
-      // match the location  shelfColorAssignments then change the colorType to tertiary
-      // then set the rest to secondary
-      updatedAssignments = shelfColorAssignments.map(assignment => {
-        if (
-          assignment.floor === location.floor &&
-          assignment.group === location.group &&
-          assignment.row === location.row &&
-          assignment.column === location.column &&
-          assignment.depth === (location.depth || 0)
-        ) {
-          return { ...assignment, colorType: 'tertiary' }; // Highlight this one
-        } else {
-          return { ...assignment, colorType: 'secondary' }; // Set others to secondary
-        }
-      });
-    }
-
-    setShelfColorAssignments(updatedAssignments);
-
-    // Prepare the 3D visualization data
-    if (location) {
-      // Set the highlighted floor
-      setHighlightedFloor(location.floor || 0);
-
-      // Set up external selection to highlight this location
-      setExternalSelection(location);
-
-      // Generate location code
-      setLocationCode(formatCode(location));
-
-      // Load warehouse configuration if not already loaded
-      if (floorConfigs.length === 0) {
-        loadWarehouseConfiguration(formData?.warehouse_uuid || '' as string);
-      }
-    } else {
-      // Reset external selection if no location is provided
-      setExternalSelection(undefined);
-      setLocationCode("");
-    }
-
-    locationModal.onOpen();
-  };
-
-  // Add these handler functions
-  const handleShelfSelection = (location: any) => {
-    // Set the highlighted floor
-    setHighlightedFloor(location.floor || 0);
-
-    // Set external selection directly
-    setExternalSelection(location);
-
-    // Update maximum values if available
-    if (location.max_group !== undefined) setMaxGroupId(location.max_group);
-    if (location.max_row !== undefined) setMaxRow(location.max_row);
-    if (location.max_column !== undefined) setMaxColumn(location.max_column);
-    if (location.max_depth !== undefined) setMaxDepth(location.max_depth);
-  };
-
-  const handleFloorChange = (floorNum: number) => {
-    const floorIndex = floorNum - 1;
-    setHighlightedFloor(floorIndex);
-
-    // Update the external selection with the new floor
-    if (externalSelection) {
-      const newSelection = {
-        ...externalSelection,
-        floor: floorIndex
-      };
-      setExternalSelection(newSelection);
-    }
-  };
-
-  const handleGroupChange = (groupId: number) => {
-    const adjustedId = groupId - 1;
-
-    if (externalSelection) {
-      const newSelection = {
-        ...externalSelection,
-        group: adjustedId
-      };
-      setExternalSelection(newSelection);
-    }
-  };
-
-  const handleRowChange = (rowNum: number) => {
-    const adjustedRow = rowNum - 1;
-
-    if (externalSelection) {
-      const newSelection = {
-        ...externalSelection,
-        row: adjustedRow
-      };
-      setExternalSelection(newSelection);
-    }
-  };
-
-  const handleColumnChange = (colNum: number) => {
-    const adjustedCol = colNum - 1;
-
-    if (externalSelection) {
-      const newSelection = {
-        ...externalSelection,
-        column: adjustedCol
-      };
-      setExternalSelection(newSelection);
-    }
-  };
-
-  const handleDepthChange = (depthNum: number) => {
-    const adjustedDepth = depthNum - 1;
-
-    if (externalSelection) {
-      const newSelection = {
-        ...externalSelection,
-        depth: adjustedDepth
-      };
-      setExternalSelection(newSelection);
-    }
-  };
-
-  // Function to load warehouse configuration
-  const loadWarehouseConfiguration = async (warehouseId: string) => {
-    try {
-      // Find the warehouse in the list
-      const warehouse = warehouses.find(w => w.uuid === warehouseId);
-      if (warehouse && warehouse.warehouse_layout) {
-        setFloorConfigs(warehouse.warehouse_layout);
-
-        // Load occupied locations
-        const occupiedResult = await getOccupiedShelfLocations(warehouseId);
-        if (occupiedResult.success) {
-          setOccupiedLocations(occupiedResult.data || []);
-        }
-      }
-    } catch (error) {
-      console.error("Error loading warehouse configuration:", error);
-    }
-  };
-
-  // Handle search with pagination
-  const handleSearch = async (query: string, currentPage: number = page) => {
-    setSearchQuery(query);
-    setIsLoadingItems(true);
-
-    try {
-      if (user?.company_uuid) {
-        // Calculate offset based on current page and rows per page
-        const offset = (currentPage - 1) * rowsPerPage;
-
-        const result = await getWarehouseInventoryItems(
-          user.company_uuid,
-          selectedWarehouse || undefined,
-          query,
-          statusFilter || null, // Include status filter
-          null, // year
-          null, // month
-          null, // week
-          null, // day
-          rowsPerPage, // limit
-          offset // offset
-        );
-
-        setWarehouseItems(result.data || []);
-        setTotalPages(result.totalPages || 1);
-        setTotalItems(result.totalCount || 0);
-      }
-    } catch (error) {
-      console.error("Error searching warehouse items:", error);
-    } finally {
-      setIsLoadingItems(false);
-    }
-  };
-
-  // Function to handle page changes
-  const handlePageChange = (newPage: number) => {
-    setPage(newPage);
-    handleSearch(searchQuery, newPage);
-  };
-
-  // Add status filter handler
-  const handleStatusFilterChange = async (status: string | null) => {
-    setStatusFilter(status);
-    setIsLoadingItems(true);
-    setPage(1); // Reset to first page on filter change
-
-    try {
-      const result = await getWarehouseInventoryItems(
-        user?.company_uuid || "",
-        selectedWarehouse || undefined,
-        searchQuery,
-        status || null,
-        null, // year
-        null, // month
-        null, // week
-        null, // day
-        rowsPerPage, // limit
-        0 // offset for first page
-      );
-
-      setWarehouseItems(result.data || []);
-      setTotalPages(result.totalPages || 1);
-      setTotalItems(result.totalCount || 0);
-    } catch (error) {
-      console.error("Error filtering by status:", error);
-    } finally {
-      setIsLoadingItems(false);
-    }
-  };
-
-  // Helper function to get status chip color
-  const getStatusColor = (status: string): "success" | "warning" | "danger" | "default" => {
-    switch (status?.toUpperCase()) {
-      case "AVAILABLE": return "success";
-      case "IN_USE": return "warning";
-      case "USED": return "danger";
-      case "RESERVED": return "warning";
-      default: return "default";
-    }
-  };
-
-  // Update warehouse filter change handler to use pagination
-  const handleWarehouseChange = async (warehouseId: string | null) => {
-    setIsLoadingItems(true);
-    setPage(1); // Reset to first page on filter change
-
-    try {
-      let result;
-      if (!warehouseId || warehouseId === "null") {
-        setSelectedWarehouse(null);
-
-        result = await getWarehouseInventoryItems(
-          user.company_uuid,
-          undefined, // No warehouse filter
-          searchQuery,
-          statusFilter || null, // Include status filter
-          null, // year
-          null, // month
-          null, // week
-          null, // day
-          rowsPerPage, // limit
-          0 // offset for first page
-        );
-
-      } else {
-        setSelectedWarehouse(warehouseId);
-        result = await getWarehouseInventoryItems(
-          user.company_uuid,
-          warehouseId || undefined,
-          searchQuery,
-          statusFilter || null, // Include status filter
-          null, // year
-          null, // month
-          null, // week
-          null, // day
-          rowsPerPage, // limit
-          0 // offset for first page
-        );
-      }
-
-      setWarehouseItems(result.data || []);
-      setTotalPages(result.totalPages || 1);
-      setTotalItems(result.totalCount || 0);
-    } catch (error) {
-      console.error("Error filtering by warehouse:", error);
-    } finally {
-      setIsLoadingItems(false);
-    }
-  };
-
-  // In handleSelectItem function, just update the URL
-  const handleSelectItem = (key: string) => {
-    setIsLoading(true);
-
-    // Update the URL with the selected item ID without reloading the page
+  // Handle select item
+  const handleSelectItem = (itemId: string) => {
     const params = new URLSearchParams(searchParams.toString());
-    params.set("warehouseItemId", key);
+    params.set("warehouseItemId", itemId);
     router.push(`?${params.toString()}`, { scroll: false });
-
-    setSelectedItemId(key);
   };
 
   // Handle view inventory details
@@ -545,49 +104,19 @@ export default function WarehouseItemsPage() {
     }
   };
 
-  // Handle view warehouse details
   const handleViewWarehouse = () => {
     if (formData?.warehouse_uuid) {
       router.push(`/home/warehouses?warehouseId=${formData.warehouse_uuid}`);
     }
   };
 
-  // Handle view delivery details
-  const handleViewDelivery = (deliveryId: string) => {
-    router.push(`/home/delivery?deliveryId=${deliveryId}`);
-  };
-
-
-  const handleMarkComponentsAsUsed = async (warehouseInventoryItemUuid: string) => {
+  // Handle mark item as used
+  const handleMarkItemAsUsed = async (itemUuid: string) => {
     setIsLoadingMarkAsUsed(true);
-
     try {
-      const result = await markWarehouseBulkAsUsed(warehouseInventoryItemUuid);
+      const result = await markWarehouseItemAsUsed(itemUuid);
       if (result.success) {
-
-      } else {
-        console.error(result.message);
-        setError(result.message || "Failed to mark components as used");
-      }
-    } catch (error) {
-      console.error("Failed to mark components as used:", error);
-    } finally {
-      setIsLoadingMarkAsUsed(false);
-
-      // Refresh the item bulks and all units
-      if (selectedItemId) {
-        // await loadItemBulks(selectedItemId);
-      }
-    }
-  };
-
-  const handleMarkUnitAsUsed = async (unitUuid: string) => {
-    setIsLoadingMarkUnitAsUsed(unitUuid);
-
-    try {
-      const result = await markWarehouseUnitAsUsed(unitUuid);
-      if (result.success) {
-        // Refresh the item details to show updated status
+        // Refresh the details
         if (selectedItemId) {
           const refreshedItem = await getWarehouseInventoryItem(selectedItemId);
           if (refreshedItem.success && refreshedItem.data) {
@@ -595,160 +124,210 @@ export default function WarehouseItemsPage() {
           }
         }
       } else {
-        console.error(result.error);
-        setError(result.error || "Failed to mark unit as used");
+        setError(result.error || "Failed to mark item as used");
       }
     } catch (error) {
-      console.error("Failed to mark unit as used:", error);
-      setError("Failed to mark unit as used");
+      console.error("Failed to mark item as used:", error);
+      setError("Failed to mark item as used");
     } finally {
-      setIsLoadingMarkUnitAsUsed(null);
+      setIsLoadingMarkAsUsed(false);
     }
   };
 
-  // Generate URL for QR code 
-  const generateDeliveryUrl = (q: string, itemAutoMarkAsUsed: boolean = false) => {
-    if (!selectedItemId || !formData) return "https://ropic.vercel.app/home/search";
-
-    const baseUrl = "https://ropic.vercel.app/home/search";
-    const params = new URLSearchParams({
-      q,
-      ...(itemAutoMarkAsUsed && { itemAutoMarkAsUsed: "true" })
-    });
-
-    return `${baseUrl}?${params.toString()}`;
+  // Handle mark group as used
+  const handleMarkGroupAsUsed = async (groupId: string) => {
+    setIsLoadingMarkGroupAsUsed(true);
+    try {
+      const result = await markWarehouseGroupAsUsed(groupId);
+      if (result.success) {
+        // Refresh the details
+        if (selectedItemId) {
+          const refreshedItem = await getWarehouseInventoryItem(selectedItemId);
+          if (refreshedItem.success && refreshedItem.data) {
+            setFormData(refreshedItem.data);
+          }
+        }
+      } else {
+        setError(result.error || "Failed to mark group as used");
+      }
+    } catch (error) {
+      console.error("Failed to mark group as used:", error);
+      setError("Failed to mark group as used");
+    } finally {
+      setIsLoadingMarkGroupAsUsed(false);
+    }
   };
 
-  // Updated function to regenerate URL when auto mark as used changes
-  const updateQrCodeUrl = (autoMarkAsUsed: boolean) => {
-    setQrCodeData(prev => ({
-      ...prev,
-      autoMarkAsUsed,
-      url: generateDeliveryUrl(prev.itemId, autoMarkAsUsed),
-      description: prev.isBulkItem
-        ? `Scan this code to view details for ${prev.itemName} in ${formData?.name || 'warehouse item'}${autoMarkAsUsed ? '. This will mark the bulk as USED automatically.' : '.'}`
-        : `Scan this code to view details for ${prev.itemName}`
-    }));
+  // QR Code generation functions
+  const generateUrl = (itemId: string, autoMarkAsUsed: boolean) => {
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+    const params = new URLSearchParams();
+    if (autoMarkAsUsed) {
+      params.set('autoUse', 'true');
+    }
+    return `${baseUrl}/home/warehouse-items?warehouseItemId=${itemId}${params.toString() ? '&' + params.toString() : ''}`;
   };
 
-  // Handle showing QR code for warehouse item
   const handleShowWarehouseItemQR = () => {
-    if (!selectedItemId || !formData) return;
-
-    setQrCodeData({
-      url: generateDeliveryUrl(selectedItemId),
-      title: "Warehouse Item QR Code",
-      description: `Scan this code to view details for ${formData.name || 'this warehouse item'}`,
-      itemId: selectedItemId,
-      itemName: formData.name || 'this warehouse item',
-      isBulkItem: false,
-      autoMarkAsUsed: true
-    });
-    qrCodeModal.onOpen();
+    setQrData(prev => ({
+      ...prev,
+      itemId: selectedItemId || '',
+      itemName: formData.name || 'Warehouse Item',
+      url: generateUrl(selectedItemId || '', false),
+      autoMarkAsUsed: false,
+      description: `Scan this code to view details for ${formData.name || 'Warehouse Item'}`
+    }));
+    qrModal.onOpen();
   };
 
-  // Handle showing QR code for bulk item
-  const handleShowBulkQR = (bulkId: string, bulkName?: string) => {
-    if (!selectedItemId || !formData) return;
-
-    const itemName = bulkName || 'this bulk item';
-    setQrCodeData({
-      url: generateDeliveryUrl(bulkId, false), // Start with false, user can toggle
-      title: "Bulk Item QR Code",
-      description: `Scan this code to view details for ${itemName} in ${formData.name || 'warehouse item'}.`,
-      itemId: bulkId,
-      itemName: itemName,
-      isBulkItem: true,
-      autoMarkAsUsed: true
-    });
-    qrCodeModal.onOpen();
+  const handleViewBulkLocation = (itemUuid: string | null) => {
+    const locationUrl = itemUuid
+      ? `/home/location?warehouseItemUuid=${itemUuid}`
+      : `/home/location?warehouseInventoryUuid=${selectedItemId}`;
+    router.push(locationUrl);
   };
 
+  // Load warehouse inventory item details
+  const fetchItemDetails = async (itemId: string) => {
+    if (!itemId) return;
 
-  const filteredOccupiedLocations = useMemo(() => {
-    return occupiedLocations.filter(loc =>
-      !shelfColorAssignments.some(
-        assignment =>
-          assignment.floor === loc.floor &&
-          assignment.group === loc.group &&
-          assignment.row === loc.row &&
-          assignment.column === loc.column &&
-          assignment.depth === (loc.depth || 0)
-      )
-    );
-  }, [occupiedLocations, shelfColorAssignments]);
-
-  // Add or update useEffect to watch for changes in search parameters
-  useEffect(() => {
     setIsLoading(true);
+    try {
+      const result = await getWarehouseInventoryItem(itemId);
+      if (result.success && result.data) {
+        setFormData(result.data);
 
+        console.log("Fetched warehouse item details:", result.data);
+
+        // Set expanded state for first items if they exist
+        if (result.data.items && result.data.items.length > 0) {
+          setExpandedItems(new Set([`${result.data.items[0].uuid}`]));
+        }
+      } else {
+        setError("Failed to load warehouse item details");
+      }
+    } catch (err) {
+      console.error("Error fetching item details:", err);
+      setError("An error occurred while loading item details");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Filter items based on search and filters
+  const filterItems = useCallback((items: any[]) => {
+    if (!items) return [];
+
+    return items.filter(item => {
+      // Search query filter
+      if (inventorySearchQuery) {
+        const searchLower = inventorySearchQuery.toLowerCase();
+        const matchesSearch =
+          item.item_code?.toLowerCase().includes(searchLower) ||
+          item.properties && Object.values(item.properties).some((value: any) =>
+            String(value).toLowerCase().includes(searchLower)
+          );
+        if (!matchesSearch) return false;
+      }
+
+      // Status filter
+      if (inventorySearchFilters.status && item.status !== inventorySearchFilters.status) {
+        return false;
+      }
+
+      // Unit filter
+      if (inventorySearchFilters.unit && item.unit !== inventorySearchFilters.unit) {
+        return false;
+      }
+
+      // Unit value filter
+      if (inventorySearchFilters.unit_value && item.unit_value !== inventorySearchFilters.unit_value) {
+        return false;
+      }
+
+      // Packaging unit filter
+      if (inventorySearchFilters.packaging_unit && item.packaging_unit !== inventorySearchFilters.packaging_unit) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [inventorySearchQuery, inventorySearchFilters]);
+
+  // Get grouped items for display
+  const getGroupedItems = () => {
+    if (!formData.items) return {};
+
+    const grouped: { [key: string]: any[] } = {};
+    formData.items.forEach((item: any) => {
+      const groupId = item.group_id || 'ungrouped';
+      if (!grouped[groupId]) {
+        grouped[groupId] = [];
+      }
+      grouped[groupId].push(item);
+    });
+    return grouped;
+  };
+
+  const getDisplayItemsList = () => {
+    if (!formData.items) return [];
+
+    if (viewMode === 'flat') {
+      return filterItems(formData.items);
+    }
+
+    const groupedItems = getGroupedItems();
+    const displayItems: any[] = [];
+
+    Object.entries(groupedItems).forEach(([groupId, items]) => {
+      if (groupId === 'ungrouped') {
+        displayItems.push(...filterItems(items));
+      } else {
+        // Show only the first item of each group
+        const groupItems = filterItems(items);
+        if (groupItems.length > 0) {
+          displayItems.push({
+            ...groupItems[0],
+            _isGroupRepresentative: true,
+            _groupSize: items.length,
+            _groupId: groupId
+          });
+        }
+      }
+    });
+
+    return displayItems;
+  };
+
+  // Handle URL params
+  useEffect(() => {
     const warehouseItemId = searchParams.get("warehouseItemId");
     const inventoryItemId = searchParams.get("itemId");
 
-    // Handle both warehouseItemId and itemId params
-    const fetchItemDetails = async () => {
-      const result = warehouseItemId ? (await getWarehouseInventoryItem(warehouseItemId)) : inventoryItemId ? (await getWarehouseItemByInventory(inventoryItemId)) : null;
+    if (warehouseItemId) {
+      setSelectedItemId(warehouseItemId);
+      fetchItemDetails(warehouseItemId);
+    } else if (inventoryItemId) {
+      // Handle navigation from inventory page
+      const fetchFromInventory = async () => {
+        const result = await getWarehouseItemByInventory(inventoryItemId);
+        if (result.success && result.data) {
+          setSelectedItemId(result.data.uuid);
+          setFormData(result.data);
 
-      if (result && result.success && result.data) {
-        const bulk: WarehouseInventoryItemComplete = result.data;
-
-        setSelectedItemId(warehouseItemId);
-        setFormData(bulk);
-
-        // Set the first bulk and first unit as expanded
-        if (bulk.bulks && bulk.bulks.length > 0) {
-          setExpandedBulks(new Set([bulk.bulks[0].uuid]));
-
-          // If the first bulk has units, expand the first unit too
-          if (bulk.bulks[0].units && bulk.bulks[0].units.length > 0) {
-            setExpandedUnits(new Set([bulk.bulks[0].units[0].uuid]));
-          } else {
-            setExpandedUnits(new Set());
-          }
-        } else {
-          setExpandedBulks(new Set());
-          setExpandedUnits(new Set());
-        }
-
-        // If the item has a warehouse_uuid, load its configuration
-        if (bulk.warehouse_uuid) {
-          await loadWarehouseConfiguration(bulk.warehouse_uuid);
-        }
-
-        if (inventoryItemId) {
+          // Update URL
           const params = new URLSearchParams(searchParams.toString());
           params.delete("itemId");
           params.set("warehouseItemId", result.data.uuid);
           router.push(`?${params.toString()}`, { scroll: false });
         }
-
-        const assignments: Array<any> = bulk.bulks.map((bulk: WarehouseInventoryItemBulk, index: number) => {
-          if (bulk.location) {
-            return {
-              floor: bulk.location.floor,
-              group: bulk.location.group,
-              row: bulk.location.row,
-              column: bulk.location.column,
-              depth: bulk.location.depth || 0,
-              colorType: 'secondary'
-            };
-          }
-          return null;
-        }).filter(Boolean);
-
-        setShelfColorAssignments(assignments);
-        setIsLoading(false);
-      } else {
-        setSelectedItemId(null);
-        setFormData({});
-        setExpandedBulks(new Set());
-        setExpandedUnits(new Set());
-        setIsLoading(false);
-      }
-
-    };
-
-    fetchItemDetails();
+      };
+      fetchFromInventory();
+    } else {
+      setSelectedItemId(null);
+      setFormData({});
+      setExpandedItems(new Set());
+    }
   }, [searchParams]);
 
 
@@ -756,9 +335,6 @@ export default function WarehouseItemsPage() {
   useEffect(() => {
     const initPage = async () => {
       try {
-        setIsLoadingItems(true);
-        setIsLoadingWarehouses(true);
-
         const userData = await getUserFromCookies();
         if (userData === null) {
           setError('User not found');
@@ -766,33 +342,8 @@ export default function WarehouseItemsPage() {
         }
 
         setUser(userData);
+        setViewMode((searchParams.get("viewMode") as 'flat' | 'grouped') || 'grouped');
 
-        if (userData.company_uuid) {
-          // Use pagination parameters
-          const result = await getWarehouseInventoryItems(
-            userData.company_uuid,
-            selectedWarehouse || undefined,
-            searchQuery,
-            statusFilter || null, // Include status filter
-            null, // year
-            null, // month
-            null, // week
-            null, // day
-            rowsPerPage, // limit
-            0 // offset for first page
-          );
-
-          setWarehouseItems(result.data || []);
-          setTotalPages(result.totalPages || 1);
-          setTotalItems(result.totalCount || 0);
-        }
-
-        // Fetch warehouses for filtering
-        const warehousesResult = await getWarehouses(userData.company_uuid);
-        setWarehouses(warehousesResult.data || []);
-        setIsLoadingWarehouses(false);
-
-        setIsLoadingItems(false);
       } catch (error) {
         console.error("Error initializing page:", error);
       }
@@ -807,7 +358,6 @@ export default function WarehouseItemsPage() {
 
     const supabase = createClient();
 
-    // Set up real-time subscription for warehouse inventory items
     const warehouseInventoryChannel = supabase
       .channel('warehouse-inventory-changes')
       .on(
@@ -815,146 +365,21 @@ export default function WarehouseItemsPage() {
         {
           event: '*',
           schema: 'public',
-          table: 'warehouse_inventory_items',
+          table: 'warehouse_inventory',
           filter: `company_uuid=eq.${user.company_uuid}`
         },
         async (payload) => {
-          // Refresh warehouse items list with current pagination
-          try {
-            const refreshedItems = await getWarehouseInventoryItems(
-              user.company_uuid,
-              selectedWarehouse || undefined,
-              searchQuery,
-              statusFilter || null, // Include status filter
-              null, // year
-              null, // month
-              null, // week
-              null, // day
-              rowsPerPage, // limit
-              (page - 1) * rowsPerPage // offset
-            );
-
-            if (refreshedItems.success) {
-              setWarehouseItems(refreshedItems.data || []);
-              setTotalPages(refreshedItems.totalPages || 1);
-              setTotalItems(refreshedItems.totalCount || 0);
-            }
-          } catch (error) {
-            console.error('Error refreshing warehouse items after real-time update:', error);
-          }
-
-          // If we have a selected item and it was updated, refresh its details
-          if (selectedItemId && payload.new && (payload.new as any)?.uuid === selectedItemId) {
-            try {
-              const refreshedItem = await getWarehouseInventoryItem(selectedItemId);
-              if (refreshedItem.success && refreshedItem.data) {
-                setFormData(refreshedItem.data);
-              }
-            } catch (error) {
-              console.error('Error refreshing selected item after real-time update:', error);
-            }
-          }
+          console.log('Warehouse inventory changed:', payload);
+          // The SearchListPanel will handle the refresh
         }
       )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'warehouse_inventory_item_bulk',
-          filter: `company_uuid=eq.${user.company_uuid}`
-        },
-        async (payload) => {
-          // If we have a selected item, refresh its details including bulks and units
-          if (selectedItemId) {
-            try {
-              const refreshedItem = await getWarehouseInventoryItem(selectedItemId);
-              if (refreshedItem.success && refreshedItem.data) {
-                setFormData(refreshedItem.data);
+      .subscribe();
 
-                // Update shelf color assignments if bulk locations changed
-                const assignments: Array<any> = refreshedItem.data.bulks.map((bulk: WarehouseInventoryItemBulk) => {
-                  if (bulk.location) {
-                    return {
-                      floor: bulk.location.floor,
-                      group: bulk.location.group,
-                      row: bulk.location.row,
-                      column: bulk.location.column,
-                      depth: bulk.location.depth || 0,
-                      colorType: 'secondary'
-                    };
-                  }
-                  return null;
-                }).filter(Boolean);
-
-                setShelfColorAssignments(assignments);
-              }
-            } catch (error) {
-              console.error('Error refreshing item after bulk update:', error);
-            }
-          }
-
-          // Also refresh the warehouse items list to update bulk counts
-          try {
-            const refreshedItems = await getWarehouseInventoryItems(
-              user.company_uuid,
-              selectedWarehouse || undefined,
-              searchQuery,
-              statusFilter || null, // Include status filter
-              null, // year
-              null, // month
-              null, // week
-              null, // day
-              rowsPerPage, // limit
-              (page - 1) * rowsPerPage // offset
-            );
-
-            if (refreshedItems.success) {
-              setWarehouseItems(refreshedItems.data || []);
-              console.log(`Refreshed warehouse items list after bulk change`);
-            }
-          } catch (error) {
-            console.error('Error refreshing warehouse items after bulk update:', error);
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'warehouse_inventory_item_unit',
-          filter: `company_uuid=eq.${user.company_uuid}`
-        },
-        async (payload) => {
-          // If we have a selected item, refresh its details to include updated units
-          if (selectedItemId) {
-            try {
-              const refreshedItem = await getWarehouseInventoryItem(selectedItemId);
-              if (refreshedItem.success && refreshedItem.data) {
-                setFormData(refreshedItem.data);
-
-                // Count total units across all bulks
-                const totalUnits = refreshedItem.data.bulks.reduce((sum: number, bulk: any) => sum + (bulk.units?.length || 0), 0);
-              }
-            } catch (error) {
-              console.error('Error refreshing item after unit update:', error);
-            }
-          }
-        }
-      )
-      .subscribe((status) => {
-
-      });
-
-    // Cleanup function
     return () => {
       console.log('Cleaning up real-time subscriptions for warehouse inventory');
       supabase.removeChannel(warehouseInventoryChannel);
     };
-  }, [user?.company_uuid, searchQuery, selectedWarehouse, selectedItemId, page, rowsPerPage]);
-
-
+  }, [user?.company_uuid]);
 
   return (
     <motion.div {...motionTransition}>
@@ -962,7 +387,7 @@ export default function WarehouseItemsPage() {
         <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
           <div className="flex flex-col w-full xl:text-left text-center">
             <h1 className="text-2xl font-bold">Warehouse Inventory</h1>
-            {(isLoading || isLoadingItems) ? (
+            {(isLoading) ? (
               <div className="text-default-500 flex xl:justify-start justify-center items-center">
                 <p className='my-auto mr-1'>Loading warehouse items</p>
                 <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
@@ -975,361 +400,189 @@ export default function WarehouseItemsPage() {
 
           </div>
         </div>
+
         <div className="flex flex-col xl:flex-row gap-4">
-          {/* Left side: Warehouse Items List */}
-          <div className={`xl:w-1/3 shadow-xl shadow-primary/10
-          xl:min-h-[calc(100vh-6.5rem)] 2xl:min-h-[calc(100vh-9rem)] min-h-[42rem] 
-          xl:min-w-[350px] w-full rounded-2xl overflow-hidden bg-background border 
-          border-default-200 backdrop-blur-lg xl:sticky top-0 self-start max-h-[calc(100vh-2rem)]`}
-          >
-            <div className="flex flex-col h-full">
-              <div className="p-4 sticky top-0 z-20 bg-background/80 border-b border-default-200 backdrop-blur-lg shadow-sm">
-                <LoadingAnimation
-                  condition={!user || isLoadingWarehouses}
-                  skeleton={
-                    <>
-                      {/* Heading skeleton */}
-                      <Skeleton className="h-[1.75rem] w-48 mx-auto mb-4 rounded-full" />
+          {/* Left side: Warehouse Inventory List */}
+          <SearchListPanel
+            title="Warehouse Inventory"
+            tableName="warehouse_inventory"
+            searchPlaceholder="Search warehouse inventory..."
+            searchLimit={10}
+            dateFilters={["weekFilter", "specificDate"]}
+            companyUuid={user?.company_uuid}
+            renderItem={(warehouseItem) => (
+              <Button
+                key={warehouseItem.uuid}
+                onPress={() => handleSelectItem(warehouseItem.uuid || "")}
+                variant="shadow"
+                className={`w-full !transition-all duration-300 rounded-2xl p-0 group overflow-hidden
+                  ${warehouseItem.description ? 'min-h-[9.5rem]' : 'min-h-[7rem]'}
+                  ${selectedItemId === warehouseItem.uuid ?
+                    '!bg-gradient-to-br from-primary-500 to-primary-600 hover:from-primary-400 hover:to-primary-500 !shadow-xl hover:!shadow-2xl !shadow-primary-300/50 border-2 border-primary-300/30' :
+                    '!bg-gradient-to-br from-background to-default-50 hover:from-default-50 hover:to-default-100 !shadow-lg hover:!shadow-xl !shadow-default-300/30 border-2 border-default-200/50 hover:border-default-300/50'}`}
+              >
 
-                      <div className="space-y-4">
-                        {/* Search input skeleton */}
-                        <Skeleton className="h-10 w-full rounded-xl" />
+                <div className="w-full flex flex-col h-full relative">
+                  {/* Background pattern */}
+                  <div className={`absolute inset-0 opacity-5 ${selectedItemId === warehouseItem.uuid ? 'bg-white' : 'bg-primary-500'}`}>
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_80%,_var(--tw-gradient-stops))] from-current via-transparent to-transparent"></div>
+                  </div>
 
-                        {/* Filter controls skeleton */}
-                        <ScrollShadow orientation="horizontal" className="flex-1" hideScrollBar>
-                          <div className="flex flex-row gap-2 items-center">
-                            {/* Filter button skeleton */}
-                            <Skeleton className="h-10 w-24 rounded-xl flex-none" />
-
-                            {/* Filter chips area skeleton */}
-                            <Skeleton className="h-8 w-32 rounded-full flex-none" />
-                            <Skeleton className="h-8 w-36 rounded-full flex-none" />
-                            <Skeleton className="h-8 w-24 rounded-full flex-none" />
+                  {/* Item details */}
+                  <div className="flex-grow flex flex-col justify-center px-4 relative z-10">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0 text-left">
+                        <span className={`font-bold text-lg leading-tight block truncate text-left
+                                ${selectedItemId === warehouseItem.uuid ? 'text-primary-50' : 'text-default-800'}`}>
+                          {warehouseItem.name}
+                        </span>
+                        {warehouseItem.description && (
+                          <div className={`w-full mt-2 text-sm leading-relaxed text-left break-words whitespace-normal
+                            ${selectedItemId === warehouseItem.uuid ? 'text-primary-100' : 'text-default-600'}`}
+                            style={{
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                              lineHeight: '1.3'
+                            }}>
+                            {warehouseItem.description}
                           </div>
-                        </ScrollShadow>
+                        )}
                       </div>
-                    </>
-                  }>
-                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouse Items</h2>
-                  <div className="space-y-4">
-                    <Input
-                      placeholder="Search warehouse items..."
-                      value={searchQuery}
-                      onChange={(e) => handleSearch(e.target.value, 1)}
-                      isClearable
-                      onClear={() => handleSearch("", 1)}
-                      startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
-                    />
-
-                    {/* Updated filter UI with status filter */}
-                    <div className="flex items-center gap-2 mt-2">
-                      <ScrollShadow orientation="horizontal" className="flex-1 overflow-x-auto" hideScrollBar>
-                        <div className="inline-flex items-center gap-2">
-                          <Popover
-                            isOpen={isSearchFilterOpen}
-                            onOpenChange={setIsSearchFilterOpen}
-                            classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
-                            motionProps={popoverTransition()}
-                            offset={10}
-                            placement="bottom-start">
-                            <PopoverTrigger>
-                              <Button
-                                variant="flat"
-                                color="default"
-                                className="w-24 h-10 rounded-lg !outline-none rounded-xl"
-                                startContent={<Icon icon="mdi:filter-variant" className="text-default-500" />}
-                              >
-                                Filters
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-96 p-0 overflow-hidden">
-                              <div>
-                                <div className="space-y-4 p-4">
-                                  <h3 className="text-lg font-semibold items-center w-full text-center">
-                                    Filter Options
-                                  </h3>
-
-                                  {/* Warehouse filter */}
-                                  <Autocomplete
-                                    name="warehouse_uuid"
-                                    label="Filter by Warehouse"
-                                    placeholder="All Warehouses"
-                                    selectedKey={selectedWarehouse || ""}
-                                    onSelectionChange={(e) => handleWarehouseChange(`${e}` || null)}
-                                    startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
-                                    inputProps={autoCompleteStyle}
-                                  >
-                                    {[
-                                      (<AutocompleteItem key="">All Warehouses</AutocompleteItem>),
-                                      ...warehouses.map((warehouse) => (
-                                        <AutocompleteItem key={warehouse.uuid}>
-                                          {warehouse.name}
-                                        </AutocompleteItem>
-                                      ))]}
-                                  </Autocomplete>
-
-                                  {/* Add Status filter */}
-                                  <Autocomplete
-                                    name="status_filter"
-                                    label="Filter by Status"
-                                    placeholder="All Statuses"
-                                    selectedKey={statusFilter || ""}
-                                    onSelectionChange={(e) => handleStatusFilterChange(e as string || null)}
-                                    startContent={<Icon icon="mdi:filter-variant" className="text-default-500 mb-[0.2rem]" />}
-                                    inputProps={autoCompleteStyle}
-                                  >
-                                    <AutocompleteItem key="">All Statuses</AutocompleteItem>
-                                    <AutocompleteItem key="AVAILABLE">Available</AutocompleteItem>
-                                    <AutocompleteItem key="IN_USE">In Use</AutocompleteItem>
-                                    <AutocompleteItem key="USED">Used</AutocompleteItem>
-                                    <AutocompleteItem key="RESERVED">Reserved</AutocompleteItem>
-                                  </Autocomplete>
-                                </div>
-
-                                <div className="p-4 border-t border-default-200 flex justify-end gap-2 bg-default-100/50">
-                                  {/* Clear All Filters Button */}
-                                  {(selectedWarehouse || statusFilter) && (
-                                    <Button
-                                      variant="flat"
-                                      color="danger"
-                                      size="sm"
-                                      onPress={() => {
-                                        handleWarehouseChange(null);
-                                        handleStatusFilterChange(null);
-                                      }}
-                                      startContent={<Icon icon="mdi:filter-remove" />}
-                                    >
-                                      Clear All Filters
-                                    </Button>
-                                  )}
-                                  <Button
-                                    size="sm"
-                                    variant="flat"
-                                    onPress={() => setIsSearchFilterOpen(false)}
-                                  >
-                                    Close
-                                  </Button>
-                                </div>
-                              </div>
-                            </PopoverContent>
-                          </Popover>
-
-                          {selectedWarehouse && (
-                            <Chip
-                              variant="flat"
-                              color="primary"
-                              onClose={() => handleWarehouseChange(null)}
-                              size="sm"
-                              className="h-8 p-2"
-                            >
-                              <div className="flex items-center gap-1">
-                                <Icon icon="mdi:warehouse" className="text-xs" />
-                                {warehouses.find(w => w.uuid === selectedWarehouse)?.name || 'Unknown Warehouse'}
-                              </div>
-                            </Chip>
-                          )}
-
-                          {statusFilter && (
-                            <Chip
-                              variant="flat"
-                              color={getStatusColor(statusFilter)}
-                              onClose={() => handleStatusFilterChange(null)}
-                              size="sm"
-                              className="h-8 p-2"
-                            >
-                              <div className="flex items-center gap-1">
-                                <Icon icon="mdi:filter-variant" className="text-xs" />
-                                {statusFilter.replaceAll('_', ' ')}
-                              </div>
-                            </Chip>
-                          )}
-
-                          {(selectedWarehouse || statusFilter) && (
-                            <Button
-                              size="sm"
-                              variant="light"
-                              className="rounded-lg"
-                              onPress={() => {
-                                handleWarehouseChange(null);
-                                handleStatusFilterChange(null);
-                              }}
-                            >
-                              Clear all
-                            </Button>
-                          )}
-                        </div>
-                      </ScrollShadow>
+                      <div className="flex-shrink-0 self-start">
+                        <Chip
+                          color={selectedItemId === warehouseItem.uuid ? "default" : "primary"}
+                          variant="shadow"
+                          size="sm"
+                          className={`font-semibold ${selectedItemId === warehouseItem.uuid ? 'bg-primary-50 text-primary-600' : ''}`}
+                        >
+                          <div className="flex items-center gap-1">
+                            <Icon icon="mdi:package-variant" width={14} height={14} />
+                            {warehouseItem.count?.total || 0} item{(warehouseItem.count?.total || 0) !== 1 ? 's' : ''}
+                          </div>
+                        </Chip>
+                      </div>
                     </div>
                   </div>
-                </LoadingAnimation>
-              </div>
 
-              <div className="h-full absolute w-full">
-                <CustomScrollbar
-                  scrollShadow
-                  scrollShadowTop={false}
-                  scrollbarMarginTop="10.75rem"
-                  scrollbarMarginBottom="0.5rem"
-                  disabled={!user || isLoadingItems}
-                  className="space-y-4 p-4 mt-1 pt-[11.5rem] h-full relative">
-                  <ListLoadingAnimation
-                    condition={!user || isLoadingItems}
-                    containerClassName="space-y-4"
-                    skeleton={[...Array(10)].map((_, i) => (
-                      <Skeleton key={i} className="w-full min-h-[7.5rem] rounded-xl" />
-                    ))}
-                  >
+                  {/* Item metadata */}
+                  <div className={`flex items-center gap-2 backdrop-blur-sm rounded-b-2xl border-t relative z-10 justify-start
+                  ${selectedItemId === warehouseItem.uuid ?
+                      'border-primary-300/30 bg-primary-700/20' :
+                      'border-default-200/50 bg-default-100/50'} p-4`}>
+                    <CustomScrollbar
+                      direction="horizontal"
+                      hideScrollbars
+                      gradualOpacity
+                      className="flex items-center gap-2">
 
-                    {warehouseItems.map((item) => (
-                      <Button
-                        key={item.uuid}
-                        onPress={() => handleSelectItem(item.uuid)}
-                        variant="shadow"
-                        className={`w-full min-h-[7.5rem] !transition-all duration-200 rounded-xl p-0 ${selectedItemId === item.uuid ?
-                          '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' :
-                          '!bg-default-100/50 shadow-none hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
-                      >
-                        <div className="w-full flex flex-col h-full">
-                          <div className="flex-grow flex flex-col justify-center px-3">
-                            <div className="flex items-center justify-between">
-                              <span className="font-semibold">
-                                {item.name}
-                              </span>
-                              <Chip color="default" variant={selectedItemId === item.uuid ? "shadow" : "flat"} size="sm">
-                                {typeof item.warehouse_inventory_item_bulks === 'object'
-                                  ? Object.keys(item.warehouse_inventory_item_bulks).length
-                                  : 0} bulk(s)
-                              </Chip>
-                            </div>
-                            <div className={`w-full mt-1 text-sm ${selectedItemId === item.uuid ? 'text-default-800 ' : 'text-default-600'} text-start text-ellipsis overflow-hidden whitespace-nowrap`}>
-                              {warehouses.find(w => w.uuid === item.warehouse_uuid)?.name || 'Unknown Warehouse'}
-                            </div>
-                          </div>
-
-                          {/* Footer - always at the bottom */}
-                          <div className={`flex items-center gap-2 border-t ${selectedItemId === item.uuid ? 'border-primary-300' : 'border-default-100'} p-3`}>
-                            <Chip
-                              color={selectedItemId === item.uuid ? "default" : "primary"}
-                              variant={selectedItemId === item.uuid ? "shadow" : "flat"}
-                              size="sm">
-                              {formatDate(item.created_at || "")}
-                            </Chip>
-                            <Chip color={item.status === "AVAILABLE" ? "success" : "warning"} variant={selectedItemId === item.uuid ? "shadow" : "flat"} size="sm">
-                              {item.status}
-                            </Chip>
-                          </div>
-                        </div>
-                      </Button>
-                    ))}
-                  </ListLoadingAnimation>
-
-                  {/* Add pagination */}
-                  {warehouseItems.length > 0 && (
-                    <div className="flex flex-col items-center pt-2 pb-4 px-2">
-                      <div className="text-sm text-default-500 mb-2">
-                        Showing {(page - 1) * rowsPerPage + 1} to {Math.min(page * rowsPerPage, totalItems)} of {totalItems} {totalItems === 1 ? 'item' : 'items'}
-                      </div>
-                      <Pagination
-                        total={totalPages}
-                        initialPage={1}
-                        page={page}
-                        onChange={handlePageChange}
-                        color="primary"
+                      <Chip
+                        color={selectedItemId === warehouseItem.uuid ? "default" : "secondary"}
+                        variant="flat"
                         size="sm"
-                        showControls
-                      />
-                    </div>
-                  )}
-
-                  {/* Empty state and loading animations */}
-                  <AnimatePresence>
-                    {(!user || isLoadingItems) && (
-                      <motion.div
-                        className="absolute inset-0 flex items-center justify-center"
-                        initial={{ opacity: 0, filter: "blur(8px)" }}
-                        animate={{ opacity: 1, filter: "blur(0px)" }}
-                        exit={{ opacity: 0, filter: "blur(8px)" }}
-                        transition={{ duration: 0.3, delay: 0.3 }}
+                        className={`font-medium ${selectedItemId === warehouseItem.uuid ? 'bg-primary-100/80 text-primary-700 border-primary-200/60' : 'bg-secondary-100/80'}`}
                       >
-                        <div className="absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-background to-transparent pointer-events-none" />
-                        <div className="py-4 flex absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
-                          <Spinner />
+                        <div className="flex items-center gap-1">
+                          <Icon icon="mdi:calendar" width={12} height={12} />
+                          {formatDate(warehouseItem.created_at.toString())}
                         </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </CustomScrollbar>
+                      </Chip>
 
-                {/* No items found state */}
-                <AnimatePresence>
-                  {user && !isLoadingItems && warehouseItems.length === 0 && (
-                    <motion.div
-                      className="xl:h-full h-[42rem] absolute w-full"
-                      initial={{ opacity: 0, filter: "blur(8px)" }}
-                      animate={{ opacity: 1, filter: "blur(0px)" }}
-                      exit={{ opacity: 0, filter: "blur(8px)" }}
-                      transition={{ duration: 0.3 }}
-                    >
-                      <div className="py-4 flex flex-col items-center justify-center absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
-                        <Icon icon="mdi:package-variant" className="text-5xl text-default-300" />
-                        <p className="text-default-500 mt-2">No warehouse inventory items found</p>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            </div>
-          </div>
+                      {warehouseItem.unit_values?.available > 0 && (
+                        <Chip
+                          color="success"
+                          variant="flat"
+                          size="sm"
+                          className={`font-medium ${selectedItemId === warehouseItem.uuid ? 'bg-success-100/80 text-success-700 border-success-200/60' : 'bg-success-100/80'}`}
+                        >
+                          <div className="flex items-center gap-1">
+                            <Icon icon="mdi:check-circle" width={12} height={12} />
+                            {formatNumber(warehouseItem.unit_values.available)} available
+                          </div>
+                        </Chip>
+                      )}
+
+                      {warehouseItem.count?.total > 0 && (
+                        <Chip
+                          color="primary"
+                          variant="flat"
+                          size="sm"
+                          className={`font-medium ${selectedItemId === warehouseItem.uuid ? 'bg-primary-100/80 text-primary-700 border-primary-200/60' : 'bg-primary-100/80'}`}
+                        >
+                          <div className="flex items-center gap-1">
+                            <Icon icon="mdi:package-variant" width={12} height={12} />
+                            {warehouseItem.count.total} items
+                          </div>
+                        </Chip>
+                      )}
+
+                      {warehouseItem.warehouse_name && (
+                        <Chip
+                          color="warning"
+                          variant="flat"
+                          size="sm"
+                          className={`font-medium ${selectedItemId === warehouseItem.uuid ? 'bg-warning-100/80 text-warning-700 border-warning-200/60' : 'bg-warning-100/80'}`}
+                        >
+                          <div className="flex items-center gap-1">
+                            <Icon icon="mdi:warehouse" width={12} height={12} />
+                            {warehouseItem.warehouse_name}
+                          </div>
+                        </Chip>
+                      )}
+
+                    </CustomScrollbar>
+                  </div>
+
+                  {/* Hover effect overlay */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 transform -skew-x-12 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700"></div>
+                </div>
+              </Button>
+            )}
+            renderSkeletonItem={(i) => (
+              <Skeleton key={i} className="w-full min-h-[8.5rem] rounded-xl" />
+            )}
+            renderEmptyCard={(
+              <>
+                <Icon icon="mdi:package-variant" className="text-5xl text-default-300" />
+                <p className="text-default-500 mt-2">No warehouse inventory items found</p>
+              </>
+            )}
+            onItemSelect={handleSelectItem}
+            supabaseFunction="get_warehouse_inventory_filtered"
+            className={`xl:w-1/3 shadow-xl shadow-primary/10 
+                      xl:min-h-[calc(100vh-6.5rem)] 2xl:min-h-[calc(100vh-9rem)] min-h-[42rem] 
+                      xl:min-w-[350px] w-full rounded-2xl overflow-hidden bg-background border 
+                      border-default-200 backdrop-blur-lg xl:sticky top-0 self-start max-h-[calc(100vh-2rem)]`}
+          />
 
           {/* Right side: Item Details */}
           <div className="xl:w-2/3 overflow-hidden">
             {selectedItemId ? (
               <div className="flex flex-col gap-2">
                 <CardList>
-
                   <LoadingAnimation
-                    condition={isLoading || isLoadingWarehouses || !formData}
+                    condition={isLoading || !formData}
                     skeleton={
                       <div>
-                        <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" />
+                        <Skeleton className="h-6 w-48 rounded-xl mb-4" />
                         <div className="space-y-4">
-                          {/* Warehouse Item Identifier Skeleton */}
                           <Skeleton className="h-16 w-full rounded-xl" />
-
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <Skeleton className="h-16 rounded-xl" />
-                            <Skeleton className="h-16 rounded-xl" />
-                            <Skeleton className="h-16 rounded-xl" />
-                            <Skeleton className="h-16 rounded-xl" />
-                            <Skeleton className="h-16 rounded-xl" />
-                            <Skeleton className="h-16 rounded-xl" />
-                          </div>
-
-                          {/* Description Skeleton */}
                           <Skeleton className="h-16 w-full rounded-xl" />
-
-                          {/* Warehouse Properties Skeleton */}
-                          <div className="mt-4 p-3 bg-default-100 rounded-xl border-2 border-default-200">
-                            <div className="flex items-center gap-2 mb-4">
-                              <Skeleton className="w-4 h-4 rounded-full" />
-                              <Skeleton className="h-4 w-32 rounded-xl" />
-                            </div>
-                            <div className="grid grid-cols-2 gap-3">
-                              <Skeleton className="h-3 w-24 rounded-xl" />
-                              <Skeleton className="h-3 w-20 rounded-xl" />
-                              <Skeleton className="h-3 w-28 rounded-xl" />
-                              <Skeleton className="h-3 w-16 rounded-xl" />
-                            </div>
-                          </div>
+                          <Skeleton className="h-24 w-full rounded-xl" />
                         </div>
                       </div>
                     }>
-                    {formData && formData.bulks && (
-                      <div>
-                        <h2 className="text-xl font-semibold mb-4 w-full text-center">Item Details</h2>
-                        <div className="space-y-4">
-                          {/* Warehouse Item Identifier */}
-                          <div className="flex flex-col">
+
+                    <div>
+                      <h2 className="text-xl font-semibold mb-4 w-full text-center">
+                        Warehouse Item Details
+                      </h2>
+
+                      <div className="space-y-4">
+                        {/* Warehouse Item Identifier */}
+                        {formData.uuid && (
+                          <div>
                             <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
                               <div className="flex items-center gap-3">
                                 <Icon icon="mdi:package-variant" className="text-default-500 w-4 h-4 flex-shrink-0" />
@@ -1350,101 +603,58 @@ export default function WarehouseItemsPage() {
                               </Button>
                             </div>
                           </div>
+                        )}
 
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* Item Name */}
-                            <div className="flex flex-col">
-                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                <div className="flex items-center gap-3">
-                                  <Icon icon="mdi:tag" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                  <div className="flex flex-col">
-                                    <span className="text-xs text-default-600 font-medium">Item Name</span>
-                                    <span className="text-md font-semibold text-default-700">
-                                      {formData.name || "N/A"}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Item Unit */}
-                            <div className="flex flex-col">
-                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                <div className="flex items-center gap-3">
-                                  <Icon icon="mdi:ruler" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                  <div className="flex flex-col">
-                                    <span className="text-xs text-default-600 font-medium">Item Unit</span>
-                                    <span className="text-md font-semibold text-default-700">
-                                      {formData.unit || "N/A"}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Status */}
-                            <div className="flex flex-col">
-                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                <div className="flex items-center gap-3">
-                                  <Icon icon="mdi:tag" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                  <div className="flex flex-col">
-                                    <span className="text-xs text-default-600 font-medium">Status</span>
-                                    <span className="text-md font-semibold text-default-700">
-                                      {formData.status || "N/A"}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Warehouse */}
-                            <div className="flex flex-col">
-                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                <div className="flex items-center gap-3">
-                                  <Icon icon="mdi:warehouse" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                  <div className="flex flex-col">
-                                    <span className="text-xs text-default-600 font-medium">Warehouse</span>
-                                    <span className="text-md font-semibold text-default-700">
-                                      {warehouses.find(w => w.uuid === formData.warehouse_uuid)?.name || "N/A"}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Created */}
-                            <div className="flex flex-col">
-                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                <div className="flex items-center gap-3">
-                                  <Icon icon="mdi:calendar" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                  <div className="flex flex-col">
-                                    <span className="text-xs text-default-600 font-medium">Created</span>
-                                    <span className="text-md font-semibold text-default-700">
-                                      {formData.created_at ? format(new Date(formData.created_at), "MMM d, yyyy") : "N/A"}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Last Updated */}
-                            <div className="flex flex-col">
-                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                <div className="flex items-center gap-3">
-                                  <Icon icon="mdi:calendar-clock" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                  <div className="flex flex-col">
-                                    <span className="text-xs text-default-600 font-medium">Last Updated</span>
-                                    <span className="text-md font-semibold text-default-700">
-                                      {formData.updated_at ? format(new Date(formData.updated_at), "MMM d, yyyy") : "N/A"}
-                                    </span>
-                                  </div>
-                                </div>
+                        {/* Item Name */}
+                        <div>
+                          <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                            <div className="flex items-center gap-3">
+                              <Icon icon="mdi:tag" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                              <div className="flex flex-col">
+                                <span className="text-xs text-default-600 font-medium">Item Name</span>
+                                <span className="text-md font-semibold text-default-700">
+                                  {formData.name || "N/A"}
+                                </span>
                               </div>
                             </div>
                           </div>
+                        </div>
 
-                          {/* Description */}
-                          <div className="flex flex-col">
+                        <div className="flex items-start justify-between gap-4 md:flex-row flex-col">
+                          {/* Standard Unit */}
+                          {formData.standard_unit && (
+                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200 w-full">
+                                <div className="flex items-center gap-3">
+                                  <Icon icon="mdi:scale-balance" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                  <div className="flex flex-col">
+                                    <span className="text-xs text-default-600 font-medium">Standard Unit</span>
+                                    <span className="text-md font-semibold text-default-700">
+                                      {getUnitFullName(formData.standard_unit)}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                          )}
+
+                          {/* Measurement Unit */}
+                          {formData.measurement_unit && (
+                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200 w-full">
+                                <div className="flex items-center gap-3">
+                                  <Icon icon="mdi:weight-kilogram" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                  <div className="flex flex-col">
+                                    <span className="text-xs text-default-600 font-medium">Measurement Unit</span>
+                                    <span className="text-md font-semibold text-default-700">
+                                      {toNormalCase(formData.measurement_unit)}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                          )}
+                        </div>
+
+                        {/* Description */}
+                        {formData.description && (
+                          <div>
                             <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
                               <div className="flex items-center gap-3">
                                 <Icon icon="mdi:text-box" className="text-default-500 w-4 h-4 flex-shrink-0" />
@@ -1457,496 +667,372 @@ export default function WarehouseItemsPage() {
                               </div>
                             </div>
                           </div>
+                        )}
 
-                          {/* Warehouse Properties */}
-                          {formData.properties && Object.keys(formData.properties).length > 0 && (
-                            <div className="mt-4 p-3 bg-default-100 rounded-xl border-2 border-default-200">
-                              <div className="flex items-center gap-2 mb-3">
-                                <Icon icon="mdi:tag" className="text-default-500" width={16} />
-                                <span className="text-sm font-medium">Warehouse Properties</span>
+                        {/* Display aggregated values if they exist */}
+                        {formData.unit_values && (
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-default-100 rounded-xl border-2 border-default-200">
+                            <div className="text-center">
+                              <div className="text-xl inline-flex items-end gap-1 font-bold text-default-600">
+                                {formatNumber(formData.unit_values.total)}
+                                <span className="text-sm">{formData.standard_unit}</span>
                               </div>
-                              <div className="grid grid-cols-2 gap-2 text-sm">
-                                {Object.entries(formData.properties).map(([key, value]) => (
-                                  <div key={key}>
-                                    <span className="text-default-500">{toTitleCase(toNormalCase(key))}:</span>
-                                    <span className="ml-2">{String(value)}</span>
-                                  </div>
-                                ))}
+                              <div className="text-sm text-default-600">
+                                Total
                               </div>
                             </div>
-                          )}
+                            <div className="text-center">
+                              <div className="text-xl inline-flex items-end gap-1 font-bold text-success-600">
+                                {formatNumber(formData.unit_values.available)}
+                                <span className="text-sm">{formData.standard_unit}</span>
+                              </div>
+                              <div className="text-sm text-success-600">
+                                Available
+                              </div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-xl inline-flex items-end gap-1 font-bold text-warning-600">
+                                {formatNumber(formData.unit_values.used)}
+                                <span className="text-sm">{formData.standard_unit}</span>
+                              </div>
+                              <div className="text-sm text-warning-600">
+                                Used
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Warehouse Properties */}
+                        {formData.properties && Object.keys(formData.properties).length > 0 && (
+                          <div className="p-3 bg-default-100 rounded-xl border-2 border-default-200">
+                            <div className="flex items-center gap-3 mb-3">
+                              <Icon icon="mdi:tag" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                              <span className="text-xs text-default-600 font-medium">
+                                Warehouse Properties
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-sm">
+                              {Object.entries(formData.properties).map(([key, value]) => (
+                                <div key={key}>
+                                  <span className="text-default-500">{toTitleCase(toNormalCase(key))}:</span>
+                                  <span className="ml-2">{String(value)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </LoadingAnimation>
+                </CardList>
+
+                <CardList>
+                  <LoadingAnimation
+                    condition={isLoading || !formData}
+                    skeleton={
+                      <div>
+                        <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" />
+                        <div className="space-y-4">
+                          <div className="flex justify-between items-center mb-4">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Skeleton className="h-6 w-16 rounded-full" />
+                              <Skeleton className="h-6 w-20 rounded-full" />
+                              <Skeleton className="h-6 w-18 rounded-full" />
+                            </div>
+                            <div className="flex gap-2 flex-wrap">
+                              <Skeleton className="h-8 w-20 rounded-xl" />
+                              <Skeleton className="h-8 w-24 rounded-xl" />
+                            </div>
+                          </div>
+                          <div className="-m-4">
+                            <div className="space-y-4 mx-4">
+                              {[1, 2].map((i) => (
+                                <div key={i} className="mt-4 p-0 bg-transparent rounded-xl overflow-hidden border-2 border-default-200">
+                                  <div className="p-4 bg-default-100/25">
+                                    <div className="flex justify-between items-center w-full">
+                                      <div className="flex items-center gap-2">
+                                        <Skeleton className="h-6 w-16 rounded-xl" />
+                                      </div>
+                                      <div className="flex gap-2">
+                                        <Skeleton className="h-6 w-20 rounded-full" />
+                                        <Skeleton className="h-6 w-24 rounded-full" />
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    )}
-                  </LoadingAnimation>
+                    }>
 
-
-                  <div className="space-y-4">
-                    <LoadingAnimation
-                      condition={isLoading || isLoadingWarehouses}
-                      skeleton={
-                        <div>
-                          <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" />
-                          <div className="space-y-4">
-                            <div className="flex justify-between items-center">
-                              <div className="flex items-center gap-2">
-                                <Skeleton className="h-6 w-16 rounded-full" />
-                              </div>
-                            </div>
-
-                            {/* Bulk Items Skeleton */}
-                            <div className="-mx-4">
-                              <div className="mx-2 mt-4 space-y-4">
-                                {[...Array(2)].map((_, bulkIndex) => (
-                                  <div key={bulkIndex} className="p-0 bg-transparent rounded-xl overflow-hidden border-2 border-default-200">
-                                    {/* Bulk Header Skeleton */}
-                                    <div className="p-4 flex items-center justify-between">
-                                      <div className="flex items-center gap-2">
-                                        <Skeleton className="h-6 w-24 rounded-xl" />
-                                      </div>
-                                      <div className="flex gap-2 flex-wrap">
-                                        <Skeleton className="h-6 w-16 rounded-full" />
-                                        <Skeleton className="h-6 w-12 rounded-full" />
-                                        <Skeleton className="h-6 w-20 rounded-full" />
-                                      </div>
-                                    </div>
-
-                                    {/* Bulk Content Skeleton */}
-                                    <div>
-                                      {/* Warehouse Bulk Identifier */}
-                                      <div className="flex flex-col p-4 pb-0">
-                                        <Skeleton className="h-16 w-full rounded-xl" />
-                                      </div>
-
-                                      {/* Bulk Details Grid */}
-                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pb-0">
-                                        <Skeleton className="h-20 rounded-xl" />
-                                        <Skeleton className="h-20 rounded-xl" />
-                                        <Skeleton className="h-16 rounded-xl" />
-                                        <Skeleton className="h-16 rounded-xl" />
-                                      </div>
-
-                                      {/* Bulk Properties */}
-                                      <div className="mt-4 mx-4 p-3 bg-default-100 rounded-xl border-2 border-default-200">
-                                        <div className="flex items-center gap-2 mb-3">
-                                          <Skeleton className="w-4 h-4 rounded-full" />
-                                          <Skeleton className="h-4 w-28 rounded-xl" />
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-2">
-                                          <Skeleton className="h-3 w-20 rounded-xl" />
-                                          <Skeleton className="h-3 w-16 rounded-xl" />
-                                          <Skeleton className="h-3 w-24 rounded-xl" />
-                                          <Skeleton className="h-3 w-18 rounded-xl" />
-                                        </div>
-                                      </div>
-
-                                      {/* Units Section Skeleton */}
-                                      <div className="overflow-hidden px-4 py-4">
-                                        <div className="border-2 border-default-200 rounded-xl">
-                                          {/* Units Header */}
-                                          <div className="flex justify-between items-center p-4 pb-0">
-                                            <Skeleton className="h-6 w-32 rounded-xl" />
-                                          </div>
-
-                                          {/* Units List */}
-                                          <div className="p-4 overflow-hidden space-y-4">
-                                            {[...Array(2)].map((_, unitIndex) => (
-                                              <div key={unitIndex} className="p-0 w-full bg-transparent rounded-xl overflow-hidden border-2 border-default-200">
-                                                {/* Unit Header */}
-                                                <div className="p-4 h-14 flex items-center justify-between">
-                                                  <div className="flex items-center gap-2">
-                                                    <Skeleton className="h-5 w-20 rounded-xl" />
-                                                    <Skeleton className="h-5 w-16 rounded-full" />
-                                                  </div>
-                                                  <Skeleton className="h-5 w-14 rounded-full" />
-                                                </div>
-
-                                                {/* Unit Details */}
-                                                <div className="space-y-4 pb-4">
-                                                  {/* Unit Identifier */}
-                                                  <div className="flex flex-col p-4 pb-0">
-                                                    <Skeleton className="h-16 w-full rounded-xl" />
-                                                  </div>
-
-                                                  {/* Unit Details Grid */}
-                                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 py-0">
-                                                    <Skeleton className="h-16 rounded-xl" />
-                                                    <Skeleton className="h-16 rounded-xl" />
-                                                    <Skeleton className="h-16 rounded-xl" />
-                                                    <Skeleton className="h-16 rounded-xl" />
-                                                    <Skeleton className="h-16 rounded-xl" />
-                                                    <Skeleton className="h-16 rounded-xl" />
-                                                  </div>
-
-                                                  {/* Unit Action Buttons */}
-                                                  <div className="flex justify-end gap-2 p-4 pt-0">
-                                                    <Skeleton className="h-8 w-20 rounded-xl" />
-                                                    <Skeleton className="h-8 w-24 rounded-xl" />
-                                                  </div>
-                                                </div>
-                                              </div>
-                                            ))}
-                                          </div>
-                                        </div>
-                                      </div>
-
-                                      {/* Bulk Action Buttons */}
-                                      <div className="flex justify-end gap-2 bg-default-100/50 p-4">
-                                        <Skeleton className="h-8 w-24 rounded-xl" />
-                                        <Skeleton className="h-8 w-28 rounded-xl" />
-                                        <Skeleton className="h-8 w-20 rounded-xl" />
-                                        <Skeleton className="h-8 w-24 rounded-xl" />
-                                      </div>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      }>
-                      {formData && formData.bulks && (
-                        <div>
-                          <div className="flex lg:justify-between justify-center items-center mb-4 flex-col lg:flex-row gap-2">
-                            <h2 className="text-xl font-semibold">Bulk Items</h2>
-                            <div className="flex">
-                              <AnimatePresence mode="popLayout">
-                                {!showBulkSearch ? (
-                                  <motion.div
-                                    key="search-button"
-                                    {...motionTransitionScale}
+                    <div>
+                      <div className="flex lg:justify-between justify-center items-center mb-4 flex-col lg:flex-row gap-2">
+                        <h2 className="text-xl font-semibold">Warehouse Items</h2>
+                        <div className="flex">
+                          <AnimatePresence mode="popLayout">
+                            {!showInventorySearch ? (
+                              <motion.div
+                                key="search-button"
+                                {...motionTransitionScale}
+                              >
+                                <Button
+                                  variant="flat"
+                                  color="default"
+                                  size="sm"
+                                  startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
+                                  onPress={() => setShowInventorySearch(true)}
+                                >
+                                  Search & Filter
+                                </Button>
+                              </motion.div>
+                            ) : (
+                              <motion.div
+                                key="search-form"
+                                {...motionTransitionX}
+                              >
+                                <div className="flex items-center gap-2 w-full overflow-hidden">
+                                  <Input
+                                    placeholder="Search keywords..."
+                                    value={inventorySearchQuery}
+                                    onChange={(e) => setInventorySearchQuery(e.target.value)}
+                                    isClearable
+                                    onClear={() => setInventorySearchQuery("")}
+                                    startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
+                                    size="sm"
+                                    className="max-w-48 flex-grow"
+                                  />
+                                  <Popover
+                                    isOpen={showInventorySearchFilter}
+                                    onOpenChange={setShowInventorySearchFilter}
+                                    classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
+                                    motionProps={popoverTransition()}
+                                    offset={10}
+                                    placement="bottom-start"
                                   >
-                                    <Button
-                                      variant="flat"
-                                      color="default"
-                                      size="sm"
-                                      startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
-                                      onPress={() => setShowBulkSearch(true)}
-                                    >
-                                      Search & Filter
-                                    </Button>
-                                  </motion.div>
-                                ) : (
-                                  <motion.div
-                                    key="search-form"
-                                    {...motionTransitionX}
-                                  >
-                                    <div className="flex items-center gap-2 w-full overflow-hidden">
-                                      <Input
-                                        placeholder="Search keywords..."
-                                        value={bulkSearchQuery}
-                                        onChange={(e) => setBulkSearchQuery(e.target.value)}
-                                        isClearable
-                                        onClear={() => setBulkSearchQuery("")}
-                                        startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
-                                        size="sm"
-                                        className="max-w-48 flex-grow"
-                                      />
-                                      <Popover
-                                        isOpen={isBulkSearchFilterOpen}
-                                        onOpenChange={setIsBulkSearchFilterOpen}
-                                        classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
-                                        motionProps={popoverTransition()}
-                                        offset={10}
-                                        placement="bottom-start"
-                                      >
-                                        <PopoverTrigger>
-                                          <Button
-                                            variant="flat"
-                                            color="default"
-                                            size="sm"
-                                            className="min-w-18 w-18"
-                                          >
-                                            <div className="flex items-center gap-1">
-                                              <Icon icon="fluent:filter-12-filled" className="text-default-500" />
-                                              Filter
-                                            </div>
-                                          </Button>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-96 p-0 overflow-hidden">
-                                          <div className="w-full">
-                                            <div className="space-y-4 p-4">
-                                              <h3 className="text-lg font-semibold items-center w-full text-center">
-                                                Bulk Filter Options
-                                              </h3>
-
-                                              {/* Filters */}
-                                              <div className="grid grid-cols-1 gap-4">
-                                                {(() => {
-                                                  const filterOptions = getFilterOptions(formData?.bulks || []);
-
-                                                  return (
-                                                    <>
-                                                      {/* Status Filter */}
-                                                      <Autocomplete
-                                                        label="Filter by Bulk Status"
-                                                        placeholder="All Statuses"
-                                                        selectedKey={bulkSearchFilters.status || ""}
-                                                        onSelectionChange={(value) =>
-                                                          setBulkSearchFilters(prev => ({ ...prev, status: value as string || null }))
-                                                        }
-                                                        startContent={<Icon icon="mdi:information" className="text-default-500 mb-[0.2rem]" />}
-                                                        inputProps={autoCompleteStyle}
-                                                      >
-                                                        {[<AutocompleteItem key="">All Statuses</AutocompleteItem>,
-                                                        ...filterOptions.statuses.map((status) => (
-                                                          <AutocompleteItem key={status}>
-                                                            {status}
-                                                          </AutocompleteItem>
-                                                        ))]}
-                                                      </Autocomplete>
-
-                                                      {/* Bulk Unit Filter */}
-                                                      <Autocomplete
-                                                        label="Filter by Bulk Unit"
-                                                        placeholder="All Bulk Units"
-                                                        selectedKey={bulkSearchFilters.bulk_unit || ""}
-                                                        onSelectionChange={(value) =>
-                                                          setBulkSearchFilters(prev => ({ ...prev, bulk_unit: value as string || null }))
-                                                        }
-                                                        startContent={<Icon icon="mdi:cube-outline" className="text-default-500 mb-[0.2rem]" />}
-                                                        inputProps={autoCompleteStyle}
-                                                      >
-                                                        {[<AutocompleteItem key="">All Bulk Units</AutocompleteItem>,
-                                                        ...filterOptions.bulkUnits.map((bulkUnit) => (
-                                                          <AutocompleteItem key={bulkUnit}>
-                                                            {bulkUnit}
-                                                          </AutocompleteItem>
-                                                        ))]}
-                                                      </Autocomplete>
-
-                                                      {/* Unit Filter */}
-                                                      <Autocomplete
-                                                        label="Filter by Unit"
-                                                        placeholder="All Units"
-                                                        selectedKey={bulkSearchFilters.unit || ""}
-                                                        onSelectionChange={(value) =>
-                                                          setBulkSearchFilters(prev => ({ ...prev, unit: value as string || null }))
-                                                        }
-                                                        startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.2rem]" />}
-                                                        inputProps={autoCompleteStyle}
-                                                      >
-                                                        {[<AutocompleteItem key="">All Units</AutocompleteItem>,
-                                                        ...filterOptions.units.map((unit) => (
-                                                          <AutocompleteItem key={unit}>
-                                                            {unit}
-                                                          </AutocompleteItem>
-                                                        ))]}
-                                                      </Autocomplete>
-                                                    </>
-                                                  );
-                                                })()}
-                                              </div>
-                                            </div>
-
-                                            <div className="p-4 border-t border-default-200 flex justify-end gap-2 bg-default-100/50">
-                                              {/* Clear All Filters Button */}
-                                              {(bulkSearchFilters.status || bulkSearchFilters.bulk_unit || bulkSearchFilters.unit) && (
-                                                <Button
-                                                  variant="flat"
-                                                  color="danger"
-                                                  size="sm"
-                                                  onPress={() => {
-                                                    setBulkSearchFilters({ status: null, bulk_unit: null, unit: null });
-                                                  }}
-                                                  startContent={<Icon icon="mdi:filter-remove" />}
-                                                >
-                                                  Clear All Filters
-                                                </Button>
-                                              )}
-                                              <Button
-                                                size="sm"
-                                                variant="flat"
-                                                onPress={() => setIsBulkSearchFilterOpen(false)}
-                                              >
-                                                Close
-                                              </Button>
-                                            </div>
-                                          </div>
-                                        </PopoverContent>
-                                      </Popover>
+                                    <PopoverTrigger>
                                       <Button
                                         variant="flat"
-                                        color="danger"
+                                        color="default"
                                         size="sm"
-                                        isIconOnly
-                                        onPress={() => {
-                                          setShowBulkSearch(false);
-                                          setBulkSearchQuery("");
-                                          setBulkSearchFilters({ status: null, bulk_unit: null, unit: null });
-                                        }}
+                                        className="min-w-18 w-18"
                                       >
-                                        <Icon icon="mdi:close" className="text-default-500" />
+                                        <div className="flex items-center gap-1">
+                                          <Icon icon="mdi:filter" className="text-default-500" />
+                                        </div>
                                       </Button>
-                                    </div>
-                                  </motion.div>
-                                )}
-                              </AnimatePresence>
-                            </div>
-                          </div>
-
-                          <div>
-                            <div className="flex justify-between items-center">
-                              <div className="flex items-center gap-2 min-w-0 flex-1">
-                                <Chip color="default" variant="flat" size="sm" className="flex-shrink-0">
-                                  {(() => {
-                                    const filteredBulks = filterBulksAndUnits(formData.bulks);
-                                    return `${filteredBulks.length} of ${formData.bulks.length} bulk${formData.bulks.length !== 1 ? "s" : ""}`;
-                                  })()}
-                                </Chip>
-
-                                {/* Active filters display */}
-                                {(bulkSearchQuery || bulkSearchFilters.status || bulkSearchFilters.bulk_unit || bulkSearchFilters.unit) && (
-                                  <div className="flex-1 min-w-0">
-                                    <CustomScrollbar
-                                      direction="horizontal"
-                                      className="w-full"
-                                      scrollShadow
-                                      hideScrollbars
-                                    >
-                                      <div className="flex items-center gap-1 min-w-max pr-4">
-                                        {bulkSearchQuery && (
-                                          <Chip
-                                            variant="flat"
-                                            color="primary"
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-80">
+                                      <div className="px-1 py-2">
+                                        <div className="text-small font-bold text-foreground mb-2">Filter Options</div>
+                                        <div className="flex flex-col gap-2">
+                                          {/* Filter controls would go here */}
+                                          <Button
                                             size="sm"
-                                            onClose={() => setBulkSearchQuery("")}
-                                            className="flex-shrink-0"
-                                          >
-                                            Search: {bulkSearchQuery}
-                                          </Chip>
-                                        )}
-                                        {bulkSearchFilters.status && (
-                                          <Chip
                                             variant="flat"
-                                            color={getStatusColor(bulkSearchFilters.status)}
-                                            size="sm"
-                                            onClose={() => setBulkSearchFilters(prev => ({ ...prev, status: null }))}
-                                            className="flex-shrink-0"
+                                            onPress={() => setShowInventorySearchFilter(false)}
                                           >
-                                            Status: {bulkSearchFilters.status}
-                                          </Chip>
-                                        )}
-                                        {bulkSearchFilters.bulk_unit && (
-                                          <Chip
-                                            variant="flat"
-                                            color="secondary"
-                                            size="sm"
-                                            onClose={() => setBulkSearchFilters(prev => ({ ...prev, bulk_unit: null }))}
-                                            className="flex-shrink-0"
-                                          >
-                                            Bulk Unit: {bulkSearchFilters.bulk_unit}
-                                          </Chip>
-                                        )}
-                                        {bulkSearchFilters.unit && (
-                                          <Chip
-                                            variant="flat"
-                                            color="warning"
-                                            size="sm"
-                                            onClose={() => setBulkSearchFilters(prev => ({ ...prev, unit: null }))}
-                                            className="flex-shrink-0"
-                                          >
-                                            Unit: {bulkSearchFilters.unit}
-                                          </Chip>
-                                        )}
-                                        <Button
-                                          size="sm"
-                                          variant="light"
-                                          onPress={() => {
-                                            setBulkSearchQuery("");
-                                            setBulkSearchFilters({ status: null, bulk_unit: null, unit: null });
-                                          }}
-                                          className="flex-shrink-0"
-                                        >
-                                          Clear all
-                                        </Button>
+                                            Close
+                                          </Button>
+                                        </div>
                                       </div>
-                                    </CustomScrollbar>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-
-                            {(() => {
-                              const filteredBulks = filterBulksAndUnits(formData.bulks);
-
-                              if (filteredBulks.length === 0) {
-                                return (
-                                  <motion.div {...motionTransition}>
-                                    <div className="py-8 h-48 text-center text-default-500 border border-dashed border-default-300 rounded-lg justify-center flex flex-col items-center mt-4">
-                                      <Icon icon="mdi:package-variant-closed" className="mx-auto mb-2 opacity-50" width={40} height={40} />
-                                      <p>
-                                        {(bulkSearchQuery || bulkSearchFilters.status || bulkSearchFilters.bulk_unit || bulkSearchFilters.unit)
-                                          ? "No bulk items match your search criteria"
-                                          : "No bulk items available for this warehouse item"
-                                        }
-                                      </p>
-                                    </div>
-                                  </motion.div>
-                                );
-                              }
-
-                              return (
-                                <motion.div {...motionTransition} className="-mx-4">
-                                  <Accordion
-                                    selectionMode="multiple"
-                                    variant="splitted"
-                                    selectedKeys={expandedBulks}
-                                    onSelectionChange={(keys) => setExpandedBulks(keys as Set<string>)}
-                                    itemClasses={{
-                                      base: "p-0 bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
-                                      title: "font-normal text-lg font-semibold",
-                                      trigger: "p-4 data-[hover=true]:bg-default-100 flex items-center transition-colors",
-                                      indicator: "text-medium",
-                                      content: "p-0",
+                                    </PopoverContent>
+                                  </Popover>
+                                  <Button
+                                    variant="flat"
+                                    color="danger"
+                                    size="sm"
+                                    isIconOnly
+                                    onPress={() => {
+                                      setShowInventorySearch(false);
+                                      setInventorySearchQuery("");
+                                      setInventorySearchFilters({ status: null, unit: null, unit_value: null, packaging_unit: null });
                                     }}
                                   >
-                                    {filteredBulks.map((bulk, index) => (
+                                    <Icon icon="mdi:close" className="text-default-500" />
+                                  </Button>
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      </div>
 
+                      <div>
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            {/* Active filters display */}
+                            {(inventorySearchQuery || inventorySearchFilters.status || inventorySearchFilters.unit || inventorySearchFilters.unit_value || inventorySearchFilters.packaging_unit) && (
+                              <div className="flex-1 min-w-0">
+                                <CustomScrollbar
+                                  direction="horizontal"
+                                  className="w-full"
+                                  scrollShadow
+                                  hideScrollbars
+                                >
+                                  <div className="flex items-center gap-1 min-w-max pr-4">
+                                    {inventorySearchQuery && (
+                                      <Chip
+                                        variant="flat"
+                                        color="primary"
+                                        size="sm"
+                                        onClose={() => setInventorySearchQuery("")}
+                                        className="flex-shrink-0"
+                                      >
+                                        Search: {inventorySearchQuery}
+                                      </Chip>
+                                    )}
+                                    <Button
+                                      size="sm"
+                                      variant="light"
+                                      onPress={() => {
+                                        setInventorySearchQuery("");
+                                        setInventorySearchFilters({ status: null, unit: null, unit_value: null, packaging_unit: null });
+                                      }}
+                                      className="flex-shrink-0"
+                                    >
+                                      Clear all
+                                    </Button>
+                                  </div>
+                                </CustomScrollbar>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* View Mode Toggle */}
+                        <div className="flex justify-between items-center mb-4">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {formData.items && formData.items.length > 0 && (
+                              <>
+                                <Chip color="default" variant="flat" size="sm">
+                                  {formData.items.length} item{formData.items.length > 1 ? "s" : ""}
+                                </Chip>
+                                <Chip color="default" variant="flat" size="sm" className="flex-shrink-0">
+                                  {(() => {
+                                    const filteredItems = getDisplayItemsList();
+                                    return `${filteredItems.length} group${filteredItems.length > 1 ? 's' : ''}`;
+                                  })()}
+                                </Chip>
+                                {formData.standard_unit && (
+                                  <Chip color="primary" variant="flat" size="sm">
+                                    {formatNumber(formData.unit_values?.total || 0)} {formData.standard_unit}
+                                  </Chip>
+                                )}
+                              </>
+                            )}
+                          </div>
+                          <div className="flex gap-2 flex-wrap">
+                            <Button
+                              color={viewMode === 'grouped' ? "primary" : "default"}
+                              variant={viewMode === 'grouped' ? "shadow" : "flat"}
+                              size="sm"
+                              onPress={() => {
+                                setViewMode(viewMode === 'grouped' ? 'flat' : 'grouped');
+                                setExpandedItems(new Set());
+                                setExpandedGroupDetails(new Set());
+                              }}
+                              startContent={<Icon icon={viewMode === 'grouped' ? "mdi:format-list-group" : "mdi:format-list-bulleted"} />}
+                            >
+                              {viewMode === 'grouped' ? 'Grouped' : 'Flat'}
+                            </Button>
+                          </div>
+                        </div>
+
+                        {/* Items content */}
+                        <div>
+                          <AnimatePresence>
+                            {!formData.items || formData.items.length === 0 ? (
+                              <motion.div {...motionTransition}>
+                                <div className="py-8 h-48 text-center text-default-500 border border-dashed border-default-300 rounded-lg justify-center flex flex-col items-center">
+                                  <Icon icon="mdi:package-variant-closed" className="mx-auto mb-2 opacity-50" width={40} height={40} />
+                                  <p>No warehouse items found</p>
+                                </div>
+                              </motion.div>
+                            ) : null}
+                          </AnimatePresence>
+
+                          <AnimatePresence>
+                            {formData.items && formData.items.length > 0 && (
+                              <motion.div {...motionTransition} className="-m-4">
+                                <Accordion
+                                  selectionMode="multiple"
+                                  variant="splitted"
+                                  selectedKeys={expandedItems}
+                                  onSelectionChange={(keys) => setExpandedItems(keys as Set<string>)}
+                                  itemClasses={{
+                                    base: "p-0 bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
+                                    title: "font-normal text-lg font-semibold",
+                                    trigger: "p-4 data-[hover=true]:bg-default-100 flex items-center transition-colors",
+                                    indicator: "text-medium",
+                                    content: "text-small p-0",
+                                  }}>
+                                  {getDisplayItemsList().map((item, index) => {
+                                    const groupedItems = getGroupedItems();
+                                    const isGroupRepresentative = item._isGroupRepresentative;
+                                    const groupSize = item._groupSize;
+                                    const groupId = item._groupId;
+                                    const displayNumber = index + 1;
+
+                                    return (
                                       <AccordionItem
-                                        key={bulk.uuid}
-                                        aria-label={`Bulk ${bulk.uuid}`}
-                                        className={`${index === 0 ? 'mt-4' : ''} mx-2`}
+                                        key={item.uuid}
+                                        aria-label={`Item ${item.uuid}`}
+                                        className={`${displayNumber === 1 ? 'mt-4' : ''} mx-2`}
                                         title={
                                           <div className="flex justify-between items-center w-full">
                                             <div className="flex items-center gap-2">
                                               <span className="font-medium">
-                                                {bulk.is_single_item ? "Single Item" : `Bulk ${bulk.bulk_unit || ''}`}
+                                                {isGroupRepresentative ? `Group ${displayNumber}` : `Item ${displayNumber}`}
                                               </span>
                                             </div>
-                                            <div className="flex gap-2 flex-wrap justify-end">
-                                              <Chip color="primary" variant="flat" size="sm">
-                                                {(() => {
-                                                  const totals = calculateBulkTotals(bulk);
-                                                  return totals.totalUnitValue > 0
-                                                    ? `${formatNumber(totals.currentUnitValue)}/${formatNumber(totals.totalUnitValue)} ${bulk.unit}`
-                                                    : `${formatNumber(bulk.unit_value)} ${bulk.unit}`;
-                                                })()}
-                                              </Chip>
-                                              {bulk.location_code && (
+                                            <div className="flex gap-2">
+                                              {isGroupRepresentative && (
                                                 <Chip color="secondary" variant="flat" size="sm">
-                                                  {bulk.location_code}
+                                                  {groupSize} items
                                                 </Chip>
                                               )}
-                                              {bulk.status && (
-                                                <Chip color={bulk.status === "AVAILABLE" ? "success" : "danger"} variant="flat" size="sm">
-                                                  {bulk.status}
+                                              {item.unit && item.unit !== "" && item.unit_value && item.unit_value > 0 && (
+                                                <Chip color="primary" variant="flat" size="sm">
+                                                  {(() => {
+                                                    if (isGroupRepresentative) {
+                                                      // Calculate total for the group
+                                                      const groupItems = formData.items.filter((groupItem: any) =>
+                                                        groupItem.group_id === groupId
+                                                      );
+                                                      const totalValue = groupItems.reduce((total: number, groupItem: any) => {
+                                                        const unitValue = parseFloat(String(groupItem.unit_value || 0));
+                                                        return total + unitValue;
+                                                      }, 0);
+                                                      return `${formatNumber(totalValue)} ${item.unit}`;
+                                                    } else {
+                                                      const unitValue = parseFloat(String(item.unit_value || 0));
+                                                      return `${formatNumber(unitValue)} ${item.unit}`;
+                                                    }
+                                                  })()}
+                                                </Chip>
+                                              )}
+                                              {item.status && item.status !== "AVAILABLE" && (
+                                                <Chip color="warning" variant="flat" size="sm">
+                                                  {item.status}
                                                 </Chip>
                                               )}
                                             </div>
                                           </div>
                                         }
                                       >
-                                        <div>
-                                          {bulk.uuid && (
-                                            <div className="flex flex-col p-4 pb-0">
+                                        <div className="space-y-4">
+                                          {/* Item Identifier */}
+                                          {item.uuid && (
+                                            <div className="mx-4 mt-4">
                                               <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
                                                 <div className="flex items-center gap-3">
                                                   <Icon icon="mdi:package-variant" className="text-default-500 w-4 h-4 flex-shrink-0" />
                                                   <div className="flex flex-col">
-                                                    <span className="text-xs text-default-600 font-medium">Warehouse Bulk Identifier</span>
+                                                    <span className="text-xs text-default-600 font-medium">Item Identifier</span>
                                                     <span className="text-md font-semibold text-default-700">
-                                                      {bulk.uuid}
+                                                      {item.uuid}
                                                     </span>
                                                   </div>
                                                 </div>
@@ -1954,7 +1040,7 @@ export default function WarehouseItemsPage() {
                                                   variant="flat"
                                                   color="default"
                                                   isIconOnly
-                                                  onPress={() => copyToClipboard(bulk.uuid)}
+                                                  onPress={() => copyToClipboard(item.uuid || "")}
                                                 >
                                                   <Icon icon="mdi:content-copy" className="text-default-500" />
                                                 </Button>
@@ -1962,111 +1048,109 @@ export default function WarehouseItemsPage() {
                                             </div>
                                           )}
 
-                                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 pb-0">
-                                            {/* Unit Value */}
-                                            <div className="flex flex-col">
-                                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                                <div className="flex items-center gap-3">
-                                                  <Icon icon="mdi:ruler" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                                  <div className="flex flex-col">
-                                                    <span className="text-xs text-default-600 font-medium">Unit Value</span>
-                                                    <span className="text-md font-semibold text-default-700">
-                                                      {(() => {
-                                                        const totals = calculateBulkTotals(bulk);
-                                                        return totals.totalUnitValue > 0
-                                                          ? `${formatNumber(totals.currentUnitValue)} ${bulk.unit}`
-                                                          : `${formatNumber(bulk.unit_value)} ${bulk.unit}`;
-                                                      })()}
-                                                    </span>
-                                                    {(() => {
-                                                      const totals = calculateBulkTotals(bulk);
-                                                      return totals.totalUnitValue > 0 && (
-                                                        <span className="text-sm text-default-500">
-                                                          of {formatNumber(totals.totalUnitValue)} {bulk.unit} total
-                                                        </span>
-                                                      );
-                                                    })()}
-                                                  </div>
+                                          {/* Item Code */}
+                                          <div className="mx-4">
+                                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                              <div className="flex items-center gap-3">
+                                                <Icon icon="mdi:barcode" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                <div className="flex flex-col">
+                                                  <span className="text-xs text-default-600 font-medium">Item Code</span>
+                                                  <span className="text-md font-semibold text-default-700">
+                                                    {item.item_code || "N/A"}
+                                                  </span>
+                                                </div>
+                                              </div>
+                                              <Button
+                                                variant="flat"
+                                                color="default"
+                                                isIconOnly
+                                                onPress={() => copyToClipboard(item.item_code || "")}
+                                              >
+                                                <Icon icon="mdi:content-copy" className="text-default-500" />
+                                              </Button>
+                                            </div>
+                                          </div>
+
+                                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mx-4">
+                                            {/* Item Value */}
+                                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                              <div className="flex items-center gap-3">
+                                                <Icon icon="mdi:numeric" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                <div className="flex flex-col">
+                                                  <span className="text-xs text-default-600 font-medium">
+                                                    {`${formData.measurement_unit ? formData.measurement_unit.charAt(0).toUpperCase() + formData.measurement_unit.slice(1) : "Item"} Value`}
+                                                  </span>
+                                                  <span className="text-md font-semibold text-default-700">
+                                                    {String(item.unit_value || 0)}
+                                                  </span>
+                                                </div>
+                                              </div>
+                                              {item.unit && (
+                                                <Chip
+                                                  color="primary"
+                                                  variant="flat"
+                                                  size="sm"
+                                                >
+                                                  {item.unit}
+                                                </Chip>
+                                              )}
+                                            </div>
+
+                                            {/* Item Unit */}
+                                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                              <div className="flex items-center gap-3">
+                                                <Icon icon="mdi:scale-balance" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                <div className="flex flex-col">
+                                                  <span className="text-xs text-default-600 font-medium">
+                                                    {`${formData.measurement_unit ? formData.measurement_unit.charAt(0).toUpperCase() + formData.measurement_unit.slice(1) : "Item"} Unit`}
+                                                  </span>
+                                                  <span className="text-md font-semibold text-default-700">
+                                                    {item.unit || "N/A"}
+                                                  </span>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </div>
+
+                                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mx-4">
+                                            {/* Packaging Unit */}
+                                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                              <div className="flex items-center gap-3">
+                                                <Icon icon="mdi:package" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                <div className="flex flex-col">
+                                                  <span className="text-xs text-default-600 font-medium">Packaging Unit</span>
+                                                  <span className="text-md font-semibold text-default-700">
+                                                    {item.packaging_unit || "N/A"}
+                                                  </span>
                                                 </div>
                                               </div>
                                             </div>
 
                                             {/* Cost */}
-                                            <div className="flex flex-col">
-                                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                                <div className="flex items-center gap-3">
-                                                  <Icon icon="mdi:currency-php" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                                  <div className="flex flex-col">
-                                                    <span className="text-xs text-default-600 font-medium">Cost</span>
-                                                    <span className="text-md font-semibold text-default-700">
-                                                      {(() => {
-                                                        const totals = calculateBulkTotals(bulk);
-                                                        return totals.totalCost > 0
-                                                          ? `₱${formatNumber(totals.currentCost)}`
-                                                          : `₱${formatNumber(bulk.cost)}`;
-                                                      })()}
-                                                    </span>
-                                                    {(() => {
-                                                      const totals = calculateBulkTotals(bulk);
-                                                      return totals.totalCost > 0 && (
-                                                        <span className="text-sm text-default-500">
-                                                          of ₱{formatNumber(totals.totalCost)} total
-                                                        </span>
-                                                      );
-                                                    })()}
-                                                  </div>
+                                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                              <div className="flex items-center gap-3">
+                                                <Icon icon="mdi:currency-php" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                <div className="flex flex-col">
+                                                  <span className="text-xs text-default-600 font-medium">Cost</span>
+                                                  <span className="text-md font-semibold text-default-700">
+                                                    {item.cost ? `₱ ${formatNumber(item.cost)}` : "N/A"}
+                                                  </span>
                                                 </div>
-                                              </div>
-                                            </div>
-
-                                            {/* Bulk Unit */}
-                                            <div className="flex flex-col">
-                                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                                <div className="flex items-center gap-3">
-                                                  <Icon icon="mdi:cube-outline" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                                  <div className="flex flex-col">
-                                                    <span className="text-xs text-default-600 font-medium">Bulk Unit</span>
-                                                    <span className="text-md font-semibold text-default-700">
-                                                      {bulk.bulk_unit || "N/A"}
-                                                    </span>
-                                                  </div>
-                                                </div>
-                                              </div>
-                                            </div>
-
-                                            {/* Location */}
-                                            <div className="flex flex-col">
-                                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
-                                                <div className="flex items-center gap-3">
-                                                  <Icon icon="mdi:package-variant" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                                  <div className="flex flex-col">
-                                                    <span className="text-xs text-default-600 font-medium">Location</span>
-                                                    <span className="text-md font-semibold text-default-700">
-                                                      {bulk.location_code || "Not assigned"}
-                                                    </span>
-                                                  </div>
-                                                </div>
-                                                <Button
-                                                  variant="flat"
-                                                  color="default"
-                                                  isIconOnly
-                                                  onPress={() => copyToClipboard(bulk.location_code || "")}
-                                                >
-                                                  <Icon icon="mdi:content-copy" className="text-default-500" />
-                                                </Button>
                                               </div>
                                             </div>
                                           </div>
 
-                                          {/* Bulk Properties */}
-                                          {bulk.properties && Object.keys(bulk.properties).length > 0 && (
-                                            <div className="mt-4 mx-4 p-3 bg-default-100 rounded-xl border-2 border-default-200">
-                                              <div className="flex items-center gap-2 mb-3">
-                                                <Icon icon="mdi:tag" className="text-default-500" width={16} />
-                                                <span className="text-sm font-medium">Bulk Properties</span>
+                                          {/* Item/Group Properties */}
+                                          {item.properties && Object.keys(item.properties).length > 0 && (
+                                            <div className="m-4 p-3 bg-default-100 rounded-xl border-2 border-default-200">
+                                              <div className="flex items-center gap-3 mb-3">
+                                                <Icon icon="mdi:tag" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                <span className="text-xs text-default-600 font-medium">
+                                                  {viewMode === 'grouped' ? "Grouped Item Properties" : "Item Properties"}
+                                                </span>
                                               </div>
                                               <div className="grid grid-cols-2 gap-2 text-sm">
-                                                {Object.entries(bulk.properties).map(([key, value]) => (
+                                                {Object.entries(item.properties).map(([key, value]) => (
                                                   <div key={key}>
                                                     <span className="text-default-500">{toTitleCase(toNormalCase(key))}:</span>
                                                     <span className="ml-2">{String(value)}</span>
@@ -2076,68 +1160,194 @@ export default function WarehouseItemsPage() {
                                             </div>
                                           )}
 
-                                          <div className="flex justify-end mt-4 gap-2 bg-default-100/50 p-4">
-                                            {bulk.location && (
-                                              <div className="flex flex-wrap justify-end gap-2">
-                                                <Button
-                                                  color="secondary"
-                                                  variant="flat"
-                                                  size="sm"
-                                                  onPress={() => handleViewBulkLocation(bulk.location)}
-                                                  startContent={<Icon icon="mdi:view-in-ar" />}
-                                                >
-                                                  View Location
-                                                </Button>
-
-                                                <Button
-                                                  color="success"
-                                                  variant="flat"
-                                                  size="sm"
-                                                  onPress={() => handleViewDelivery(bulk.delivery_uuid)}
-                                                  startContent={<Icon icon="mdi:truck-delivery" />}
-                                                >
-                                                  View Delivery
-                                                </Button>
-
-                                                <Button
-                                                  color="primary"
-                                                  variant="flat"
-                                                  size="sm"
-                                                  onPress={() => handleShowBulkQR(bulk.uuid, bulk.is_single_item ? "Single Item" : `Bulk ${bulk.bulk_unit || ''}`)}
-                                                  startContent={<Icon icon="mdi:qrcode" />}
-                                                >
-                                                  Show QR
-                                                </Button>
-
-                                                <Button
-                                                  color="warning"
-                                                  variant="flat"
-                                                  size="sm"
-                                                  isDisabled={isLoadingMarkAsUsed || bulk.status === "USED"}
-                                                  onPress={() => handleMarkComponentsAsUsed(bulk.uuid)}
-                                                  startContent={
-                                                    isLoadingMarkAsUsed ?
-                                                      <Spinner size="sm" color="warning" />
-                                                      : <Icon icon="mdi:check-circle" />
+                                          {/* Group Items Details - only show for groups in grouped view */}
+                                          {viewMode === 'grouped' && isGroupRepresentative && groupId && (
+                                            <div className="px-2">
+                                              <Accordion
+                                                selectionMode="multiple"
+                                                variant="splitted"
+                                                selectedKeys={expandedGroupDetails}
+                                                onSelectionChange={(keys) => setExpandedGroupDetails(keys as Set<string>)}
+                                                itemClasses={{
+                                                  base: "p-0 bg-default-50 rounded-xl overflow-hidden border-2 border-default-200",
+                                                  title: "font-normal text-lg font-semibold",
+                                                  trigger: "p-4 data-[hover=true]:bg-default-100 flex items-center transition-colors",
+                                                  indicator: "text-medium",
+                                                  content: "text-small p-0",
+                                                }}
+                                              >
+                                                <AccordionItem
+                                                  key={`group-details-${groupId}`}
+                                                  title={
+                                                    <div className="flex justify-between items-center w-full">
+                                                      <span className="text-lg font-semibold">
+                                                        Group Items
+                                                      </span>
+                                                      <div className="flex items-center gap-2">
+                                                        <Chip color="primary" variant="flat" size="sm">
+                                                          {groupSize} items
+                                                        </Chip>
+                                                        <Chip color="secondary" variant="flat" size="sm">
+                                                          View Details
+                                                        </Chip>
+                                                      </div>
+                                                    </div>
                                                   }
                                                 >
-                                                  {bulk.status === "USED" ? "Already Used" : "Mark as Used"}
-                                                </Button>
-                                              </div>
+                                                  <div className="space-y-4 p-4">
+                                                    {formData.items
+                                                      .filter((groupItem: any) => groupItem.group_id === groupId)
+                                                      .map((groupItem: any, index: number) => (
+                                                        <div
+                                                          key={groupItem.uuid}
+                                                          className="p-4 bg-background/50 rounded-xl border-2 border-default-200"
+                                                        >
+                                                          {/* Item header with buttons */}
+                                                          <div className="flex items-center justify-between mb-4">
+                                                            <div className="flex items-center gap-2">
+                                                              <span className="font-semibold text-default-800">
+                                                                Item {index + 1}
+                                                              </span>
+                                                              {groupItem.status && groupItem.status !== "AVAILABLE" && (
+                                                                <Chip
+                                                                  color={getStatusColor(groupItem.status)}
+                                                                  variant="flat"
+                                                                  size="sm"
+                                                                >
+                                                                  {groupItem.status}
+                                                                </Chip>
+                                                              )}
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                              <Button
+                                                                color="warning"
+                                                                variant="flat"
+                                                                size="sm"
+                                                                onPress={() => handleMarkItemAsUsed(groupItem.uuid)}
+                                                                startContent={
+                                                                  isLoadingMarkAsUsed ?
+                                                                    <Spinner size="sm" color="warning" />
+                                                                    : <Icon icon="mdi:check-circle" width={14} height={14} />
+                                                                }
+                                                                isDisabled={isLoadingMarkAsUsed || groupItem.status === "USED"}
+                                                              >
+                                                                {groupItem.status === "USED" ? "Used" : "Mark as Used"}
+                                                              </Button>
+                                                              <Button
+                                                                color="primary"
+                                                                variant="flat"
+                                                                size="sm"
+                                                                onPress={() => handleViewBulkLocation(groupItem.uuid)}
+                                                                startContent={<Icon icon="mdi:map-marker" width={14} height={14} />}
+                                                              >
+                                                                Location
+                                                              </Button>
+                                                            </div>
+                                                          </div>
+
+                                                          {/* Item Identifier */}
+                                                          {groupItem.uuid && (
+                                                            <div className="mb-4">
+                                                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                                <div className="flex items-center gap-3">
+                                                                  <Icon icon="mdi:package-variant" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                                  <div className="flex flex-col">
+                                                                    <span className="text-xs text-default-600 font-medium">Item Identifier</span>
+                                                                    <span className="text-md font-semibold text-default-700">
+                                                                      {groupItem.uuid}
+                                                                    </span>
+                                                                  </div>
+                                                                </div>
+                                                                <Button
+                                                                  variant="flat"
+                                                                  color="default"
+                                                                  isIconOnly
+                                                                  onPress={() => copyToClipboard(groupItem.uuid || "")}
+                                                                >
+                                                                  <Icon icon="mdi:content-copy" className="text-default-500" />
+                                                                </Button>
+                                                              </div>
+                                                            </div>
+                                                          )}
+
+                                                          {/* Item Location */}
+                                                          {groupItem.location && (
+                                                            <div className="mb-4">
+                                                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                                                <div className="flex items-center gap-3">
+                                                                  <Icon icon="mdi:map-marker" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                                                  <div className="flex flex-col">
+                                                                    <span className="text-xs text-default-600 font-medium">Location</span>
+                                                                    <span className="text-md font-semibold text-default-700">
+                                                                      {groupItem.location.code || "No location assigned"}
+                                                                    </span>
+                                                                  </div>
+                                                                </div>
+                                                                <Button
+                                                                  variant="flat"
+                                                                  color="default"
+                                                                  isIconOnly
+                                                                  onPress={() => handleViewBulkLocation(groupItem.uuid)}
+                                                                >
+                                                                  <Icon icon="mdi:map-marker" className="text-default-500" />
+                                                                </Button>
+                                                              </div>
+                                                            </div>
+                                                          )}
+                                                        </div>
+                                                      ))}
+                                                  </div>
+                                                </AccordionItem>
+                                              </Accordion>
+                                            </div>
+                                          )}
+
+                                          <div className="flex justify-end gap-2 bg-default-100/50 p-4 flex-wrap">
+                                            {/* Mark as Used Button */}
+                                            {isGroupRepresentative ? (
+                                              <Button
+                                                color="warning"
+                                                variant="flat"
+                                                size="sm"
+                                                onPress={() => handleMarkGroupAsUsed(groupId)}
+                                                startContent={
+                                                  isLoadingMarkGroupAsUsed ?
+                                                    <Spinner size="sm" color="warning" />
+                                                    : <Icon icon="mdi:check-circle" width={16} height={16} />
+                                                }
+                                                isDisabled={isLoadingMarkGroupAsUsed || item.status === "USED"}
+                                              >
+                                                {item.status === "USED" ? "Already Used" : "Mark Group as Used"}
+                                              </Button>
+                                            ) : (
+                                              <Button
+                                                color="warning"
+                                                variant="flat"
+                                                size="sm"
+                                                onPress={() => handleMarkItemAsUsed(item.uuid)}
+                                                startContent={
+                                                  isLoadingMarkAsUsed ?
+                                                    <Spinner size="sm" color="warning" />
+                                                    : <Icon icon="mdi:check-circle" width={16} height={16} />
+                                                }
+                                                isDisabled={isLoadingMarkAsUsed || item.status === "USED"}
+                                              >
+                                                {item.status === "USED" ? "Already Used" : "Mark as Used"}
+                                              </Button>
                                             )}
                                           </div>
                                         </div>
                                       </AccordionItem>
-                                    ))}
-                                  </Accordion>
-                                </motion.div>
-                              );
-                            })()}
-                          </div>
+                                    );
+                                  })}
+                                </Accordion>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
                         </div>
-                      )}
-                    </LoadingAnimation>
-                  </div>
+                      </div>
+                    </div>
+                  </LoadingAnimation>
                 </CardList>
 
                 <CardList>
@@ -2212,377 +1422,89 @@ export default function WarehouseItemsPage() {
             ) : (
               <div className="items-center justify-center p-12 border border-dashed border-default-300 rounded-2xl bg-background">
                 <LoadingAnimation
-                  condition={!user || isLoadingItems}
-                  skeleton={
-                    <div className="flex flex-col items-center justify-center">
-                      <Skeleton className="w-16 h-16 rounded-full mb-4" />
-                      <Skeleton className="h-6 w-48 rounded-xl mb-2" />
-                      <Skeleton className="h-4 w-64 rounded-xl mb-6" />
-                      <Skeleton className="h-10 w-32 rounded-xl" />
-                    </div>
-                  }>
-                  <div className="flex flex-col items-center justify-center">
-                    <Icon icon="mdi:package-variant" className="text-default-300" width={64} height={64} />
-                    <h3 className="text-xl font-semibold text-default-800">No Item Selected</h3>
-                    <p className="text-default-500 text-center mt-2 mb-6">
-                      Select an item from the list on the left to view its details.
-                    </p>
-                    <Button
-                      color="primary"
-                      variant="shadow"
-                      className="mb-4"
-                      onPress={() => {
-                        if (warehouseItems.length > 0) {
-                          handleSelectItem(warehouseItems[0].uuid);
-                        }
-                      }}
-                      isDisabled={warehouseItems.length === 0}
-                    >
-                      <Icon icon="mdi:package-variant" className="mr-2" />
-                      View First Item
-                    </Button>
+                  condition={false}
+                  skeleton={<></>}>
+                  <div className="text-center text-default-500">
+                    <Icon icon="mdi:package-variant" className="mx-auto mb-4 opacity-50" width={64} height={64} />
+                    <p className="text-lg">Select a warehouse item to view details</p>
                   </div>
                 </LoadingAnimation>
-
               </div>
             )}
           </div>
         </div>
+      </div>
 
-        {/* Modal for QR Code */}
-        <Modal
-          isOpen={qrCodeModal.isOpen}
-          onClose={qrCodeModal.onClose}
-          placement="auto"
-          backdrop="blur"
-          size="lg"
-          classNames={{
-            backdrop: "bg-background/50"
-          }}
-        >
-          <ModalContent>
-            <ModalHeader>{qrCodeData.title}</ModalHeader>
-            <ModalBody className="flex flex-col items-center">
-              <div className="bg-white rounded-xl overflow-hidden">
-                <QRCodeCanvas
-                  id="warehouse-item-qrcode"
-                  value={qrCodeData.url}
-                  size={320}
-                  marginSize={4}
-                  level="L"
-                />
-              </div>
-
-              <p className="text-center mt-4 text-default-600">
-                {qrCodeData.description}
-              </p>
-
-              {/* Auto Mark as Used Toggle - Only show for bulk items */}
-              {qrCodeData.isBulkItem && (
-                <div className="w-full mt-4 p-4 bg-default-50 overflow-hidden rounded-xl border-2 border-default-200">
-                  <div className="flex items-center justify-between">
-                    <div className="flex flex-col">
-                      <span className="text-sm font-medium text-default-700">Auto Mark as Used</span>
-                      <span className="text-xs text-default-500">
-                        When enabled, scanning this QR code will automatically mark the bulk item as USED
-                      </span>
-                    </div>
-                    <Switch
-                      isSelected={qrCodeData.autoMarkAsUsed}
-                      onValueChange={updateQrCodeUrl}
-                      color="warning"
-                      size="sm"
+      {/* QR Code Modal */}
+      <Modal
+        isOpen={qrModal.isOpen}
+        onOpenChange={qrModal.onOpenChange}
+        classNames={{
+          base: "!backdrop-blur-lg bg-background/20",
+          backdrop: "!backdrop-blur-lg bg-background/20"
+        }}
+        motionProps={popoverTransition()}
+      >
+        <ModalContent>
+          {(onClose) => (
+            <>
+              <ModalHeader className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <Icon icon="mdi:qrcode" />
+                  <span>QR Code for {qrData.itemName}</span>
+                </div>
+              </ModalHeader>
+              <ModalBody>
+                <div className="flex flex-col items-center gap-4">
+                  <div className="p-4 bg-white rounded-lg">
+                    <QRCodeCanvas
+                      value={qrData.url}
+                      size={200}
+                      level="M"
+                      includeMargin={true}
                     />
                   </div>
-
-                  <AnimatePresence>
-                    {qrCodeData.autoMarkAsUsed && (
-                      <motion.div
-                        {...motionTransition}>
-                        <div className="mt-3 p-2 bg-warning-50 border border-warning-200 rounded-lg">
-                          <div className="flex items-start gap-2">
-                            <Icon icon="mdi:alert" className="text-warning-600 mt-0.5 flex-shrink-0" width={16} />
-                            <div>
-                              <p className="text-xs font-medium text-warning-700">Warning</p>
-                              <p className="text-xs text-warning-600">
-                                This action cannot be undone. The bulk item will be marked as USED when scanned.
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              )}
-
-              {/* QR Code URL */}
-              <div className="w-full bg-default-50 overflow-auto max-h-64 rounded-xl p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm font-medium text-default-700">QR Code URL:</p>
-                  <Button
-                    size="sm"
-                    variant="flat"
-                    color="default"
-                    isIconOnly
-                    onPress={() => copyToClipboard(qrCodeData.url)}
-                  >
-                    <Icon icon="mdi:content-copy" className="text-default-500 text-sm" />
-                  </Button>
-                </div>
-                <code className="text-xs text-default-600 break-all">
-                  {qrCodeData.url}
-                </code>
-              </div>
-            </ModalBody>
-            <ModalFooter className="flex justify-end p-4 gap-4">
-              <Button
-                color="default"
-                onPress={qrCodeModal.onClose}>
-                Close
-              </Button>
-              <Button
-                color="primary"
-                variant="shadow"
-                onPress={() => {
-                  const canvas = document.getElementById('warehouse-item-qrcode') as HTMLCanvasElement;
-                  const pngUrl = canvas.toDataURL('image/png');
-                  const downloadLink = document.createElement('a');
-                  downloadLink.href = pngUrl;
-                  downloadLink.download = `warehouse-item-${formData?.uuid || 'item'}-${new Date().toISOString().split('T')[0]}.png`;
-                  document.body.appendChild(downloadLink);
-                  downloadLink.click();
-                  document.body.removeChild(downloadLink);
-                  qrCodeModal.onClose();
-                }}
-              >
-                <Icon icon="mdi:download" className="mr-1" />
-                Download QR
-              </Button>
-            </ModalFooter>
-          </ModalContent>
-        </Modal>
-
-
-        {/* Modal for 3D Location Viewer */}
-        <Modal
-          isOpen={locationModal.isOpen}
-          onClose={locationModal.onClose}
-          placement="auto"
-          backdrop="blur"
-          size="5xl"
-          classNames={{ backdrop: "bg-background/50", wrapper: 'overflow-hidden' }}
-        >
-          <ModalContent>
-            <ModalHeader>
-              Location for {formData?.name || "Warehouse Item"}
-            </ModalHeader>
-            <ModalBody className='p-0'>
-              <div className="h-[80vh] bg-primary-50 rounded-md overflow-hidden relative">
-                <Suspense fallback={
-                  <div className="flex items-center justify-center h-full">
-                    <Spinner size="lg" color="primary" />
-                    <span className="ml-2">Loading 3D viewer...</span>
-                  </div>
-                }>
-                  <ShelfSelector3D
-                    floors={floorConfigs}
-                    onSelect={handleShelfSelection}
-                    occupiedLocations={filteredOccupiedLocations}
-                    canSelectOccupiedLocations={true}
-                    className="w-full h-full"
-                    highlightedFloor={highlightedFloor}
-                    onHighlightFloor={setHighlightedFloor}
-                    externalSelection={externalSelection}
-                    cameraOffsetY={-0.25}
-                    shelfColorAssignments={shelfColorAssignments}
-                  />
-                </Suspense>
-
-                {/* Shelf controls */}
-                <AnimatePresence>
-                  {locationCode && showControls &&
-                    <motion.div {...motionTransition}
-                      className="absolute overflow-hidden bottom-4 left-4 flex flex-col gap-2 bg-background/50 rounded-2xl backdrop-blur-lg w-auto">
-                      <div className="grid md:grid-cols-2 grid-cols-1 gap-3 p-4">
-                        <div className="flex flex-col gap-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold w-16">Floor</span>
-                            <div className="flex items-center gap-1">
-                              <Button
-                                size="sm"
-                                isIconOnly
-                                onPress={() => handleFloorChange(Math.max(1, ((externalSelection?.floor || 0) + 1) - 1))}
-                                isDisabled={(externalSelection?.floor || 0) <= 0}
-                                className="min-w-8 h-8"
-                              >
-                                <Icon icon="mdi:chevron-left" className="text-sm" />
-                              </Button>
-                              <div className="bg-default-100 px-3 h-8 rounded-md flex items-center justify-center w-14">
-                                {(externalSelection?.floor || 0) + 1}
-                              </div>
-                              <Button
-                                size="sm"
-                                isIconOnly
-                                onPress={() => handleFloorChange(Math.min(floorConfigs.length, ((externalSelection?.floor || 0) + 1) + 1))}
-                                isDisabled={(externalSelection?.floor || 0) + 1 >= floorConfigs.length}
-                                className="min-w-8 h-8"
-                              >
-                                <Icon icon="mdi:chevron-right" className="text-sm" />
-                              </Button>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold w-16">Group</span>
-                            <div className="flex items-center gap-1">
-                              <Button
-                                size="sm"
-                                isIconOnly
-                                onPress={() => handleGroupChange(Math.max(1, ((externalSelection?.group || 0) + 1) - 1))}
-                                isDisabled={(externalSelection?.group || 0) <= 0}
-                                className="min-w-8 h-8"
-                              >
-                                <Icon icon="mdi:chevron-left" className="text-sm" />
-                              </Button>
-                              <div className="bg-default-100 px-3 h-8 rounded-md flex items-center justify-center w-14">
-                                {(externalSelection?.group || 0) + 1}
-                              </div>
-                              <Button
-                                size="sm"
-                                isIconOnly
-                                onPress={() => handleGroupChange(Math.min(maxGroupId + 1, ((externalSelection?.group || 0) + 1) + 1))}
-                                isDisabled={(externalSelection?.group || 0) + 1 > maxGroupId}
-                                className="min-w-8 h-8"
-                              >
-                                <Icon icon="mdi:chevron-right" className="text-sm" />
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="flex flex-col gap-2 md:pl-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold w-16">Row</span>
-                            <div className="flex items-center gap-1">
-                              <Button
-                                size="sm"
-                                isIconOnly
-                                onPress={() => handleRowChange(Math.max(1, ((externalSelection?.row || 0) + 1) - 1))}
-                                isDisabled={(externalSelection?.row || 0) <= 0}
-                                className="min-w-8 h-8"
-                              >
-                                <Icon icon="mdi:chevron-left" className="text-sm" />
-                              </Button>
-                              <div className="bg-default-100 px-3 h-8 rounded-md flex items-center justify-center w-14">
-                                {(externalSelection?.row || 0) + 1}
-                              </div>
-                              <Button
-                                size="sm"
-                                isIconOnly
-                                onPress={() => handleRowChange(Math.min(maxRow + 1, ((externalSelection?.row || 0) + 1) + 1))}
-                                isDisabled={(externalSelection?.row || 0) + 1 > maxRow}
-                                className="min-w-8 h-8"
-                              >
-                                <Icon icon="mdi:chevron-right" className="text-sm" />
-                              </Button>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold w-16">Column</span>
-                            <div className="flex items-center gap-1">
-                              <Button
-                                size="sm"
-                                isIconOnly
-                                onPress={() => handleColumnChange(Math.max(1, ((externalSelection?.column || 0) + 1) - 1))}
-                                isDisabled={(externalSelection?.column || 0) <= 0}
-                                className="min-w-8 h-8"
-                              >
-                                <Icon icon="mdi:chevron-left" className="text-sm" />
-                              </Button>
-                              <div className="bg-default-100 px-3 h-8 rounded-md flex items-center justify-center w-14">
-                                {parseColumn((externalSelection?.column || 0) + 1) || ""}
-                              </div>
-                              <Button
-                                size="sm"
-                                isIconOnly
-                                onPress={() => handleColumnChange(Math.min(maxColumn + 1, ((externalSelection?.column || 0) + 1) + 1))}
-                                isDisabled={(externalSelection?.column || 0) + 1 > maxColumn}
-                                className="min-w-8 h-8"
-                              >
-                                <Icon icon="mdi:chevron-right" className="text-sm" />
-                              </Button>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2 md:mb-0 mb-10">
-                            <span className="text-sm font-semibold w-16">Depth</span>
-                            <div className="flex items-center gap-1">
-                              <Button
-                                size="sm"
-                                isIconOnly
-                                onPress={() => handleDepthChange(Math.max(1, ((externalSelection?.depth || 0) + 1) - 1))}
-                                isDisabled={(externalSelection?.depth || 0) <= 0}
-                                className="min-w-8 h-8"
-                              >
-                                <Icon icon="mdi:chevron-left" className="text-sm" />
-                              </Button>
-                              <div className="bg-default-100 px-3 h-8 rounded-md flex items-center justify-center w-14">
-                                {(externalSelection?.depth || 0) + 1}
-                              </div>
-                              <Button
-                                size="sm"
-                                isIconOnly
-                                onPress={() => handleDepthChange(Math.min(maxDepth + 1, ((externalSelection?.depth || 0) + 1) + 1))}
-                                isDisabled={(externalSelection?.depth || 0) + 1 > maxDepth}
-                                className="min-w-8 h-8"
-                              >
-                                <Icon icon="mdi:chevron-right" className="text-sm" />
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </motion.div>
-                  }
-                </AnimatePresence>
-
-                <AnimatePresence>
-                  {(locationCode || showControls) &&
-                    <motion.div {...motionTransition}
-                      className={`absolute overflow-hidden ${showControls ? "bottom-8 left-8 h-8 shadow-sm" : "bottom-4 left-4 h-10 shadow-lg"} w-[12.6rem] bg-default-200/50 rounded-xl backdrop-blur-lg z-10 transition-all duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]`}>
-                      <Button
-                        onPress={() => setShowControls(!showControls)}
-                        color="default"
-                        className={`flex items-center p-4  bg-transparent w-full !scale-100 ${showControls ? "h-8" : "h-10"} !transition-all !duration-500 duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]`}
+                  <div className="text-center">
+                    <p className="text-sm text-default-600 mb-2">
+                      {qrData.description}
+                    </p>
+                    <div className="flex items-center gap-2 justify-center">
+                      <Switch
+                        size="sm"
+                        isSelected={qrData.autoMarkAsUsed}
+                        onValueChange={(checked) => {
+                          const newUrl = generateUrl(qrData.itemId, checked);
+                          setQrData(prev => ({
+                            ...prev,
+                            autoMarkAsUsed: checked,
+                            url: newUrl,
+                            description: checked
+                              ? `Scan this code to view details for ${prev.itemName} and automatically mark it as USED.`
+                              : `Scan this code to view details for ${prev.itemName}`
+                          }));
+                        }}
                       >
-                        <Icon icon="ic:round-control-camera" className="w-4 h-4" />
-                        <span className="text-sm font-semibold">
-                          {showControls ? "Hide Controls" : "Show Controls"}
-                        </span>
-                      </Button>
-                    </motion.div>
-                  }
-                </AnimatePresence>
-
-                <AnimatePresence>
-                  {externalSelection &&
-                    <motion.div {...motionTransition} className="absolute overflow-hidden top-4 right-4 flex items-start gap-2 bg-background/50 rounded-2xl backdrop-blur-lg flex flex-col p-4">
-                      {locationCode &&
-                        <span className="text-sm font-semibold"> Selected Code: <b>{locationCode}</b></span>
-                      }
-                      <span className="text-sm font-semibold">Current Code: <b>{formatCode(externalSelection)}</b></span>
-                    </motion.div>
-                  }
-                </AnimatePresence>
-
-              </div>
-            </ModalBody>
-           <Popover3dNavigationHelp />
-          </ModalContent>
-        </Modal>
-      </div >
+                        Auto mark as used
+                      </Switch>
+                    </div>
+                  </div>
+                </div>
+              </ModalBody>
+              <ModalFooter>
+                <Button color="danger" variant="light" onPress={onClose}>
+                  Close
+                </Button>
+                <Button
+                  color="primary"
+                  onPress={() => copyToClipboard(qrData.url)}
+                >
+                  Copy URL
+                </Button>
+              </ModalFooter>
+            </>
+          )}
+        </ModalContent>
+      </Modal>
     </motion.div >
   );
 }

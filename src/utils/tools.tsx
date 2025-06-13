@@ -29,6 +29,16 @@ export const formatNumber = (value: number): string => {
   });
 };
 
+export const formatStatus = (status: string, titleCase: boolean = true): string => {
+  // remove underscores and convert to title case
+  const formattedStatus = status.replace(/_/g, ' ');
+  if (titleCase) {
+    return toTitleCase(formattedStatus);
+  }
+  // if titleCase is false, return normal case
+  return formattedStatus;
+}
+
 export const copyToClipboard = (str: string): void => {
   navigator.clipboard.writeText(str).then(() => {
     addToast({

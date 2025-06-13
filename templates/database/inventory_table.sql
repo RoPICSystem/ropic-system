@@ -87,7 +87,6 @@ DECLARE
     inv_record RECORD;
     total_unit_values RECORD;
     total_counts RECORD;
-    total_costs RECORD;
 BEGIN
     -- Skip if inventory UUID is null
     IF p_inventory_uuid IS NULL THEN
@@ -142,29 +141,7 @@ BEGIN
     FROM inventory_items ii
     WHERE ii.inventory_uuid = p_inventory_uuid;
 
-    -- Calculate aggregated costs
-    SELECT 
-        COALESCE(SUM(CASE 
-            WHEN ii.status NOT IN ('IN_WAREHOUSE', 'USED') OR ii.status IS NULL 
-            THEN ii.cost 
-            ELSE 0 
-        END), 0) as inventory,
-        COALESCE(SUM(CASE 
-            WHEN ii.status = 'IN_WAREHOUSE' 
-            THEN ii.cost 
-            ELSE 0 
-        END), 0) as warehouse,
-        COALESCE(SUM(CASE 
-            WHEN ii.status = 'AVAILABLE' OR ii.status IS NULL 
-            THEN ii.cost 
-            ELSE 0 
-        END), 0) as available,
-        COALESCE(SUM(ii.cost), 0) as total
-    INTO total_costs
-    FROM inventory_items ii
-    WHERE ii.inventory_uuid = p_inventory_uuid;
-
-    -- Update the inventory table with aggregated values
+    -- Update the inventory table with aggregated values (without total_cost in properties)
     UPDATE inventory 
     SET 
         unit_values = jsonb_build_object(
@@ -179,19 +156,10 @@ BEGIN
             'available', total_counts.available,
             'total', total_counts.total
         ),
-        properties = COALESCE(properties, '{}'::jsonb) || jsonb_build_object(
-            'total_cost', jsonb_build_object(
-                'inventory', total_costs.inventory,
-                'warehouse', total_costs.warehouse,
-                'available', total_costs.available,
-                'total', total_costs.total
-            )
-        ),
         updated_at = NOW()
     WHERE uuid = p_inventory_uuid;
 END;
 $$ LANGUAGE plpgsql;
-
 
 -- Drop and recreate the trigger to ensure it uses the updated function
 DROP TRIGGER IF EXISTS trg_inventory_items_aggregation ON inventory_items;

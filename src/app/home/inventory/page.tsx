@@ -93,6 +93,7 @@ export default function InventoryPage() {
 
   // Expanded items state
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+  const [expandedGroupDetails, setExpandedGroupDetails] = useState<Set<string>>(new Set());
 
   const defaultMeasurementUnit = "length";
   const defaultPackagingUnit = "roll";
@@ -966,9 +967,9 @@ export default function InventoryPage() {
 
                       {/* Display aggregated values if they exist */}
                       {inventoryForm.unit_values && (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-default-100/50 rounded-xl">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-default-100 rounded-xl border-2 border-default-200">
                           <div className="text-center">
-                            <div className="text-xl inline-flex items-end gap-1 font-bold text-default">
+                            <div className="text-xl inline-flex items-end gap-1 font-bold text-default-600">
                               {formatNumber(inventoryForm.unit_values.total)}
                               <span className="text-sm">{inventoryForm.standard_unit}</span>
                             </div>
@@ -977,7 +978,7 @@ export default function InventoryPage() {
                             </div>
                           </div>
                           <div className="text-center">
-                            <div className="text-xl inline-flex items-end gap-1 font-bold text-success">
+                            <div className="text-xl inline-flex items-end gap-1 font-bold text-success-600">
                               {formatNumber(inventoryForm.unit_values.available)}
                               <span className="text-sm">{inventoryForm.standard_unit}</span>
                             </div>
@@ -986,7 +987,7 @@ export default function InventoryPage() {
                             </div>
                           </div>
                           <div className="text-center">
-                            <div className="text-xl inline-flex items-end gap-1 font-bold text-secondary">
+                            <div className="text-xl inline-flex items-end gap-1 font-bold text-secondary-600">
                               {formatNumber(inventoryForm.unit_values.warehouse)}
                               <span className="text-sm">{inventoryForm.standard_unit}</span>
                             </div>
@@ -1427,6 +1428,96 @@ export default function InventoryPage() {
                                             isDisabled={!isItemEditable(item)}
                                           />
                                         </div>
+
+                                        {/* Group Items Details - only show for groups in grouped view */}
+                                        {viewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId && (
+                                          <div className="px-2 pb-4">
+                                            <Accordion
+                                              selectionMode="multiple"
+                                              variant="splitted"
+                                              selectedKeys={expandedGroupDetails}
+                                              onSelectionChange={(keys) => setExpandedGroupDetails(keys as Set<string>)}
+                                              itemClasses={{
+                                                base: "p-0 bg-default-50 rounded-xl overflow-hidden border-2 border-default-200",
+                                                title: "font-normal text-lg font-semibold",
+                                                trigger: "p-4 data-[hover=true]:bg-default-100 flex items-center transition-colors",
+                                                indicator: "text-medium",
+                                                content: "text-small p-0",
+                                              }}
+                                            >
+                                              <AccordionItem
+                                                key={`group-details-${groupInfo.groupId}`}
+                                                title={
+                                                  <div className="flex justify-between items-center w-full">
+                                                    <span className="text-lg font-semibold">
+                                                      Group Items
+                                                    </span>
+                                                    <div className="flex items-center gap-2">
+                                                      <Chip color="primary" variant="flat" size="sm">
+                                                        {groupInfo.groupSize} items
+                                                      </Chip>
+                                                      <Chip color="secondary" variant="flat" size="sm">
+                                                        View Details
+                                                      </Chip>
+                                                    </div>
+                                                  </div>
+                                                }
+                                              >
+                                                <div className="space-y-4 p-4">
+                                                  {inventoryItemsList
+                                                    .filter(groupItem => groupItem.group_id === groupInfo.groupId)
+                                                    .map((groupItem, index) => (
+                                                      <div
+                                                        key={groupItem.id}
+                                                        className="p-4 bg-background/50 rounded-xl border-2 border-default-200"
+                                                      >
+                                                        <div className="flex items-center justify-between mb-4">
+                                                          <div className="flex items-center gap-2">
+                                                            <span className="font-semibold text-default-800">
+                                                              Item {index + 1}
+                                                            </span>
+                                                            {groupItem.status && groupItem.status !== "AVAILABLE" && (
+                                                              <Chip
+                                                                color={getStatusColor(groupItem.status)}
+                                                                variant="flat"
+                                                                size="sm"
+                                                              >
+                                                                {groupItem.status}
+                                                              </Chip>
+                                                            )}
+                                                          </div>
+                                                        </div>
+
+                                                        {/* Item Identifier */}
+                                                        {groupItem.uuid && (
+                                                          <div>
+                                                            <Input
+                                                              label="Item Identifier"
+                                                              value={groupItem.uuid}
+                                                              isReadOnly
+                                                              classNames={inputStyle}
+                                                              startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
+                                                              endContent={
+                                                                <Button
+                                                                  variant="flat"
+                                                                  color="default"
+                                                                  isIconOnly
+                                                                  onPress={() => copyToClipboard(groupItem.uuid || "")}
+                                                                >
+                                                                  <Icon icon="mdi:content-copy" className="text-default-500" />
+                                                                </Button>
+                                                              }
+                                                            />
+                                                          </div>
+                                                        )}
+                                                      </div>
+                                                    ))}
+                                                </div>
+                                              </AccordionItem>
+                                            </Accordion>
+                                          </div>
+                                        )}
+
 
                                         <div className="flex justify-end gap-2 bg-default-100/50 p-4 flex-wrap">
                                           {/* Group Controls - only show in grouped view for non-grouped items */}

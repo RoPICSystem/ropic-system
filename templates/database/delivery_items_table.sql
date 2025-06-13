@@ -135,7 +135,7 @@ EXCEPTION
 END;
 $function$;
 
--- Update the existing update_delivery_with_items function to handle status changes properly
+-- Update the existing update_delivery_with_items function to handle IN_TRANSIT status
 CREATE OR REPLACE FUNCTION public.update_delivery_with_items(
   p_delivery_uuid uuid,
   p_inventory_locations jsonb,
@@ -176,11 +176,31 @@ BEGIN
     );
   END IF;
 
-  -- Only allow updates if delivery is in PENDING or PROCESSING status
-  IF v_delivery_record.status NOT IN ('PENDING', 'PROCESSING') THEN
+  -- Allow updates for PENDING, PROCESSING, and IN_TRANSIT status
+  IF v_delivery_record.status NOT IN ('PENDING', 'PROCESSING', 'IN_TRANSIT') THEN
     RETURN jsonb_build_object(
       'success', false,
       'error', 'Cannot modify delivery items when status is ' || v_delivery_record.status
+    );
+  END IF;
+
+  -- For IN_TRANSIT status, only allow inventory_locations updates
+  IF v_delivery_record.status = 'IN_TRANSIT' THEN
+    -- Only update inventory_locations and updated_at
+    UPDATE delivery_items 
+    SET 
+      inventory_locations = p_inventory_locations,
+      updated_at = now()
+    WHERE uuid = p_delivery_uuid;
+
+    -- Return the updated delivery without changing inventory item statuses
+    SELECT row_to_json(di.*) INTO v_result
+    FROM delivery_items di
+    WHERE di.uuid = p_delivery_uuid;
+
+    RETURN jsonb_build_object(
+      'success', true,
+      'data', v_result
     );
   END IF;
 
@@ -227,7 +247,7 @@ BEGIN
     END IF;
   END IF;
 
-  -- Update delivery record
+  -- Update delivery record (for non-IN_TRANSIT status)
   UPDATE delivery_items 
   SET 
     inventory_locations = p_inventory_locations,

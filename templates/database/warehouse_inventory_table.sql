@@ -186,3 +186,327 @@ USING (
   AND public.get_user_company_uuid((select auth.uid())) IS NOT NULL
   AND company_uuid = public.get_user_company_uuid((select auth.uid()))
 );
+
+
+-- Function to get filtered warehouse inventory
+CREATE OR REPLACE FUNCTION public.get_warehouse_inventory_filtered(
+  p_company_uuid uuid DEFAULT NULL,
+  p_search text DEFAULT '',
+  p_warehouse_uuid uuid DEFAULT NULL,
+  p_status text DEFAULT NULL,
+  p_year integer DEFAULT NULL,
+  p_month integer DEFAULT NULL,
+  p_week integer DEFAULT NULL,
+  p_day integer DEFAULT NULL,
+  p_limit integer DEFAULT 100,
+  p_offset integer DEFAULT 0
+)
+RETURNS TABLE(
+  uuid uuid,
+  company_uuid uuid,
+  admin_uuid uuid,
+  warehouse_uuid uuid,
+  inventory_uuid uuid,
+  name text,
+  description text,
+  measurement_unit text,
+  standard_unit text,
+  unit_values jsonb,
+  count jsonb,
+  status text,
+  warehouse_name text,
+  inventory_name text,
+  items_count integer,
+  created_at timestamp with time zone,
+  updated_at timestamp with time zone,
+  total_count bigint
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_search_pattern TEXT;
+  total_rows BIGINT;
+BEGIN
+  v_search_pattern := '%' || COALESCE(p_search, '') || '%';
+  
+  -- Get total count
+  SELECT COUNT(*) INTO total_rows
+  FROM warehouse_inventory wi
+  LEFT JOIN warehouses w ON wi.warehouse_uuid = w.uuid
+  LEFT JOIN inventory inv ON wi.inventory_uuid = inv.uuid
+  WHERE 
+    (p_company_uuid IS NULL OR wi.company_uuid = p_company_uuid)
+    AND (p_warehouse_uuid IS NULL OR wi.warehouse_uuid = p_warehouse_uuid)
+    AND (p_status IS NULL OR wi.status = p_status)
+    AND (p_year IS NULL OR EXTRACT(YEAR FROM wi.created_at) = p_year)
+    AND (p_month IS NULL OR EXTRACT(MONTH FROM wi.created_at) = p_month)
+    AND (p_week IS NULL OR EXTRACT(WEEK FROM wi.created_at) = p_week)
+    AND (p_day IS NULL OR EXTRACT(DAY FROM wi.created_at) = p_day)
+    AND (
+      p_search = '' OR p_search IS NULL
+      OR wi.uuid::TEXT ILIKE v_search_pattern
+      OR wi.name ILIKE v_search_pattern
+      OR COALESCE(wi.description, '') ILIKE v_search_pattern
+      OR w.name ILIKE v_search_pattern
+      OR inv.name ILIKE v_search_pattern
+    );
+
+  RETURN QUERY
+  SELECT 
+    wi.uuid,
+    wi.company_uuid,
+    wi.admin_uuid,
+    wi.warehouse_uuid,
+    wi.inventory_uuid,
+    wi.name,
+    wi.description,
+    wi.measurement_unit,
+    wi.standard_unit,
+    wi.unit_values,
+    wi.count,
+    wi.status,
+    w.name as warehouse_name,
+    inv.name as inventory_name,
+    (wi.count->>'total')::INT AS items_count,
+    wi.created_at,
+    wi.updated_at,
+    total_rows
+  FROM warehouse_inventory wi
+  LEFT JOIN warehouses w ON wi.warehouse_uuid = w.uuid
+  LEFT JOIN inventory inv ON wi.inventory_uuid = inv.uuid
+  WHERE 
+    (p_company_uuid IS NULL OR wi.company_uuid = p_company_uuid)
+    AND (p_warehouse_uuid IS NULL OR wi.warehouse_uuid = p_warehouse_uuid)
+    AND (p_status IS NULL OR wi.status = p_status)
+    AND (p_year IS NULL OR EXTRACT(YEAR FROM wi.created_at) = p_year)
+    AND (p_month IS NULL OR EXTRACT(MONTH FROM wi.created_at) = p_month)
+    AND (p_week IS NULL OR EXTRACT(WEEK FROM wi.created_at) = p_week)
+    AND (p_day IS NULL OR EXTRACT(DAY FROM wi.created_at) = p_day)
+    AND (
+      p_search = '' OR p_search IS NULL
+      OR wi.uuid::TEXT ILIKE v_search_pattern
+      OR wi.name ILIKE v_search_pattern
+      OR COALESCE(wi.description, '') ILIKE v_search_pattern
+      OR w.name ILIKE v_search_pattern
+      OR inv.name ILIKE v_search_pattern
+    )
+  ORDER BY wi.created_at DESC
+  LIMIT p_limit OFFSET p_offset;
+END;
+$function$;
+
+
+-- Function to get warehouse inventory details with items
+CREATE OR REPLACE FUNCTION public.get_warehouse_inventory_details(
+  p_warehouse_inventory_uuid uuid
+)
+RETURNS TABLE(
+  uuid uuid,
+  company_uuid uuid,
+  admin_uuid uuid,
+  warehouse_uuid uuid,
+  inventory_uuid uuid,
+  name text,
+  description text,
+  measurement_unit text,
+  standard_unit text,
+  unit_values jsonb,
+  count jsonb,
+  properties jsonb,
+  status text,
+  warehouse_info jsonb,
+  inventory_info jsonb,
+  items jsonb,
+  created_at timestamp with time zone,
+  updated_at timestamp with time zone
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    wi.uuid,
+    wi.company_uuid,
+    wi.admin_uuid,
+    wi.warehouse_uuid,
+    wi.inventory_uuid,
+    wi.name,
+    wi.description,
+    wi.measurement_unit,
+    wi.standard_unit,
+    wi.unit_values,
+    wi.count,
+    wi.properties,
+    wi.status,
+    jsonb_build_object(
+      'uuid', w.uuid,
+      'name', w.name,
+      'address', w.address
+    ) as warehouse_info,
+    jsonb_build_object(
+      'uuid', inv.uuid,
+      'name', inv.name,
+      'description', inv.description
+    ) as inventory_info,
+    COALESCE(
+      jsonb_agg(
+        CASE 
+          WHEN wii.uuid IS NOT NULL THEN
+            jsonb_build_object(
+              'uuid', wii.uuid,
+              'company_uuid', wii.company_uuid,
+              'warehouse_uuid', wii.warehouse_uuid,
+              'inventory_uuid', wii.inventory_uuid,
+              'group_id', wii.group_id,
+              'item_code', wii.item_code,
+              'unit', wii.unit,
+              'unit_value', wii.unit_value,
+              'packaging_unit', wii.packaging_unit,
+              'cost', wii.cost,
+              'properties', wii.properties,
+              'location', wii.location,
+              'status', wii.status,
+              'status_history', wii.status_history,
+              'created_at', wii.created_at,
+              'updated_at', wii.updated_at
+            )
+          ELSE NULL
+        END
+      ) FILTER (WHERE wii.uuid IS NOT NULL),
+      '[]'::jsonb
+    ) AS items,
+    wi.created_at,
+    wi.updated_at
+  FROM warehouse_inventory wi
+  LEFT JOIN warehouses w ON wi.warehouse_uuid = w.uuid
+  LEFT JOIN inventory inv ON wi.inventory_uuid = inv.uuid
+  LEFT JOIN warehouse_inventory_items wii ON wi.warehouse_uuid = wii.warehouse_uuid 
+    AND wi.inventory_uuid = wii.inventory_uuid
+  WHERE wi.uuid = p_warehouse_inventory_uuid
+  GROUP BY 
+    wi.uuid, wi.company_uuid, wi.admin_uuid, wi.warehouse_uuid, wi.inventory_uuid,
+    wi.name, wi.description, wi.measurement_unit, wi.standard_unit,
+    wi.unit_values, wi.count, wi.properties, wi.status, wi.created_at, wi.updated_at,
+    w.uuid, w.name, w.address, inv.uuid, inv.name, inv.description;
+END;
+$function$;
+
+-- Function to mark warehouse item as used
+CREATE OR REPLACE FUNCTION public.mark_warehouse_item_as_used(
+  p_item_uuid uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_timestamp text;
+  v_warehouse_inventory_uuid uuid;
+BEGIN
+  v_timestamp := to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
+  
+  -- Update the warehouse inventory item status
+  UPDATE warehouse_inventory_items 
+  SET 
+    status = 'USED',
+    status_history = COALESCE(status_history, '{}'::jsonb) || jsonb_build_object(v_timestamp, 'USED'),
+    updated_at = now()
+  WHERE uuid = p_item_uuid;
+  
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'Warehouse inventory item not found'
+    );
+  END IF;
+
+  -- Get the warehouse inventory UUID to update aggregations
+  SELECT wi.uuid INTO v_warehouse_inventory_uuid
+  FROM warehouse_inventory wi
+  JOIN warehouse_inventory_items wii ON wi.warehouse_uuid = wii.warehouse_uuid 
+    AND wi.inventory_uuid = wii.inventory_uuid
+  WHERE wii.uuid = p_item_uuid;
+
+  -- Update warehouse inventory aggregations
+  IF v_warehouse_inventory_uuid IS NOT NULL THEN
+    PERFORM update_warehouse_inventory_aggregations(v_warehouse_inventory_uuid);
+  END IF;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'message', 'Warehouse inventory item marked as used successfully'
+  );
+
+EXCEPTION
+  WHEN OTHERS THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', SQLERRM
+    );
+END;
+$function$;
+
+-- Function to mark warehouse group as used
+CREATE OR REPLACE FUNCTION public.mark_warehouse_group_as_used(
+  p_group_id text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_timestamp text;
+  v_warehouse_inventory_uuids uuid[];
+  v_warehouse_inventory_uuid uuid;
+BEGIN
+  v_timestamp := to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
+  
+  -- Update all warehouse inventory items in the group
+  UPDATE warehouse_inventory_items 
+  SET 
+    status = 'USED',
+    status_history = COALESCE(status_history, '{}'::jsonb) || jsonb_build_object(v_timestamp, 'USED'),
+    updated_at = now()
+  WHERE group_id = p_group_id;
+  
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'Warehouse inventory group not found'
+    );
+  END IF;
+
+  -- Get affected warehouse inventory UUIDs to update aggregations
+  SELECT array_agg(DISTINCT wi.uuid) INTO v_warehouse_inventory_uuids
+  FROM warehouse_inventory wi
+  JOIN warehouse_inventory_items wii ON wi.warehouse_uuid = wii.warehouse_uuid 
+    AND wi.inventory_uuid = wii.inventory_uuid
+  WHERE wii.group_id = p_group_id;
+
+  -- Update warehouse inventory aggregations for all affected warehouse inventories
+  IF v_warehouse_inventory_uuids IS NOT NULL THEN
+    FOREACH v_warehouse_inventory_uuid IN ARRAY v_warehouse_inventory_uuids
+    LOOP
+      PERFORM update_warehouse_inventory_aggregations(v_warehouse_inventory_uuid);
+    END LOOP;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'message', 'Warehouse inventory group marked as used successfully'
+  );
+
+EXCEPTION
+  WHEN OTHERS THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', SQLERRM
+    );
+END;
+$function$;
