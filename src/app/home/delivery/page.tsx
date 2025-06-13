@@ -2504,7 +2504,7 @@ export default function DeliveryPage() {
                                 <Skeleton className="h-8 w-24 rounded-xl" />
                               </div>
                             </div>
-                            
+
                             {/* Select All Section Skeleton */}
                             <div className="border-b border-default-200 px-4 py-3 bg-default-50/50">
                               <div className="flex items-center justify-between flex-row-reverse">
@@ -2536,7 +2536,7 @@ export default function DeliveryPage() {
                                         <Skeleton className="h-6 w-20 rounded-xl" />
                                       </div>
                                     </div>
-                                    
+
                                     {/* Expanded content skeleton */}
                                     <div className="p-4 space-y-4">
                                       <div className="bg-default-100/50 rounded-xl p-3 border border-default-200">
@@ -2550,7 +2550,7 @@ export default function DeliveryPage() {
                                           ))}
                                         </div>
                                       </div>
-                                      
+
                                       <div className="border border-default-200 rounded-xl p-4 bg-default-50/50">
                                         <div className="space-y-3">
                                           <Skeleton className="h-16 w-full rounded-xl" />

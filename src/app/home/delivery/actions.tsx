@@ -720,7 +720,6 @@ export async function createDeliveryWithItems(
     };
   }
 }
-
 /**
  * Updates delivery status with inventory item synchronization using RPC
  */
@@ -755,6 +754,7 @@ export async function updateDeliveryStatusWithItems(
     };
   }
 }
+
 
 /**
  * Gets detailed delivery information using RPC

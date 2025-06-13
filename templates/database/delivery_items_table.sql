@@ -282,7 +282,8 @@ EXCEPTION
 END;
 $function$;
 
--- Update the existing status update function to handle CANCELLED properly
+
+-- Updated function to handle warehouse inventory creation when delivery is marked as DELIVERED
 CREATE OR REPLACE FUNCTION public.update_delivery_status_with_items(
   p_delivery_uuid uuid,
   p_status text,
@@ -299,6 +300,7 @@ DECLARE
   v_inventory_status text;
   v_result jsonb;
   v_inventory_item_uuids uuid[];
+  v_warehouse_result jsonb;
 BEGIN
   -- Generate timestamp for status history
   v_timestamp := to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
@@ -350,6 +352,25 @@ BEGIN
       AND company_uuid = v_delivery_record.company_uuid;
   END IF;
 
+  -- If status is DELIVERED, create warehouse inventory items
+  IF p_status = 'DELIVERED' THEN
+    SELECT public.create_warehouse_inventory_from_delivery(
+      v_delivery_record.inventory_uuid,
+      v_delivery_record.warehouse_uuid,
+      p_delivery_uuid,
+      v_inventory_item_uuids,
+      v_delivery_record.inventory_locations
+    ) INTO v_warehouse_result;
+    
+    IF NOT (v_warehouse_result->>'success')::boolean THEN
+      -- Rollback the delivery status change if warehouse creation fails
+      RETURN jsonb_build_object(
+        'success', false,
+        'error', 'Failed to create warehouse inventory: ' || (v_warehouse_result->>'error')
+      );
+    END IF;
+  END IF;
+
   -- Return the updated delivery
   SELECT row_to_json(di.*) INTO v_result
   FROM delivery_items di
@@ -366,6 +387,133 @@ EXCEPTION
       'success', false,
       'error', SQLERRM,
       'error_detail', SQLSTATE
+    );
+END;
+$function$;
+
+-- New function to create warehouse inventory from delivery
+CREATE OR REPLACE FUNCTION public.create_warehouse_inventory_from_delivery(
+  p_inventory_uuid uuid,
+  p_warehouse_uuid uuid,
+  p_delivery_uuid uuid,
+  p_inventory_item_uuids uuid[],
+  p_inventory_locations jsonb
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inventory_record RECORD;
+  v_warehouse_inventory_uuid uuid;
+  v_inventory_item RECORD;
+  v_location jsonb;
+  v_timestamp text;
+BEGIN
+  -- Generate timestamp
+  v_timestamp := to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
+  
+  -- Get inventory details
+  SELECT * INTO v_inventory_record
+  FROM inventory
+  WHERE uuid = p_inventory_uuid;
+  
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'Inventory not found'
+    );
+  END IF;
+
+  -- Check if warehouse inventory already exists for this inventory
+  SELECT uuid INTO v_warehouse_inventory_uuid
+  FROM warehouse_inventory
+  WHERE warehouse_uuid = p_warehouse_uuid 
+    AND inventory_uuid = p_inventory_uuid;
+
+  -- Create warehouse inventory if it doesn't exist
+  IF v_warehouse_inventory_uuid IS NULL THEN
+    INSERT INTO warehouse_inventory (
+      company_uuid,
+      admin_uuid,
+      warehouse_uuid,
+      inventory_uuid,
+      name,
+      description,
+      measurement_unit,
+      standard_unit,
+      status,
+      status_history
+    ) VALUES (
+      v_inventory_record.company_uuid,
+      v_inventory_record.admin_uuid,
+      p_warehouse_uuid,
+      p_inventory_uuid,
+      v_inventory_record.name,
+      v_inventory_record.description,
+      v_inventory_record.measurement_unit,
+      v_inventory_record.standard_unit,
+      'AVAILABLE',
+      jsonb_build_object(v_timestamp, 'Created from delivery')
+    )
+    RETURNING uuid INTO v_warehouse_inventory_uuid;
+  END IF;
+
+  -- Create warehouse inventory items for each delivered item
+  FOR v_inventory_item IN 
+    SELECT * FROM inventory_items 
+    WHERE uuid = ANY(p_inventory_item_uuids)
+  LOOP
+    -- Get the location for this item from inventory_locations
+    v_location := p_inventory_locations->v_inventory_item.uuid::text;
+    
+    INSERT INTO warehouse_inventory_items (
+      company_uuid,
+      admin_uuid,
+      warehouse_uuid,
+      inventory_uuid,
+      group_id,
+      item_code,
+      unit,
+      unit_value,
+      packaging_unit,
+      cost,
+      properties,
+      location,
+      status,
+      status_history
+    ) VALUES (
+      v_inventory_item.company_uuid,
+      v_inventory_record.admin_uuid,
+      p_warehouse_uuid,
+      p_inventory_uuid,
+      v_inventory_item.group_id,
+      v_inventory_item.item_code,
+      v_inventory_item.unit,
+      v_inventory_item.unit_value::text,
+      v_inventory_item.packaging_unit,
+      v_inventory_item.cost,
+      v_inventory_item.properties,
+      COALESCE(v_location, '{}'::jsonb),
+      'AVAILABLE',
+      jsonb_build_object(v_timestamp, 'Created from delivery ' || p_delivery_uuid::text)
+    );
+  END LOOP;
+
+  -- Update warehouse inventory aggregations
+  PERFORM update_warehouse_inventory_aggregations(v_warehouse_inventory_uuid);
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'warehouse_inventory_uuid', v_warehouse_inventory_uuid
+  );
+
+EXCEPTION
+  WHEN OTHERS THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', SQLERRM
     );
 END;
 $function$;

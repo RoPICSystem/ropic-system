@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS public.inventory_items (
   uuid UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_uuid UUID NOT NULL REFERENCES public.companies(uuid) ON DELETE CASCADE,
   inventory_uuid UUID NOT NULL REFERENCES public.inventory(uuid) ON DELETE CASCADE,
+  group_id TEXT,
   item_code TEXT NOT NULL,
   unit TEXT NOT NULL,
   unit_value NUMERIC NOT NULL,
@@ -10,7 +11,6 @@ CREATE TABLE IF NOT EXISTS public.inventory_items (
   cost NUMERIC DEFAULT 0,
   properties JSONB DEFAULT '{}'::jsonb,
 
-  group_id TEXT,
   status TEXT DEFAULT 'AVAILABLE' check (
     status in ('AVAILABLE', 'ON_DELIVERY', 'IN_WAREHOUSE', 'USED')
   ),
