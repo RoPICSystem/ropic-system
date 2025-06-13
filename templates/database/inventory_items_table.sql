@@ -55,3 +55,5 @@ USING (
   public.is_user_admin((select auth.uid())) = true
   AND public.get_user_company_uuid((select auth.uid())) IS NOT NULL
 );
+
+

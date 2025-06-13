@@ -509,11 +509,7 @@ export async function suggestShelfLocations(
               row: currentRow,
               column: currentColumn,
               depth: currentDepth,
-            }),
-            max_group: groups.length - 1,
-            max_row: currentGroupData.rows - 1,
-            max_column: currentGroupData.width - 1,
-            max_depth: currentGroupData.depth - 1
+            })
           });
 
           locationFound = true;
@@ -529,14 +525,10 @@ export async function suggestShelfLocations(
       }
     }
 
-    // Generate location codes for each suggested location
-    const locationCodes = suggestions.map(loc => formatCode(loc));
-
     return {
       success: true,
       data: {
-        locations: suggestions,
-        locationCodes: locationCodes
+        locations: suggestions
       }
     };
 
@@ -799,3 +791,48 @@ export async function getDeliveryDetails(
 }
 
 
+
+/**
+ * Updates an existing delivery with inventory item status management using RPC
+ */
+export async function updateDeliveryWithItems(
+  deliveryUuid: string,
+  inventoryLocations: Record<string, ShelfLocation>,
+  deliveryAddress?: string,
+  deliveryDate?: string,
+  operatorUuids?: string[],
+  notes?: string,
+  name?: string,
+  companyUuid?: string
+) {
+  const supabase = await createClient();
+
+  try {
+    const { data, error } = await supabase.rpc('update_delivery_with_items', {
+      p_delivery_uuid: deliveryUuid,
+      p_inventory_locations: inventoryLocations,
+      p_delivery_address: deliveryAddress,
+      p_delivery_date: deliveryDate,
+      p_operator_uuids: operatorUuids,
+      p_notes: notes,
+      p_name: name,
+      p_company_uuid: companyUuid
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to update delivery');
+    }
+
+    return { success: true, data: data.data };
+  } catch (error: Error | any) {
+    console.error("Error updating delivery with items:", error);
+    return {
+      success: false,
+      error: `Failed to update delivery: ${error.message || "Unknown error"}`,
+    };
+  }
+}

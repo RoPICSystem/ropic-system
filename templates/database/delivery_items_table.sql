@@ -135,7 +135,7 @@ EXCEPTION
 END;
 $function$;
 
--- RPC function to update delivery with inventory item management
+-- Update the existing update_delivery_with_items function to handle status changes properly
 CREATE OR REPLACE FUNCTION public.update_delivery_with_items(
   p_delivery_uuid uuid,
   p_inventory_locations jsonb,
@@ -176,6 +176,14 @@ BEGIN
     );
   END IF;
 
+  -- Only allow updates if delivery is in PENDING or PROCESSING status
+  IF v_delivery_record.status NOT IN ('PENDING', 'PROCESSING') THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'Cannot modify delivery items when status is ' || v_delivery_record.status
+    );
+  END IF;
+
   -- Extract new inventory item UUIDs from the locations object keys
   SELECT array_agg(key::uuid) INTO v_new_inventory_item_uuids
   FROM jsonb_object_keys(p_inventory_locations) AS key
@@ -203,6 +211,21 @@ BEGIN
   -- Handle null arrays
   v_items_to_add := COALESCE(v_items_to_add, ARRAY[]::uuid[]);
   v_items_to_remove := COALESCE(v_items_to_remove, ARRAY[]::uuid[]);
+
+  -- Validate that all new inventory item UUIDs exist and belong to the specified inventory
+  IF array_length(v_new_inventory_item_uuids, 1) > 0 THEN
+    PERFORM 1 FROM inventory_items 
+    WHERE uuid = ANY(v_new_inventory_item_uuids) 
+      AND inventory_uuid = v_delivery_record.inventory_uuid
+      AND company_uuid = v_delivery_record.company_uuid;
+    
+    IF NOT FOUND THEN
+      RETURN jsonb_build_object(
+        'success', false,
+        'error', 'One or more inventory items not found or do not belong to the specified inventory'
+      );
+    END IF;
+  END IF;
 
   -- Update delivery record
   UPDATE delivery_items 

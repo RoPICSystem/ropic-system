@@ -40,7 +40,8 @@ import {
   getOccupiedShelfLocations,
   suggestShelfLocations,
   updateDeliveryItem,
-  updateDeliveryStatusWithItems
+  updateDeliveryStatusWithItems,
+  updateDeliveryWithItems
 } from "./actions";
 
 // Import the QR code scanner library
@@ -170,7 +171,6 @@ export default function DeliveryPage() {
 
   // Add new state for tab management
   const [acceptDeliveryTab, setAcceptDeliveryTab] = useState("paste-link");
-  const [availableDeliveries, setAvailableDeliveries] = useState<DeliveryItem[]>([]);
   const [isLoadingAvailableDeliveries, setIsLoadingAvailableDeliveries] = useState(false);
 
   // Add state for "select all" functionality
@@ -337,7 +337,7 @@ export default function DeliveryPage() {
     }
   };
 
-  // Update the form submission to use the new RPC
+  // Update the form submission to use the new RPC for both create and update
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -383,18 +383,17 @@ export default function DeliveryPage() {
       let result;
 
       if (selectedDeliveryId) {
-        // Update existing delivery using traditional update method
-        // (since the RPC is primarily for status updates with inventory sync)
-        result = await updateDeliveryItem(selectedDeliveryId, {
-          inventory_uuid: formData.inventory_uuid,
-          warehouse_uuid: formData.warehouse_uuid,
-          delivery_address: formData.delivery_address,
-          delivery_date: formData.delivery_date,
-          inventory_locations: inventoryLocations,
-          notes: formData.notes,
-          operator_uuids: formData.operator_uuids,
-          name: formData.name
-        });
+        // Update existing delivery using the new RPC function
+        result = await updateDeliveryWithItems(
+          selectedDeliveryId,
+          inventoryLocations,
+          formData.delivery_address,
+          formData.delivery_date,
+          formData.operator_uuids,
+          formData.notes,
+          formData.name,
+          user.company_uuid
+        );
       } else {
         // Create new delivery using the new RPC function
         result = await createDeliveryWithItems(
@@ -415,9 +414,9 @@ export default function DeliveryPage() {
       if (result.success && result.data) {
         const newDelivery = result.data;
 
-        // Update URL with new delivery ID
+        // Update URL with new delivery ID for new deliveries
         setTimeout(() => {
-          if (newDelivery?.uuid) {
+          if (!selectedDeliveryId && newDelivery?.uuid) {
             const params = new URLSearchParams(searchParams.toString());
             params.set("deliveryId", newDelivery.uuid);
             router.push(`?${params.toString()}`, { scroll: false });
@@ -425,10 +424,17 @@ export default function DeliveryPage() {
           setErrors({});
         }, 500);
 
-        // If creating a new delivery, reload inventory items to show updated statuses
-        if (!selectedDeliveryId && formData.inventory_uuid) {
+        // Update local form data
+        setFormData(prev => ({
+          ...prev,
+          ...newDelivery
+        }));
+
+        // Reload inventory items to show updated statuses
+        if (formData.inventory_uuid) {
           await loadInventoryInventoryItems(formData.inventory_uuid, true);
         }
+
       } else {
         alert(`Failed to ${selectedDeliveryId ? 'update' : 'create'} delivery. Please try again.`);
       }
@@ -448,8 +454,6 @@ export default function DeliveryPage() {
       if (result.success && result.data) {
         const deliveryData = result.data;
 
-        console.log("Loading delivery details:", deliveryData);
-
         // Update form data with detailed information
         setFormData(deliveryData);
 
@@ -457,12 +461,6 @@ export default function DeliveryPage() {
         if (deliveryData.inventory_locations) {
           const inventoryItemUuids = getInventoryItemUuidsFromLocations(deliveryData.inventory_locations);
           const locations = getLocationsFromInventoryLocations(deliveryData.inventory_locations);
-
-          console.log("Setting selected items and locations from delivery data:", {
-            inventoryItemUuids,
-            locations,
-            inventoryLocations: deliveryData.inventory_locations
-          });
 
           // Set the selected items and locations immediately
           setSelectedInventoryItems(inventoryItemUuids);
@@ -494,7 +492,6 @@ export default function DeliveryPage() {
 
         // Load inventory items AFTER setting the form data and selections
         if (deliveryData.inventory_uuid) {
-          console.log("Loading inventory items for delivery with inventory_uuid:", deliveryData.inventory_uuid);
           await loadInventoryInventoryItems(deliveryData.inventory_uuid, true);
         }
 
@@ -701,8 +698,6 @@ export default function DeliveryPage() {
 
       const deliveryId = searchParams.get("deliveryId");
       const setInventoryId = searchParams.get("setInventory");
-
-      console.log("Handling URL params:", { deliveryId, setInventoryId });
 
       if (deliveryId) {
         // Set selected delivery from URL and load detailed information
@@ -1144,16 +1139,8 @@ export default function DeliveryPage() {
           undefined // Don't filter by delivery UUID to get all items
         );
 
-        console.log("Loading inventory items for existing delivery:", {
-          inventoryItemUuid,
-          selectedDeliveryId,
-          result,
-          inventoryLocations: formData.inventory_locations
-        });
-
         if (result.success) {
           const allInventoryItems = result.data.inventory_items || [];
-          console.log("All available inventory items:", allInventoryItems);
 
           // Add sequential IDs to all items
           const inventoryItemsWithIds = allInventoryItems.map((item: any, index: number) => ({
@@ -1167,7 +1154,6 @@ export default function DeliveryPage() {
           // If we have inventory_locations in formData, extract the selected items
           if (formData.inventory_locations && Object.keys(formData.inventory_locations).length > 0) {
             const selectedItemUuids = Object.keys(formData.inventory_locations);
-            console.log("Setting selected items from inventory_locations:", selectedItemUuids);
 
             if (!preserveSelection) {
               setSelectedInventoryItems(selectedItemUuids);
@@ -1195,12 +1181,6 @@ export default function DeliveryPage() {
           formData.status === "DELIVERED" || formData.status === "CANCELLED",
           selectedDeliveryId || undefined
         );
-
-        console.log("Loading inventory items for new delivery:", {
-          inventoryItemUuid,
-          selectedDeliveryId,
-          result
-        });
 
         if (result.success) {
           console.log("Loaded inventory items:", result.data.inventory_items);
@@ -1932,8 +1912,6 @@ export default function DeliveryPage() {
         return false;
       }
 
-      console.log("Checking visibility for item:", item);
-
       // Hide checkbox if item has certain statuses and is NOT part of current delivery
       if (['ON_DELIVERY', 'IN_WAREHOUSE', 'USED'].includes(item.status)) {
         // Only show if this item is assigned to the current delivery
@@ -1958,8 +1936,8 @@ export default function DeliveryPage() {
               <p className="font-medium">{item.item_code}</p>
               <p className="text-sm text-default-500">
                 {inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId
-                  ? `${totalUnitValue}${unit} total`
-                  : `${item.unit_value || 0} ${unit}`
+                  ? `${totalUnitValue.toFixed(3)} ${unit} total`
+                  : `${(item.unit_value || 0).toFixed(3)} ${unit}`
                 }
               </p>
             </div>
@@ -2521,30 +2499,76 @@ export default function DeliveryPage() {
                           <div className="border-2 border-default-200 rounded-xl bg-gradient-to-b from-background to-default-50/30">
                             <div className="flex justify-between items-center border-b border-default-200 p-4">
                               <Skeleton className="h-6 w-48 rounded-xl" />
-                              <Skeleton className="h-8 w-32 rounded-xl" />
-                            </div>
-                            <div className="space-y-4 p-4">
-                              <div className="flex flex-row-reverse justify-between items-center mb-4">
-                                <Skeleton className="h-4 w-24 rounded-xl" />
+                              <div className="flex gap-2 items-center">
+                                <Skeleton className="h-6 w-20 rounded-xl" />
+                                <Skeleton className="h-8 w-24 rounded-xl" />
                               </div>
-                              <div className="space-y-2">
+                            </div>
+                            
+                            {/* Select All Section Skeleton */}
+                            <div className="border-b border-default-200 px-4 py-3 bg-default-50/50">
+                              <div className="flex items-center justify-between flex-row-reverse">
+                                <Skeleton className="h-6 w-24 rounded-xl" />
+                                <div className="flex items-center gap-3">
+                                  <Skeleton className="w-5 h-5 rounded" />
+                                  <div className="flex flex-col gap-1">
+                                    <Skeleton className="h-4 w-40 rounded-xl" />
+                                    <Skeleton className="h-3 w-56 rounded-xl" />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
 
+                            <div className="py-4">
+                              <div className="space-y-2 mx-4">
                                 {[...Array(3)].map((_, i) => (
-                                  <div key={i} className="flex items-center justify-between p-3 border border-default-200 rounded-xl">
-                                    <div className="flex items-center">
-                                      <Skeleton className="h-5 w-5 rounded mr-2" />
-                                      <div className="flex flex-col ml-2 space-y-1">
-                                        <Skeleton className="h-5 w-24 rounded-xl" />
-                                        <Skeleton className="h-3 w-32 rounded-xl" />
+                                  <div key={i} className="border-2 border-default-200 rounded-xl overflow-hidden">
+                                    <div className="p-4 bg-default-100 flex items-center justify-between">
+                                      <div className="flex items-center gap-3">
+                                        <Skeleton className="w-5 h-5 rounded" />
+                                        <div className="flex flex-col gap-1">
+                                          <Skeleton className="h-5 w-32 rounded-xl" />
+                                          <Skeleton className="h-4 w-24 rounded-xl" />
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <Skeleton className="h-6 w-16 rounded-xl" />
+                                        <Skeleton className="h-6 w-20 rounded-xl" />
                                       </div>
                                     </div>
-                                    <div className="flex items-center gap-2 flex-wrap justify-end">
-                                      <Skeleton className="h-6 w-20 rounded-xl" />
-                                      <Skeleton className="h-8 w-24 rounded-xl" />
+                                    
+                                    {/* Expanded content skeleton */}
+                                    <div className="p-4 space-y-4">
+                                      <div className="bg-default-100/50 rounded-xl p-3 border border-default-200">
+                                        <Skeleton className="h-4 w-28 rounded-xl mb-2" />
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                          {[...Array(4)].map((_, j) => (
+                                            <div key={j} className="flex justify-between">
+                                              <Skeleton className="h-3 w-20 rounded-xl" />
+                                              <Skeleton className="h-3 w-16 rounded-xl" />
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                      
+                                      <div className="border border-default-200 rounded-xl p-4 bg-default-50/50">
+                                        <div className="space-y-3">
+                                          <Skeleton className="h-16 w-full rounded-xl" />
+                                          <div className="flex items-center justify-between gap-3">
+                                            <Skeleton className="h-6 w-32 rounded-xl" />
+                                            <Skeleton className="h-8 w-28 rounded-xl" />
+                                          </div>
+                                        </div>
+                                      </div>
                                     </div>
                                   </div>
                                 ))}
                               </div>
+                            </div>
+
+                            {/* Auto-assign button skeleton */}
+                            <div className="bg-default-100 p-4">
+                              <Skeleton className="h-10 w-full rounded-xl" />
                             </div>
                           </div>
                         </div>
@@ -2585,6 +2609,12 @@ export default function DeliveryPage() {
                             <div className="flex justify-between items-center border-b border-default-200 p-4">
                               <h3 className="text-lg font-semibold">Inventory Items</h3>
                               <div className="flex gap-2 items-center">
+                                {selectedInventoryItems.length > 0 && formData.status !== "PENDING" && (
+                                  <Chip color="primary" size="sm" variant="flat">
+                                    {selectedInventoryItems.length} selected
+                                  </Chip>
+                                )}
+
                                 <Button
                                   color={inventoryViewMode === 'grouped' ? "primary" : "default"}
                                   variant={inventoryViewMode === 'grouped' ? "shadow" : "flat"}
@@ -2602,20 +2632,23 @@ export default function DeliveryPage() {
 
                             {/* Add Select All Checkbox Section */}
                             {(user && user.is_admin) && inventoryInventoryItems.length > 0 && (
-                              formData.status === "PENDING" ||
-                              formData.status === "PROCESSING" ||
-                              (formData.status === "DELIVERED" && selectedDeliveryId)
+                              formData.status === "PENDING"
                             ) && (
                                 <div className="border-b border-default-200 px-4 py-3 bg-default-50/50">
-                                  <div className="flex items-center justify-between">
+                                  <div className="flex items-center justify-between flex-row-reverse">
+                                    <div className="flex items-center gap-2">
+                                      {selectedInventoryItems.length > 0 && (
+                                        <Chip color="primary" size="sm" variant="flat">
+                                          {selectedInventoryItems.length} selected
+                                        </Chip>
+                                      )}
+                                    </div>
                                     <div className="flex items-center gap-3">
-                                      {(user && user.is_admin) || (formData.status === 'PENDING' || formData.status === 'PROCESSING') &&
-                                        <Checkbox
-                                          isSelected={isSelectAllChecked}
-                                          isIndeterminate={isSelectAllIndeterminate}
-                                          onValueChange={handleSelectAllToggle}
-                                          color="primary"
-                                        />}
+                                      <Checkbox
+                                        isSelected={isSelectAllChecked}
+                                        isIndeterminate={isSelectAllIndeterminate}
+                                        onValueChange={handleSelectAllToggle}
+                                        color="primary" />
                                       <div className="flex flex-col">
                                         <span className="text-sm font-medium text-default-700">
                                           Select All Available Items
@@ -2652,23 +2685,15 @@ export default function DeliveryPage() {
                                         </span>
                                       </div>
                                     </div>
-
-                                    <div className="flex items-center gap-2">
-                                      {selectedInventoryItems.length > 0 && (
-                                        <Chip color="primary" size="sm" variant="flat">
-                                          {selectedInventoryItems.length} selected
-                                        </Chip>
-                                      )}
-                                    </div>
                                   </div>
                                 </div>
                               )}
 
-                            <div className="space-y-4 p-4">
+                            <div>
                               <LoadingAnimation
                                 condition={isLoadingInventoryItems}
                                 skeleton={
-                                  <div className="space-y-2">
+                                  <div className="space-y-2 p-4">
                                     {[...Array(3)].map((_, i) => (
                                       <div key={i} className="border border-default-200 rounded-xl p-4">
                                         <div className="flex items-center justify-between">
@@ -2689,7 +2714,7 @@ export default function DeliveryPage() {
                                     <p>No inventory items available</p>
                                   </div>
                                 ) : (
-                                  <div className="-m-4">
+                                  <div className="py-4">
                                     <Accordion
                                       selectionMode="multiple"
                                       variant="splitted"
@@ -2747,7 +2772,7 @@ export default function DeliveryPage() {
                                             <AccordionItem
                                               key={`${item.uuid}-${inventoryViewMode}`} // Use uuid + view mode for unique key
                                               aria-label={`Item ${displayNumber}`}
-                                              className={`${index === 0 ? 'mt-4' : ''} mx-2`}
+                                              className="mx-2"
                                               title={
                                                 renderInventoryItemWithStatus(item, isSelected)
                                               }
@@ -2968,16 +2993,16 @@ export default function DeliveryPage() {
 
                               {/* Auto-assign locations button - only show when not delivered/cancelled */}
                               {selectedInventoryItems.length > 0 && user.is_admin && !isWarehouseNotSet() && !isFloorConfigNotSet() &&
-                                formData.status !== "DELIVERED" && formData.status !== "CANCELLED" && (
-                                  <div className="border-t border-default-200 pt-4 mt-4">
+                                formData.status === "PENDING" && (
+                                  <div className="bg-default-100 p-4">
                                     <Button
                                       color="secondary"
                                       variant="shadow"
                                       className="w-full"
                                       onPress={autoAssignShelfLocations}
-                                      startContent={<Icon icon="mdi:auto-fix" />}
+                                      startContent={!isAutoAssigning && <Icon icon="mdi:auto-fix" />}
                                       isLoading={isAutoAssigning}
-                                      isDisabled={formData.status !== "PENDING" || isLoading || isLoadingItems || isLoadingInventoryItems}
+                                      isDisabled={isLoading || isLoadingItems || isLoadingInventoryItems}
                                     >
                                       Auto-assign Shelf Locations
                                     </Button>
@@ -3691,140 +3716,6 @@ export default function DeliveryPage() {
                               </ul>
                             </div>
                           </div>
-                        </div>
-                      </CardFooter>
-                    </Card>
-                  </Tab>
-
-                  <Tab
-                    key="deliverables"
-                    title={
-                      <div className="flex items-center space-x-2 px-1">
-                        <Icon icon="mdi:truck-delivery" className="text-base" />
-                        <span className="font-medium text-sm">Deliverables</span>
-                      </div>
-                    }
-                  >
-                    <Card className="flex flex-col bg-background h-[500px]">
-                      {/* Header section */}
-                      <CardHeader className="space-y-4 flex-shrink-0">
-                        <div className="flex items-center space-x-3 mb-2">
-                          <div className="w-8 h-8 bg-success-100 rounded-full flex items-center justify-center flex-shrink-0">
-                            <Icon icon="mdi:truck-check" className="text-success-600 text-sm" />
-                          </div>
-                          <div className="text-left">
-                            <h3 className="text-base font-semibold text-default-800">Available Deliveries</h3>
-                            <p className="text-xs text-default-600">
-                              Select from deliveries that are in transit and assigned to you
-                            </p>
-                          </div>
-                        </div>
-                      </CardHeader>
-
-                      <CardBody className="flex flex-col flex-1 px-4">
-                        <ScrollShadow className="h-full overflow-y-auto overflow-x-hidden">
-                          <ListLoadingAnimation
-                            condition={isLoadingAvailableDeliveries}
-                            containerClassName="space-y-2 p-1"
-                            skeleton={[...Array(3)].map((_, i) => (
-                              <div key={i} className="border border-default-200 rounded-xl p-3">
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center space-x-3">
-                                    <Skeleton className="w-10 h-10 rounded-xl" />
-                                    <div className="space-y-1">
-                                      <Skeleton className="h-4 w-32 rounded-xl" />
-                                      <Skeleton className="h-3 w-24 rounded-xl" />
-                                      <div className="flex gap-1">
-                                        <Skeleton className="h-5 w-16 rounded-full" />
-                                        <Skeleton className="h-5 w-14 rounded-full" />
-                                      </div>
-                                    </div>
-                                  </div>
-                                  <Skeleton className="h-6 w-6 rounded-xl" />
-                                </div>
-                              </div>
-                            ))}
-                          >
-                            {availableDeliveries.length > 0 ?
-                              availableDeliveries.map(delivery => (
-                                <Button
-                                  key={delivery.uuid}
-                                  variant="flat"
-                                  color="default"
-                                  className="w-full justify-start p-0 h-auto bg-background hover:bg-success-50 border border-default-200 hover:border-success-300 transition-all duration-200"
-                                  onPress={() => {
-                                    setShowAcceptDeliveryModal(false);
-                                    handleAcceptDelivery(delivery.uuid);
-                                  }}
-                                  isDisabled={isAcceptingDelivery}
-                                >
-                                  <div className="flex items-center justify-between w-full p-3">
-                                    <div className="flex items-center space-x-3">
-                                      <div className="w-10 h-10 bg-primary-100 rounded-xl flex items-center justify-center shadow-sm">
-                                        <Icon icon="mdi:package-variant" className="text-primary-600 text-base" />
-                                      </div>
-                                      <div className="flex flex-col items-start space-y-1">
-                                        <span className="font-semibold text-left text-default-800 text-sm">
-                                          {inventoryItems.find(i => i.uuid === delivery.inventory_uuid)?.name || 'Unknown Item'}
-                                        </span>
-                                        <p className="text-xs text-default-600 text-left max-w-40 truncate">
-                                          {delivery.delivery_address}
-                                        </p>
-                                        <div className="flex items-center space-x-1">
-                                          <Chip size="sm" variant="flat" color="primary" className="text-xs h-5">
-                                            <div className="flex items-center gap-1">
-                                              <Icon icon="mdi:calendar" className="text-xs" />
-                                              {formatDate(delivery.delivery_date)}
-                                            </div>
-                                          </Chip>
-                                          <Chip size="sm" variant="flat" color="secondary" className="text-xs h-5">
-                                            <div className="flex items-center gap-1">
-                                              <Icon icon="mdi:cube-outline" className="text-xs" />
-                                              {Object.keys(delivery.inventory_locations ?? {}).length || 0} inventory items
-                                            </div>
-                                          </Chip>
-                                        </div>
-                                      </div>
-                                    </div>
-                                    <div className="flex items-center">
-                                      <Icon icon="mdi:chevron-right" className="text-default-400 text-base" />
-                                    </div>
-                                  </div>
-                                </Button>
-                              ))
-                              : (
-                                [<div key="no-deliveries" className="text-center py-8 space-y-3 h-56 flex flex-col items-center justify-center">
-                                  <div className="w-12 h-12 bg-default-100 rounded-full flex items-center justify-center mx-auto">
-                                    <Icon icon="mdi:truck-remove" className="text-default-500 text-lg" />
-                                  </div>
-                                  <div className="space-y-1">
-                                    <h4 className="font-semibold text-default-700 text-sm">No deliveries available</h4>
-                                    <p className="text-xs text-default-500 max-w-sm mx-auto">
-                                      Only in transit deliveries assigned to you will appear here for acceptance
-                                    </p>
-                                  </div>
-                                </div>]
-                              )}
-                          </ListLoadingAnimation>
-                        </ScrollShadow>
-                      </CardBody>
-                      {/* Footer section */}
-                      <CardFooter>
-                        <div className="w-full space-y-3">
-                          {/* {availableDeliveries.length > 0 && ( */}
-                          <div className="bg-default-50 rounded-xl p-3 border border-default-200">
-                            <div className="flex items-start gap-2">
-                              <Icon icon="mdi:information-outline" className="text-primary-500 text-sm mt-0.5 flex-shrink-0" />
-                              <div className="space-y-1">
-                                <p className="text-xs font-medium text-default-700">Quick acceptance:</p>
-                                <p className="text-xs text-default-600">
-                                  Click on any delivery item above to instantly accept and mark it as delivered
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                          {/* )} */}
-
                         </div>
                       </CardFooter>
                     </Card>

@@ -27,7 +27,7 @@ BEFORE UPDATE ON public.inventory
 FOR EACH ROW
 EXECUTE FUNCTION update_status_history();
 
--- Trigger function to update inventory aggregations
+-- Enhanced trigger function to update inventory aggregations with detailed change tracking
 CREATE OR REPLACE FUNCTION update_inventory_aggregations()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -35,40 +35,134 @@ DECLARE
     inv_record RECORD;
     total_unit_values RECORD;
     total_counts RECORD;
+    old_inventory_uuid UUID;
+    should_update_old BOOLEAN := FALSE;
+    should_update_new BOOLEAN := FALSE;
 BEGIN
-    -- Get the inventory UUID from the affected row
+    -- Determine which inventory UUIDs need updating based on operation type
     IF TG_OP = 'DELETE' THEN
         target_inventory_uuid := OLD.inventory_uuid;
-    ELSE
+        should_update_old := TRUE;
+    ELSIF TG_OP = 'INSERT' THEN
         target_inventory_uuid := NEW.inventory_uuid;
+        should_update_new := TRUE;
+    ELSIF TG_OP = 'UPDATE' THEN
+        -- Check if any of the tracked fields changed
+        IF (OLD.status IS DISTINCT FROM NEW.status) OR
+           (OLD.unit_value IS DISTINCT FROM NEW.unit_value) OR
+           (OLD.unit IS DISTINCT FROM NEW.unit) OR
+           (OLD.cost IS DISTINCT FROM NEW.cost) OR
+           (OLD.inventory_uuid IS DISTINCT FROM NEW.inventory_uuid) THEN
+            
+            -- If inventory_uuid changed, update both old and new inventories
+            IF OLD.inventory_uuid IS DISTINCT FROM NEW.inventory_uuid THEN
+                old_inventory_uuid := OLD.inventory_uuid;
+                target_inventory_uuid := NEW.inventory_uuid;
+                should_update_old := TRUE;
+                should_update_new := TRUE;
+            ELSE
+                -- Same inventory, just update the current one
+                target_inventory_uuid := NEW.inventory_uuid;
+                should_update_new := TRUE;
+            END IF;
+        ELSE
+            -- No relevant changes, skip aggregation update
+            RETURN NEW;
+        END IF;
+    END IF;
+
+    -- Function to update aggregations for a specific inventory
+    PERFORM update_single_inventory_aggregation(target_inventory_uuid) WHERE should_update_new;
+    PERFORM update_single_inventory_aggregation(old_inventory_uuid) WHERE should_update_old AND old_inventory_uuid IS NOT NULL;
+
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
+
+-- Helper function to update aggregations for a single inventory
+CREATE OR REPLACE FUNCTION update_single_inventory_aggregation(p_inventory_uuid UUID)
+RETURNS VOID AS $$
+DECLARE
+    inv_record RECORD;
+    total_unit_values RECORD;
+    total_counts RECORD;
+    total_costs RECORD;
+BEGIN
+    -- Skip if inventory UUID is null
+    IF p_inventory_uuid IS NULL THEN
+        RETURN;
     END IF;
 
     -- Get inventory record to access standard_unit
-    SELECT standard_unit INTO inv_record FROM inventory WHERE uuid = target_inventory_uuid;
+    SELECT standard_unit INTO inv_record FROM inventory WHERE uuid = p_inventory_uuid;
     
     IF inv_record IS NULL THEN
-        RETURN COALESCE(NEW, OLD);
+        RETURN;
     END IF;
 
     -- Calculate aggregated unit values (converted to standard unit)
     SELECT 
-        COALESCE(SUM(CASE WHEN ii.status NOT IN ('IN_WAREHOUSE', 'USED') OR ii.status IS NULL THEN public.convert_unit(ii.unit_value, ii.unit, inv_record.standard_unit) ELSE 0 END), 0) as inventory,
-        COALESCE(SUM(CASE WHEN ii.status = 'IN_WAREHOUSE' THEN public.convert_unit(ii.unit_value, ii.unit, inv_record.standard_unit) ELSE 0 END), 0) as warehouse,
-        COALESCE(SUM(CASE WHEN ii.status = 'AVAILABLE' OR ii.status IS NULL THEN public.convert_unit(ii.unit_value, ii.unit, inv_record.standard_unit) ELSE 0 END), 0) as available,
+        COALESCE(SUM(CASE 
+            WHEN ii.status NOT IN ('IN_WAREHOUSE', 'USED') OR ii.status IS NULL 
+            THEN public.convert_unit(ii.unit_value, ii.unit, inv_record.standard_unit) 
+            ELSE 0 
+        END), 0) as inventory,
+        COALESCE(SUM(CASE 
+            WHEN ii.status = 'IN_WAREHOUSE' 
+            THEN public.convert_unit(ii.unit_value, ii.unit, inv_record.standard_unit) 
+            ELSE 0 
+        END), 0) as warehouse,
+        COALESCE(SUM(CASE 
+            WHEN ii.status = 'AVAILABLE' OR ii.status IS NULL 
+            THEN public.convert_unit(ii.unit_value, ii.unit, inv_record.standard_unit) 
+            ELSE 0 
+        END), 0) as available,
         COALESCE(SUM(public.convert_unit(ii.unit_value, ii.unit, inv_record.standard_unit)), 0) as total
     INTO total_unit_values
     FROM inventory_items ii
-    WHERE ii.inventory_uuid = target_inventory_uuid;
+    WHERE ii.inventory_uuid = p_inventory_uuid;
 
     -- Calculate aggregated counts
     SELECT 
-        COALESCE(COUNT(CASE WHEN ii.status NOT IN ('IN_WAREHOUSE', 'USED') OR ii.status IS NULL THEN 1 END), 0) as inventory,
-        COALESCE(COUNT(CASE WHEN ii.status = 'IN_WAREHOUSE' THEN 1 END), 0) as warehouse,
-        COALESCE(COUNT(CASE WHEN ii.status = 'AVAILABLE' OR ii.status IS NULL THEN 1 END), 0) as available,
+        COALESCE(COUNT(CASE 
+            WHEN ii.status NOT IN ('IN_WAREHOUSE', 'USED') OR ii.status IS NULL 
+            THEN 1 
+        END), 0) as inventory,
+        COALESCE(COUNT(CASE 
+            WHEN ii.status = 'IN_WAREHOUSE' 
+            THEN 1 
+        END), 0) as warehouse,
+        COALESCE(COUNT(CASE 
+            WHEN ii.status = 'AVAILABLE' OR ii.status IS NULL 
+            THEN 1 
+        END), 0) as available,
         COALESCE(COUNT(*), 0) as total
     INTO total_counts
     FROM inventory_items ii
-    WHERE ii.inventory_uuid = target_inventory_uuid;
+    WHERE ii.inventory_uuid = p_inventory_uuid;
+
+    -- Calculate aggregated costs
+    SELECT 
+        COALESCE(SUM(CASE 
+            WHEN ii.status NOT IN ('IN_WAREHOUSE', 'USED') OR ii.status IS NULL 
+            THEN ii.cost 
+            ELSE 0 
+        END), 0) as inventory,
+        COALESCE(SUM(CASE 
+            WHEN ii.status = 'IN_WAREHOUSE' 
+            THEN ii.cost 
+            ELSE 0 
+        END), 0) as warehouse,
+        COALESCE(SUM(CASE 
+            WHEN ii.status = 'AVAILABLE' OR ii.status IS NULL 
+            THEN ii.cost 
+            ELSE 0 
+        END), 0) as available,
+        COALESCE(SUM(ii.cost), 0) as total
+    INTO total_costs
+    FROM inventory_items ii
+    WHERE ii.inventory_uuid = p_inventory_uuid;
 
     -- Update the inventory table with aggregated values
     UPDATE inventory 
@@ -85,20 +179,75 @@ BEGIN
             'available', total_counts.available,
             'total', total_counts.total
         ),
+        properties = COALESCE(properties, '{}'::jsonb) || jsonb_build_object(
+            'total_cost', jsonb_build_object(
+                'inventory', total_costs.inventory,
+                'warehouse', total_costs.warehouse,
+                'available', total_costs.available,
+                'total', total_costs.total
+            )
+        ),
         updated_at = NOW()
-    WHERE uuid = target_inventory_uuid;
-
-    RETURN COALESCE(NEW, OLD);
+    WHERE uuid = p_inventory_uuid;
 END;
 $$ LANGUAGE plpgsql;
 
 
--- Create triggers for inventory_items
+-- Drop and recreate the trigger to ensure it uses the updated function
 DROP TRIGGER IF EXISTS trg_inventory_items_aggregation ON inventory_items;
 CREATE TRIGGER trg_inventory_items_aggregation
     AFTER INSERT OR UPDATE OR DELETE ON inventory_items
     FOR EACH ROW
     EXECUTE FUNCTION update_inventory_aggregations();
+
+-- Add a trigger specifically for tracking status changes with detailed logging
+CREATE OR REPLACE FUNCTION log_inventory_item_status_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Only log if status actually changed
+    IF TG_OP = 'UPDATE' AND OLD.status IS DISTINCT FROM NEW.status THEN
+        -- Update the status_history
+        NEW.status_history = COALESCE(NEW.status_history, '{}'::jsonb) || 
+            jsonb_build_object(
+                NOW()::text, 
+                jsonb_build_object(
+                    'from', COALESCE(OLD.status, 'NULL'),
+                    'to', COALESCE(NEW.status, 'NULL'),
+                    'trigger', 'inventory_item_status_change'
+                )
+            );
+        NEW.updated_at = NOW();
+    END IF;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Add status change logging trigger
+DROP TRIGGER IF EXISTS trg_inventory_item_status_change ON inventory_items;
+CREATE TRIGGER trg_inventory_item_status_change
+    BEFORE UPDATE ON inventory_items
+    FOR EACH ROW
+    EXECUTE FUNCTION log_inventory_item_status_change();
+
+-- Add a function to recalculate all inventory aggregations (useful for maintenance)
+CREATE OR REPLACE FUNCTION recalculate_all_inventory_aggregations()
+RETURNS INTEGER AS $$
+DECLARE
+    inventory_record RECORD;
+    updated_count INTEGER := 0;
+BEGIN
+    -- Loop through all inventories and recalculate their aggregations
+    FOR inventory_record IN 
+        SELECT uuid FROM inventory 
+    LOOP
+        PERFORM update_single_inventory_aggregation(inventory_record.uuid);
+        updated_count := updated_count + 1;
+    END LOOP;
+    
+    RETURN updated_count;
+END;
+$$ LANGUAGE plpgsql;
 
 -- Unit conversion function
 CREATE OR REPLACE FUNCTION public.convert_unit(
@@ -513,3 +662,11 @@ USING (
   AND company_uuid = public.get_user_company_uuid((select auth.uid()))
   AND public.get_user_company_uuid((select auth.uid())) IS NOT NULL
 );
+
+-- Add indexes for better performance on the tracked fields
+CREATE INDEX IF NOT EXISTS idx_inventory_items_status ON inventory_items(status);
+CREATE INDEX IF NOT EXISTS idx_inventory_items_unit_value ON inventory_items(unit_value);
+CREATE INDEX IF NOT EXISTS idx_inventory_items_unit ON inventory_items(unit);
+CREATE INDEX IF NOT EXISTS idx_inventory_items_cost ON inventory_items(cost);
+CREATE INDEX IF NOT EXISTS idx_inventory_items_inventory_uuid_status ON inventory_items(inventory_uuid, status);
+CREATE INDEX IF NOT EXISTS idx_inventory_items_updated_at ON inventory_items(updated_at);
