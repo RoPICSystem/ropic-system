@@ -3,7 +3,7 @@
 import CardList from "@/components/card-list";
 import CustomProperties from "@/components/custom-properties";
 import LoadingAnimation from '@/components/loading-animation';
-import { SearchListPanel } from "@/components/search-list-panel/search-list-panel";
+import { FilterOption, SearchListPanel } from "@/components/search-list-panel/search-list-panel";
 import { getStatusColor, herouiColor } from "@/utils/colors";
 import { motionTransition } from "@/utils/anim";
 import { getMeasurementUnitOptions, getPackagingUnitOptions, getUnitFullName, getUnitOptions, getDefaultStandardUnit, convertUnit } from "@/utils/measurements";
@@ -653,6 +653,21 @@ export default function InventoryPage() {
     }
   }, [searchParams]);
 
+  const inventoryFilters: Record<string, FilterOption> = {
+    status_filter: {
+      name: "Status",
+      valueName: "status",
+      color: "primary",
+      filters: {
+        "": "All Statuses",
+        AVAILABLE: "Available",
+        WARNING: "Warning",
+        CRITICAL: "In Transit",
+        OUT_OF_STOCK: "Out of Stock"
+      }
+    }
+  };
+
   return (
     <motion.div {...motionTransition}>
       <div className="container mx-auto p-2 max-w-5xl">
@@ -683,6 +698,7 @@ export default function InventoryPage() {
             searchLimit={10}
             dateFilters={["weekFilter", "specificDate"]}
             companyUuid={user?.company_uuid}
+            filters={inventoryFilters}
             renderItem={(inventory) => (
               <Button
                 key={inventory.uuid}

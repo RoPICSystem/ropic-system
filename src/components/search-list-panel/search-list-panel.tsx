@@ -88,8 +88,25 @@ export function SearchListPanel({
   const [activeFilters, setActiveFilters] = useState<Record<string, any>>({});
   const [isFilterOpen, setIsFilterOpen] = useState(false);
 
+  // Initialize dateTabKey based on dateFilters
+  const getInitialDateTabKey = () => {
+    if (!dateFilters || dateFilters.length === 0) return "range";
+    
+    const firstFilter = dateFilters[0];
+    switch (firstFilter) {
+      case "dateRange":
+        return "range";
+      case "weekFilter":
+        return "week";
+      case "specificDate":
+        return "specific";
+      default:
+        return "range";
+    }
+  };
+
   // Date filter states
-  const [dateTabKey, setDateTabKey] = useState<string>("range");
+  const [dateTabKey, setDateTabKey] = useState<string>(getInitialDateTabKey());
   const [dateFrom, setDateFrom] = useState<any>(null);
   const [dateTo, setDateTo] = useState<any>(null);
   const [yearFilter, setYearFilter] = useState<number | null>(null);

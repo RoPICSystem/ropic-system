@@ -2267,8 +2267,8 @@ export default function DeliveryPage() {
             searchPlaceholder="Search deliveries..."
             searchLimit={10}
             dateFilters={["dateRange", "weekFilter", "specificDate"]}
-            filters={deliveryFilters}
             companyUuid={user?.company_uuid}
+            filters={deliveryFilters}
             renderItem={(delivery) => (
               <Button
                 key={delivery.uuid}
