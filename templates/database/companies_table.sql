@@ -11,45 +11,34 @@ create table if not exists public.companies (
 );
 
 alter table public.companies ENABLE row LEVEL SECURITY;
+-- SELECT policy: Anyone can view companies (for registration purposes)
+CREATE POLICY "companies_select_policy" ON public.companies 
+FOR SELECT TO anon, authenticated 
+USING (true);
 
--- Companies policies
-create policy "Allow users to view companies they belong to" on public.companies for
-select
-  to authenticated using (
-    exists (
-      select
-        1
-      from
-        profiles
-      where
-        profiles.uuid = auth.uid ()
-        and profiles.company_uuid = companies.uuid
-    )
-  );
+-- INSERT policy: Any authenticated user can create companies
+CREATE POLICY "companies_insert_policy" ON public.companies 
+FOR INSERT TO authenticated
+WITH CHECK (true);
 
-create policy "Allow admin users to delete their own company" on public.companies for DELETE to authenticated using (
-  exists (
-    select
-      1
-    from
-      profiles
-    where
-      profiles.uuid = auth.uid ()
-      and profiles.company_uuid = companies.uuid
-      and profiles.is_admin = true
-  )
+-- UPDATE policy: Only admins can update their company
+CREATE POLICY "companies_update_policy" ON public.companies
+FOR UPDATE TO authenticated 
+USING (
+  public.is_user_admin((select auth.uid())) = true
+  AND uuid = public.get_user_company_uuid((select auth.uid()))
+  AND public.get_user_company_uuid((select auth.uid())) IS NOT NULL
 );
 
-create policy "Allow authenticated users to create companies" on public.companies for INSERT to authenticated
-with
-  check (true);
+-- DELETE policy: Only admins can delete their company
+CREATE POLICY "companies_delete_policy" ON public.companies 
+FOR DELETE TO authenticated 
+USING (
+  public.is_user_admin((select auth.uid())) = true
+  AND uuid = public.get_user_company_uuid((select auth.uid()))
+  AND public.get_user_company_uuid((select auth.uid())) IS NOT NULL
+);
 
-create policy "Allow admin users to update their company" on public.companies
-for update
-  to authenticated using (
-    public.is_user_admin(auth.uid())
-    and public.get_user_company_uuid(auth.uid()) = companies.uuid
-  );
 
 create index IF not exists idx_profiles_company_uuid on public.profiles (company_uuid);
 create index IF not exists idx_companies_name on public.companies (name);

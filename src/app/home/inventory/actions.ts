@@ -47,23 +47,65 @@ export interface Inventory {
 }
 
 /**
- * Fetches a single inventory 
+ * Gets inventory details with delivery-specific filtering
  */
-export async function getInventoryItem(uuid: string, getItemsInWarehouse: boolean = false) {
+export async function getInventoryItemForDelivery(
+  inventoryUuid: string,
+  includeWarehouseItems: boolean = false,
+  deliveryUuid?: string
+) {
   const supabase = await createClient();
 
   try {
-    const { data, error } = await supabase
-      .rpc('get_inventory_details', {
-        p_inventory_uuid: uuid,
-        p_include_warehouse_items: getItemsInWarehouse
-      });
+    const { data, error } = await supabase.rpc('get_inventory_details_for_delivery', {
+      p_inventory_uuid: inventoryUuid,
+      p_include_warehouse_items: includeWarehouseItems,
+      p_delivery_uuid: deliveryUuid || null
+    });
+
+    if (error) throw error;
+
+    return { success: true, data };
+  } catch (error: Error | any) {
+    console.error('Error fetching inventory details for delivery:', error);
+    return {
+      success: false,
+      error: `Failed to fetch inventory details: ${error.message || "Unknown error"}`,
+      data: null
+    };
+  }
+}
+
+/**
+ * Gets inventory item details (existing function modified to use delivery context)
+ */
+export async function getInventoryItem(
+  inventoryUuid: string,
+  includeWarehouseItems: boolean = false,
+  deliveryUuid?: string
+) {
+  const supabase = await createClient();
+
+  try {
+    // Use the delivery-specific function when delivery context is provided
+    if (deliveryUuid) {
+      return await getInventoryItemForDelivery(inventoryUuid, includeWarehouseItems, deliveryUuid);
+    }
+
+    // Use original function for non-delivery contexts
+    const { data, error } = await supabase.rpc('get_inventory_details', {
+      p_inventory_uuid: inventoryUuid,
+      p_include_warehouse_items: includeWarehouseItems
+    });
+
+
 
     if (error) throw error;
 
     if (!data || data.length === 0) {
       return {
         success: false,
+        data: null, 
         error: "Inventory item not found"
       };
     }
@@ -77,14 +119,17 @@ export async function getInventoryItem(uuid: string, getItemsInWarehouse: boolea
       success: true,
       data: inventoryItem
     };
-  } catch (error) {
-    console.error("Error fetching inventory item:", error);
+  } catch (error: Error | any) {
+    console.error('Error fetching inventory details:', error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Unknown error occurred"
+      error: `Failed to fetch inventory details: ${error.message || "Unknown error"}`,
+      data: null
     };
   }
 }
+
+
 
 /**
  * Fetches all inventory items for a company
@@ -92,7 +137,7 @@ export async function getInventoryItem(uuid: string, getItemsInWarehouse: boolea
  */
 export async function getInventoryItems(companyUuid: string, getAvailableItems: boolean = true, selectFields: string = "uuid, name, standard_unit, unit_values, count, status") {
   const supabase = await createClient();
-  
+
   try {
     let query = supabase
       .from("inventory")
@@ -119,14 +164,14 @@ export async function getInventoryItems(companyUuid: string, getAvailableItems: 
     };
   }
 }
-  
+
 
 /**
  * Creates a new inventory item with bulk
  */
 export async function createInventoryItem(
   inventory: Pick<Inventory, "company_uuid" | "name" | "description" | "admin_uuid" | "measurement_unit" | "standard_unit" | "properties">,
-  inventoryItems: Pick<InventoryItem, "company_uuid" | "item_code" | "unit" | "unit_value" | "packaging_unit" | "cost" | "properties"| "group_id">[],
+  inventoryItems: Pick<InventoryItem, "company_uuid" | "item_code" | "unit" | "unit_value" | "packaging_unit" | "cost" | "properties" | "group_id">[],
 ) {
   const supabase = await createClient();
 
@@ -143,7 +188,7 @@ export async function createInventoryItem(
         description: inventory.description,
         measurement_unit: inventory.measurement_unit,
         standard_unit: standard_unit,
-        properties: inventory.properties 
+        properties: inventory.properties
       })
       .select()
       .single();
