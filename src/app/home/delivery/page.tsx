@@ -63,6 +63,7 @@ import {
   groupInventoryItems
 } from "@/utils/inventory-group";
 import { DeliveryExportPopover } from './delivery-export';
+import CustomScrollbar from '@/components/custom-scrollbar';
 
 
 // Import the ShelfSelector3D component
@@ -1769,11 +1770,13 @@ export default function DeliveryPage() {
       // Hide checkbox if item has certain statuses and is NOT part of current delivery
       if (['ON_DELIVERY', 'IN_WAREHOUSE', 'USED'].includes(item.status)) {
         // Only show if this item is assigned to the current delivery
-        return formData.inventory_locations?.[item.uuid] === undefined || formData.status !== 'DELIVERED' && formData.status !== 'CANCELLED';
+        return formData.inventory_locations?.[item.uuid] === undefined || formData.status === 'PENDING';
       }
 
       return true;
     };
+
+    
 
     return (
       <div className={`rounded-lg ${statusStyling.isDisabled ? 'opacity-60' : ''}`}>
@@ -1995,47 +1998,127 @@ export default function DeliveryPage() {
                 key={delivery.uuid}
                 onPress={() => handleSelectDelivery(delivery.uuid)}
                 variant="shadow"
-                className={`w-full min-h-[7.5rem] !transition-all duration-200 rounded-xl p-0 ${selectedDeliveryId === delivery.uuid ? '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' : '!bg-default-100/50 shadow-none hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
+                className={`w-full !transition-all duration-300 rounded-2xl p-0 group overflow-hidden
+        ${delivery.delivery_address ? 'min-h-[9.5rem]' : 'min-h-[7rem]'}
+        ${selectedDeliveryId === delivery.uuid ?
+                    '!bg-gradient-to-br from-primary-500 to-primary-600 hover:from-primary-400 hover:to-primary-500 !shadow-xl hover:!shadow-2xl !shadow-primary-300/50 border-2 border-primary-300/30' :
+                    '!bg-gradient-to-br from-background to-default-50 hover:from-default-50 hover:to-default-100 !shadow-lg hover:!shadow-xl !shadow-default-300/30 border-2 border-default-200/50 hover:border-default-300/50'}`}
               >
-                <div className="w-full flex flex-col h-full">
-                  <div className="flex-grow flex flex-col justify-center px-3">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold">
-                        {inventoryItems.find(i => i.uuid === delivery.inventory_uuid)?.name || 'Unknown Item'}
-                      </span>
-                      <Chip color="default" variant={selectedDeliveryId === delivery.uuid ? "shadow" : "flat"} size="sm">
-                        {Object.keys(delivery.inventory_locations || {}).length} items
-                      </Chip>
-                    </div>
-                    {delivery.delivery_address && (
-                      <div className={`w-full mt-1 text-sm ${selectedDeliveryId === delivery.uuid ? 'text-default-800 ' : 'text-default-600'} text-start text-ellipsis overflow-hidden whitespace-nowrap`}>
-                        {delivery.delivery_address}
-                      </div>
-                    )}
+                <div className="w-full flex flex-col h-full relative">
+                  {/* Background pattern */}
+                  <div className={`absolute inset-0 opacity-5 ${selectedDeliveryId === delivery.uuid ? 'bg-white' : 'bg-primary-500'}`}>
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_80%,_var(--tw-gradient-stops))] from-current via-transparent to-transparent"></div>
                   </div>
-                  {/* Footer - always at the bottom */}
-                  <div className={`flex items-center gap-2 border-t ${selectedDeliveryId === delivery.uuid ? 'border-primary-300' : 'border-default-100'} p-3`}>
-                    <Chip
-                      color={selectedDeliveryId === delivery.uuid ? "default" : "primary"}
-                      variant={selectedDeliveryId === delivery.uuid ? "shadow" : "flat"}
-                      size="sm">
-                      {formatDate(delivery.delivery_date)}
-                    </Chip>
-                    <Chip color={getStatusColor(delivery.status)} variant={selectedDeliveryId === delivery.uuid ? "shadow" : "flat"} size="sm">
-                      {delivery.status.replaceAll('_', ' ')}
-                    </Chip>
-                    {delivery.operator_uuids && delivery.operator_uuids.length > 0 && (
-                      <Chip color="success" variant={selectedDeliveryId === delivery.uuid ? "shadow" : "flat"} size="sm">
+
+                  {/* Delivery details */}
+                  <div className="flex-grow flex flex-col justify-center px-4 relative z-10">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0 text-left">
+                        <span className={`font-bold text-lg leading-tight block truncate text-left
+                      ${selectedDeliveryId === delivery.uuid ? 'text-primary-50' : 'text-default-800'}`}>
+                          {inventoryItems.find(i => i.uuid === delivery.inventory_uuid)?.name || 'Unknown Item'}
+                        </span>
+                        {delivery.delivery_address && (
+                          <div className={`w-full mt-2 text-sm leading-relaxed text-left break-words whitespace-normal
+                  ${selectedDeliveryId === delivery.uuid ? 'text-primary-100' : 'text-default-600'}`}
+                            style={{
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                              lineHeight: '1.3'
+                            }}>
+                            {delivery.delivery_address}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-shrink-0 self-start">
+                        <Chip
+                          color={selectedDeliveryId === delivery.uuid ? "default" : "primary"}
+                          variant="shadow"
+                          size="sm"
+                          className={`font-semibold ${selectedDeliveryId === delivery.uuid ? 'bg-primary-50 text-primary-600' : ''}`}
+                        >
+                          <div className="flex items-center gap-1">
+                            <Icon icon="mdi:package-variant" width={14} height={14} />
+                            {Object.keys(delivery.inventory_locations || {}).length} item{(Object.keys(delivery.inventory_locations || {}).length) !== 1 ? 's' : ''}
+                          </div>
+                        </Chip>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Delivery metadata */}
+                  <div className={`flex items-center gap-2 backdrop-blur-sm rounded-b-2xl border-t relative z-10 justify-start
+        ${selectedDeliveryId === delivery.uuid ?
+                      'border-primary-300/30 bg-primary-700/20' :
+                      'border-default-200/50 bg-default-100/50'} p-4`}>
+                    <CustomScrollbar
+                      direction="horizontal"
+                      hideScrollbars
+                      gradualOpacity
+                      className="flex items-center gap-2">
+
+                      <Chip
+                        color={selectedDeliveryId === delivery.uuid ? "default" : "secondary"}
+                        variant="flat"
+                        size="sm"
+                        className={`font-medium ${selectedDeliveryId === delivery.uuid ? 'bg-primary-100/80 text-primary-700 border-primary-200/60' : 'bg-secondary-100/80'}`}
+                      >
                         <div className="flex items-center gap-1">
-                          <Icon icon="mdi:account" className="mb-[0.1rem]" />
-                          {delivery.operator_uuids.length === 1
-                            ? operators.find(op => delivery.operator_uuids && delivery.operator_uuids.includes(op.uuid))?.name?.first_name || 'Operator'
-                            : `${delivery.operator_uuids.length} operators`
-                          }
+                          <Icon icon="mdi:calendar" width={12} height={12} />
+                          {formatDate(delivery.delivery_date)}
                         </div>
                       </Chip>
-                    )}
+
+                      <Chip
+                        color={selectedDeliveryId === delivery.uuid ? "default" : getStatusColor(delivery.status)}
+                        variant="flat"
+                        size="sm"
+                        className={`font-medium ${selectedDeliveryId === delivery.uuid ? 'bg-primary-100/80 text-primary-700 border-primary-200/60' : ''}`}
+                      >
+                        <div className="flex items-center gap-1">
+                          <Icon icon="mdi:truck-delivery" width={12} height={12} />
+                          {delivery.status.replaceAll('_', ' ')}
+                        </div>
+                      </Chip>
+
+                      {delivery.operator_uuids && delivery.operator_uuids.length > 0 && (
+                        <Chip
+                          color="success"
+                          variant="flat"
+                          size="sm"
+                          className={`font-medium ${selectedDeliveryId === delivery.uuid ? 'bg-success-100/80 text-success-700 border-success-200/60' : 'bg-success-100/80'}`}
+                        >
+                          <div className="flex items-center gap-1">
+                            <Icon icon="mdi:account" width={12} height={12} />
+                            {delivery.operator_uuids.length === 1
+                              ? operators.find(op => delivery.operator_uuids && delivery.operator_uuids.includes(op.uuid))?.name?.first_name || 'Operator'
+                              : `${delivery.operator_uuids.length} operators`
+                            }
+                          </div>
+                        </Chip>
+                      )}
+
+                      {/* Show warehouse info if available */}
+                      {delivery.warehouse_uuid && (
+                        <Chip
+                          color="warning"
+                          variant="flat"
+                          size="sm"
+                          className={`font-medium ${selectedDeliveryId === delivery.uuid ? 'bg-warning-100/80 text-warning-700 border-warning-200/60' : 'bg-warning-100/80'}`}
+                        >
+                          <div className="flex items-center gap-1">
+                            <Icon icon="mdi:warehouse" width={12} height={12} />
+                            {warehouses.find(w => w.uuid === delivery.warehouse_uuid)?.name || 'Warehouse'}
+                          </div>
+                        </Chip>
+                      )}
+                    </CustomScrollbar>
                   </div>
+
+                  {/* Hover effect overlay */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 transform -skew-x-12 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700"></div>
                 </div>
               </Button>
             )}
