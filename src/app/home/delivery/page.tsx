@@ -794,7 +794,8 @@ export default function DeliveryPage() {
       if (!isSelected && item.status === 'ON_DELIVERY' && selectedDeliveryId) {
         // Check if this item belongs to the current delivery (was originally selected or currently selected)
         const isAssignedToCurrentDelivery = formData.inventory_locations?.[item.uuid] ||
-          prevSelectedInventoryItems.includes(item.uuid);
+          prevSelectedInventoryItems.includes(item.uuid) ||
+          selectedInventoryItems.includes(item.uuid); // Add current selection check
 
         if (!isAssignedToCurrentDelivery) {
           // Show error message or toast
@@ -1845,16 +1846,60 @@ export default function DeliveryPage() {
 
   // Add helper function to get item status styling
   const getInventoryItemStatusStyling = (item: any) => {
-    const status = item.status;
+    // For new delivery creation (no selectedDeliveryId), only allow AVAILABLE items
+    if (!selectedDeliveryId) {
+      switch (item.status) {
+        case 'AVAILABLE':
+          return {
+            chipColor: 'primary' as const,
+            chipText: 'Available',
+            isDisabled: false,
+            disabledReason: null
+          };
+        case 'ON_DELIVERY':
+          return {
+            chipColor: 'warning' as const,
+            chipText: 'On Delivery',
+            isDisabled: true,
+            disabledReason: 'This item is assigned to another delivery'
+          };
+        case 'IN_WAREHOUSE':
+          return {
+            chipColor: 'success' as const,
+            chipText: 'In Warehouse',
+            isDisabled: true,
+            disabledReason: 'This item is already in warehouse'
+          };
+        case 'USED':
+          return {
+            chipColor: 'danger' as const,
+            chipText: 'Used',
+            isDisabled: true,
+            disabledReason: 'This item has been used'
+          };
+        default:
+          return {
+            chipColor: 'default' as const,
+            chipText: item.status || 'Unknown',
+            isDisabled: true,
+            disabledReason: 'Item is not available for delivery'
+          };
+      }
+    }
 
-    switch (status) {
+    // For editing existing delivery, check if item is part of current delivery
+    const isPartOfCurrentDelivery = formData.inventory_locations?.[item.uuid] ||
+      prevSelectedInventoryItems.includes(item.uuid) ||
+      selectedInventoryItems.includes(item.uuid);
+
+    switch (item.status) {
       case 'ON_DELIVERY':
+        // Only disable if it's NOT part of the current delivery
         return {
           chipColor: 'warning' as const,
           chipText: 'On Delivery',
-          // Check if item was originally part of this delivery OR is currently selected
-          isDisabled: !formData.inventory_locations?.[item.uuid] && !prevSelectedInventoryItems.includes(item.uuid),
-          disabledReason: 'This item is assigned to another delivery'
+          isDisabled: !isPartOfCurrentDelivery,
+          disabledReason: isPartOfCurrentDelivery ? null : 'This item is assigned to another delivery'
         };
       case 'IN_WAREHOUSE':
         return {
@@ -1881,96 +1926,113 @@ export default function DeliveryPage() {
     }
   };
 
-
   // Update the inventory item rendering to include status indicators
   // This would be used in the inventory item selection UI components
-  const renderInventoryItemWithStatus = (item: any, isSelected: boolean) => {
-    const statusStyling = getInventoryItemStatusStyling(item);
+const renderInventoryItemWithStatus = (item: any, isSelected: boolean) => {
+  const statusStyling = getInventoryItemStatusStyling(item);
 
-    // Get group information
-    const groupedItems = getGroupedInventoryItems();
-    const groupInfo = getGroupInfo(item, groupedItems);
+  // Get group information
+  const groupedItems = getGroupedInventoryItems();
+  const groupInfo = getGroupInfo(item, groupedItems);
 
-    // Calculate group totals if this is a group item
-    const groupData = inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId
-      ? inventoryInventoryItems.filter(groupItem =>
-        groupItem.group_id === groupInfo.groupId &&
-        // Also filter group items for IN_WAREHOUSE and USED unless delivered
-        (formData.status === 'DELIVERED' || formData.status === 'CANCELLED' ||
-          (groupItem.status !== 'IN_WAREHOUSE' && groupItem.status !== 'USED'))
-      )
-      : [item];
+  // Calculate display number for the item
+  const displayItems = getDisplayInventoryItemsList();
+  const displayIndex = displayItems.findIndex(displayItem => displayItem.uuid === item.uuid);
+  const displayNumber = displayIndex + 1;
 
-    const totalUnitValue = groupData.reduce((sum, groupItem) => sum + (groupItem.unit_value || 0), 0);
-    const itemCount = groupData.length;
-    const unit = item.unit || 'units';
+  // Calculate group totals if this is a group item
+  let groupStats = null;
+  if (inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId) {
+    const groupItems = inventoryInventoryItems.filter(groupItem => groupItem.group_id === groupInfo.groupId);
+    const availableGroupItems = groupItems.filter(groupItem => {
+      const groupItemStatusStyling = getInventoryItemStatusStyling(groupItem);
+      return !groupItemStatusStyling.isDisabled;
+    });
+    const selectedGroupItems = groupItems.filter(groupItem => selectedInventoryItems.includes(groupItem.uuid));
 
-    // Determine if checkbox should be visible
-    const shouldShowCheckbox = () => {
-      // Hide checkbox if user is not admin
-      if (user && !user.is_admin || (formData.status === 'DELIVERED' || formData.status === 'CANCELLED')) {
-        return false;
-      }
-
-      // Hide checkbox if item has certain statuses and is NOT part of current delivery
-      if (['ON_DELIVERY', 'IN_WAREHOUSE', 'USED'].includes(item.status)) {
-        // Only show if this item is assigned to the current delivery
-        return formData.inventory_locations?.[item.uuid] === undefined || formData.status === 'PENDING';
-      }
-
-      return true;
+    groupStats = {
+      total: groupItems.length,
+      available: availableGroupItems.length,
+      selected: selectedGroupItems.length
     };
+  }
 
-    return (
-      <div className={`rounded-lg ${statusStyling.isDisabled ? 'opacity-60' : ''}`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {shouldShowCheckbox() && (
-              <Checkbox
-                isSelected={isSelected}
-                onValueChange={(checked) => handleInventoryItemSelectionToggle(item.uuid, checked)}
-                isDisabled={statusStyling.isDisabled}
-              />
-            )}
-            <div>
-              <p className="font-medium">{item.item_code}</p>
-              <p className="text-sm text-default-500">
-                {inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId
-                  ? `${totalUnitValue.toFixed(3)} ${unit} total`
-                  : `${(item.unit_value || 0).toFixed(3)} ${unit}`
-                }
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {/* Show item count chip for grouped items */}
-            {inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId && (
-              <Chip
-                color="secondary"
-                size="sm"
-                variant="flat"
-              >
-                {itemCount} items
-              </Chip>
-            )}
-            <Chip
-              color={statusStyling.chipColor}
-              size="sm"
-              variant="flat"
-            >
-              {statusStyling.chipText}
-            </Chip>
-            {statusStyling.isDisabled && (
-              <Tooltip content={statusStyling.disabledReason}>
-                <Icon icon="mdi:information-outline" className="text-warning" />
-              </Tooltip>
-            )}
-          </div>
-        </div>
-      </div>
-    );
+  // Function to determine if checkbox should be shown
+  const shouldShowCheckbox = () => {
+    // For delivered/cancelled status, only show items that are part of current delivery
+    if (formData.status === 'DELIVERED' || formData.status === 'CANCELLED') {
+      return formData.inventory_locations?.[item.uuid] !== undefined;
+    }
+
+    // For editing existing delivery, check if item is part of current delivery
+    if (['ON_DELIVERY', 'IN_WAREHOUSE', 'USED'].includes(item.status)) {
+      const isPartOfCurrentDelivery = formData.inventory_locations?.[item.uuid] ||
+        prevSelectedInventoryItems.includes(item.uuid) ||
+        selectedInventoryItems.includes(item.uuid);
+
+      return isPartOfCurrentDelivery || formData.status === 'PENDING';
+    }
+
+    return true;
   };
 
+  return (
+    <div className={`rounded-lg ${statusStyling.isDisabled ? 'opacity-60' : ''}`}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          {shouldShowCheckbox() && (
+            <Checkbox
+              isSelected={isSelected}
+              onValueChange={(checked) => handleInventoryItemSelectionToggle(item.uuid, checked)}
+              isDisabled={statusStyling.isDisabled}
+            />
+          )}
+          <div>
+            {/* Show Group/Item number as main text */}
+            <p className="font-medium">
+              {inventoryViewMode === 'grouped' && groupInfo.isGroup 
+                ? `Group ${displayNumber}`
+                : `Item ${inventoryViewMode === 'flat' ? item.id : displayNumber}`
+              }
+            </p>
+            <p className="text-sm text-default-500">
+              {item.unit_value} {item.unit}
+              {groupStats && (
+                <span className="ml-2 text-xs">
+                  ({groupStats.selected}/{groupStats.available} selected)
+                </span>
+              )}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Item code as a chip */}
+          <Chip
+            color="default"
+            size="sm"
+            variant="flat"
+            className="font-mono text-xs"
+          >
+            {item.item_code || 'No Code'}
+          </Chip>
+          
+          <Chip
+            color={statusStyling.chipColor}
+            size="sm"
+            variant="flat"
+          >
+            {statusStyling.chipText}
+          </Chip>
+          {statusStyling.isDisabled && statusStyling.disabledReason && (
+            <Tooltip content={statusStyling.disabledReason}>
+              <Icon icon="mdi:information-outline" className="text-warning" />
+            </Tooltip>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 
 
