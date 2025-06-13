@@ -64,6 +64,7 @@ import {
 } from "@/utils/inventory-group";
 import { DeliveryExportPopover } from './delivery-export';
 import CustomScrollbar from '@/components/custom-scrollbar';
+import { herouiColor } from '@/utils/colors';
 
 
 // Import the ShelfSelector3D component
@@ -171,6 +172,11 @@ export default function DeliveryPage() {
   const [acceptDeliveryTab, setAcceptDeliveryTab] = useState("paste-link");
   const [availableDeliveries, setAvailableDeliveries] = useState<DeliveryItem[]>([]);
   const [isLoadingAvailableDeliveries, setIsLoadingAvailableDeliveries] = useState(false);
+
+  // Add state for "select all" functionality
+  const [isSelectAllChecked, setIsSelectAllChecked] = useState(false);
+  const [isSelectAllIndeterminate, setIsSelectAllIndeterminate] = useState(false);
+
 
   // Add new state for QR code data with auto accept option
   const [qrCodeData, setQrCodeData] = useState<{
@@ -555,6 +561,77 @@ export default function DeliveryPage() {
     }
   };
 
+  // Add function to handle select all functionality
+  const handleSelectAllToggle = (isSelected: boolean) => {
+    const displayItems = getDisplayInventoryItemsList();
+
+    if (isSelected) {
+      // Select all available items (excluding those with certain statuses unless they're in current delivery)
+      const availableItems = displayItems.filter(item => {
+        const statusStyling = getInventoryItemStatusStyling(item);
+        return !statusStyling.isDisabled;
+      });
+
+      // Get all inventory item UUIDs that should be selected
+      const allItemsToSelect: string[] = [];
+
+      availableItems.forEach(item => {
+        const groupedItems = getGroupedInventoryItems();
+        const groupInfo = getGroupInfo(item, groupedItems);
+
+        if (inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId) {
+          // For grouped items, add all items in the group
+          const groupItems = inventoryInventoryItems.filter(groupItem =>
+            groupItem.group_id === groupInfo.groupId
+          );
+          groupItems.forEach(groupItem => {
+            const groupItemStatusStyling = getInventoryItemStatusStyling(groupItem);
+            if (!groupItemStatusStyling.isDisabled && !allItemsToSelect.includes(groupItem.uuid)) {
+              allItemsToSelect.push(groupItem.uuid);
+            }
+          });
+        } else {
+          // For single items, add the item UUID
+          if (!allItemsToSelect.includes(item.uuid)) {
+            allItemsToSelect.push(item.uuid);
+          }
+        }
+      });
+
+      setSelectedInventoryItems(allItemsToSelect);
+
+      // Update formData with inventory_locations format
+      const newInventoryLocations: Record<string, ShelfLocation> = {};
+      allItemsToSelect.forEach(uuid => {
+        const existingLocation = formData.inventory_locations?.[uuid];
+        if (existingLocation) {
+          newInventoryLocations[uuid] = existingLocation;
+        }
+      });
+
+      setFormData(prev => ({
+        ...prev,
+        inventory_locations: newInventoryLocations,
+        inventory_item_uuids: allItemsToSelect,
+        locations: Object.values(newInventoryLocations).filter(loc => loc && loc.floor !== undefined)
+      }));
+
+      const newLocationsArray = Object.values(newInventoryLocations).filter(loc => loc !== null && loc.floor !== undefined);
+      setLocations(newLocationsArray);
+
+    } else {
+      // Deselect all items
+      setSelectedInventoryItems([]);
+      setFormData(prev => ({
+        ...prev,
+        inventory_locations: {},
+        inventory_item_uuids: [],
+        locations: []
+      }));
+      setLocations([]);
+    }
+  };
+
   // Update the handleConfirmLocation function to work with new format
   const handleConfirmLocation = () => {
     // Create the location object with null values converted to undefined
@@ -788,6 +865,64 @@ export default function DeliveryPage() {
       }
     }
   }, [currentInventoryItemLocationIndex, selectedInventoryItems, formData.inventory_locations]);
+
+
+
+  // Update the effect that manages select all state
+  useEffect(() => {
+    const displayItems = getDisplayInventoryItemsList();
+    const availableItems = displayItems.filter(item => {
+      const statusStyling = getInventoryItemStatusStyling(item);
+      return !statusStyling.isDisabled;
+    });
+
+    if (availableItems.length === 0) {
+      setIsSelectAllChecked(false);
+      setIsSelectAllIndeterminate(false);
+      return;
+    }
+
+    // Count how many available items are selected
+    let selectedAvailableCount = 0;
+    let totalAvailableCount = 0;
+
+    availableItems.forEach(item => {
+      const groupedItems = getGroupedInventoryItems();
+      const groupInfo = getGroupInfo(item, groupedItems);
+
+      if (inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId) {
+        const groupItems = inventoryInventoryItems.filter(groupItem =>
+          groupItem.group_id === groupInfo.groupId
+        );
+        const availableGroupItems = groupItems.filter(groupItem => {
+          const groupItemStatusStyling = getInventoryItemStatusStyling(groupItem);
+          return !groupItemStatusStyling.isDisabled;
+        });
+
+        totalAvailableCount += availableGroupItems.length;
+        selectedAvailableCount += availableGroupItems.filter(groupItem =>
+          selectedInventoryItems.includes(groupItem.uuid)
+        ).length;
+      } else {
+        totalAvailableCount += 1;
+        if (selectedInventoryItems.includes(item.uuid)) {
+          selectedAvailableCount += 1;
+        }
+      }
+    });
+
+    if (selectedAvailableCount === 0) {
+      setIsSelectAllChecked(false);
+      setIsSelectAllIndeterminate(false);
+    } else if (selectedAvailableCount === totalAvailableCount) {
+      setIsSelectAllChecked(true);
+      setIsSelectAllIndeterminate(false);
+    } else {
+      setIsSelectAllChecked(false);
+      setIsSelectAllIndeterminate(true);
+    }
+  }, [selectedInventoryItems, inventoryInventoryItems, inventoryViewMode, formData.status, formData.inventory_locations]);
+
 
   /**
    * Helper function to extract inventory item UUIDs from inventory_locations
@@ -1776,7 +1911,7 @@ export default function DeliveryPage() {
       return true;
     };
 
-    
+
 
     return (
       <div className={`rounded-lg ${statusStyling.isDisabled ? 'opacity-60' : ''}`}>
@@ -2063,7 +2198,7 @@ export default function DeliveryPage() {
                         color={selectedDeliveryId === delivery.uuid ? "default" : "secondary"}
                         variant="flat"
                         size="sm"
-                        className={`font-medium ${selectedDeliveryId === delivery.uuid ? 'bg-primary-100/80 text-primary-700 border-primary-200/60' : 'bg-secondary-100/80'}`}
+                        className={`font-medium ${selectedDeliveryId === delivery.uuid ? 'bg-secondary-100/80 text-primary-700 border-primary-200/60' : 'bg-secondary-100/80'}`}
                       >
                         <div className="flex items-center gap-1">
                           <Icon icon="mdi:calendar" width={12} height={12} />
@@ -2075,7 +2210,9 @@ export default function DeliveryPage() {
                         color={selectedDeliveryId === delivery.uuid ? "default" : getStatusColor(delivery.status)}
                         variant="flat"
                         size="sm"
-                        className={`font-medium ${selectedDeliveryId === delivery.uuid ? 'bg-primary-100/80 text-primary-700 border-primary-200/60' : ''}`}
+                        className={`font-medium ${selectedDeliveryId === delivery.uuid ?
+                          `bg-${getStatusColor(delivery.status)}-100 text-${getStatusColor(delivery.status)}-500` :
+                          `bg-${getStatusColor(delivery.status)}-100 text-${getStatusColor(delivery.status)}-500`}`}
                       >
                         <div className="flex items-center gap-1">
                           <Icon icon="mdi:truck-delivery" width={12} height={12} />
@@ -2431,6 +2568,70 @@ export default function DeliveryPage() {
                                 </Button>
                               </div>
                             </div>
+
+                            {/* Add Select All Checkbox Section */}
+                            {(user && user.is_admin) && inventoryInventoryItems.length > 0 && (
+                              formData.status === "PENDING" || 
+                              formData.status === "PROCESSING" || 
+                              (formData.status === "DELIVERED" && selectedDeliveryId)
+                            ) && (
+                              <div className="border-b border-default-200 px-4 py-3 bg-default-50/50">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-3">
+                                    <Checkbox
+                                      isSelected={isSelectAllChecked}
+                                      isIndeterminate={isSelectAllIndeterminate}
+                                      onValueChange={handleSelectAllToggle}
+                                      color="primary"
+                                    />
+                                    <div className="flex flex-col">
+                                      <span className="text-sm font-medium text-default-700">
+                                        Select All Available Items
+                                      </span>
+                                      <span className="text-xs text-default-500">
+                                        {(() => {
+                                          const displayItems = getDisplayInventoryItemsList();
+                                          const availableItems = displayItems.filter(item => {
+                                            const statusStyling = getInventoryItemStatusStyling(item);
+                                            return !statusStyling.isDisabled;
+                                          });
+                                          
+                                          let totalAvailableCount = 0;
+                                          availableItems.forEach(item => {
+                                            const groupedItems = getGroupedInventoryItems();
+                                            const groupInfo = getGroupInfo(item, groupedItems);
+
+                                            if (inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId) {
+                                              const groupItems = inventoryInventoryItems.filter(groupItem => 
+                                                groupItem.group_id === groupInfo.groupId
+                                              );
+                                              const availableGroupItems = groupItems.filter(groupItem => {
+                                                const groupItemStatusStyling = getInventoryItemStatusStyling(groupItem);
+                                                return !groupItemStatusStyling.isDisabled;
+                                              });
+                                              totalAvailableCount += availableGroupItems.length;
+                                            } else {
+                                              totalAvailableCount += 1;
+                                            }
+                                          });
+
+                                          return `${selectedInventoryItems.length} of ${totalAvailableCount} available items selected`;
+                                        })()}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  
+                                  <div className="flex items-center gap-2">
+                                    {selectedInventoryItems.length > 0 && (
+                                      <Chip color="primary" size="sm" variant="flat">
+                                        {selectedInventoryItems.length} selected
+                                      </Chip>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
                             <div className="space-y-4 p-4">
                               <LoadingAnimation
                                 condition={isLoadingInventoryItems}
