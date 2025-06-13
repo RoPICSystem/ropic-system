@@ -206,18 +206,29 @@ export default function DeliveryPage() {
   // Helper functions for inventory grouping
   const getGroupedInventoryItems = () => groupInventoryItems(inventoryInventoryItems);
 
+  // Update the getDisplayInventoryItemsList function to filter out IN_WAREHOUSE and USED items
   const getDisplayInventoryItemsList = () => {
-    if (inventoryViewMode === 'flat') {
-      return inventoryInventoryItems;
+    let items = inventoryInventoryItems;
+
+    // Filter out IN_WAREHOUSE and USED items unless we're viewing a delivered delivery
+    if (formData.status !== 'DELIVERED' && formData.status !== 'CANCELLED') {
+      items = items.filter(item =>
+        item.status !== 'IN_WAREHOUSE' &&
+        item.status !== 'USED'
+      );
     }
 
-    const groupedItems = getGroupedInventoryItems();
+    if (inventoryViewMode === 'flat') {
+      return items;
+    }
+
+    const groupedItems = groupInventoryItems(items);
 
     // For grouped view, only show the first item of each group
     const seenGroups = new Set<string>();
     const displayItems: any[] = [];
 
-    inventoryInventoryItems.forEach(item => {
+    items.forEach(item => {
       const groupInfo = getGroupInfo(item, groupedItems);
 
       if (groupInfo.isGroup && groupInfo.groupId) {
@@ -561,7 +572,8 @@ export default function DeliveryPage() {
     }
   };
 
-  // Add function to handle select all functionality
+
+  // Update the handleSelectAllToggle function to respect the filtered items
   const handleSelectAllToggle = (isSelected: boolean) => {
     const displayItems = getDisplayInventoryItemsList();
 
@@ -580,9 +592,12 @@ export default function DeliveryPage() {
         const groupInfo = getGroupInfo(item, groupedItems);
 
         if (inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId) {
-          // For grouped items, add all items in the group
+          // For grouped items, add all items in the group (but only those that pass the filter)
           const groupItems = inventoryInventoryItems.filter(groupItem =>
-            groupItem.group_id === groupInfo.groupId
+            groupItem.group_id === groupInfo.groupId &&
+            // Filter out IN_WAREHOUSE and USED unless delivered
+            (formData.status === 'DELIVERED' || formData.status === 'CANCELLED' ||
+              (groupItem.status !== 'IN_WAREHOUSE' && groupItem.status !== 'USED'))
           );
           groupItems.forEach(groupItem => {
             const groupItemStatusStyling = getInventoryItemStatusStyling(groupItem);
@@ -631,6 +646,7 @@ export default function DeliveryPage() {
       setLocations([]);
     }
   };
+
 
   // Update the handleConfirmLocation function to work with new format
   const handleConfirmLocation = () => {
@@ -758,7 +774,7 @@ export default function DeliveryPage() {
     handleURLParams();
   }, [searchParams, user?.company_uuid, isLoadingItems, isLoadingWarehouses, warehouses.length]);
 
-  // Update the inventory item selection handler to handle group selections
+  // Update the handleInventoryItemSelectionToggle function to respect the filtered items
   const handleInventoryItemSelectionToggle = (inventoryitemUuid: string, isSelected: boolean) => {
     // Find the inventory item to check its status and group
     const inventoryItem = inventoryInventoryItems.find(item => item.uuid === inventoryitemUuid);
@@ -768,16 +784,22 @@ export default function DeliveryPage() {
     const groupInfo = getGroupInfo(inventoryItem!, groupedItems);
 
     // Get all items that should be toggled (either the single item or all items in the group)
+    // But filter out IN_WAREHOUSE and USED items unless we're viewing delivered items
     const itemsToToggle = inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId
-      ? inventoryInventoryItems.filter(groupItem => groupItem.group_id === groupInfo.groupId)
+      ? inventoryInventoryItems.filter(groupItem =>
+        groupItem.group_id === groupInfo.groupId &&
+        // Filter out IN_WAREHOUSE and USED unless delivered
+        (formData.status === 'DELIVERED' || formData.status === 'CANCELLED' ||
+          (groupItem.status !== 'IN_WAREHOUSE' && groupItem.status !== 'USED'))
+      )
       : [inventoryItem!];
 
     // Check if any of the items are already assigned to another delivery
     for (const item of itemsToToggle) {
       if (!isSelected && item.status === 'ON_DELIVERY' && selectedDeliveryId) {
-        // Check if this item belongs to the current delivery
-        const isAssignedToCurrentDelivery = formData.inventory_locations &&
-          formData.inventory_locations[item.uuid];
+        // Check if this item belongs to the current delivery (was originally selected or currently selected)
+        const isAssignedToCurrentDelivery = formData.inventory_locations?.[item.uuid] ||
+          prevSelectedInventoryItems.includes(item.uuid);
 
         if (!isAssignedToCurrentDelivery) {
           // Show error message or toast
@@ -868,7 +890,7 @@ export default function DeliveryPage() {
 
 
 
-  // Update the effect that manages select all state
+  // Update the effect that manages select all state to account for filtered items
   useEffect(() => {
     const displayItems = getDisplayInventoryItemsList();
     const availableItems = displayItems.filter(item => {
@@ -892,7 +914,10 @@ export default function DeliveryPage() {
 
       if (inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId) {
         const groupItems = inventoryInventoryItems.filter(groupItem =>
-          groupItem.group_id === groupInfo.groupId
+          groupItem.group_id === groupInfo.groupId &&
+          // Filter out IN_WAREHOUSE and USED unless delivered
+          (formData.status === 'DELIVERED' || formData.status === 'CANCELLED' ||
+            (groupItem.status !== 'IN_WAREHOUSE' && groupItem.status !== 'USED'))
         );
         const availableGroupItems = groupItems.filter(groupItem => {
           const groupItemStatusStyling = getInventoryItemStatusStyling(groupItem);
@@ -921,7 +946,7 @@ export default function DeliveryPage() {
       setIsSelectAllChecked(false);
       setIsSelectAllIndeterminate(true);
     }
-  }, [selectedInventoryItems, inventoryInventoryItems, inventoryViewMode, formData.status, formData.inventory_locations]);
+  }, [selectedInventoryItems, inventoryInventoryItems, inventoryViewMode, formData.status, formData.inventory_locations, prevSelectedInventoryItems]);
 
 
   /**
@@ -1847,7 +1872,8 @@ export default function DeliveryPage() {
         return {
           chipColor: 'warning' as const,
           chipText: 'On Delivery',
-          isDisabled: !formData.inventory_locations?.[item.uuid], // Disabled unless assigned to current delivery
+          // Check if item was originally part of this delivery OR is currently selected
+          isDisabled: !formData.inventory_locations?.[item.uuid] && !prevSelectedInventoryItems.includes(item.uuid),
           disabledReason: 'This item is assigned to another delivery'
         };
       case 'IN_WAREHOUSE':
@@ -1875,6 +1901,7 @@ export default function DeliveryPage() {
     }
   };
 
+
   // Update the inventory item rendering to include status indicators
   // This would be used in the inventory item selection UI components
   const renderInventoryItemWithStatus = (item: any, isSelected: boolean) => {
@@ -1886,7 +1913,12 @@ export default function DeliveryPage() {
 
     // Calculate group totals if this is a group item
     const groupData = inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId
-      ? inventoryInventoryItems.filter(groupItem => groupItem.group_id === groupInfo.groupId)
+      ? inventoryInventoryItems.filter(groupItem =>
+        groupItem.group_id === groupInfo.groupId &&
+        // Also filter group items for IN_WAREHOUSE and USED unless delivered
+        (formData.status === 'DELIVERED' || formData.status === 'CANCELLED' ||
+          (groupItem.status !== 'IN_WAREHOUSE' && groupItem.status !== 'USED'))
+      )
       : [item];
 
     const totalUnitValue = groupData.reduce((sum, groupItem) => sum + (groupItem.unit_value || 0), 0);
@@ -1896,7 +1928,7 @@ export default function DeliveryPage() {
     // Determine if checkbox should be visible
     const shouldShowCheckbox = () => {
       // Hide checkbox if user is not admin
-      if (user && !user.is_admin) {
+      if (user && !user.is_admin || (formData.status === 'DELIVERED' || formData.status === 'CANCELLED')) {
         return false;
       }
 
@@ -1910,8 +1942,6 @@ export default function DeliveryPage() {
 
       return true;
     };
-
-
 
     return (
       <div className={`rounded-lg ${statusStyling.isDisabled ? 'opacity-60' : ''}`}>
@@ -1962,6 +1992,7 @@ export default function DeliveryPage() {
       </div>
     );
   };
+
 
 
 
@@ -2571,66 +2602,67 @@ export default function DeliveryPage() {
 
                             {/* Add Select All Checkbox Section */}
                             {(user && user.is_admin) && inventoryInventoryItems.length > 0 && (
-                              formData.status === "PENDING" || 
-                              formData.status === "PROCESSING" || 
+                              formData.status === "PENDING" ||
+                              formData.status === "PROCESSING" ||
                               (formData.status === "DELIVERED" && selectedDeliveryId)
                             ) && (
-                              <div className="border-b border-default-200 px-4 py-3 bg-default-50/50">
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center gap-3">
-                                    <Checkbox
-                                      isSelected={isSelectAllChecked}
-                                      isIndeterminate={isSelectAllIndeterminate}
-                                      onValueChange={handleSelectAllToggle}
-                                      color="primary"
-                                    />
-                                    <div className="flex flex-col">
-                                      <span className="text-sm font-medium text-default-700">
-                                        Select All Available Items
-                                      </span>
-                                      <span className="text-xs text-default-500">
-                                        {(() => {
-                                          const displayItems = getDisplayInventoryItemsList();
-                                          const availableItems = displayItems.filter(item => {
-                                            const statusStyling = getInventoryItemStatusStyling(item);
-                                            return !statusStyling.isDisabled;
-                                          });
-                                          
-                                          let totalAvailableCount = 0;
-                                          availableItems.forEach(item => {
-                                            const groupedItems = getGroupedInventoryItems();
-                                            const groupInfo = getGroupInfo(item, groupedItems);
+                                <div className="border-b border-default-200 px-4 py-3 bg-default-50/50">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                      {(user && user.is_admin) || (formData.status === 'PENDING' || formData.status === 'PROCESSING') &&
+                                        <Checkbox
+                                          isSelected={isSelectAllChecked}
+                                          isIndeterminate={isSelectAllIndeterminate}
+                                          onValueChange={handleSelectAllToggle}
+                                          color="primary"
+                                        />}
+                                      <div className="flex flex-col">
+                                        <span className="text-sm font-medium text-default-700">
+                                          Select All Available Items
+                                        </span>
+                                        <span className="text-xs text-default-500">
+                                          {(() => {
+                                            const displayItems = getDisplayInventoryItemsList();
+                                            const availableItems = displayItems.filter(item => {
+                                              const statusStyling = getInventoryItemStatusStyling(item);
+                                              return !statusStyling.isDisabled;
+                                            });
 
-                                            if (inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId) {
-                                              const groupItems = inventoryInventoryItems.filter(groupItem => 
-                                                groupItem.group_id === groupInfo.groupId
-                                              );
-                                              const availableGroupItems = groupItems.filter(groupItem => {
-                                                const groupItemStatusStyling = getInventoryItemStatusStyling(groupItem);
-                                                return !groupItemStatusStyling.isDisabled;
-                                              });
-                                              totalAvailableCount += availableGroupItems.length;
-                                            } else {
-                                              totalAvailableCount += 1;
-                                            }
-                                          });
+                                            let totalAvailableCount = 0;
+                                            availableItems.forEach(item => {
+                                              const groupedItems = getGroupedInventoryItems();
+                                              const groupInfo = getGroupInfo(item, groupedItems);
 
-                                          return `${selectedInventoryItems.length} of ${totalAvailableCount} available items selected`;
-                                        })()}
-                                      </span>
+                                              if (inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId) {
+                                                const groupItems = inventoryInventoryItems.filter(groupItem =>
+                                                  groupItem.group_id === groupInfo.groupId
+                                                );
+                                                const availableGroupItems = groupItems.filter(groupItem => {
+                                                  const groupItemStatusStyling = getInventoryItemStatusStyling(groupItem);
+                                                  return !groupItemStatusStyling.isDisabled;
+                                                });
+                                                totalAvailableCount += availableGroupItems.length;
+                                              } else {
+                                                totalAvailableCount += 1;
+                                              }
+                                            });
+
+                                            return `${selectedInventoryItems.length} of ${totalAvailableCount} available items selected`;
+                                          })()}
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                      {selectedInventoryItems.length > 0 && (
+                                        <Chip color="primary" size="sm" variant="flat">
+                                          {selectedInventoryItems.length} selected
+                                        </Chip>
+                                      )}
                                     </div>
                                   </div>
-                                  
-                                  <div className="flex items-center gap-2">
-                                    {selectedInventoryItems.length > 0 && (
-                                      <Chip color="primary" size="sm" variant="flat">
-                                        {selectedInventoryItems.length} selected
-                                      </Chip>
-                                    )}
-                                  </div>
                                 </div>
-                              </div>
-                            )}
+                              )}
 
                             <div className="space-y-4 p-4">
                               <LoadingAnimation
@@ -2818,8 +2850,8 @@ export default function DeliveryPage() {
 
                                                                 {/* Item status - show for each individual item in grouped view only */}
                                                                 {inventoryViewMode === 'grouped' && inventoryItem.status && (
-                                                                  <div className="flex items-center gap-2">
-                                                                    <span className="text-sm text-default-500">Item Status:</span>
+                                                                  <div className="flex items-center gap-2 justify-between">
+                                                                    <span className="text-sm text-default-500">Item {itemIndex + 1}</span>
                                                                     <Chip color={getStatusColor(inventoryItem.status)} variant="flat" size="sm">
                                                                       {inventoryItem.status}
                                                                     </Chip>
@@ -2849,9 +2881,7 @@ export default function DeliveryPage() {
 
                                                                 {/* Item identifier */}
                                                                 <Input
-                                                                  label={inventoryViewMode === 'grouped' && groupInfo.isGroup
-                                                                    ? `Item ${itemIndex + 1} Identifier`
-                                                                    : "Item Identifier"}
+                                                                  label={"Item Identifier"}
                                                                   value={inventoryItem.uuid}
                                                                   isReadOnly
                                                                   classNames={{ inputWrapper: inputStyle.inputWrapper }}
@@ -2937,7 +2967,7 @@ export default function DeliveryPage() {
                               </LoadingAnimation>
 
                               {/* Auto-assign locations button - only show when not delivered/cancelled */}
-                              {selectedInventoryItems.length > 0 && !isWarehouseNotSet() && !isFloorConfigNotSet() &&
+                              {selectedInventoryItems.length > 0 && user.is_admin && !isWarehouseNotSet() && !isFloorConfigNotSet() &&
                                 formData.status !== "DELIVERED" && formData.status !== "CANCELLED" && (
                                   <div className="border-t border-default-200 pt-4 mt-4">
                                     <Button
@@ -2947,7 +2977,7 @@ export default function DeliveryPage() {
                                       onPress={autoAssignShelfLocations}
                                       startContent={<Icon icon="mdi:auto-fix" />}
                                       isLoading={isAutoAssigning}
-                                      isDisabled={!(user === null || user.is_admin)}
+                                      isDisabled={formData.status !== "PENDING" || isLoading || isLoadingItems || isLoadingInventoryItems}
                                     >
                                       Auto-assign Shelf Locations
                                     </Button>

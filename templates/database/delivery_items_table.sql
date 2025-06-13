@@ -26,7 +26,6 @@ BEFORE UPDATE ON public.delivery_items
 FOR EACH ROW
 EXECUTE FUNCTION update_status_history();
 
--- RPC function to create a delivery with inventory item status updates and location assignments
 CREATE OR REPLACE FUNCTION public.create_delivery_with_items(
   p_admin_uuid uuid,
   p_company_uuid uuid,
@@ -136,7 +135,131 @@ EXCEPTION
 END;
 $function$;
 
--- RPC function to update delivery status with inventory item status synchronization
+-- RPC function to update delivery with inventory item management
+CREATE OR REPLACE FUNCTION public.update_delivery_with_items(
+  p_delivery_uuid uuid,
+  p_inventory_locations jsonb,
+  p_delivery_address text DEFAULT NULL,
+  p_delivery_date date DEFAULT NULL,
+  p_operator_uuids uuid[] DEFAULT NULL,
+  p_notes text DEFAULT NULL,
+  p_name text DEFAULT NULL,
+  p_company_uuid uuid DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_delivery_record RECORD;
+  v_timestamp text;
+  v_result jsonb;
+  v_new_inventory_item_uuids uuid[];
+  v_old_inventory_item_uuids uuid[];
+  v_items_to_add uuid[];
+  v_items_to_remove uuid[];
+BEGIN
+  -- Generate timestamp for status history
+  v_timestamp := to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
+  
+  -- Get the delivery record
+  SELECT * INTO v_delivery_record
+  FROM delivery_items
+  WHERE uuid = p_delivery_uuid
+    AND (p_company_uuid IS NULL OR company_uuid = p_company_uuid);
+  
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'Delivery not found'
+    );
+  END IF;
+
+  -- Extract new inventory item UUIDs from the locations object keys
+  SELECT array_agg(key::uuid) INTO v_new_inventory_item_uuids
+  FROM jsonb_object_keys(p_inventory_locations) AS key
+  WHERE key ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+  
+  -- Extract old inventory item UUIDs from existing locations
+  SELECT array_agg(key::uuid) INTO v_old_inventory_item_uuids
+  FROM jsonb_object_keys(v_delivery_record.inventory_locations) AS key
+  WHERE key ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+
+  -- Handle null arrays
+  v_new_inventory_item_uuids := COALESCE(v_new_inventory_item_uuids, ARRAY[]::uuid[]);
+  v_old_inventory_item_uuids := COALESCE(v_old_inventory_item_uuids, ARRAY[]::uuid[]);
+
+  -- Find items to add (in new but not in old)
+  SELECT array_agg(uuid_val) INTO v_items_to_add
+  FROM unnest(v_new_inventory_item_uuids) AS uuid_val
+  WHERE uuid_val != ALL(v_old_inventory_item_uuids);
+
+  -- Find items to remove (in old but not in new)
+  SELECT array_agg(uuid_val) INTO v_items_to_remove
+  FROM unnest(v_old_inventory_item_uuids) AS uuid_val
+  WHERE uuid_val != ALL(v_new_inventory_item_uuids);
+
+  -- Handle null arrays
+  v_items_to_add := COALESCE(v_items_to_add, ARRAY[]::uuid[]);
+  v_items_to_remove := COALESCE(v_items_to_remove, ARRAY[]::uuid[]);
+
+  -- Update delivery record
+  UPDATE delivery_items 
+  SET 
+    inventory_locations = p_inventory_locations,
+    delivery_address = COALESCE(p_delivery_address, delivery_address),
+    delivery_date = COALESCE(p_delivery_date, delivery_date),
+    operator_uuids = COALESCE(p_operator_uuids, operator_uuids),
+    notes = COALESCE(p_notes, notes),
+    name = COALESCE(p_name, name),
+    updated_at = now()
+  WHERE uuid = p_delivery_uuid;
+
+  -- Add new items: set status to 'ON_DELIVERY'
+  IF array_length(v_items_to_add, 1) > 0 THEN
+    UPDATE inventory_items 
+    SET 
+      status = 'ON_DELIVERY',
+      status_history = COALESCE(status_history, '{}'::jsonb) || jsonb_build_object(v_timestamp, 'ON_DELIVERY'),
+      updated_at = now()
+    WHERE uuid = ANY(v_items_to_add)
+      AND company_uuid = v_delivery_record.company_uuid;
+  END IF;
+
+  -- Remove items: revert status to 'AVAILABLE' (only if they were ON_DELIVERY)
+  IF array_length(v_items_to_remove, 1) > 0 THEN
+    UPDATE inventory_items 
+    SET 
+      status = 'AVAILABLE',
+      status_history = COALESCE(status_history, '{}'::jsonb) || jsonb_build_object(v_timestamp, 'AVAILABLE'),
+      updated_at = now()
+    WHERE uuid = ANY(v_items_to_remove)
+      AND company_uuid = v_delivery_record.company_uuid
+      AND status = 'ON_DELIVERY'; -- Only revert if currently on delivery
+  END IF;
+
+  -- Return the updated delivery
+  SELECT row_to_json(di.*) INTO v_result
+  FROM delivery_items di
+  WHERE di.uuid = p_delivery_uuid;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'data', v_result
+  );
+
+EXCEPTION
+  WHEN OTHERS THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', SQLERRM,
+      'error_detail', SQLSTATE
+    );
+END;
+$function$;
+
+-- Update the existing status update function to handle CANCELLED properly
 CREATE OR REPLACE FUNCTION public.update_delivery_status_with_items(
   p_delivery_uuid uuid,
   p_status text,

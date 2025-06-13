@@ -10,6 +10,7 @@ import {
   parseDate
 } from "@internationalized/date";
 import { User } from '@supabase/supabase-js'
+import { DeliveryItem } from '@/app/home/delivery/actions'
 
 
 export async function register(formData: FormData) : 
@@ -291,4 +292,62 @@ export async function register(formData: FormData) :
   redirect(`/account/verification?email=${encodeURIComponent(email)}`)
   
   return { success: true }
+}
+
+/**
+ * Update an existing delivery item with inventory management
+ */
+export async function updateDeliveryItem(
+  deliveryId: string,
+  formData: Partial<DeliveryItem>
+): Promise<{ success: boolean; data?: any; error?: string }> {
+  try {
+    const supabase = await createClient();
+
+    // Check if this is a simple update or requires inventory management
+    if (formData.inventory_locations) {
+      // Use the new RPC function for inventory management
+      const { data, error } = await supabase.rpc('update_delivery_with_items', {
+        p_delivery_uuid: deliveryId,
+        p_inventory_locations: formData.inventory_locations,
+        p_delivery_address: formData.delivery_address,
+        p_delivery_date: formData.delivery_date,
+        p_operator_uuids: formData.operator_uuids,
+        p_notes: formData.notes,
+        p_name: formData.name
+      });
+
+      if (error) {
+        console.error('Database error:', error);
+        return { success: false, error: error.message };
+      }
+
+      if (!data.success) {
+        return { success: false, error: data.error };
+      }
+
+      return { success: true, data: data.data };
+    } else {
+      // Use traditional update for simple field changes
+      const { data, error } = await supabase
+        .from('delivery_items')
+        .update({
+          ...formData,
+          updated_at: new Date().toISOString()
+        })
+        .eq('uuid', deliveryId)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Database error:', error);
+        return { success: false, error: error.message };
+      }
+
+      return { success: true, data };
+    }
+  } catch (error) {
+    console.error('Error updating delivery item:', error);
+    return { success: false, error: (error as Error).message };
+  }
 }
