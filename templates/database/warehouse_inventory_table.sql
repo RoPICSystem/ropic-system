@@ -298,7 +298,7 @@ END;
 $function$;
 
 
--- Function to get warehouse inventory details with items
+-- Function to get warehouse inventory details with items and delivery information
 CREATE OR REPLACE FUNCTION public.get_warehouse_inventory_details(
   p_warehouse_inventory_uuid uuid
 )
@@ -318,6 +318,7 @@ RETURNS TABLE(
   status text,
   warehouse_info jsonb,
   inventory_info jsonb,
+  delivery_info jsonb,
   items jsonb,
   created_at timestamp with time zone,
   updated_at timestamp with time zone
@@ -354,6 +355,19 @@ BEGIN
     ) as inventory_info,
     COALESCE(
       jsonb_agg(
+        DISTINCT jsonb_build_object(
+          'uuid', di.uuid,
+          'name', di.name,
+          'delivery_address', di.delivery_address,
+          'delivery_date', di.delivery_date,
+          'status', di.status,
+          'created_at', di.created_at
+        )
+      ) FILTER (WHERE di.uuid IS NOT NULL),
+      '[]'::jsonb
+    ) as delivery_info,
+    COALESCE(
+      jsonb_agg(
         CASE 
           WHEN wii.uuid IS NOT NULL THEN
             jsonb_build_object(
@@ -361,6 +375,7 @@ BEGIN
               'company_uuid', wii.company_uuid,
               'warehouse_uuid', wii.warehouse_uuid,
               'inventory_uuid', wii.inventory_uuid,
+              'delivery_uuid', wii.delivery_uuid,
               'group_id', wii.group_id,
               'item_code', wii.item_code,
               'unit', wii.unit,
@@ -371,6 +386,17 @@ BEGIN
               'location', wii.location,
               'status', wii.status,
               'status_history', wii.status_history,
+              'delivery_item', CASE 
+                WHEN wii.delivery_uuid IS NOT NULL THEN
+                  jsonb_build_object(
+                    'uuid', di_item.uuid,
+                    'name', di_item.name,
+                    'delivery_address', di_item.delivery_address,
+                    'delivery_date', di_item.delivery_date,
+                    'status', di_item.status
+                  )
+                ELSE NULL
+              END,
               'created_at', wii.created_at,
               'updated_at', wii.updated_at
             )
@@ -386,6 +412,8 @@ BEGIN
   LEFT JOIN inventory inv ON wi.inventory_uuid = inv.uuid
   LEFT JOIN warehouse_inventory_items wii ON wi.warehouse_uuid = wii.warehouse_uuid 
     AND wi.inventory_uuid = wii.inventory_uuid
+  LEFT JOIN delivery_items di ON wii.delivery_uuid = di.uuid
+  LEFT JOIN delivery_items di_item ON wii.delivery_uuid = di_item.uuid
   WHERE wi.uuid = p_warehouse_inventory_uuid
   GROUP BY 
     wi.uuid, wi.company_uuid, wi.admin_uuid, wi.warehouse_uuid, wi.inventory_uuid,
@@ -508,5 +536,103 @@ EXCEPTION
       'success', false,
       'error', SQLERRM
     );
+END;
+$function$;
+
+
+
+-- Function to get delivery history for warehouse inventory
+CREATE OR REPLACE FUNCTION public.get_warehouse_inventory_delivery_history(
+  p_warehouse_inventory_uuid uuid
+)
+RETURNS TABLE(
+  delivery_uuid uuid,
+  delivery_name text,
+  delivery_address text,
+  delivery_date date,
+  delivery_status text,
+  items_count bigint,
+  total_cost numeric,
+  created_at timestamp with time zone
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    di.uuid as delivery_uuid,
+    di.name as delivery_name,
+    di.delivery_address,
+    di.delivery_date,
+    di.status as delivery_status,
+    COUNT(wii.uuid) as items_count,
+    SUM(wii.cost) as total_cost,
+    di.created_at
+  FROM warehouse_inventory wi
+  JOIN warehouse_inventory_items wii ON wi.warehouse_uuid = wii.warehouse_uuid 
+    AND wi.inventory_uuid = wii.inventory_uuid
+  JOIN delivery_items di ON wii.delivery_uuid = di.uuid
+  WHERE wi.uuid = p_warehouse_inventory_uuid
+    AND wii.delivery_uuid IS NOT NULL
+  GROUP BY 
+    di.uuid, di.name, di.delivery_address, di.delivery_date, 
+    di.status, di.created_at
+  ORDER BY di.created_at DESC;
+END;
+$function$;
+
+
+-- Function to get warehouse inventory items by delivery
+CREATE OR REPLACE FUNCTION public.get_warehouse_items_by_delivery(
+  p_delivery_uuid uuid,
+  p_company_uuid uuid DEFAULT NULL
+)
+RETURNS TABLE(
+  uuid uuid,
+  warehouse_uuid uuid,
+  inventory_uuid uuid,
+  group_id text,
+  item_code text,
+  unit text,
+  unit_value text,
+  packaging_unit text,
+  cost numeric,
+  location jsonb,
+  status text,
+  warehouse_name text,
+  inventory_name text,
+  created_at timestamp with time zone,
+  updated_at timestamp with time zone
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    wii.uuid,
+    wii.warehouse_uuid,
+    wii.inventory_uuid,
+    wii.group_id,
+    wii.item_code,
+    wii.unit,
+    wii.unit_value,
+    wii.packaging_unit,
+    wii.cost,
+    wii.location,
+    wii.status,
+    w.name as warehouse_name,
+    inv.name as inventory_name,
+    wii.created_at,
+    wii.updated_at
+  FROM warehouse_inventory_items wii
+  LEFT JOIN warehouses w ON wii.warehouse_uuid = w.uuid
+  LEFT JOIN inventory inv ON wii.inventory_uuid = inv.uuid
+  WHERE wii.delivery_uuid = p_delivery_uuid
+    AND (p_company_uuid IS NULL OR wii.company_uuid = p_company_uuid)
+  ORDER BY wii.created_at DESC;
 END;
 $function$;

@@ -204,6 +204,10 @@ export default function WarehouseItemsPage() {
     };
   };
 
+  const handleViewDelivery = (deliveryId: string) => {
+    router.push(`/home/delivery?deliveryId=${deliveryId}`);
+  };
+
   // QR Code generation functions
   const generateUrl = (itemId: string, autoMarkAsUsed: boolean) => {
     const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
@@ -1287,7 +1291,7 @@ export default function WarehouseItemsPage() {
                                     const groupSize = item._groupSize;
                                     const groupId = item._groupId;
                                     const displayNumber = index + 1;
-
+                                    
                                     return (
                                       <AccordionItem
                                         key={item.uuid}
@@ -1640,8 +1644,20 @@ export default function WarehouseItemsPage() {
                                                   onPress={() => handleViewBulkLocation(null, groupId)}
                                                   startContent={<Icon icon="mdi:map-marker" width={16} height={16} />}
                                                 >
-                                                  View Group Location
+                                                  Group Location
                                                 </Button>
+                                                {/* Navigation to delivery page */}
+                                                {item.delivery_uuid && (
+                                                  <Button
+                                                    color="success"
+                                                    variant="flat"
+                                                    size="sm"
+                                                    onPress={() => handleViewDelivery(item.delivery_uuid)}
+                                                    startContent={<Icon icon="mdi:truck-delivery" width={16} height={16} />}
+                                                  >
+                                                    View Delivery
+                                                  </Button>
+                                                )}
                                               </>
                                             ) : (
                                               <>

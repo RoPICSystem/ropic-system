@@ -411,7 +411,7 @@ EXCEPTION
 END;
 $function$;
 
--- New function to create warehouse inventory from delivery
+-- Updated function to create warehouse inventory from delivery with delivery tracking
 CREATE OR REPLACE FUNCTION public.create_warehouse_inventory_from_delivery(
   p_inventory_uuid uuid,
   p_warehouse_uuid uuid,
@@ -493,6 +493,7 @@ BEGIN
       admin_uuid,
       warehouse_uuid,
       inventory_uuid,
+      delivery_uuid,
       group_id,
       item_code,
       unit,
@@ -508,6 +509,7 @@ BEGIN
       v_inventory_record.admin_uuid,
       p_warehouse_uuid,
       p_inventory_uuid,
+      p_delivery_uuid,
       v_inventory_item.group_id,
       v_inventory_item.item_code,
       v_inventory_item.unit,

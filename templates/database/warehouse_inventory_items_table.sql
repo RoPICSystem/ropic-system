@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS public.warehouse_inventory_items (
   admin_uuid UUID NOT NULL REFERENCES public.profiles(uuid) ON DELETE SET NULL,
   warehouse_uuid UUID NOT NULL REFERENCES public.warehouses(uuid) ON DELETE CASCADE,
   inventory_uuid UUID NOT NULL REFERENCES public.inventory(uuid) ON DELETE CASCADE,
+  delivery_uuid UUID not null REFERENCES public.delivery_items (uuid) on delete SET NULL,
   group_id TEXT,
   item_code TEXT NOT NULL,
   unit TEXT NOT NULL,
