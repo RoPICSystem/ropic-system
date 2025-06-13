@@ -33,95 +33,76 @@ EXECUTE FUNCTION update_status_history();
 CREATE OR REPLACE FUNCTION update_warehouse_inventory_aggregations(p_warehouse_inventory_uuid uuid)
 RETURNS VOID AS $$
 DECLARE
-    wh_inv_record RECORD;
-    total_unit_values RECORD;
-    total_counts RECORD;
-    total_costs RECORD;
+  wh_inv_record RECORD;
+  total_unit_values RECORD;
+  total_counts RECORD;
 BEGIN
-    -- Skip if warehouse inventory UUID is null
-    IF p_warehouse_inventory_uuid IS NULL THEN
-        RETURN;
-    END IF;
+  -- Skip if warehouse inventory UUID is null
+  IF p_warehouse_inventory_uuid IS NULL THEN
+    RETURN;
+  END IF;
 
-    -- Get warehouse inventory record to access standard_unit
-    SELECT standard_unit INTO wh_inv_record FROM warehouse_inventory WHERE uuid = p_warehouse_inventory_uuid;
-    
-    IF wh_inv_record IS NULL THEN
-        RETURN;
-    END IF;
+  -- Get warehouse inventory record to access standard_unit
+  SELECT standard_unit INTO wh_inv_record FROM warehouse_inventory WHERE uuid = p_warehouse_inventory_uuid;
+  
+  IF wh_inv_record IS NULL THEN
+    RETURN;
+  END IF;
 
-    -- Calculate aggregated unit values (converted to standard unit)
-    SELECT 
-        COALESCE(SUM(CASE 
-            WHEN wii.status = 'AVAILABLE' 
-            THEN public.convert_unit(wii.unit_value::numeric, wii.unit, wh_inv_record.standard_unit) 
-            ELSE 0 
-        END), 0) as available,
-        COALESCE(SUM(CASE 
-            WHEN wii.status = 'USED' 
-            THEN public.convert_unit(wii.unit_value::numeric, wii.unit, wh_inv_record.standard_unit) 
-            ELSE 0 
-        END), 0) as used,
-        COALESCE(SUM(CASE 
-            WHEN wii.status = 'TRANSFERRED' 
-            THEN public.convert_unit(wii.unit_value::numeric, wii.unit, wh_inv_record.standard_unit) 
-            ELSE 0 
-        END), 0) as transferred,
-        COALESCE(SUM(public.convert_unit(wii.unit_value::numeric, wii.unit, wh_inv_record.standard_unit)), 0) as total
-    INTO total_unit_values
-    FROM warehouse_inventory_items wii
-    WHERE wii.warehouse_uuid = (SELECT warehouse_uuid FROM warehouse_inventory WHERE uuid = p_warehouse_inventory_uuid)
-      AND wii.inventory_uuid = (SELECT inventory_uuid FROM warehouse_inventory WHERE uuid = p_warehouse_inventory_uuid);
+  -- Calculate aggregated unit values (converted to standard unit)
+  SELECT 
+    COALESCE(SUM(CASE 
+      WHEN wii.status = 'AVAILABLE' 
+      THEN public.convert_unit(wii.unit_value::numeric, wii.unit, wh_inv_record.standard_unit) 
+      ELSE 0 
+    END), 0) as available,
+    COALESCE(SUM(CASE 
+      WHEN wii.status = 'USED' 
+      THEN public.convert_unit(wii.unit_value::numeric, wii.unit, wh_inv_record.standard_unit) 
+      ELSE 0 
+    END), 0) as used,
+    COALESCE(SUM(CASE 
+      WHEN wii.status = 'TRANSFERRED' 
+      THEN public.convert_unit(wii.unit_value::numeric, wii.unit, wh_inv_record.standard_unit) 
+      ELSE 0 
+    END), 0) as transferred,
+    COALESCE(SUM(public.convert_unit(wii.unit_value::numeric, wii.unit, wh_inv_record.standard_unit)), 0) as total
+  INTO total_unit_values
+  FROM warehouse_inventory_items wii
+  WHERE wii.warehouse_uuid = (SELECT warehouse_uuid FROM warehouse_inventory WHERE uuid = p_warehouse_inventory_uuid)
+    AND wii.inventory_uuid = (SELECT inventory_uuid FROM warehouse_inventory WHERE uuid = p_warehouse_inventory_uuid);
 
-    -- Calculate aggregated counts
-    SELECT 
-        COALESCE(COUNT(CASE WHEN wii.status = 'AVAILABLE' THEN 1 END), 0) as available,
-        COALESCE(COUNT(CASE WHEN wii.status = 'USED' THEN 1 END), 0) as used,
-        COALESCE(COUNT(CASE WHEN wii.status = 'TRANSFERRED' THEN 1 END), 0) as transferred,
-        COALESCE(COUNT(*), 0) as total
-    INTO total_counts
-    FROM warehouse_inventory_items wii
-    WHERE wii.warehouse_uuid = (SELECT warehouse_uuid FROM warehouse_inventory WHERE uuid = p_warehouse_inventory_uuid)
-      AND wii.inventory_uuid = (SELECT inventory_uuid FROM warehouse_inventory WHERE uuid = p_warehouse_inventory_uuid);
+  -- Calculate aggregated counts
+  SELECT 
+    COALESCE(COUNT(CASE WHEN wii.status = 'AVAILABLE' THEN 1 END), 0) as available,
+    COALESCE(COUNT(CASE WHEN wii.status = 'USED' THEN 1 END), 0) as used,
+    COALESCE(COUNT(CASE WHEN wii.status = 'TRANSFERRED' THEN 1 END), 0) as transferred,
+    COALESCE(COUNT(*), 0) as total
+  INTO total_counts
+  FROM warehouse_inventory_items wii
+  WHERE wii.warehouse_uuid = (SELECT warehouse_uuid FROM warehouse_inventory WHERE uuid = p_warehouse_inventory_uuid)
+    AND wii.inventory_uuid = (SELECT inventory_uuid FROM warehouse_inventory WHERE uuid = p_warehouse_inventory_uuid);
 
-    -- Calculate aggregated costs
-    SELECT 
-        COALESCE(SUM(CASE WHEN wii.status = 'AVAILABLE' THEN wii.cost ELSE 0 END), 0) as available,
-        COALESCE(SUM(CASE WHEN wii.status = 'USED' THEN wii.cost ELSE 0 END), 0) as used,
-        COALESCE(SUM(CASE WHEN wii.status = 'TRANSFERRED' THEN wii.cost ELSE 0 END), 0) as transferred,
-        COALESCE(SUM(wii.cost), 0) as total
-    INTO total_costs
-    FROM warehouse_inventory_items wii
-    WHERE wii.warehouse_uuid = (SELECT warehouse_uuid FROM warehouse_inventory WHERE uuid = p_warehouse_inventory_uuid)
-      AND wii.inventory_uuid = (SELECT inventory_uuid FROM warehouse_inventory WHERE uuid = p_warehouse_inventory_uuid);
-
-    -- Update the warehouse inventory table with aggregated values
-    UPDATE warehouse_inventory 
-    SET 
-        unit_values = jsonb_build_object(
-            'available', total_unit_values.available,
-            'used', total_unit_values.used,
-            'transferred', total_unit_values.transferred,
-            'total', total_unit_values.total
-        ),
-        count = jsonb_build_object(
-            'available', total_counts.available,
-            'used', total_counts.used,
-            'transferred', total_counts.transferred,
-            'total', total_counts.total
-        ),
-        properties = COALESCE(properties, '{}'::jsonb) || jsonb_build_object(
-            'total_cost', jsonb_build_object(
-                'available', total_costs.available,
-                'used', total_costs.used,
-                'transferred', total_costs.transferred,
-                'total', total_costs.total
-            )
-        ),
-        updated_at = NOW()
-    WHERE uuid = p_warehouse_inventory_uuid;
+  -- Update the warehouse inventory table with aggregated values
+  UPDATE warehouse_inventory 
+  SET 
+    unit_values = jsonb_build_object(
+      'available', total_unit_values.available,
+      'used', total_unit_values.used,
+      'transferred', total_unit_values.transferred,
+      'total', total_unit_values.total
+    ),
+    count = jsonb_build_object(
+      'available', total_counts.available,
+      'used', total_counts.used,
+      'transferred', total_counts.transferred,
+      'total', total_counts.total
+    ),
+    updated_at = NOW()
+  WHERE uuid = p_warehouse_inventory_uuid;
 END;
 $$ LANGUAGE plpgsql;
+
 
 -- Add trigger function for warehouse inventory items
 CREATE OR REPLACE FUNCTION update_warehouse_inventory_aggregations_trigger()
@@ -634,5 +615,142 @@ BEGIN
   WHERE wii.delivery_uuid = p_delivery_uuid
     AND (p_company_uuid IS NULL OR wii.company_uuid = p_company_uuid)
   ORDER BY wii.created_at DESC;
+END;
+$function$;
+
+
+
+-- Function to mark specific number of warehouse items as used
+CREATE OR REPLACE FUNCTION public.mark_warehouse_items_bulk_used(
+  p_warehouse_inventory_uuid uuid,
+  p_count integer
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_timestamp text;
+  v_affected_count integer;
+  v_warehouse_inventory_uuid uuid;
+BEGIN
+  v_timestamp := to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
+  
+  -- Update the specified number of available warehouse inventory items
+  WITH items_to_update AS (
+    SELECT wii.uuid
+    FROM warehouse_inventory_items wii
+    JOIN warehouse_inventory wi ON wi.warehouse_uuid = wii.warehouse_uuid 
+      AND wi.inventory_uuid = wii.inventory_uuid
+    WHERE wi.uuid = p_warehouse_inventory_uuid
+      AND wii.status = 'AVAILABLE'
+    ORDER BY wii.created_at ASC
+    LIMIT p_count
+  )
+  UPDATE warehouse_inventory_items 
+  SET 
+    status = 'USED',
+    status_history = COALESCE(status_history, '{}'::jsonb) || jsonb_build_object(v_timestamp, 'USED'),
+    updated_at = now()
+  WHERE uuid IN (SELECT uuid FROM items_to_update);
+  
+  GET DIAGNOSTICS v_affected_count = ROW_COUNT;
+  
+  IF v_affected_count = 0 THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'No available warehouse inventory items found'
+    );
+  END IF;
+
+  -- Update warehouse inventory aggregations
+  PERFORM update_warehouse_inventory_aggregations(p_warehouse_inventory_uuid);
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'message', format('Successfully marked %s item(s) as used', v_affected_count),
+    'affected_count', v_affected_count
+  );
+
+EXCEPTION
+  WHEN OTHERS THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', SQLERRM
+    );
+END;
+$function$;
+
+-- Function to mark specific number of warehouse group items as used
+CREATE OR REPLACE FUNCTION public.mark_warehouse_group_bulk_used(
+  p_group_id text,
+  p_count integer
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_timestamp text;
+  v_affected_count integer;
+  v_warehouse_inventory_uuids uuid[];
+  v_warehouse_inventory_uuid uuid;
+BEGIN
+  v_timestamp := to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
+  
+  -- Update the specified number of available warehouse inventory items in the group
+  WITH items_to_update AS (
+    SELECT uuid
+    FROM warehouse_inventory_items
+    WHERE group_id = p_group_id
+      AND status = 'AVAILABLE'
+    ORDER BY created_at ASC
+    LIMIT p_count
+  )
+  UPDATE warehouse_inventory_items 
+  SET 
+    status = 'USED',
+    status_history = COALESCE(status_history, '{}'::jsonb) || jsonb_build_object(v_timestamp, 'USED'),
+    updated_at = now()
+  WHERE uuid IN (SELECT uuid FROM items_to_update);
+  
+  GET DIAGNOSTICS v_affected_count = ROW_COUNT;
+  
+  IF v_affected_count = 0 THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'No available warehouse inventory items found in group'
+    );
+  END IF;
+
+  -- Get affected warehouse inventory UUIDs to update aggregations
+  SELECT array_agg(DISTINCT wi.uuid) INTO v_warehouse_inventory_uuids
+  FROM warehouse_inventory wi
+  JOIN warehouse_inventory_items wii ON wi.warehouse_uuid = wii.warehouse_uuid 
+    AND wi.inventory_uuid = wii.inventory_uuid
+  WHERE wii.group_id = p_group_id;
+
+  -- Update warehouse inventory aggregations for all affected warehouse inventories
+  IF v_warehouse_inventory_uuids IS NOT NULL THEN
+    FOREACH v_warehouse_inventory_uuid IN ARRAY v_warehouse_inventory_uuids
+    LOOP
+      PERFORM update_warehouse_inventory_aggregations(v_warehouse_inventory_uuid);
+    END LOOP;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'message', format('Successfully marked %s item(s) in group as used', v_affected_count),
+    'affected_count', v_affected_count
+  );
+
+EXCEPTION
+  WHEN OTHERS THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', SQLERRM
+    );
 END;
 $function$;

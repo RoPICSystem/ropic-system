@@ -210,6 +210,50 @@ export async function markWarehouseGroupAsUsed(groupId: string) {
   }
 }
 
+// Mark specific number of warehouse inventory items as used
+export async function markWarehouseItemsBulkUsed(warehouseInventoryUuid: string, count: number) {
+  try {
+    const supabase = await createClient();
+    
+    const { data, error } = await supabase.rpc('mark_warehouse_items_bulk_used', {
+      p_warehouse_inventory_uuid: warehouseInventoryUuid,
+      p_count: count
+    });
+
+    if (error) {
+      console.error('Error marking warehouse items bulk as used:', error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true, data };
+  } catch (error) {
+    console.error('Error in markWarehouseItemsBulkUsed:', error);
+    return { success: false, error: 'Failed to mark warehouse items bulk as used' };
+  }
+}
+
+// Mark specific number of warehouse group items as used
+export async function markWarehouseGroupBulkUsed(groupId: string, count: number) {
+  try {
+    const supabase = await createClient();
+    
+    const { data, error } = await supabase.rpc('mark_warehouse_group_bulk_used', {
+      p_group_id: groupId,
+      p_count: count
+    });
+
+    if (error) {
+      console.error('Error marking warehouse group bulk as used:', error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true, data };
+  } catch (error) {
+    console.error('Error in markWarehouseGroupBulkUsed:', error);
+    return { success: false, error: 'Failed to mark warehouse group bulk as used' };
+  }
+}
+
 // Get warehouses for filtering
 export async function getWarehouses(company_uuid: string) {
   try {

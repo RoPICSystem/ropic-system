@@ -1,14 +1,14 @@
 'use client';
 
 import CardList from "@/components/card-list";
-import CustomProperties from "@/components/custom-properties";
+import CustomScrollbar from "@/components/custom-scrollbar";
 import LoadingAnimation from '@/components/loading-animation';
 import { SearchListPanel } from "@/components/search-list-panel/search-list-panel";
-import { getStatusColor, herouiColor } from "@/utils/colors";
 import { motionTransition, motionTransitionScale, motionTransitionX, popoverTransition } from "@/utils/anim";
+import { getStatusColor } from "@/utils/colors";
+import { createClient } from "@/utils/supabase/client";
 import { getUserFromCookies } from '@/utils/supabase/server/user';
 import { copyToClipboard, formatDate, formatNumber, toNormalCase, toTitleCase } from "@/utils/tools";
-import { getGroupInfo, getItemDisplayNumber } from "@/utils/inventory-group";
 import {
   Accordion,
   AccordionItem,
@@ -23,37 +23,36 @@ import {
   ModalContent,
   ModalFooter,
   ModalHeader,
+  NumberInput,
   Popover,
   PopoverContent,
   PopoverTrigger,
   Skeleton,
   Spinner,
   Switch,
-  Textarea,
   useDisclosure
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
-import { motion, AnimatePresence } from "framer-motion";
-import { QRCodeCanvas } from "qrcode.react";
+import { AnimatePresence, motion } from "framer-motion";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, lazy, useState } from "react";
-import CustomScrollbar from "@/components/custom-scrollbar";
-import { createClient } from "@/utils/supabase/client";
+import { QRCodeCanvas } from "qrcode.react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 
+import { getUnitFullName } from "@/utils/measurements";
 import {
-  getWarehouseInventoryItems,
   getWarehouseInventoryItem,
   getWarehouseItemByInventory,
-  markWarehouseItemAsUsed,
+  getWarehouses,
   markWarehouseGroupAsUsed,
-  getWarehouses
+  markWarehouseItemAsUsed,
+  markWarehouseItemsBulkUsed,
+  markWarehouseGroupBulkUsed
 } from "./actions";
-import { getUnitFullName } from "@/utils/measurements";
 
 // Add these imports after the existing imports
+import { Popover3dNavigationHelp } from "@/components/popover-3dnavigation-help";
 import { ShelfSelectorColorAssignment } from '@/components/shelf-selector-3d';
 import { getOccupiedShelfLocations } from "../delivery/actions";
-import { Popover3dNavigationHelp } from "@/components/popover-3dnavigation-help";
 
 // Add the lazy import for the 3D component
 const ShelfSelector3D = lazy(() =>
@@ -88,6 +87,12 @@ export default function WarehouseItemsPage() {
   // Mark as used loading states
   const [isLoadingMarkAsUsed, setIsLoadingMarkAsUsed] = useState(false);
   const [isLoadingMarkGroupAsUsed, setIsLoadingMarkGroupAsUsed] = useState(false);
+  const [isLoadingMarkBulkAsUsed, setIsLoadingMarkBulkAsUsed] = useState(false);
+  const [isLoadingMarkGroupBulkAsUsed, setIsLoadingMarkGroupBulkAsUsed] = useState(false);
+
+  // Bulk mark as used states
+  const [bulkMarkCount, setBulkMarkCount] = useState(1);
+  const [groupBulkMarkCounts, setGroupBulkMarkCounts] = useState<{ [key: string]: number }>({});
 
   const [showInventorySearch, setShowInventorySearch] = useState(false);
   const [showInventorySearchFilter, setShowInventorySearchFilter] = useState(false);
@@ -180,6 +185,56 @@ export default function WarehouseItemsPage() {
       setError("Failed to mark group as used");
     } finally {
       setIsLoadingMarkGroupAsUsed(false);
+    }
+  };
+
+  // Handle bulk mark items as used
+  const handleMarkItemsBulkAsUsed = async (count: number) => {
+    if (!selectedItemId || count <= 0) return;
+
+    setIsLoadingMarkBulkAsUsed(true);
+    try {
+      const result = await markWarehouseItemsBulkUsed(selectedItemId, count);
+      if (result.success) {
+        // Refresh the details
+        const refreshedItem = await getWarehouseInventoryItem(selectedItemId);
+        if (refreshedItem.success && refreshedItem.data) {
+          setFormData(refreshedItem.data);
+        }
+      } else {
+        setError(result.error || "Failed to mark items as used");
+      }
+    } catch (error) {
+      console.error("Failed to mark items as used:", error);
+      setError("Failed to mark items as used");
+    } finally {
+      setIsLoadingMarkBulkAsUsed(false);
+    }
+  };
+
+  // Handle bulk mark group as used
+  const handleMarkGroupBulkAsUsed = async (groupId: string, count: number) => {
+    if (count <= 0) return;
+
+    setIsLoadingMarkGroupBulkAsUsed(true);
+    try {
+      const result = await markWarehouseGroupBulkUsed(groupId, count);
+      if (result.success) {
+        // Refresh the details
+        if (selectedItemId) {
+          const refreshedItem = await getWarehouseInventoryItem(selectedItemId);
+          if (refreshedItem.success && refreshedItem.data) {
+            setFormData(refreshedItem.data);
+          }
+        }
+      } else {
+        setError(result.error || "Failed to mark group items as used");
+      }
+    } catch (error) {
+      console.error("Failed to mark group items as used:", error);
+      setError("Failed to mark group items as used");
+    } finally {
+      setIsLoadingMarkGroupBulkAsUsed(false);
     }
   };
 
@@ -901,25 +956,53 @@ export default function WarehouseItemsPage() {
                           </div>
                         )}
 
-                        {/* Warehouse Properties */}
-                        {formData.properties && Object.keys(formData.properties).length > 0 && (
-                          <div className="p-3 bg-default-100 rounded-xl border-2 border-default-200">
-                            <div className="flex items-center gap-3 mb-3">
-                              <Icon icon="mdi:tag" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                              <span className="text-xs text-default-600 font-medium">
-                                Warehouse Properties
-                              </span>
+                        {/* Bulk Mark as Used Section */}
+                        {formData.count?.available > 0 && (
+                          <div className="p-4 bg-warning-50 rounded-xl border-2 border-warning-200">
+                            <div className="flex items-center gap-3 mb-3 justify-between">
+                              <div className="flex items-center gap-2">
+                                <Icon icon="mdi:package-variant-closed" className="text-warning-600 w-4 h-4 flex-shrink-0" />
+                                <span className="text-sm text-warning-700 font-medium">
+                                  Bulk Mark as Used
+                                </span>
+                              </div>
+                              <Chip
+                                color="warning"
+                                variant="flat"
+                                size="sm"
+                              >
+                                Available items: {formData.count.available} | Selected: {bulkMarkCount}
+                              </Chip>
                             </div>
-                            <div className="grid grid-cols-2 gap-2 text-sm">
-                              {Object.entries(formData.properties).map(([key, value]) => (
-                                <div key={key}>
-                                  <span className="text-default-500">{toTitleCase(toNormalCase(key))}:</span>
-                                  <span className="ml-2">{String(value)}</span>
-                                </div>
-                              ))}
+                            <div className="flex items-center gap-3 w-full">
+                              <NumberInput
+                                label="Number of items"
+                                value={bulkMarkCount}
+                                onValueChange={setBulkMarkCount}
+                                minValue={1}
+                                maxValue={formData.count.available}
+                                className="flex-1"
+                                classNames={inputStyle}
+                              />
+                              <Button
+                                color="warning"
+                                variant="shadow"
+                                size="sm"
+                                onPress={() => handleMarkItemsBulkAsUsed(bulkMarkCount)}
+                                startContent={
+                                  isLoadingMarkBulkAsUsed ?
+                                    <Spinner size="sm" color="warning" />
+                                    : <Icon icon="mdi:check-circle" width={16} height={16} />
+                                }
+                                isDisabled={isLoadingMarkBulkAsUsed || bulkMarkCount <= 0 || bulkMarkCount > formData.count.available}
+                                className="flex-shrink-0"
+                              >
+                                Mark as Used
+                              </Button>
                             </div>
                           </div>
                         )}
+
                       </div>
                     </div>
                   </LoadingAnimation>
@@ -1120,22 +1203,22 @@ export default function WarehouseItemsPage() {
 
                                         <div className="p-4 border-t border-default-200 flex justify-end gap-2 bg-default-100/50">
                                           {/* Clear All Filters Button */}
-                                          {(inventorySearchFilters.status  ||
+                                          {(inventorySearchFilters.status ||
                                             inventorySearchFilters.unit ||
                                             inventorySearchFilters.unit_value ||
                                             inventorySearchFilters.packaging_unit) && (
-                                            <Button
-                                              variant="flat"
-                                              color="danger"
-                                              size="sm"
-                                              onPress={() => {
-                                                setInventorySearchFilters({ status: null, unit: null, unit_value: null, packaging_unit: null });
-                                              }}
-                                              startContent={<Icon icon="mdi:filter-remove" />}
-                                            >
-                                              Clear All Filters
-                                            </Button>
-                                          )}
+                                              <Button
+                                                variant="flat"
+                                                color="danger"
+                                                size="sm"
+                                                onPress={() => {
+                                                  setInventorySearchFilters({ status: null, unit: null, unit_value: null, packaging_unit: null });
+                                                }}
+                                                startContent={<Icon icon="mdi:filter-remove" />}
+                                              >
+                                                Clear All Filters
+                                              </Button>
+                                            )}
                                           <Button
                                             size="sm"
                                             variant="flat"
@@ -1291,7 +1374,7 @@ export default function WarehouseItemsPage() {
                                     const groupSize = item._groupSize;
                                     const groupId = item._groupId;
                                     const displayNumber = index + 1;
-                                    
+
                                     return (
                                       <AccordionItem
                                         key={item.uuid}
@@ -1477,6 +1560,52 @@ export default function WarehouseItemsPage() {
                                             </div>
                                           )}
 
+                                          {/* Group Bulk Mark as Used Section */}
+                                          {(() => {
+                                            const groupItems = formData.items?.filter((groupItem: any) => groupItem.group_id === groupId) || [];
+                                            const availableCount = groupItems.filter((item: any) => item.status === 'AVAILABLE').length;
+                                            const groupBulkCount = groupBulkMarkCounts[groupId] || 1;
+
+                                            return availableCount > 0 ? (
+                                              <div className="p-4 bg-warning-50 rounded-xl border-2 border-warning-200 mx-4 mb-4">
+                                                <div className="flex items-center gap-3 mb-3">
+                                                  <Icon icon="mdi:package-variant-closed" className="text-warning-600 w-4 h-4 flex-shrink-0" />
+                                                  <span className="text-sm text-warning-700 font-medium">
+                                                    Bulk Mark Group as Used
+                                                  </span>
+                                                </div>
+                                                <div className="flex items-center gap-3 w-full">
+                                                  <NumberInput
+                                                    label="Number of items"
+                                                    value={groupBulkCount}
+                                                    onValueChange={(value) => setGroupBulkMarkCounts(prev => ({ ...prev, [groupId]: value }))}
+                                                    minValue={1}
+                                                    maxValue={availableCount}
+                                                    className="flex-1"
+                                                    classNames={inputStyle}
+                                                  />
+                                                  <Button
+                                                    color="warning"
+                                                    variant="shadow"
+                                                    size="sm"
+                                                    onPress={() => handleMarkGroupBulkAsUsed(groupId, groupBulkCount)}
+                                                    startContent={
+                                                      isLoadingMarkGroupBulkAsUsed ?
+                                                        <Spinner size="sm" color="warning" />
+                                                        : <Icon icon="mdi:check-circle" width={16} height={16} />
+                                                    }
+                                                    isDisabled={isLoadingMarkGroupBulkAsUsed || groupBulkCount <= 0 || groupBulkCount > availableCount}
+                                                    className="flex-shrink-0"
+                                                  >
+                                                    Mark as Used
+                                                  </Button>
+                                                </div>
+                                                <div className="text-xs text-warning-600 mt-2">
+                                                  Available items: {availableCount} | Selected: {groupBulkCount}
+                                                </div>
+                                              </div>
+                                            ) : null;
+                                          })()}
                                           {/* Group Items Details - only show for groups in grouped view */}
                                           {viewMode === 'grouped' && isGroupRepresentative && groupId && (
                                             <div className="px-2">
