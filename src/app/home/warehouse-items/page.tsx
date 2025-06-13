@@ -13,6 +13,8 @@ import {
   Accordion,
   AccordionItem,
   Alert,
+  Autocomplete,
+  AutocompleteItem,
   Button,
   Chip,
   Input,
@@ -34,7 +36,7 @@ import { Icon } from "@iconify/react";
 import { motion, AnimatePresence } from "framer-motion";
 import { QRCodeCanvas } from "qrcode.react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, lazy, useState } from "react";
 import CustomScrollbar from "@/components/custom-scrollbar";
 import { createClient } from "@/utils/supabase/client";
 
@@ -47,6 +49,18 @@ import {
   getWarehouses
 } from "./actions";
 import { getUnitFullName } from "@/utils/measurements";
+
+// Add these imports after the existing imports
+import { ShelfSelectorColorAssignment } from '@/components/shelf-selector-3d';
+import { getOccupiedShelfLocations } from "../delivery/actions";
+import { Popover3dNavigationHelp } from "@/components/popover-3dnavigation-help";
+
+// Add the lazy import for the 3D component
+const ShelfSelector3D = lazy(() =>
+  import("@/components/shelf-selector-3d").then(mod => ({
+    default: mod.ShelfSelector3D
+  }))
+);
 
 export default function WarehouseItemsPage() {
   const router = useRouter();
@@ -77,6 +91,7 @@ export default function WarehouseItemsPage() {
 
   const [showInventorySearch, setShowInventorySearch] = useState(false);
   const [showInventorySearchFilter, setShowInventorySearchFilter] = useState(false);
+  const [isInventorySearchFilterOpen, setIsInventorySearchFilterOpen] = useState(false);
   const [inventorySearchQuery, setInventorySearchQuery] = useState("");
   const [inventorySearchFilters, setInventorySearchFilters] = useState({
     status: null as string | null,
@@ -85,10 +100,20 @@ export default function WarehouseItemsPage() {
     packaging_unit: null as string | null,
   });
 
+  // Add these after the existing useState declarations
+  const [showLocationModal, setShowLocationModal] = useState(false);
+  const [selectedItemLocation, setSelectedItemLocation] = useState<any>(null);
+  const [floorConfigs, setFloorConfigs] = useState<any[]>([]);
+  const [occupiedLocations, setOccupiedLocations] = useState<any[]>([]);
+  const [shelfColorAssignments, setShelfColorAssignments] = useState<Array<ShelfSelectorColorAssignment>>([]);
+  const [highlightedFloor, setHighlightedFloor] = useState<number | null>(null);
+  const [externalSelection, setExternalSelection] = useState<any>(null);
+
   // Input style for consistency
   const inputStyle = {
     inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200"
   };
+  const autoCompleteStyle = { classNames: inputStyle };
 
   // Handle select item
   const handleSelectItem = (itemId: string) => {
@@ -158,6 +183,27 @@ export default function WarehouseItemsPage() {
     }
   };
 
+  const getFilterOptions = (items: any[]) => {
+    const statuses = new Set<string>();
+    const units = new Set<string>();
+    const unitValues = new Set<number>();
+    const packagingUnits = new Set<string>();
+
+    items.forEach(item => {
+      if (item.status) statuses.add(item.status);
+      if (item.unit) units.add(item.unit);
+      if (item.unit_value) unitValues.add(item.unit_value);
+      if (item.packaging_unit) packagingUnits.add(item.packaging_unit);
+    });
+
+    return {
+      statuses: Array.from(statuses).sort(),
+      units: Array.from(units).sort(),
+      unitValues: Array.from(unitValues).sort((a, b) => a - b),
+      packagingUnits: Array.from(packagingUnits).sort()
+    };
+  };
+
   // QR Code generation functions
   const generateUrl = (itemId: string, autoMarkAsUsed: boolean) => {
     const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
@@ -180,11 +226,160 @@ export default function WarehouseItemsPage() {
     qrModal.onOpen();
   };
 
-  const handleViewBulkLocation = (itemUuid: string | null) => {
-    const locationUrl = itemUuid
-      ? `/home/location?warehouseItemUuid=${itemUuid}`
-      : `/home/location?warehouseInventoryUuid=${selectedItemId}`;
-    router.push(locationUrl);
+  const handleViewBulkLocation = async (itemUuid: string | null, groupId?: string) => {
+    if (!formData?.warehouse_uuid) {
+      setError("No warehouse information available");
+      return;
+    }
+
+    try {
+      // Get warehouse information to load floor configs
+      const warehouses = await getWarehouses(user?.company_uuid || "");
+      if (warehouses.success) {
+        const warehouse = warehouses.data?.find(w => w.uuid === formData.warehouse_uuid);
+        if (warehouse?.layout) {
+          setFloorConfigs(warehouse.layout);
+
+          console.log("Loaded warehouse layout:", formData.items);
+
+          // Set up color assignments for current item(s)
+          const assignments: Array<ShelfSelectorColorAssignment> = [];
+          let navigationTarget: any = null;
+
+          if (groupId) {
+            // Handle group selection - show group items as tertiary, rest as secondary
+            const groupItems = formData.items?.filter((item: any) => item.group_id === groupId) || [];
+            const nonGroupItems = formData.items?.filter((item: any) => item.group_id !== groupId) || [];
+
+            // Add group items as tertiary (highlighted)
+            groupItems.forEach((item: any) => {
+              if (item.location) {
+                assignments.push({
+                  floor: item.location.floor,
+                  group: item.location.group,
+                  row: item.location.row,
+                  column: item.location.column,
+                  depth: item.location.depth,
+                  colorType: 'tertiary'
+                });
+              }
+            });
+
+            // Add non-group items as secondary
+            nonGroupItems.forEach((item: any) => {
+              if (item.location) {
+                assignments.push({
+                  floor: item.location.floor,
+                  group: item.location.group,
+                  row: item.location.row,
+                  column: item.location.column,
+                  depth: item.location.depth,
+                  colorType: 'secondary'
+                });
+              }
+            });
+
+            // Set navigation target to the first group item's location
+            if (groupItems.length > 0 && groupItems[0].location) {
+              navigationTarget = groupItems[0].location;
+              setHighlightedFloor(groupItems[0].location.floor);
+            }
+
+            // Set selected item location to the first group item for the overlay
+            setSelectedItemLocation(groupItems[0] || null);
+          } else if (itemUuid) {
+            // Handle individual item selection - show selected item as tertiary, rest as secondary
+            const selectedItem = formData.items?.find((item: any) => item.uuid === itemUuid);
+            const otherItems = formData.items?.filter((item: any) => item.uuid !== itemUuid) || [];
+
+            // Add selected item as tertiary (highlighted)
+            if (selectedItem?.location) {
+              assignments.push({
+                floor: selectedItem.location.floor,
+                group: selectedItem.location.group,
+                row: selectedItem.location.row,
+                column: selectedItem.location.column,
+                depth: selectedItem.location.depth,
+                colorType: 'tertiary'
+              });
+
+              // Set navigation target to the selected item's location
+              navigationTarget = selectedItem.location;
+              setHighlightedFloor(selectedItem.location.floor);
+            }
+
+            // Add other items as secondary
+            otherItems.forEach((item: any) => {
+              if (item.location) {
+                assignments.push({
+                  floor: item.location.floor,
+                  group: item.location.group,
+                  row: item.location.row,
+                  column: item.location.column,
+                  depth: item.location.depth,
+                  colorType: 'secondary'
+                });
+              }
+            });
+
+            setSelectedItemLocation(selectedItem || null);
+          } else {
+            // Show all items as secondary (overview mode)
+            formData.items?.forEach((item: any) => {
+              if (item.location) {
+                assignments.push({
+                  floor: item.location.floor,
+                  group: item.location.group,
+                  row: item.location.row,
+                  column: item.location.column,
+                  depth: item.location.depth,
+                  colorType: 'secondary'
+                });
+              }
+            });
+            setSelectedItemLocation(null);
+          }
+
+          setShelfColorAssignments(assignments);
+
+          // Set external selection for 3D navigation
+          if (navigationTarget) {
+            setExternalSelection({
+              floor: navigationTarget.floor,
+              group: navigationTarget.group,
+              row: navigationTarget.row,
+              column: navigationTarget.column,
+              depth: navigationTarget.depth,
+              code: navigationTarget.code
+            });
+          } else {
+            setExternalSelection(null);
+          }
+
+          // Load occupied locations, excluding those in assignments
+          const occupiedResult = await getOccupiedShelfLocations(formData.warehouse_uuid);
+          if (occupiedResult.success) {
+            const filteredOccupied = (occupiedResult.data || []).filter((occupied: any) => {
+              return !assignments.some(assignment =>
+                assignment.floor === occupied.floor &&
+                assignment.group === occupied.group &&
+                assignment.row === occupied.row &&
+                assignment.column === occupied.column &&
+                assignment.depth === occupied.depth
+              );
+            });
+            setOccupiedLocations(filteredOccupied);
+          }
+
+          setShowLocationModal(true);
+        } else {
+          setError("Warehouse layout not configured");
+        }
+      }
+    } catch (error) {
+      console.error("Error loading warehouse location:", error);
+      setError("Failed to load warehouse location");
+    }
   };
 
   // Load warehouse inventory item details
@@ -623,32 +818,32 @@ export default function WarehouseItemsPage() {
                         <div className="flex items-start justify-between gap-4 md:flex-row flex-col">
                           {/* Standard Unit */}
                           {formData.standard_unit && (
-                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200 w-full">
-                                <div className="flex items-center gap-3">
-                                  <Icon icon="mdi:scale-balance" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                  <div className="flex flex-col">
-                                    <span className="text-xs text-default-600 font-medium">Standard Unit</span>
-                                    <span className="text-md font-semibold text-default-700">
-                                      {getUnitFullName(formData.standard_unit)}
-                                    </span>
-                                  </div>
+                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200 w-full">
+                              <div className="flex items-center gap-3">
+                                <Icon icon="mdi:scale-balance" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                <div className="flex flex-col">
+                                  <span className="text-xs text-default-600 font-medium">Standard Unit</span>
+                                  <span className="text-md font-semibold text-default-700">
+                                    {getUnitFullName(formData.standard_unit)}
+                                  </span>
                                 </div>
                               </div>
+                            </div>
                           )}
 
                           {/* Measurement Unit */}
                           {formData.measurement_unit && (
-                              <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200 w-full">
-                                <div className="flex items-center gap-3">
-                                  <Icon icon="mdi:weight-kilogram" className="text-default-500 w-4 h-4 flex-shrink-0" />
-                                  <div className="flex flex-col">
-                                    <span className="text-xs text-default-600 font-medium">Measurement Unit</span>
-                                    <span className="text-md font-semibold text-default-700">
-                                      {toNormalCase(formData.measurement_unit)}
-                                    </span>
-                                  </div>
+                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200 w-full">
+                              <div className="flex items-center gap-3">
+                                <Icon icon="mdi:weight-kilogram" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                <div className="flex flex-col">
+                                  <span className="text-xs text-default-600 font-medium">Measurement Unit</span>
+                                  <span className="text-md font-semibold text-default-700">
+                                    {toNormalCase(formData.measurement_unit)}
+                                  </span>
                                 </div>
                               </div>
+                            </div>
                           )}
                         </div>
 
@@ -804,8 +999,8 @@ export default function WarehouseItemsPage() {
                                     className="max-w-48 flex-grow"
                                   />
                                   <Popover
-                                    isOpen={showInventorySearchFilter}
-                                    onOpenChange={setShowInventorySearchFilter}
+                                    isOpen={isInventorySearchFilterOpen}
+                                    onOpenChange={setIsInventorySearchFilterOpen}
                                     classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
                                     motionProps={popoverTransition()}
                                     offset={10}
@@ -819,19 +1014,128 @@ export default function WarehouseItemsPage() {
                                         className="min-w-18 w-18"
                                       >
                                         <div className="flex items-center gap-1">
-                                          <Icon icon="mdi:filter" className="text-default-500" />
+                                          <Icon icon="fluent:filter-12-filled" className="text-default-500" />
+                                          Filter
                                         </div>
                                       </Button>
                                     </PopoverTrigger>
-                                    <PopoverContent className="w-80">
-                                      <div className="px-1 py-2">
-                                        <div className="text-small font-bold text-foreground mb-2">Filter Options</div>
-                                        <div className="flex flex-col gap-2">
-                                          {/* Filter controls would go here */}
+                                    <PopoverContent className="w-96 p-0 overflow-hidden">
+                                      <div className="w-full">
+                                        <div className="space-y-4 p-4">
+                                          <h3 className="text-lg font-semibold items-center w-full text-center">
+                                            Bulk Filter Options
+                                          </h3>
+
+                                          {/* Filters */}
+                                          <div className="grid grid-cols-1 gap-4">
+                                            {(() => {
+                                              const filterOptions = getFilterOptions(formData?.items || []);
+
+                                              return (
+                                                <>
+                                                  {/* Status Filter */}
+                                                  <Autocomplete
+                                                    label="Filter by Status"
+                                                    placeholder="All Statuses"
+                                                    selectedKey={inventorySearchFilters.status || ""}
+                                                    onSelectionChange={(value) =>
+                                                      setInventorySearchFilters(prev => ({ ...prev, status: value as string || null }))
+                                                    }
+                                                    startContent={<Icon icon="mdi:information" className="text-default-500 mb-[0.2rem]" />}
+                                                    inputProps={autoCompleteStyle}
+                                                  >
+                                                    {[<AutocompleteItem key="">All Statuses</AutocompleteItem>,
+                                                    ...filterOptions.statuses.map((status) => (
+                                                      <AutocompleteItem key={status}>
+                                                        {status}
+                                                      </AutocompleteItem>
+                                                    ))]}
+                                                  </Autocomplete>
+
+                                                  {/* Unit Filter */}
+                                                  <Autocomplete
+                                                    label="Filter by Unit"
+                                                    placeholder="All Units"
+                                                    selectedKey={inventorySearchFilters.unit || ""}
+                                                    onSelectionChange={(value) =>
+                                                      setInventorySearchFilters(prev => ({ ...prev, unit: value as string || null }))
+                                                    }
+                                                    startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.2rem]" />}
+                                                    inputProps={autoCompleteStyle}
+                                                  >
+                                                    {[<AutocompleteItem key="">All Units</AutocompleteItem>,
+                                                    ...filterOptions.units.map((unit) => (
+                                                      <AutocompleteItem key={unit}>
+                                                        {getUnitFullName(unit)}
+                                                      </AutocompleteItem>
+                                                    ))]}
+                                                  </Autocomplete>
+
+                                                  {/* Unit Value Filter */}
+                                                  <Autocomplete
+                                                    label="Filter by Unit Value"
+                                                    placeholder="All Unit Values"
+                                                    selectedKey={inventorySearchFilters.unit_value || ""}
+                                                    onSelectionChange={(value) =>
+                                                      setInventorySearchFilters(prev => ({ ...prev, unit_value: value as number || null }))
+                                                    }
+                                                    startContent={<Icon icon="mdi:currency-usd" className="text-default-500 mb-[0.2rem]" />}
+                                                    inputProps={autoCompleteStyle}
+                                                  >
+                                                    {[<AutocompleteItem key="">All Unit Values</AutocompleteItem>,
+                                                    ...filterOptions.unitValues.map((unitValue) => (
+                                                      <AutocompleteItem key={unitValue}>
+                                                        {formatNumber(unitValue)}
+                                                      </AutocompleteItem>
+                                                    ))]}
+                                                  </Autocomplete>
+
+                                                  {/* Packaging Unit Filter */}
+                                                  <Autocomplete
+                                                    label="Filter by Packaging Unit"
+                                                    placeholder="All Packaging Units"
+                                                    selectedKey={inventorySearchFilters.packaging_unit || ""}
+                                                    onSelectionChange={(value) =>
+                                                      setInventorySearchFilters(prev => ({ ...prev, packaging_unit: value as string || null }))
+                                                    }
+                                                    startContent={<Icon icon="mdi:package-variant-closed" className="text-default-500 mb-[0.2rem]" />}
+                                                    inputProps={autoCompleteStyle}
+                                                  >
+                                                    {[<AutocompleteItem key="">All Packaging Units</AutocompleteItem>,
+                                                    ...filterOptions.packagingUnits.map((packagingUnit) => (
+                                                      <AutocompleteItem key={packagingUnit}>
+                                                        {packagingUnit}
+                                                      </AutocompleteItem>
+                                                    ))]}
+                                                  </Autocomplete>
+                                                </>
+                                              );
+                                            })()}
+                                          </div>
+                                        </div>
+
+                                        <div className="p-4 border-t border-default-200 flex justify-end gap-2 bg-default-100/50">
+                                          {/* Clear All Filters Button */}
+                                          {(inventorySearchFilters.status  ||
+                                            inventorySearchFilters.unit ||
+                                            inventorySearchFilters.unit_value ||
+                                            inventorySearchFilters.packaging_unit) && (
+                                            <Button
+                                              variant="flat"
+                                              color="danger"
+                                              size="sm"
+                                              onPress={() => {
+                                                setInventorySearchFilters({ status: null, unit: null, unit_value: null, packaging_unit: null });
+                                              }}
+                                              startContent={<Icon icon="mdi:filter-remove" />}
+                                            >
+                                              Clear All Filters
+                                            </Button>
+                                          )}
                                           <Button
                                             size="sm"
                                             variant="flat"
-                                            onPress={() => setShowInventorySearchFilter(false)}
+                                            onPress={() => setIsInventorySearchFilterOpen(false)}
                                           >
                                             Close
                                           </Button>
@@ -911,8 +1215,18 @@ export default function WarehouseItemsPage() {
                                 </Chip>
                                 <Chip color="default" variant="flat" size="sm" className="flex-shrink-0">
                                   {(() => {
-                                    const filteredItems = getDisplayItemsList();
-                                    return `${filteredItems.length} group${filteredItems.length > 1 ? 's' : ''}`;
+                                    const groupedItems = getGroupedItems();
+                                    const groupCount = Object.keys(groupedItems).length;
+                                    const ungroupedCount = groupedItems['ungrouped']?.length || 0;
+                                    const actualGroupCount = ungroupedCount > 0 ? groupCount - 1 : groupCount;
+
+                                    if (actualGroupCount === 0) {
+                                      return `${ungroupedCount} ungrouped item${ungroupedCount !== 1 ? 's' : ''}`;
+                                    } else if (ungroupedCount === 0) {
+                                      return `${actualGroupCount} group${actualGroupCount !== 1 ? 's' : ''}`;
+                                    } else {
+                                      return `${actualGroupCount} group${actualGroupCount !== 1 ? 's' : ''}, ${ungroupedCount} ungrouped`;
+                                    }
                                   })()}
                                 </Chip>
                                 {formData.standard_unit && (
@@ -969,7 +1283,6 @@ export default function WarehouseItemsPage() {
                                     content: "text-small p-0",
                                   }}>
                                   {getDisplayItemsList().map((item, index) => {
-                                    const groupedItems = getGroupedItems();
                                     const isGroupRepresentative = item._isGroupRepresentative;
                                     const groupSize = item._groupSize;
                                     const groupId = item._groupId;
@@ -1272,7 +1585,7 @@ export default function WarehouseItemsPage() {
 
                                                           {/* Item Location */}
                                                           {groupItem.location && (
-                                                            <div className="mb-4">
+                                                            <div>
                                                               <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
                                                                 <div className="flex items-center gap-3">
                                                                   <Icon icon="mdi:map-marker" className="text-default-500 w-4 h-4 flex-shrink-0" />
@@ -1305,35 +1618,57 @@ export default function WarehouseItemsPage() {
                                           <div className="flex justify-end gap-2 bg-default-100/50 p-4 flex-wrap">
                                             {/* Mark as Used Button */}
                                             {isGroupRepresentative ? (
-                                              <Button
-                                                color="warning"
-                                                variant="flat"
-                                                size="sm"
-                                                onPress={() => handleMarkGroupAsUsed(groupId)}
-                                                startContent={
-                                                  isLoadingMarkGroupAsUsed ?
-                                                    <Spinner size="sm" color="warning" />
-                                                    : <Icon icon="mdi:check-circle" width={16} height={16} />
-                                                }
-                                                isDisabled={isLoadingMarkGroupAsUsed || item.status === "USED"}
-                                              >
-                                                {item.status === "USED" ? "Already Used" : "Mark Group as Used"}
-                                              </Button>
+                                              <>
+                                                <Button
+                                                  color="warning"
+                                                  variant="flat"
+                                                  size="sm"
+                                                  onPress={() => handleMarkGroupAsUsed(groupId)}
+                                                  startContent={
+                                                    isLoadingMarkGroupAsUsed ?
+                                                      <Spinner size="sm" color="warning" />
+                                                      : <Icon icon="mdi:check-circle" width={16} height={16} />
+                                                  }
+                                                  isDisabled={isLoadingMarkGroupAsUsed || item.status === "USED"}
+                                                >
+                                                  {item.status === "USED" ? "Already Used" : "Mark Group as Used"}
+                                                </Button>
+                                                <Button
+                                                  color="primary"
+                                                  variant="flat"
+                                                  size="sm"
+                                                  onPress={() => handleViewBulkLocation(null, groupId)}
+                                                  startContent={<Icon icon="mdi:map-marker" width={16} height={16} />}
+                                                >
+                                                  View Group Location
+                                                </Button>
+                                              </>
                                             ) : (
-                                              <Button
-                                                color="warning"
-                                                variant="flat"
-                                                size="sm"
-                                                onPress={() => handleMarkItemAsUsed(item.uuid)}
-                                                startContent={
-                                                  isLoadingMarkAsUsed ?
-                                                    <Spinner size="sm" color="warning" />
-                                                    : <Icon icon="mdi:check-circle" width={16} height={16} />
-                                                }
-                                                isDisabled={isLoadingMarkAsUsed || item.status === "USED"}
-                                              >
-                                                {item.status === "USED" ? "Already Used" : "Mark as Used"}
-                                              </Button>
+                                              <>
+                                                <Button
+                                                  color="warning"
+                                                  variant="flat"
+                                                  size="sm"
+                                                  onPress={() => handleMarkItemAsUsed(item.uuid)}
+                                                  startContent={
+                                                    isLoadingMarkAsUsed ?
+                                                      <Spinner size="sm" color="warning" />
+                                                      : <Icon icon="mdi:check-circle" width={16} height={16} />
+                                                  }
+                                                  isDisabled={isLoadingMarkAsUsed || item.status === "USED"}
+                                                >
+                                                  {item.status === "USED" ? "Already Used" : "Mark as Used"}
+                                                </Button>
+                                                <Button
+                                                  color="primary"
+                                                  variant="flat"
+                                                  size="sm"
+                                                  onPress={() => handleViewBulkLocation(item.uuid)}
+                                                  startContent={<Icon icon="mdi:map-marker" width={16} height={16} />}
+                                                >
+                                                  View Item Location
+                                                </Button>
+                                              </>
                                             )}
                                           </div>
                                         </div>
@@ -1434,6 +1769,103 @@ export default function WarehouseItemsPage() {
           </div>
         </div>
       </div>
+
+      {/* 3D Location Viewer Modal */}
+      <Modal
+        isOpen={showLocationModal}
+        onClose={() => {
+          setShowLocationModal(false);
+          setSelectedItemLocation(null);
+          setFloorConfigs([]);
+          setOccupiedLocations([]);
+          setShelfColorAssignments([]);
+          setHighlightedFloor(null);
+          setExternalSelection(null);
+        }}
+        placement='auto'
+        classNames={{
+          backdrop: "bg-background/50",
+          wrapper: 'overflow-hidden'
+        }}
+        backdrop="blur"
+        size="5xl"
+      >
+        <ModalContent>
+          <ModalHeader>
+            <div className="flex items-center gap-2">
+              <Icon icon="mdi:map-marker" />
+              <span>
+                {selectedItemLocation
+                  ? externalSelection
+                    ? formData.items?.some((item: any) => item.group_id === selectedItemLocation.group_id && formData.items?.filter((gi: any) => gi.group_id === selectedItemLocation.group_id).length > 1)
+                      ? `Group Location for: ${formData.name}`
+                      : `Item Location for: ${selectedItemLocation.item_code || selectedItemLocation.uuid}`
+                    : `Item Location for: ${selectedItemLocation.item_code || selectedItemLocation.uuid}`
+                  : `All Locations for ${formData.name}`
+                }
+              </span>
+            </div>
+          </ModalHeader>
+          <ModalBody className='p-0'>
+            <div className="h-[80vh] bg-primary-50 rounded-md overflow-hidden relative">
+              <Suspense fallback={
+                <div className="flex items-center justify-center h-full">
+                  <Spinner size="lg" color="primary" />
+                  <span className="ml-2">Loading 3D viewer...</span>
+                </div>
+              }>
+                <ShelfSelector3D
+                  floors={floorConfigs}
+                  onSelect={() => { }} // Read-only mode
+                  occupiedLocations={occupiedLocations}
+                  canSelectOccupiedLocations={false}
+                  className="w-full h-full"
+                  highlightedFloor={highlightedFloor}
+                  onHighlightFloor={setHighlightedFloor}
+                  cameraOffsetY={-0.25}
+                  shelfColorAssignments={shelfColorAssignments}
+                  externalSelection={externalSelection}
+                />
+              </Suspense>
+
+              {/* Location info overlay */}
+              {selectedItemLocation?.location && (
+                <div className="absolute top-4 left-4 flex items-center gap-2 bg-background/90 rounded-xl backdrop-blur-lg p-3 border border-default-200">
+                  <Icon icon="mdi:package-variant" className="text-secondary-500" />
+                  <span className="text-sm font-semibold">
+                    {selectedItemLocation
+                      ? externalSelection
+                        ? formData.items?.some((item: any) => item.group_id === selectedItemLocation.group_id && formData.items?.filter((gi: any) => gi.group_id === selectedItemLocation.group_id).length > 1)
+                          ? `Group View (${shelfColorAssignments.filter(a => a.colorType === 'tertiary').length} highlighted)`
+                          : "Single Item View"
+                        : "Single Item View"
+                      : `${shelfColorAssignments.length} Item${shelfColorAssignments.length !== 1 ? 's' : ''} Shown`
+                    }
+                  </span>
+                </div>
+              )}
+            </div>
+          </ModalBody>
+          <ModalFooter className="flex justify-between gap-4 p-4">
+            <Popover3dNavigationHelp />
+            <Button
+              color="primary"
+              variant="shadow"
+              onPress={() => {
+                setShowLocationModal(false);
+                setSelectedItemLocation(null);
+                setFloorConfigs([]);
+                setOccupiedLocations([]);
+                setShelfColorAssignments([]);
+                setHighlightedFloor(null);
+                setExternalSelection(null);
+              }}
+            >
+              Close
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
 
       {/* QR Code Modal */}
       <Modal

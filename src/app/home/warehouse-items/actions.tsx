@@ -217,7 +217,7 @@ export async function getWarehouses(company_uuid: string) {
 
     const { data, error } = await supabase
       .from('warehouses')
-      .select('uuid, name, address')
+      .select('uuid, name, address, layout')
       .eq('company_uuid', company_uuid)
       .order('name');
 
