@@ -1275,7 +1275,6 @@ export default function DeliveryPage() {
     setFloorConfigs([]);
     setOccupiedLocations([]);
   };
-  
 
   // Generate URL for QR code 
   const generateDeliveryUrl = (deliveryId?: string, autoAccept: boolean = false, showOptions: boolean = true) => {
@@ -3209,7 +3208,7 @@ export default function DeliveryPage() {
                                                                                 color="primary"
                                                                                 variant="flat"
                                                                                 size="sm"
-                                                                                onPress={() => {
+                                                                                onPress={() => {  
                                                                                   // Set the current item location index and open modal
                                                                                   setCurrentInventoryItemLocationIndex(itemLocationIndex >= 0 ? itemLocationIndex : selectedInventoryItems.length);
 
