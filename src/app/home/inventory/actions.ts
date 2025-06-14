@@ -65,6 +65,21 @@ export async function getInventoryItemForDelivery(
 
     if (error) throw error;
 
+    if (!data || data.length === 0) {
+      return {
+        success: false,
+        data: null, 
+        error: "Inventory item not found"
+      };
+    }
+    // The RPC function should return the inventory 
+    const inventoryItem = data[0];
+
+    return {
+      success: true,
+      data: inventoryItem
+    };
+
     return { success: true, data };
   } catch (error: Error | any) {
     console.error('Error fetching inventory details for delivery:', error);
@@ -86,6 +101,12 @@ export async function getInventoryItem(
 ) {
   const supabase = await createClient();
 
+  console.log("Fetching inventory item:", {
+    inventoryUuid,
+    includeWarehouseItems,
+    deliveryUuid
+  });
+
   try {
     // Use the delivery-specific function when delivery context is provided
     if (deliveryUuid) {
@@ -98,8 +119,7 @@ export async function getInventoryItem(
       p_include_warehouse_items: includeWarehouseItems
     });
 
-
-
+   
     if (error) throw error;
 
     if (!data || data.length === 0) {
@@ -109,8 +129,6 @@ export async function getInventoryItem(
         error: "Inventory item not found"
       };
     }
-
-    console.log(data);
 
     // The RPC function should return the inventory 
     const inventoryItem = data[0];

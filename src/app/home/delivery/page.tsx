@@ -538,7 +538,7 @@ export default function DeliveryPage() {
     }
   };
 
-  const loadInventoryItems = useCallback(async (inventoryUuid: string, preserveSelection: boolean = false, forceReload: boolean = false) => {
+  const loadInventoryItems = useCallback(async (inventoryUuid: string, forceReload: boolean = false) => {
     if (!inventoryUuid) {
       return Promise.resolve();
     }
@@ -554,6 +554,8 @@ export default function DeliveryPage() {
         formData.status === "DELIVERED" || formData.status === "CANCELLED",
         selectedDeliveryId || undefined
       );
+
+      console.log("Loaded inventory items for", inventoryUuid, result);
 
       if (result.success && result.data.inventory_items) {
         const itemsWithInventoryInfo = result.data.inventory_items.map((item: any) => ({
@@ -572,6 +574,7 @@ export default function DeliveryPage() {
           return [...filteredItems, ...inventoryItemsWithIds];
         });
 
+
         setLoadedInventoryUuids(prev => new Set([...prev, inventoryUuid]));
 
         setNextItemId(prev => Math.max(prev, inventoryItemsWithIds.length + 1));
@@ -584,7 +587,7 @@ export default function DeliveryPage() {
     } finally {
       setIsLoadingInventoryItems(false);
     }
-  }, [formData.status, selectedDeliveryId, loadedInventoryUuids]);
+  }, [formData, selectedDeliveryId, loadedInventoryUuids]);
 
   const handleStatusChange = async (status: string) => {
     if (!selectedDeliveryId) return { error: "No delivery selected" };
@@ -893,7 +896,7 @@ export default function DeliveryPage() {
 
     const inventoryUuid = inventoryItem.inventory_uuid;
     if (!loadedInventoryUuids.has(inventoryUuid)) {
-      await loadInventoryItems(inventoryUuid, true);
+      await loadInventoryItems(inventoryUuid);
       inventoryItem = inventoryItems.find(item => item.uuid === inventoryitemUuid);
 
       if (!inventoryItem) return;
@@ -1134,7 +1137,7 @@ export default function DeliveryPage() {
     if (!loadedInventoryUuids.has(inventoryUuid)) {
       setPendingInventorySelection({ inventoryUuid, isSelected });
       try {
-        await loadInventoryItems(inventoryUuid, true);
+        await loadInventoryItems(inventoryUuid);
       } catch (error) {
         console.error("Error loading inventory items for selection:", error);
         setPendingInventorySelection(null);
@@ -1166,7 +1169,7 @@ export default function DeliveryPage() {
 
     for (const inventoryUuid of newlyExpanded) {
       try {
-        await loadInventoryItems(inventoryUuid, true);
+        await loadInventoryItems(inventoryUuid);
       } catch (error) {
         console.error(`Error loading items for inventory ${inventoryUuid}:`, error);
       }
@@ -1181,7 +1184,7 @@ export default function DeliveryPage() {
 
     setTimeout(() => {
       newSelectedInventories.forEach(uuid => {
-        loadInventoryItems(uuid, true);
+        loadInventoryItems(uuid);
       });
     }, 100);
 
@@ -1216,7 +1219,7 @@ export default function DeliveryPage() {
     if (newSelectedInventories.length > 0) {
       setTimeout(() => {
         newSelectedInventories.forEach(uuid => {
-          loadInventoryItems(uuid, true);
+          loadInventoryItems(uuid);
         });
       }, 100);
     } else {
@@ -1332,7 +1335,7 @@ export default function DeliveryPage() {
       groupStats = {
         total: groupItems.length,
         available: availableGroupItems.length,
-        selected: selectedGroupItems.length
+        selected: selectedGroupItems.length,
       };
     }
 
@@ -1374,7 +1377,7 @@ export default function DeliveryPage() {
                 {item.unit_value} {item.unit}
                 {groupStats && (
                   <span className="ml-2 text-xs">
-                    ({groupStats.selected}/{groupStats.available} selected)
+                    ({groupStats.selected}/{groupStats.total} selected)
                   </span>
                 )}
               </p>
@@ -2027,7 +2030,7 @@ export default function DeliveryPage() {
 
           // Load inventory items for each inventory
           for (const inventoryUuid of inventoryUuids) {
-            await loadInventoryItems(inventoryUuid, true, false);
+            await loadInventoryItems(inventoryUuid, false);
           }
         }
 
@@ -2840,7 +2843,7 @@ export default function DeliveryPage() {
                                             <div className="text-left">
                                               <p className="font-medium">{inventory?.name || 'Unknown Inventory'}</p>
                                               <p className="text-sm text-default-500">
-                                                {selectedItemCount}/{inventory?.count?.available || 0} items selected
+                                                {selectedItemCount}/{inventory?.count?.inventory || 0} items selected
                                               </p>
                                             </div>
                                           </div>
