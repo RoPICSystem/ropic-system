@@ -1,3 +1,4 @@
+
 "use client";
 
 import { motionTransition } from '@/utils/anim';
@@ -31,7 +32,6 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { ShelfLocation, ShelfSelectorColorAssignment } from '@/components/shelf-selector-3d';
 import { parseColumn } from '@/utils/floorplan';
 
-// Import server actions
 import CardList from '@/components/card-list';
 import {
   createDeliveryWithItems,
@@ -43,7 +43,6 @@ import {
   updateDeliveryWithItems
 } from "./actions";
 
-// Import the QR code scanner library
 import ListLoadingAnimation from '@/components/list-loading-animation';
 import LoadingAnimation from '@/components/loading-animation';
 import { getUserFromCookies, getUsersFromCompany, UserProfile } from '@/utils/supabase/server/user';
@@ -52,7 +51,6 @@ import jsQR from "jsqr";
 import { getInventoryItem, getInventoryItems, Inventory } from '../inventory/actions';
 import { getWarehouses, Warehouse } from '../warehouses/actions';
 
-// Import at the top of your DeliveryPage component 
 import { Popover3dNavigationHelp } from '@/components/popover-3dnavigation-help';
 import { FilterOption, SearchListPanel } from '@/components/search-list-panel/search-list-panel';
 import { getUserCompanyDetails } from "@/utils/supabase/server/companies";
@@ -66,69 +64,81 @@ import { DeliveryExportPopover } from './delivery-export';
 import CustomScrollbar from '@/components/custom-scrollbar';
 import { getStatusColor, herouiColor } from '@/utils/colors';
 
-
-// Import the separated 3D shelf selector component
 import { Delivery3DShelfSelector } from './delivery-3d-shelf-selector';
+
+
+
+
+
+
+
 
 
 export default function DeliveryPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  // Core user and data states
   const [user, setUser] = useState<any>(null);
   const [warehouses, setWarehouses] = useState<Array<Partial<Warehouse> & { uuid: string }>>([]);
   const [operators, setOperators] = useState<Array<Partial<UserProfile> & { uuid: string }>>([]);
 
+  // Loading states
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingWarehouses, setIsLoadingWarehouses] = useState(false);
   const [isLoadingInventoryItems, setIsLoadingInventoryItems] = useState(false);
   const [isLoadingItems, setIsLoadingItems] = useState(false);
-
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
 
+  // Modal states
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [showQrCode, setShowQrCode] = useState(false);
   const [showAcceptForm, setShowAcceptForm] = useState(false);
   const [isProcessingImage, setIsProcessingImage] = useState(false);
 
-  // Delivery list state
-  const [selectedDeliveryId, setSelectedDeliveryId] = useState<string | null>(null);
+  // Error and validation states
+  const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Inventory inventoryitem items
+
+
+  // ===== DELIVERY DATABASE STATES =====
+  // Core delivery management
+  const [selectedDeliveryId, setSelectedDeliveryId] = useState<string | null>(null);
+  const [selectedOperators, setSelectedOperators] = useState<Array<Partial<UserProfile> & { uuid: string }>>([]);
+
+  // ===== DELIVERY DATABASE - FORM STATE =====
+  const [formData, setFormData] = useState<Partial<DeliveryItem>>({
+    company_uuid: null,
+    admin_uuid: null,
+    inventory_items: {},
+    warehouse_uuid: null,
+    delivery_address: "",
+    delivery_date: format(new Date(), "yyyy-MM-dd"),
+    operator_uuids: [],
+    notes: "",
+    status: "PENDING",
+  });
+
+  // ===== DELIVERY DATABASE - INVENTORY STATES =====
   const [selectedInventoryUuids, setSelectedInventoryUuids] = useState<string[]>([]);
   const [inventoryItems, setInventoryItems] = useState<any[]>([]);
   const [inventories, setInventories] = useState<any[]>([]);
   const [selectedInventoryItems, setSelectedInventoryItems] = useState<string[]>([]);
   const [prevSelectedInventoryItems, setPrevSelectedInventoryItems] = useState<string[]>([]);
-
-  // New state for managing multi-inventory selection
   const [inventorySearchTerm, setInventorySearchTerm] = useState<string>('');
   const [showInventorySelector, setShowInventorySelector] = useState<boolean>(false);
-
-
-  // InventoryItem details state
   const [expandedInventoryItemDetails, setExpandedInventoryItemDetails] = useState<Set<string>>(new Set());
-
-
-  // QR Code generation
-  const [showAcceptDeliveryModal, setShowAcceptDeliveryModal] = useState(false);
-  const [deliveryInput, setDeliveryInput] = useState("");
-  const [validationError, setValidationError] = useState("");
-  const [validationSuccess, setValidationSuccess] = useState(false);
-
   const [expandedInventories, setExpandedInventories] = useState<Set<string>>(new Set());
+  const [inventoryViewMode, setInventoryViewMode] = useState<'grouped' | 'flat'>('grouped');
+  const [nextItemId, setNextItemId] = useState(1);
+  const [inventorySelectAllStates, setInventorySelectAllStates] = useState<Record<string, { isChecked: boolean; isIndeterminate: boolean; }>>({});
+  const [loadedInventoryUuids, setLoadedInventoryUuids] = useState<Set<string>>(new Set());
+  const [pendingInventorySelection, setPendingInventorySelection] = useState<{ inventoryUuid: string; isSelected: boolean } | null>(null);
+  const [isSelectAllChecked, setIsSelectAllChecked] = useState(false);
+  const [isSelectAllIndeterminate, setIsSelectAllIndeterminate] = useState(false);
 
-
-  // Add delivery acceptance states
-  const [isAcceptingDelivery, setIsAcceptingDelivery] = useState(false);
-  const [acceptDeliveryError, setAcceptDeliveryError] = useState<string | null>(null);
-  const [acceptDeliverySuccess, setAcceptDeliverySuccess] = useState(false);
-  const [showAcceptStatusModal, setShowAcceptStatusModal] = useState(false);
-
-  // Validation state
-  const [errors, setErrors] = useState<Record<string, string>>({});
-
-  // Keep only these location-related states:
+  // ===== DELIVERY DATABASE - LOCATION STATES =====
   const [selectedFloor, setSelectedFloor] = useState<number | null>(null);
   const [selectedColumnCode, setSelectedColumnCode] = useState<string>("");
   const [selectedColumn, setSelectedColumn] = useState<number | null>(null);
@@ -141,32 +151,32 @@ export default function DeliveryPage() {
   const [currentInventoryItemLocationIndex, setCurrentInventoryItemLocationIndex] = useState<number>(0);
   const [floorConfigs, setFloorConfigs] = useState<any[]>([]);
   const [shelfColorAssignments, setShelfColorAssignments] = useState<Array<ShelfSelectorColorAssignment>>([]);
-
-  // Add state for maximum values
   const [maxGroupId, setMaxGroupId] = useState(0);
   const [maxRow, setMaxRow] = useState(0);
   const [maxColumn, setMaxColumn] = useState(0);
   const [maxDepth, setMaxDepth] = useState(0);
-
-  // Auto-assignment state
   const [isAutoAssigning, setIsAutoAssigning] = useState(false);
 
+  
 
 
-  const [error, setError] = useState<string | null>(null);
 
-  // Update operator selection state
-  const [selectedOperators, setSelectedOperators] = useState<Array<Partial<UserProfile> & { uuid: string }>>([]);
 
-  // Add new state for tab management
+  // ===== ACCEPT DELIVERY STATES =====
+  const [showAcceptDeliveryModal, setShowAcceptDeliveryModal] = useState(false);
+  const [deliveryInput, setDeliveryInput] = useState("");
+  const [validationError, setValidationError] = useState("");
+  const [validationSuccess, setValidationSuccess] = useState(false);
   const [acceptDeliveryTab, setAcceptDeliveryTab] = useState("paste-link");
   const [isLoadingAvailableDeliveries, setIsLoadingAvailableDeliveries] = useState(false);
+  const [isAcceptingDelivery, setIsAcceptingDelivery] = useState(false);
+  const [acceptDeliveryError, setAcceptDeliveryError] = useState<string | null>(null);
+  const [acceptDeliverySuccess, setAcceptDeliverySuccess] = useState(false);
 
-  // Add state for "select all" functionality
-  const [isSelectAllChecked, setIsSelectAllChecked] = useState(false);
-  const [isSelectAllIndeterminate, setIsSelectAllIndeterminate] = useState(false);
+  // ===== ACCEPT DELIVERY STATUS STATES =====
+  const [showAcceptStatusModal, setShowAcceptStatusModal] = useState(false);
 
-  // Add new state for QR code data with auto accept option
+  // ===== QR CODE STATES =====
   const [qrCodeData, setQrCodeData] = useState<{
     url: string;
     title: string;
@@ -185,54 +195,855 @@ export default function DeliveryPage() {
     showOptions: true
   });
 
-  // Form state
-  const [formData, setFormData] = useState<Partial<DeliveryItem>>({
-    company_uuid: null,
-    admin_uuid: null,
-    inventory_items: {},
-    warehouse_uuid: null,
-    delivery_address: "",
-    delivery_date: format(new Date(), "yyyy-MM-dd"),
-    operator_uuids: [], // Changed from operator_uuid
-    notes: "",
-    status: "PENDING",
-  });
 
 
-  // Add to the existing state declarations in the DeliveryPage component
-  const [inventoryViewMode, setInventoryViewMode] = useState<'grouped' | 'flat'>('grouped');
-
-  // Add next item ID state for generating sequential IDs
-  const [nextItemId, setNextItemId] = useState(1);
-
-  const [inventorySelectAllStates, setInventorySelectAllStates] = useState<Record<string, { isChecked: boolean; isIndeterminate: boolean; }>>({});
-  // Add state to track which inventories have been loaded
-  const [loadedInventoryUuids, setLoadedInventoryUuids] = useState<Set<string>>(new Set());
-  const [pendingInventorySelection, setPendingInventorySelection] = useState<{ inventoryUuid: string; isSelected: boolean } | null>(null);
 
 
-  // UPDATED: Handle inventory select all with better error handling
-  const handleInventorySelectAllToggle = async (inventoryUuid: string, isSelected: boolean) => {
-    if (!loadedInventoryUuids.has(inventoryUuid)) {
-      setPendingInventorySelection({ inventoryUuid, isSelected });
-      try {
-        await loadInventoryItems(inventoryUuid, true);
-        // The useEffect will handle the selection once items are loaded
-      } catch (error) {
-        console.error("Error loading inventory items for selection:", error);
-        setPendingInventorySelection(null);
+
+
+  const deliveryFilters: Record<string, FilterOption> = {
+    warehouse_filter: {
+      name: "Warehouse",
+      valueName: "warehouse_uuid",
+      color: "danger",
+      filters: warehouses.reduce(
+        (acc, warehouse) => ({
+          ...acc,
+          [warehouse.uuid]: warehouse.name
+        }),
+        { "": "All Warehouses" }
+      )
+    },
+    status_filter: {
+      name: "Status",
+      valueName: "status",
+      color: "primary",
+      filters: {
+        "": "All Statuses",
+        PENDING: "Pending",
+        PROCESSING: "Processing",
+        IN_TRANSIT: "In Transit",
+        DELIVERED: "Delivered",
+        CANCELLED: "Cancelled"
       }
-    } else {
-      // Items are already loaded, perform selection/deselection directly
-      _performInventorySelectionLogic(inventoryUuid, isSelected);
+    },
+    operator_filter: {
+      name: "Operator",
+      valueName: "operator_uuids",
+      color: "secondary",
+      filters: operators.reduce(
+        (acc, operator) => ({
+          ...acc,
+          [operator.uuid]: operator.full_name
+        }),
+        { "": "All Operators" }
+      )
+    },
+    inventory_filter: {
+      name: "Inventory",
+      valueName: "inventory_uuid",
+      color: "success",
+      filters: inventories.reduce( 
+        (acc, item) => ({
+          ...acc,
+          [item.uuid]: item.name
+        }),
+        { "": "All Items" }
+      )
     }
   };
 
 
 
-  // Helper function to encapsulate the selection/deselection logic
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputStyle = {
+    inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
+  };
+  const autoCompleteStyle = { classNames: inputStyle };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  // ===== DELIVERY DATABASE - HELPER FUNCTIONS =====
+  const getGroupedInventoryItems = () => groupInventoryItems(inventoryItems);
+
+  const getDisplayInventoryItemsList = () => {
+    let items = inventoryItems;
+
+    if (formData.status !== 'DELIVERED' && formData.status !== 'CANCELLED') {
+      items = items.filter(item =>
+        item.status !== 'IN_WAREHOUSE' &&
+        item.status !== 'USED'
+      );
+    }
+
+    if (inventoryViewMode === 'flat') {
+      return items;
+    }
+
+    const groupedItems = groupInventoryItems(items);
+    const seenGroups = new Set<string>();
+    const displayItems: any[] = [];
+
+    items.forEach(item => {
+      const groupInfo = getGroupInfo(item, groupedItems);
+
+      if (groupInfo.isGroup && groupInfo.groupId) {
+        if (!seenGroups.has(groupInfo.groupId)) {
+          seenGroups.add(groupInfo.groupId);
+          displayItems.push(item);
+        }
+      } else {
+        displayItems.push(item);
+      }
+    });
+
+    return displayItems;
+  };
+
+  const getInventoryItemsForInventory = (inventoryUuid: string) => {
+    return inventoryItems.filter(item => item.inventory_uuid === inventoryUuid);
+  };
+
+  const getDisplayInventoryItemsListForInventory = (inventoryUuid: string) => {
+    let items = getInventoryItemsForInventory(inventoryUuid);
+
+    if (formData.status !== 'DELIVERED' && formData.status !== 'CANCELLED') {
+      items = items.filter(item =>
+        item.status !== 'IN_WAREHOUSE' &&
+        item.status !== 'USED'
+      );
+    }
+
+    if (inventoryViewMode === 'flat') {
+      return items;
+    }
+
+    const groupedItems = groupInventoryItems(items);
+    const seenGroups = new Set<string>();
+    const displayItems: any[] = [];
+
+    items.forEach(item => {
+      const groupInfo = getGroupInfo(item, groupedItems);
+
+      if (groupInfo.isGroup && groupInfo.groupId) {
+        if (!seenGroups.has(groupInfo.groupId)) {
+          seenGroups.add(groupInfo.groupId);
+          displayItems.push(item);
+        }
+      } else {
+        displayItems.push(item);
+      }
+    });
+
+    return displayItems;
+  };
+
+  const isWarehouseNotSet = (): boolean => {
+    return formData.warehouse_uuid === "" || formData.warehouse_uuid === undefined || formData.warehouse_uuid === null
+  }
+
+  const isFloorConfigNotSet = (): boolean => {
+    return floorConfigs.length === 0 || floorConfigs === undefined || floorConfigs === null
+  }
+
+  const isDeliveryProcessing = (): boolean => {
+    return formData.status !== "DELIVERED" && formData.status !== "CANCELLED"
+  }
+
+  const canOnlyEditLocations = (): boolean => {
+    return formData.status === "IN_TRANSIT" && user?.is_admin === true;
+  }
+
+  const canEditAllFields = (): boolean => {
+    return (formData.status === "PENDING" || formData.status === "PROCESSING") && user?.is_admin === true;
+  };
+
+  const getInventoryItemStatusStyling = (item: any) => {
+    if (!selectedDeliveryId) {
+      switch (item.status) {
+        case 'AVAILABLE':
+          return {
+            isDisabled: false,
+            disabledReason: null
+          };
+        case 'ON_DELIVERY':
+          return {
+            isDisabled: true,
+            disabledReason: 'This item is assigned to another delivery'
+          };
+        case 'IN_WAREHOUSE':
+          return {
+            isDisabled: true,
+            disabledReason: 'This item is already in warehouse'
+          };
+        case 'USED':
+          return {
+            isDisabled: true,
+            disabledReason: 'This item has been used'
+          };
+        default:
+          return {
+            isDisabled: true,
+            disabledReason: 'Item is not available for delivery'
+          };
+      }
+    }
+
+    const isPartOfCurrentDelivery = formData.inventory_items?.[item.uuid] ||
+      prevSelectedInventoryItems.includes(item.uuid);
+
+    switch (item.status) {
+      case 'ON_DELIVERY':
+        return {
+          isDisabled: !isPartOfCurrentDelivery,
+          disabledReason: isPartOfCurrentDelivery ? null : 'This item is assigned to another delivery'
+        };
+      case 'IN_WAREHOUSE':
+        return {
+          isDisabled: formData.status !== 'DELIVERED' && formData.status !== 'CANCELLED',
+          disabledReason: 'This item is already in warehouse'
+        };
+      case 'USED':
+        return {
+          isDisabled: formData.status !== 'DELIVERED' && formData.status !== 'CANCELLED',
+          disabledReason: 'This item has been used'
+        };
+      case 'AVAILABLE':
+      default:
+        return {
+          isDisabled: false,
+          disabledReason: null
+        };
+    }
+  };
+
+  const checkIfLocationOccupied = (location: any) => {
+    const isOccupied = occupiedLocations.some(
+      loc =>
+        loc.floor === location.floor &&
+        loc.group === location.group &&
+        loc.row === location.row &&
+        loc.column === location.column &&
+        loc.depth === location.depth
+    );
+
+    const isAssigned = shelfColorAssignments.some(
+      assignment =>
+        assignment.floor === location.floor &&
+        assignment.group === location.group &&
+        assignment.row === location.row &&
+        assignment.column === location.column &&
+        assignment.depth === location.depth
+    );
+
+    return isOccupied || isAssigned;
+  };
+
+  const resetWarehouseLocation = () => {
+    setSelectedFloor(null);
+    setSelectedColumn(null);
+    setSelectedRow(null);
+    setSelectedGroup(null);
+    setSelectedDepth(null);
+    setSelectedColumnCode("");
+    setSelectedCode("");
+    setLocations([]);
+    setFloorConfigs([]);
+    setOccupiedLocations([]);
+  };
+
+  // ===== DELIVERY DATABASE - CORE FUNCTIONS =====
+  const loadDeliveryDetails = async (deliveryId: string) => {
+    try {
+      const result = await getDeliveryDetails(deliveryId, user?.company_uuid);
+      setIsLoading(false);
+
+      if (result.success && result.data) {
+        const deliveryData = result.data;
+
+        setFormData(deliveryData);
+
+        if (deliveryData.inventory_items) {
+          const inventoryUuids = [...new Set(
+            Object.values(deliveryData.inventory_items).map((item: any) => item.inventory_uuid)
+          )];
+
+          setSelectedInventoryUuids(inventoryUuids);
+
+          const inventoryItemUuids = Object.keys(deliveryData.inventory_items);
+          const locations = Object.values(deliveryData.inventory_items).map((item: any) => item.location).filter(Boolean);
+
+          setSelectedInventoryItems(inventoryItemUuids);
+          setPrevSelectedInventoryItems(inventoryItemUuids);
+          setLocations(locations);
+
+          if (locations.length > 0) {
+            const firstLoc = locations[0];
+            setSelectedFloor(firstLoc.floor ?? null);
+            setSelectedColumnCode(parseColumn(firstLoc.column ?? null) || "");
+            setSelectedColumn(firstLoc.column ?? null);
+            setSelectedRow(firstLoc.row ?? null);
+            setSelectedDepth(firstLoc.depth ?? null);
+            setSelectedGroup(firstLoc.group ?? null);
+          }
+        } else {
+          setSelectedInventoryUuids([]);
+          setSelectedInventoryItems([]);
+          setPrevSelectedInventoryItems([]);
+          setLocations([]);
+        }
+
+        if (deliveryData.operator_info && Array.isArray(deliveryData.operator_info)) {
+          setSelectedOperators(deliveryData.operator_info);
+        } else {
+          setSelectedOperators([]);
+        }
+
+        return deliveryData;
+      } else {
+        console.error("Failed to load delivery details:", result.error);
+        return null;
+      }
+    } catch (error) {
+      console.error("Error loading delivery details:", error);
+      return null;
+    }
+  };
+
+  const loadInventoryItems = useCallback(async (inventoryUuid: string, preserveSelection: boolean = false, forceReload: boolean = false) => {
+    if (!inventoryUuid) {
+      return Promise.resolve();
+    }
+
+    if (!forceReload && loadedInventoryUuids.has(inventoryUuid)) {
+      return Promise.resolve();
+    }
+
+    setIsLoadingInventoryItems(true);
+    try {
+      const result = await getInventoryItem(
+        inventoryUuid,
+        formData.status === "DELIVERED" || formData.status === "CANCELLED",
+        selectedDeliveryId || undefined
+      );
+
+      if (result.success && result.data.inventory_items) {
+        const itemsWithInventoryInfo = result.data.inventory_items.map((item: any) => ({
+          ...item,
+          inventory_uuid: inventoryUuid,
+          inventory_name: result.data.name || 'Unknown'
+        }));
+
+        const inventoryItemsWithIds = itemsWithInventoryInfo.map((item: any, index: number) => ({
+          ...item,
+          id: index + 1,
+        }));
+
+        setInventoryItems(prev => {
+          const filteredItems = prev.filter(item => item.inventory_uuid !== inventoryUuid);
+          return [...filteredItems, ...inventoryItemsWithIds];
+        });
+
+        setLoadedInventoryUuids(prev => new Set([...prev, inventoryUuid]));
+
+        setNextItemId(prev => Math.max(prev, inventoryItemsWithIds.length + 1));
+
+        return Promise.resolve();
+      }
+    } catch (error) {
+      console.error("Error loading inventory items:", error);
+      return Promise.reject(error);
+    } finally {
+      setIsLoadingInventoryItems(false);
+    }
+  }, [formData.status, selectedDeliveryId, loadedInventoryUuids]);
+
+  const handleStatusChange = async (status: string) => {
+    if (!selectedDeliveryId) return { error: "No delivery selected" };
+
+    if (!user?.is_admin) {
+      if (formData.status !== "IN_TRANSIT" || status !== "DELIVERED") {
+        return { error: "You can only change the status to DELIVERED when the item is IN_TRANSIT." };
+      }
+    }
+
+    if (status === "DELIVERED" && formData.inventory_items) {
+      const inventoryItemCount = Object.keys(formData.inventory_items).length;
+      if (inventoryItemCount === 0) {
+        return { error: "Please assign warehouse locations for all selected inventory items before marking as delivered." };
+      }
+    }
+
+    setIsLoading(true);
+
+    try {
+      const result = await updateDeliveryStatusWithItems(
+        selectedDeliveryId,
+        status,
+        user?.company_uuid
+      );
+
+      if (result.success) {
+        setFormData(prev => ({
+          ...prev,
+          status: result.data.status,
+          status_history: result.data.status_history,
+          updated_at: result.data.updated_at,
+          inventory_items: result.data.inventory_items || prev.inventory_items
+        }));
+
+        setPrevSelectedInventoryItems(selectedInventoryItems);
+
+        await refreshOccupiedLocations();
+        return { error: null };
+      } else {
+        return { error: result.error || "Failed to update delivery status" };
+      }
+    } catch (error) {
+      console.error("Error updating status:", error);
+      return { error: `Failed to update status: ${(error as Error).message}` };
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!user?.is_admin) {
+      return;
+    }
+
+    const newErrors: Record<string, string> = {};
+
+    if (formData.status === "IN_TRANSIT") {
+      const inventoryItems = formData.inventory_items || {};
+      const inventoryItemUuids = selectedInventoryItems;
+
+      if (inventoryItemUuids.length === 0) {
+        newErrors.inventory_item_uuids = "Please select at least one inventory item";
+      }
+
+      if (inventoryItemUuids.length > 0) {
+        const missingLocations = inventoryItemUuids.filter(uuid =>
+          !inventoryItems[uuid]?.location ||
+          inventoryItems[uuid].location.floor === undefined ||
+          inventoryItems[uuid].location.floor === null
+        );
+
+        if (missingLocations.length > 0) {
+          newErrors.locations = `Please assign a location for all selected inventory items. Missing locations for ${missingLocations.length} item(s).`;
+        }
+      }
+    } else {
+      const inventoryItems = formData.inventory_items || {};
+      const inventoryItemUuids = selectedInventoryItems;
+
+      if (selectedInventoryUuids.length === 0) {
+        newErrors.inventory_uuids = "Please select at least one inventory";
+      }
+      if (inventoryItemUuids.length === 0) {
+        newErrors.inventory_item_uuids = "Please select at least one inventory item";
+      }
+      if (!formData.delivery_address) newErrors.delivery_address = "Delivery address is required";
+      if (!formData.delivery_date) newErrors.delivery_date = "Delivery date is required";
+      if (!formData.warehouse_uuid) newErrors.warehouse_uuid = "Please select a warehouse";
+
+      if (inventoryItemUuids.length > 0) {
+        const missingLocations = inventoryItemUuids.filter(uuid =>
+          !inventoryItems[uuid]?.location ||
+          inventoryItems[uuid].location.floor === undefined ||
+          inventoryItems[uuid].location.floor === null
+        );
+
+        if (missingLocations.length > 0) {
+          newErrors.locations = `Please assign a location for all selected inventory items. Missing locations for ${missingLocations.length} item(s).`;
+        }
+      }
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      let result;
+
+      if (selectedDeliveryId) {
+        if (formData.status === "IN_TRANSIT") {
+          result = await updateDeliveryWithItems(
+            selectedDeliveryId,
+            formData.inventory_items || {},
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            user.company_uuid
+          );
+        } else {
+          result = await updateDeliveryWithItems(
+            selectedDeliveryId,
+            formData.inventory_items || {},
+            formData.delivery_address,
+            formData.delivery_date,
+            formData.operator_uuids,
+            formData.notes,
+            formData.name,
+            user.company_uuid
+          );
+        }
+      } else {
+        result = await createDeliveryWithItems(
+          user.uuid,
+          user.company_uuid,
+          formData.warehouse_uuid as string,
+          formData.inventory_items || {},
+          formData.delivery_address || "",
+          formData.delivery_date || "",
+          formData.operator_uuids || [],
+          formData.notes || "",
+          formData.name
+        );
+      }
+
+      if (result.success && result.data) {
+        const newDelivery = result.data;
+
+        setTimeout(() => {
+          if (!selectedDeliveryId && newDelivery?.uuid) {
+            const params = new URLSearchParams(searchParams.toString());
+            params.set("deliveryId", newDelivery.uuid);
+            router.push(`?${params.toString()}`, { scroll: false });
+          }
+          setErrors({});
+        }, 500);
+
+        setFormData(prev => ({
+          ...prev,
+          ...newDelivery
+        }));
+
+        setPrevSelectedInventoryItems(selectedInventoryItems);
+
+        await refreshOccupiedLocations();
+
+      } else {
+        alert(`Failed to ${selectedDeliveryId ? 'update' : 'create'} delivery. Please try again.`);
+      }
+    } catch (error) {
+      console.error(`Error ${selectedDeliveryId ? 'updating' : 'creating'} delivery:`, error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleWarehouseChange = async (warehouseUuid: string) => {
+    const selectedWarehouse = warehouses.find(wh => wh.uuid === warehouseUuid);
+    if (selectedWarehouse) {
+      const warehouseLayout = selectedWarehouse.layout || [];
+      setFloorConfigs(warehouseLayout);
+
+      setFormData(prev => ({
+        ...prev,
+        delivery_address: selectedWarehouse.address!.fullAddress || "",
+      }));
+
+      const occupiedResult = await getOccupiedShelfLocations(selectedWarehouse.uuid || "");
+      if (occupiedResult.success) {
+        const filteredOccupiedLocations = (occupiedResult.data || []).filter(loc =>
+          !shelfColorAssignments.some(
+            assignment =>
+              assignment.floor === loc.floor &&
+              assignment.group === loc.group &&
+              assignment.row === loc.row &&
+              assignment.column === loc.column &&
+              assignment.depth === loc.depth
+          )
+        );
+        setOccupiedLocations(filteredOccupiedLocations);
+      }
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        delivery_address: ""
+      }));
+      resetWarehouseLocation();
+    }
+  };
+
+  const refreshOccupiedLocations = async () => {
+    if (!formData.warehouse_uuid) return;
+
+    const occupiedResult = await getOccupiedShelfLocations(formData.warehouse_uuid);
+    if (occupiedResult.success) {
+      const filteredOccupiedLocations = (occupiedResult.data || []).filter(loc =>
+        !shelfColorAssignments.some(
+          assignment =>
+            assignment.floor === loc.floor &&
+            assignment.group === loc.group &&
+            assignment.row === loc.row &&
+            assignment.column === loc.column &&
+            assignment.depth === loc.depth
+        )
+      );
+      setOccupiedLocations(filteredOccupiedLocations);
+    }
+  };
+
+  const autoAssignShelfLocations = async () => {
+    if (isWarehouseNotSet() || isFloorConfigNotSet() || selectedInventoryItems.length === 0) {
+      return;
+    }
+
+    setIsAutoAssigning(true);
+    try {
+      const result = await suggestShelfLocations(
+        formData.warehouse_uuid as string,
+        selectedInventoryItems.length,
+      );
+
+      if (result.success && result.data) {
+        const { locations } = result.data;
+
+        const inventoryLocations: Record<string, ShelfLocation> = {};
+        selectedInventoryItems.forEach((uuid, index) => {
+          if (locations[index]) {
+            inventoryLocations[uuid] = locations[index];
+          }
+        });
+
+        setLocations(locations);
+
+        setFormData(prev => ({
+          ...prev,
+          inventory_items: {
+            ...prev.inventory_items,
+            ...Object.fromEntries(selectedInventoryItems.map((uuid, index) => {
+              const inventoryItem = inventoryItems.find(item => item.uuid === uuid);
+              return [
+                uuid,
+                {
+                  inventory_uuid: inventoryItem?.inventory_uuid || "",
+                  group_id: inventoryItem?.group_id || null,
+                  location: locations[index] || null
+                }
+              ];
+            }))
+          },
+          inventory_item_uuids: selectedInventoryItems,
+          locations: locations
+        }));
+
+        if (locations.length > 0) {
+          setCurrentInventoryItemLocationIndex(0);
+          const firstLocation = locations[0];
+
+          setSelectedFloor(firstLocation.floor);
+          setSelectedGroup(firstLocation.group);
+          setSelectedRow(firstLocation.row);
+          setSelectedColumn(firstLocation.column);
+          setSelectedDepth(firstLocation.depth);
+          setSelectedColumnCode(parseColumn(firstLocation.column) || "");
+
+        }
+      } else {
+        console.error("Failed to auto-assign shelf locations:", result.error);
+      }
+    } catch (error) {
+      console.error("Error auto-assigning shelf locations:", error);
+    } finally {
+      setIsAutoAssigning(false);
+    }
+  };
+
+  const handleInventoryItemSelectionToggle = async (inventoryitemUuid: string, isSelected: boolean) => {
+    let inventoryItem = inventoryItems.find(item => item.uuid === inventoryitemUuid);
+
+    const inventoryUuid = inventoryItem.inventory_uuid;
+    if (!loadedInventoryUuids.has(inventoryUuid)) {
+      await loadInventoryItems(inventoryUuid, true);
+      inventoryItem = inventoryItems.find(item => item.uuid === inventoryitemUuid);
+
+      if (!inventoryItem) return;
+    }
+
+    const groupedItems = getGroupedInventoryItems();
+    const groupInfo = getGroupInfo(inventoryItem, groupedItems);
+
+    const itemsToToggle = inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId
+      ? inventoryItems.filter(groupItem =>
+        groupItem.group_id === groupInfo.groupId &&
+        groupItem.inventory_uuid === inventoryItem.inventory_uuid &&
+        (formData.status === 'DELIVERED' || formData.status === 'CANCELLED' ||
+          (groupItem.status !== 'IN_WAREHOUSE' && groupItem.status !== 'USED'))
+      )
+      : [inventoryItem];
+
+    for (const item of itemsToToggle) {
+      if (!isSelected && item.status === 'ON_DELIVERY' && selectedDeliveryId) {
+        const isAssignedToCurrentDelivery = formData.inventory_items?.[item.uuid] ||
+          prevSelectedInventoryItems.includes(item.uuid) ||
+          selectedInventoryItems.includes(item.uuid);
+
+        if (!isAssignedToCurrentDelivery) {
+          console.warn("One or more items are already assigned to another delivery");
+          return;
+        }
+      }
+    }
+
+    setSelectedInventoryItems(prev => {
+      let newSelectedItems;
+
+      if (isSelected) {
+        const itemUuidsToAdd = itemsToToggle.map(item => item.uuid);
+        newSelectedItems = [...prev, ...itemUuidsToAdd.filter(uuid => !prev.includes(uuid))];
+      } else {
+        const itemUuidsToRemove = itemsToToggle.map(item => item.uuid);
+        newSelectedItems = prev.filter(uuid => !itemUuidsToRemove.includes(uuid));
+      }
+
+      const currentInventoryItems = formData.inventory_items || {};
+      const newInventoryItems: Record<string, { inventory_uuid: string; group_id: string; location: any }> = {};
+
+      newSelectedItems.forEach(uuid => {
+        if (currentInventoryItems[uuid]) {
+          newInventoryItems[uuid] = currentInventoryItems[uuid];
+        } else {
+          const item = inventoryItems.find(i => i.uuid === uuid);
+          if (item) {
+            newInventoryItems[uuid] = {
+              inventory_uuid: item.inventory_uuid,
+              group_id: item.group_id || "",
+              location: {}
+            };
+          }
+        }
+      });
+
+      setFormData(prev => ({
+        ...prev,
+        inventory_items: newInventoryItems
+      }));
+
+      const newLocationsArray = newSelectedItems.map(uuid =>
+        newInventoryItems[uuid]?.location || {}
+      ).filter(loc => loc && loc.floor !== undefined);
+
+      setLocations(newLocationsArray);
+
+      return newSelectedItems;
+    });
+  };
+
+  const handleSelectAllToggle = (isSelected: boolean) => {
+    const displayItems = getDisplayInventoryItemsList();
+
+    if (isSelected) {
+      const availableItems = displayItems.filter(item => {
+        const statusStyling = getInventoryItemStatusStyling(item);
+        return !statusStyling.isDisabled;
+      });
+
+      const allItemsToSelect: string[] = [];
+
+      availableItems.forEach(item => {
+        const groupedItems = getGroupedInventoryItems();
+        const groupInfo = getGroupInfo(item, groupedItems);
+
+        if (inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId) {
+          const groupItems = inventoryItems.filter(groupItem =>
+            groupItem.group_id === groupInfo.groupId &&
+            (formData.status === 'DELIVERED' || formData.status === 'CANCELLED' ||
+              (groupItem.status !== 'IN_WAREHOUSE' && groupItem.status !== 'USED'))
+          );
+          groupItems.forEach(groupItem => {
+            const groupItemStatusStyling = getInventoryItemStatusStyling(groupItem);
+            if (!groupItemStatusStyling.isDisabled && !allItemsToSelect.includes(groupItem.uuid)) {
+              allItemsToSelect.push(groupItem.uuid);
+            }
+          });
+        } else {
+          if (!allItemsToSelect.includes(item.uuid)) {
+            allItemsToSelect.push(item.uuid);
+          }
+        }
+      });
+
+      setSelectedInventoryItems(allItemsToSelect);
+
+      const newInventoryLocations: Record<string, ShelfLocation> = {};
+      allItemsToSelect.forEach(uuid => {
+        const existingLocation = formData.inventory_items?.[uuid]?.location || null;
+        if (existingLocation) {
+          newInventoryLocations[uuid] = existingLocation;
+        }
+      });
+
+      setFormData(prev => ({
+        ...prev,
+        inventory_items: {
+          ...prev.inventory_items,
+          ...Object.fromEntries(allItemsToSelect.map(uuid => [
+            uuid,
+            {
+              inventory_uuid: inventoryItems.find(item => item.uuid === uuid)?.inventory_uuid || "",
+              group_id: inventoryItems.find(item => item.uuid === uuid)?.group_id || null,
+              location: newInventoryLocations[uuid] || null
+            }
+          ]))
+        },
+        inventory_item_uuids: allItemsToSelect,
+        locations: Object.values(newInventoryLocations).filter(loc => loc !== null && loc.floor !== undefined)
+      }));
+
+      const newLocationsArray = Object.values(newInventoryLocations).filter(loc => loc !== null && loc.floor !== undefined);
+      setLocations(newLocationsArray);
+
+    } else {
+      setSelectedInventoryItems([]);
+      setFormData(prev => ({
+        ...prev,
+        inventory_item_uuids: [],
+        locations: []
+      }));
+      setLocations([]);
+    }
+  };
+
   const _performInventorySelectionLogic = (inventoryUuid: string, isSelected: boolean) => {
-    // Ensure we are using the latest inventoryItems
     const currentInventoryItems = inventoryItems;
     const inventoryItemsForThisInventory = currentInventoryItems.filter(item => item.inventory_uuid === inventoryUuid);
     const displayItems = getDisplayInventoryItemsListForInventory(inventoryUuid);
@@ -245,7 +1056,7 @@ export default function DeliveryPage() {
 
       const itemsToSelect: string[] = [];
       availableItems.forEach(item => {
-        const groupedItems = getGroupedInventoryItems(); // Uses global inventoryItems
+        const groupedItems = getGroupedInventoryItems();
         const groupInfo = getGroupInfo(item, groupedItems);
 
         if (inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId) {
@@ -293,7 +1104,7 @@ export default function DeliveryPage() {
         });
         return newSelectedItems;
       });
-    } else { // Deselect
+    } else {
       const itemsToDeselect = inventoryItemsForThisInventory.map(item => item.uuid);
       setSelectedInventoryItems(prevSelected => {
         const newSelectedItems = prevSelected.filter(uuid => !itemsToDeselect.includes(uuid));
@@ -319,51 +1130,952 @@ export default function DeliveryPage() {
     }
   };
 
+  const handleInventorySelectAllToggle = async (inventoryUuid: string, isSelected: boolean) => {
+    if (!loadedInventoryUuids.has(inventoryUuid)) {
+      setPendingInventorySelection({ inventoryUuid, isSelected });
+      try {
+        await loadInventoryItems(inventoryUuid, true);
+      } catch (error) {
+        console.error("Error loading inventory items for selection:", error);
+        setPendingInventorySelection(null);
+      }
+    } else {
+      _performInventorySelectionLogic(inventoryUuid, isSelected);
+    }
+  };
+
+  const toggleInventoryExpansion = (inventoryUuid: string) => {
+    setExpandedInventories(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(inventoryUuid)) {
+        newSet.delete(inventoryUuid);
+      } else {
+        newSet.add(inventoryUuid);
+      }
+      return newSet;
+    });
+  };
+
+  const handleAccordionSelectionChange = useCallback(async (keys: any) => {
+    const newExpandedKeys = keys as Set<string>;
+    setExpandedInventories(newExpandedKeys);
+
+    const newlyExpanded = Array.from(newExpandedKeys).filter(uuid =>
+      !expandedInventories.has(uuid) && !loadedInventoryUuids.has(uuid)
+    );
+
+    for (const inventoryUuid of newlyExpanded) {
+      try {
+        await loadInventoryItems(inventoryUuid, true);
+      } catch (error) {
+        console.error(`Error loading items for inventory ${inventoryUuid}:`, error);
+      }
+    }
+  }, [expandedInventories, loadedInventoryUuids, loadInventoryItems]);
+
+  const handleAddInventory = (inventoryUuid: string) => {
+    if (!inventoryUuid || selectedInventoryUuids.includes(inventoryUuid)) return;
+
+    const newSelectedInventories = [...selectedInventoryUuids, inventoryUuid];
+    setSelectedInventoryUuids(newSelectedInventories);
+
+    setTimeout(() => {
+      newSelectedInventories.forEach(uuid => {
+        loadInventoryItems(uuid, true);
+      });
+    }, 100);
+
+    setInventorySearchTerm('');
+    setShowInventorySelector(false);
+  };
+
+  const handleRemoveInventory = (inventoryUuid: string) => {
+    const newSelectedInventories = selectedInventoryUuids.filter(uuid => uuid !== inventoryUuid);
+    setSelectedInventoryUuids(newSelectedInventories);
+
+    const itemsToRemove = inventoryItems
+      .filter(item => item.inventory_uuid === inventoryUuid)
+      .map(item => item.uuid);
+
+    const newSelectedItems = selectedInventoryItems.filter(uuid => !itemsToRemove.includes(uuid));
+    setSelectedInventoryItems(newSelectedItems);
+
+    const newInventoryItems = { ...formData.inventory_items };
+    itemsToRemove.forEach(uuid => {
+      delete newInventoryItems[uuid];
+    });
+
+    setFormData(prev => ({
+      ...prev,
+      inventory_items: newInventoryItems
+    }));
+
+    const newLocationsArray = Object.values(newInventoryItems).map(item => item.location).filter(Boolean);
+    setLocations(newLocationsArray);
+
+    if (newSelectedInventories.length > 0) {
+      setTimeout(() => {
+        newSelectedInventories.forEach(uuid => {
+          loadInventoryItems(uuid, true);
+        });
+      }, 100);
+    } else {
+      setInventoryItems([]);
+    }
+  };
+
+  const handleInventoryItemChange = async (inventoryItemUuid: string | null) => {
+    setSelectedInventoryItems([]);
+    setLocations([]);
+
+    setFormData(prev => ({
+      ...prev,
+      inventory_uuid: inventoryItemUuid,
+      inventory_item_uuids: [],
+      locations: [],
+      inventory_items: {}
+    }));
+
+    if (inventoryItemUuid) {
+      await loadInventoryItems(inventoryItemUuid);
+    }
+  };
+
+  const handleAddOperator = (operatorUuid: string) => {
+    if (!operatorUuid) return;
+
+    const operatorToAdd = operators.find(op => op.uuid === operatorUuid);
+    if (!operatorToAdd) return;
+
+    if (selectedOperators.some(op => op.uuid === operatorUuid)) return;
+
+    const newSelectedOperators = [...selectedOperators, operatorToAdd];
+    setSelectedOperators(newSelectedOperators);
+
+    setFormData(prev => ({
+      ...prev,
+      operator_uuids: newSelectedOperators.map(op => op.uuid)
+    }));
+
+    setErrors(prev => {
+      const { operator_uuids, ...rest } = prev;
+      return rest;
+    });
+  };
+
+  const handleRemoveOperator = (operatorUuid: string) => {
+    const newSelectedOperators = selectedOperators.filter(op => op.uuid !== operatorUuid);
+    setSelectedOperators(newSelectedOperators);
+
+    setFormData(prev => ({
+      ...prev,
+      operator_uuids: newSelectedOperators.map(op => op.uuid)
+    }));
+  };
+
+  const handleNewDelivery = () => {
+    setIsLoading(searchParams.get("deliveryId") !== null);
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("deliveryId");
+    router.push(`?${params.toString()}`, { scroll: false });
+  };
+
+  const handleSelectDelivery = (deliveryId: string) => {
+    setIsLoading(searchParams.get("deliveryId") !== deliveryId);
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("deliveryId", deliveryId);
+    router.push(`?${params.toString()}`, { scroll: false });
+  };
+
+  const handleGoToWarehouse = (warehouseUuid: string) => {
+    router.push(`/home/warehouses?warehouseId=${warehouseUuid}`);
+  };
+
+  const handleAutoSelectChange = async (name: string, value: any) => {
+    setFormData(prev => ({ ...prev, [name]: value }));
+
+    if (name === "warehouse_uuid" && value) {
+      await handleWarehouseChange(value);
+    }
+
+    if (name === "inventory_uuid" && value) {
+      await loadInventoryItems(value);
+    }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const renderInventoryItemWithStatus = (item: any, isSelected: boolean) => {
+    const statusStyling = getInventoryItemStatusStyling(item);
+
+    const groupedItems = getGroupedInventoryItems();
+    const groupInfo = getGroupInfo(item, groupedItems);
+
+    const displayItems = getDisplayInventoryItemsList();
+    const displayIndex = displayItems.findIndex(displayItem => displayItem.uuid === item.uuid);
+    const displayNumber = displayIndex + 1;
+
+    let groupStats = null;
+    if (inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId) {
+      const groupItems = inventoryItems.filter(groupItem => groupItem.group_id === groupInfo.groupId);
+      const availableGroupItems = groupItems.filter(groupItem => {
+        const groupItemStatusStyling = getInventoryItemStatusStyling(groupItem);
+        return !groupItemStatusStyling.isDisabled;
+      });
+      const selectedGroupItems = groupItems.filter(groupItem => selectedInventoryItems.includes(groupItem.uuid));
+
+      groupStats = {
+        total: groupItems.length,
+        available: availableGroupItems.length,
+        selected: selectedGroupItems.length
+      };
+    }
+
+    const shouldShowCheckbox = () => {
+      if (formData.status !== 'PENDING') {
+        return false;
+      }
+
+      if (['ON_DELIVERY', 'IN_WAREHOUSE', 'USED'].includes(item.status)) {
+        const isPartOfCurrentDelivery = formData.inventory_items?.[item.uuid] ||
+          prevSelectedInventoryItems.includes(item.uuid) ||
+          selectedInventoryItems.includes(item.uuid);
+
+        return isPartOfCurrentDelivery || formData.status === 'PENDING';
+      }
+
+      return true;
+    };
+
+    return (
+      <div className={`rounded-lg ${statusStyling.isDisabled ? 'opacity-60' : ''}`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {shouldShowCheckbox() && (
+              <Checkbox
+                isSelected={isSelected}
+                onValueChange={(checked) => handleInventoryItemSelectionToggle(item.uuid, checked)}
+                isDisabled={statusStyling.isDisabled}
+              />
+            )}
+            <div>
+              <p className="font-medium">
+                {inventoryViewMode === 'grouped' && groupInfo.isGroup
+                  ? `Group ${displayNumber}`
+                  : `Item ${inventoryViewMode === 'flat' ? item.id : displayNumber}`
+                }
+              </p>
+              <p className="text-sm text-default-500">
+                {item.unit_value} {item.unit}
+                {groupStats && (
+                  <span className="ml-2 text-xs">
+                    ({groupStats.selected}/{groupStats.available} selected)
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Chip
+              color="default"
+              size="sm"
+              variant="flat"
+              className="font-mono text-xs"
+            >
+              {item.item_code || 'No Code'}
+            </Chip>
+
+            <Chip
+              color={getStatusColor(item.status)}
+              size="sm"
+              variant="flat"
+            >
+              {formatStatus(item.status || 'Unknown')}
+            </Chip>
+            {statusStyling.isDisabled && statusStyling.disabledReason && (
+              <Tooltip content={statusStyling.disabledReason}>
+                <Icon icon="mdi:information-outline" className="text-warning" />
+              </Tooltip>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  function getInventoryItemUuidsFromLocations(inventoryLocations: Record<string, ShelfLocation>): string[] {
+    return Object.keys(inventoryLocations);
+  }
+
+  function getLocationsFromInventoryLocations(inventoryLocations: Record<string, ShelfLocation>): ShelfLocation[] {
+    return Object.values(inventoryLocations);
+  }
 
 
-  // Helper functions for inventory grouping
-  const getGroupedInventoryItems = () => groupInventoryItems(inventoryItems);
 
-  // Update the getDisplayInventoryItemsList function to filter out IN_WAREHOUSE and USED items
-  const getDisplayInventoryItemsList = () => {
-    let items = inventoryItems;
 
-    // Filter out IN_WAREHOUSE and USED items unless we're viewing a delivered delivery
-    if (formData.status !== 'DELIVERED' && formData.status !== 'CANCELLED') {
-      items = items.filter(item =>
-        item.status !== 'IN_WAREHOUSE' &&
-        item.status !== 'USED'
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  // ===== DELIVERY3DSHELF SELECTOR FUNCTIONS =====
+  const handle3DLocationSelect = (location: ShelfLocation) => {
+    if (location.max_group !== undefined) setMaxGroupId(location.max_group);
+    if (location.max_row !== undefined) setMaxRow(location.max_row);
+    if (location.max_column !== undefined) setMaxColumn(location.max_column);
+    if (location.max_depth !== undefined) setMaxDepth(location.max_depth);
+  };
+
+  const handle3DLocationConfirm = (location: ShelfLocation) => {
+    const newLocations = [...locations];
+    newLocations[currentInventoryItemLocationIndex] = location;
+    setLocations(newLocations);
+
+    const currentInventoryItemUuid = selectedInventoryItems[currentInventoryItemLocationIndex];
+    if (currentInventoryItemUuid) {
+      const newInventoryItems = { ...formData.inventory_items };
+      if (newInventoryItems[currentInventoryItemUuid]) {
+        newInventoryItems[currentInventoryItemUuid] = {
+          ...newInventoryItems[currentInventoryItemUuid],
+          location: location
+        };
+      }
+
+      setFormData(prev => ({
+        ...prev,
+        inventory_items: newInventoryItems
+      }));
+    }
+
+    setSelectedFloor(location.floor ?? null);
+    setSelectedColumn(location.column ?? null);
+    setSelectedColumnCode(parseColumn(location.column ?? null) || "");
+    setSelectedRow(location.row ?? null);
+    setSelectedGroup(location.group ?? null);
+    setSelectedDepth(location.depth ?? null);
+    setSelectedCode(location.code || "");
+  };
+
+  const handleOpenModal = () => {
+    onOpen();
+  };
+
+  const getCurrentLocation = (): ShelfLocation | undefined => {
+    if (currentInventoryItemLocationIndex >= 0 &&
+      currentInventoryItemLocationIndex < selectedInventoryItems.length &&
+      formData.inventory_items) {
+
+      const currentItemUuid = selectedInventoryItems[currentInventoryItemLocationIndex];
+      const currentLocation = formData.inventory_items[currentItemUuid]?.location;
+
+      if (currentLocation) {
+        return {
+          floor: currentLocation.floor ?? undefined,
+          column: currentLocation.column ?? undefined,
+          row: currentLocation.row ?? undefined,
+          group: currentLocation.group ?? undefined,
+          depth: currentLocation.depth ?? undefined,
+          code: currentLocation.code || ""
+        };
+      }
+    }
+
+    return undefined;
+  };
+
+  // ===== QR CODE FUNCTIONS =====
+  const generateDeliveryUrl = (deliveryId?: string, autoAccept: boolean = false, showOptions: boolean = true) => {
+    const targetDeliveryId = deliveryId || selectedDeliveryId;
+    if (!targetDeliveryId || !formData) return "https://ropic.vercel.app/home/search";
+
+    const baseUrl = "https://ropic.vercel.app/home/search";
+    const params = new URLSearchParams({
+      q: targetDeliveryId,
+      ...(autoAccept && { deliveryAutoAccept: "true" }),
+      ...(showOptions && { showOptions: "true" })
+    });
+
+    return `${baseUrl}?${params.toString()}`;
+  };
+
+  const updateQrCodeUrl = (autoAccept: boolean, showOptions?: boolean) => {
+    const currentShowOptions = showOptions !== undefined ? showOptions : qrCodeData.showOptions;
+    setQrCodeData(prev => ({
+      ...prev,
+      autoAccept,
+      ...(showOptions !== undefined && { showOptions }),
+      url: generateDeliveryUrl(prev.deliveryId, autoAccept, currentShowOptions),
+      description: `Scan this code to view delivery details for ${prev.deliveryName}${autoAccept ? '. This will automatically accept the delivery when scanned.' : '.'}`
+    }));
+  };
+
+  const updateShowOptions = (showOptions: boolean) => {
+    setQrCodeData(prev => ({
+      ...prev,
+      showOptions,
+      url: generateDeliveryUrl(prev.deliveryId, prev.autoAccept, showOptions)
+    }));
+  };
+
+  const handleShowDeliveryQR = () => {
+    if (!selectedDeliveryId || !formData) return;
+
+    const inventoryNames = selectedInventoryUuids
+      .map(uuid => inventoryItems.find(item => item.uuid === uuid)?.name)
+      .filter(Boolean);
+    const deliveryName = inventoryNames.length > 0
+      ? `Delivery of ${inventoryNames.join(', ')}`
+      : 'Delivery';
+
+    setQrCodeData({
+      url: generateDeliveryUrl(selectedDeliveryId, false, true),
+      title: "Delivery QR Code",
+      description: `Scan this code to view delivery details for ${deliveryName}.`,
+      deliveryId: selectedDeliveryId,
+      deliveryName: deliveryName,
+      autoAccept: false,
+      showOptions: true
+    });
+    setShowQrCode(true);
+  };
+
+  // ===== ACCEPT DELIVERY FUNCTIONS =====
+  const handleQrImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsProcessingImage(true);
+
+    try {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+
+      img.onload = async () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        if (!ctx) {
+          setValidationError("Failed to process image");
+          setIsProcessingImage(false);
+          URL.revokeObjectURL(objectUrl);
+          return;
+        }
+
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height);
+
+        if (code) {
+          let deliveryUuid = code.data;
+
+          try {
+            const url = new URL(code.data);
+            const searchParams = new URLSearchParams(url.search);
+            const qParam = searchParams.get('q');
+            if (qParam) {
+              deliveryUuid = qParam;
+            }
+          } catch (error) {
+          }
+
+          await handleAcceptDelivery(deliveryUuid);
+        } else {
+          setValidationError("No QR code found in the image");
+        }
+
+        setIsProcessingImage(false);
+        URL.revokeObjectURL(objectUrl);
+      };
+
+      img.onerror = () => {
+        setValidationError("Failed to load image");
+        setIsProcessingImage(false);
+        URL.revokeObjectURL(objectUrl);
+      };
+
+      img.src = objectUrl;
+    } catch (error) {
+      console.error("Error processing QR image:", error);
+      setValidationError("Failed to process the uploaded image");
+      setIsProcessingImage(false);
+    }
+  };
+
+  const handlePasteLinkAccept = async (inputData = deliveryInput) => {
+    if (!inputData.trim()) return;
+
+    let deliveryUuid = inputData.trim();
+
+    try {
+      const url = new URL(inputData);
+      const searchParams = new URLSearchParams(url.search);
+      const qParam = searchParams.get('q');
+      if (qParam) {
+        deliveryUuid = qParam;
+      }
+    } catch (error) {
+    }
+
+    await handleAcceptDelivery(deliveryUuid);
+  };
+
+  const handlePasteLinkKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handlePasteLinkAccept();
+    }
+  };
+
+  const handleAcceptDelivery = async (deliveryUuid?: string) => {
+    if (!deliveryUuid || !user) return;
+
+    setIsAcceptingDelivery(true);
+    setAcceptDeliveryError(null);
+    setAcceptDeliverySuccess(false);
+
+    try {
+      const deliveryResult = await getDeliveryDetails(deliveryUuid, user.company_uuid);
+
+      if (!deliveryResult.success || !deliveryResult.data) {
+        setAcceptDeliveryError("Failed to load delivery details");
+        setShowAcceptStatusModal(true);
+        return;
+      }
+
+      const targetDelivery = deliveryResult.data;
+
+      if (user.is_admin) {
+        setAcceptDeliveryError("Admins cannot accept deliveries - only operators can");
+        setShowAcceptStatusModal(true);
+        return;
+      }
+
+      if (targetDelivery.status !== "IN_TRANSIT") {
+        setAcceptDeliveryError("This delivery cannot be accepted because it is not in transit");
+        setShowAcceptStatusModal(true);
+        return;
+      }
+
+      const isAssignedOperator = targetDelivery.operator_uuids?.includes(user.uuid) ||
+        targetDelivery.operator_uuids === null ||
+        targetDelivery.operator_uuids?.length === 0;
+
+      if (!isAssignedOperator) {
+        setAcceptDeliveryError("You are not assigned to this delivery");
+        setShowAcceptStatusModal(true);
+        return;
+      }
+
+      const result = await updateDeliveryStatusWithItems(
+        deliveryUuid,
+        "DELIVERED",
+        user.company_uuid
       );
+
+      if (result.success) {
+        setAcceptDeliverySuccess(true);
+        setShowAcceptStatusModal(true);
+
+        if (selectedDeliveryId === deliveryUuid) {
+          setFormData(prev => ({
+            ...prev,
+            status: "DELIVERED",
+            status_history: result.data.status_history,
+            updated_at: result.data.updated_at
+          }));
+
+        }
+
+        setValidationError("");
+        setValidationSuccess(true);
+        setDeliveryInput("");
+
+      } else {
+        setAcceptDeliveryError(result.error || "Failed to accept delivery");
+        setShowAcceptStatusModal(true);
+      }
+
+    } catch (error) {
+      console.error("Error accepting delivery:", error);
+      setAcceptDeliveryError(`Failed to accept delivery: ${(error as Error).message}`);
+      setShowAcceptStatusModal(true);
+    } finally {
+      setIsAcceptingDelivery(false);
+    }
+  };
+
+  // Function to automatically validate when text is pasted
+  const handleDeliveryPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const pastedText = e.clipboardData.getData('text');
+
+    if (pastedText.trim()) {
+      // Set the pasted text
+      setDeliveryInput(pastedText);
+
+      // Validate instantly only when pasted
+      setTimeout(() => {
+        handlePasteLinkAccept(pastedText);
+      }, 100);
+    }
+  };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  // Use an effect to update the assignments when locations or currentInventoryItemLocationIndex change
+  useEffect(() => {
+    const assignments: Array<ShelfSelectorColorAssignment> = [];
+
+    // Get the currently focused inventoryitem location
+    const currentLocation = currentInventoryItemLocationIndex >= 0 && locations && locations[currentInventoryItemLocationIndex]
+      ? locations[currentInventoryItemLocationIndex]
+      : null;
+
+    // 1. Add all selected inventoryitem locations as secondary color, except the current one
+    if (locations && locations.length > 0) {
+      locations.forEach((location, index) => {
+        if (location && location.floor !== undefined) {
+          // Skip the currently focused location as it will be added as tertiary later
+          if (index === currentInventoryItemLocationIndex) {
+            return;
+          }
+          assignments.push({
+            floor: location.floor,
+            group: location.group,
+            row: location.row,
+            column: location.column,
+            depth: location.depth,
+            colorType: 'secondary'
+          });
+        }
+      });
     }
 
-    if (inventoryViewMode === 'flat') {
-      return items;
+    // 2. Add the currently focused inventoryitem location as tertiary 
+    if (currentLocation && currentLocation.floor !== undefined) {
+      assignments.push({
+        floor: currentLocation.floor,
+        group: currentLocation.group,
+        row: currentLocation.row,
+        column: currentLocation.column,
+        depth: currentLocation.depth,
+        colorType: 'tertiary'
+      });
     }
 
-    const groupedItems = groupInventoryItems(items);
+    // Update the state with the new assignments
+    setShelfColorAssignments(assignments);
+  }, [locations, currentInventoryItemLocationIndex]);
 
-    // For grouped view, only show the first item of each group
-    const seenGroups = new Set<string>();
-    const displayItems: any[] = [];
+  // Add this useEffect to focus on the textarea when modal opens
+  useEffect(() => {
+    if (showAcceptDeliveryModal && acceptDeliveryTab === "paste-link") {
+      // Short timeout to ensure the modal is rendered before focusing
+      setTimeout(() => {
+        const input = document.querySelector('[placeholder="Paste delivery UUID or URL here..."]') as HTMLInputElement;
+        input?.focus();
+      }, 100);
+    }
+  }, [showAcceptDeliveryModal, acceptDeliveryTab]);
 
-    items.forEach(item => {
+  useEffect(() => {
+    // Refresh occupied locations when shelf color assignments change
+    if (formData.warehouse_uuid && shelfColorAssignments.length >= 0) {
+      refreshOccupiedLocations();
+    }
+  }, [shelfColorAssignments, formData.warehouse_uuid]);
+
+  useEffect(() => {
+    // When the delivery status changes to DELIVERED, we want to ensure location fields are ready
+    // Skip this effect for already delivered items that are just being viewed
+    if (formData.status === "DELIVERED" &&
+      // Add this condition to prevent the infinite loop for already delivered items
+      !selectedDeliveryId &&
+      selectedFloor !== null &&
+      selectedColumn !== null &&
+      selectedRow !== null &&
+      selectedGroup !== null) {
+
+      // Create the location object for current inventoryitem
+      const location = {
+        floor: selectedFloor,
+        group: selectedGroup,
+        row: selectedRow,
+        column: selectedColumn !== null ? selectedColumn : 0,
+        depth: selectedDepth !== null ? selectedDepth : 0
+      };
+
+      // Create new locations and location codes arrays if needed
+      const newLocations = [...locations];
+
+      // Update for current inventoryitem
+      if (currentInventoryItemLocationIndex < newLocations.length) {
+        newLocations[currentInventoryItemLocationIndex] = location;
+      } else {
+        newLocations.push(location);
+      }
+
+      // Update form data
+      setFormData(prev => ({
+        ...prev,
+        locations: newLocations
+      }));
+
+      // Update local state
+      setLocations(newLocations);
+    }
+
+  }, [selectedFloor, selectedColumn, selectedRow, selectedGroup, selectedDepth, formData.status, currentInventoryItemLocationIndex, locations, selectedDeliveryId]);
+
+  // Add helper function to update locations when current index changes
+  useEffect(() => {
+    if (currentInventoryItemLocationIndex >= 0 &&
+      currentInventoryItemLocationIndex < selectedInventoryItems.length &&
+      formData.inventory_items) {
+
+      const currentItemUuid = selectedInventoryItems[currentInventoryItemLocationIndex];
+      const currentLocation = formData.inventory_items[currentItemUuid].location;
+
+      if (currentLocation) {
+        setSelectedFloor(currentLocation.floor ?? null);
+        setSelectedGroup(currentLocation.group ?? null);
+        setSelectedRow(currentLocation.row ?? null);
+        setSelectedColumn(currentLocation.column ?? null);
+        setSelectedDepth(currentLocation.depth ?? null);
+        setSelectedColumnCode(parseColumn(currentLocation.column ?? null) || "");
+        setSelectedCode(currentLocation.code || "");
+      }
+    }
+  }, [currentInventoryItemLocationIndex, selectedInventoryItems, formData.inventory_items]);
+
+  // Update the effect that manages select all state to account for filtered items
+  useEffect(() => {
+    const displayItems = getDisplayInventoryItemsList();
+    const availableItems = displayItems.filter(item => {
+      const statusStyling = getInventoryItemStatusStyling(item);
+      return !statusStyling.isDisabled;
+    });
+
+    if (availableItems.length === 0) {
+      setIsSelectAllChecked(false);
+      setIsSelectAllIndeterminate(false);
+      return;
+    }
+
+    // Count how many available items are selected
+    let selectedAvailableCount = 0;
+    let totalAvailableCount = 0;
+
+    availableItems.forEach(item => {
+      const groupedItems = getGroupedInventoryItems();
       const groupInfo = getGroupInfo(item, groupedItems);
 
-      if (groupInfo.isGroup && groupInfo.groupId) {
-        // For grouped items, only add if we haven't seen this group yet
-        if (!seenGroups.has(groupInfo.groupId)) {
-          seenGroups.add(groupInfo.groupId);
-          displayItems.push(item);
-        }
+      if (inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId) {
+        const groupItems = inventoryItems.filter(groupItem =>
+          groupItem.group_id === groupInfo.groupId &&
+          // Filter out IN_WAREHOUSE and USED unless delivered
+          (formData.status === 'DELIVERED' || formData.status === 'CANCELLED' ||
+            (groupItem.status !== 'IN_WAREHOUSE' && groupItem.status !== 'USED'))
+        );
+        const availableGroupItems = groupItems.filter(groupItem => {
+          const groupItemStatusStyling = getInventoryItemStatusStyling(groupItem);
+          return !groupItemStatusStyling.isDisabled;
+        });
+
+        totalAvailableCount += availableGroupItems.length;
+        selectedAvailableCount += availableGroupItems.filter(groupItem =>
+          selectedInventoryItems.includes(groupItem.uuid)
+        ).length;
       } else {
-        // For non-grouped items, always add
-        displayItems.push(item);
+        totalAvailableCount += 1;
+        if (selectedInventoryItems.includes(item.uuid)) {
+          selectedAvailableCount += 1;
+        }
       }
     });
 
-    return displayItems;
-  };
+    if (selectedAvailableCount === 0) {
+      setIsSelectAllChecked(false);
+      setIsSelectAllIndeterminate(false);
+    } else if (selectedAvailableCount === totalAvailableCount) {
+      setIsSelectAllChecked(true);
+      setIsSelectAllIndeterminate(false);
+    } else {
+      setIsSelectAllChecked(false);
+      setIsSelectAllIndeterminate(true);
+    }
+  }, [selectedInventoryItems, inventoryItems, inventoryViewMode, formData.status, formData.inventory_items, prevSelectedInventoryItems]);
 
+  // UPDATED: Effect to handle pendingInventorySelection with better timing
+  useEffect(() => {
+    if (pendingInventorySelection && loadedInventoryUuids.has(pendingInventorySelection.inventoryUuid)) {
+      // Use setTimeout to ensure inventoryItems state is properly updated
+      setTimeout(() => {
+        _performInventorySelectionLogic(pendingInventorySelection.inventoryUuid, pendingInventorySelection.isSelected);
+        setPendingInventorySelection(null);
+      }, 100);
+    }
+  }, [inventoryItems, loadedInventoryUuids, pendingInventorySelection, formData.status, inventoryViewMode]);
+
+  // UPDATED: URL parameter handling
+  useEffect(() => {
+    const handleURLParams = async () => {
+      setIsLoading(true);
+
+      if (!user?.company_uuid || isLoadingItems || isLoadingWarehouses || warehouses.length === 0) return;
+
+      const deliveryId = searchParams.get("deliveryId");
+
+      if (deliveryId) {
+        // Set selected delivery from URL and load detailed information
+        setSelectedDeliveryId(deliveryId);
+
+        // Reset states before loading
+        setSelectedInventoryUuids([]);
+        setSelectedInventoryItems([]);
+        setLocations([]);
+        setSelectedOperators([]);
+        setDeliveryInput("");
+        setLoadedInventoryUuids(new Set());
+        setInventoryItems([]);
+        resetWarehouseLocation();
+
+        // Use the updated detailed loading function
+        const deliveryData = await loadDeliveryDetails(deliveryId);
+
+        if (deliveryData && deliveryData.warehouse_uuid) {
+          await handleWarehouseChange(deliveryData.warehouse_uuid);
+        }
+
+        // Load inventory items for the selected inventories after delivery data is loaded
+        if (deliveryData && deliveryData.inventory_items) {
+          const inventoryUuids = [...new Set(
+            Object.values(deliveryData.inventory_items).map((item: any) => item.inventory_uuid)
+          )];
+
+          // Load inventory items for each inventory
+          for (const inventoryUuid of inventoryUuids) {
+            await loadInventoryItems(inventoryUuid, true, false);
+          }
+        }
+
+      } else {
+        // Reset form for new delivery
+        setSelectedDeliveryId(null);
+        setFormData({
+          company_uuid: user.company_uuid,
+          admin_uuid: user.uuid,
+          inventory_items: {},
+          delivery_address: "",
+          delivery_date: format(new Date(), "yyyy-MM-dd"),
+          notes: "",
+          status: "PENDING",
+          warehouse_uuid: null,
+          operator_uuids: []
+        });
+
+        // Reset all inventory-related states
+        setSelectedInventoryUuids([]);
+        setSelectedInventoryItems([]);
+        setLocations([]);
+        setSelectedOperators([]);
+        setDeliveryInput("");
+        setLoadedInventoryUuids(new Set());
+        setInventoryItems([]);
+        resetWarehouseLocation();
+
+        // Load fresh inventory metadata for base URL
+        try {
+          const fetchedInventories = await getInventoryItems(user.company_uuid || "", true);
+          if (fetchedInventories.success && fetchedInventories.data) {
+            setInventories(fetchedInventories.data as any[]);
+            // Show all inventories initially
+            const allInventoryUuids = fetchedInventories.data.map((item: any) => item.uuid);
+            setSelectedInventoryUuids(allInventoryUuids);
+          }
+        } catch (error) {
+          console.error("Error loading inventories:", error);
+        }
+
+        setIsLoading(false);
+      }
+    };
+    
+
+    handleURLParams();
+  }, [searchParams, user?.company_uuid, isLoadingItems, isLoadingWarehouses, warehouses.length]);
 
   // Add effect to update per-inventory select all states
   useEffect(() => {
@@ -481,1830 +2193,6 @@ export default function DeliveryPage() {
     fetchData();
   }, [user?.company_uuid]);
 
-  // Update the handleStatusChange function to refresh occupied locations
-  const handleStatusChange = async (status: string) => {
-    if (!selectedDeliveryId) return { error: "No delivery selected" };
-
-    // For operators, only allow changing to DELIVERED status when item is IN_TRANSIT
-    if (!user?.is_admin) {
-      if (formData.status !== "IN_TRANSIT" || status !== "DELIVERED") {
-        return { error: "You can only change the status to DELIVERED when the item is IN_TRANSIT." };
-      }
-    }
-
-    // If changing to DELIVERED, ensure we have location data for each inventory item
-    if (status === "DELIVERED" && formData.inventory_items) {
-      const inventoryItemCount = Object.keys(formData.inventory_items).length;
-      if (inventoryItemCount === 0) {
-        return { error: "Please assign warehouse locations for all selected inventory items before marking as delivered." };
-      }
-    }
-
-    setIsLoading(true);
-
-    try {
-      // Use the RPC function to update delivery status with inventory item synchronization
-      const result = await updateDeliveryStatusWithItems(
-        selectedDeliveryId,
-        status,
-        user?.company_uuid
-      );
-
-      if (result.success) {
-        // Update local form data with the returned data
-        setFormData(prev => ({
-          ...prev,
-          status: result.data.status,
-          status_history: result.data.status_history,
-          updated_at: result.data.updated_at,
-          inventory_items: result.data.inventory_items || prev.inventory_items
-        }));
-
-        // Update prevSelectedInventoryItems to reflect the current state
-        setPrevSelectedInventoryItems(selectedInventoryItems);
-
-        // Refresh occupied locations after status change
-        await refreshOccupiedLocations();
-        return { error: null };
-      } else {
-        return { error: result.error || "Failed to update delivery status" };
-      }
-    } catch (error) {
-      console.error("Error updating status:", error);
-      return { error: `Failed to update status: ${(error as Error).message}` };
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // UPDATED: Submit function - removed inventory_uuid validation
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!user?.is_admin) {
-      return;
-    }
-
-    const newErrors: Record<string, string> = {};
-
-    // Validation for IN_TRANSIT status
-    if (formData.status === "IN_TRANSIT") {
-      const inventoryItems = formData.inventory_items || {};
-      const inventoryItemUuids = selectedInventoryItems;
-
-      if (inventoryItemUuids.length === 0) {
-        newErrors.inventory_item_uuids = "Please select at least one inventory item";
-      }
-
-      // Check if each selected inventory item has a location assigned
-      if (inventoryItemUuids.length > 0) {
-        const missingLocations = inventoryItemUuids.filter(uuid =>
-          !inventoryItems[uuid]?.location ||
-          inventoryItems[uuid].location.floor === undefined ||
-          inventoryItems[uuid].location.floor === null
-        );
-
-        if (missingLocations.length > 0) {
-          newErrors.locations = `Please assign a location for all selected inventory items. Missing locations for ${missingLocations.length} item(s).`;
-        }
-      }
-    } else {
-      // Full validation for other statuses
-      const inventoryItems = formData.inventory_items || {};
-      const inventoryItemUuids = selectedInventoryItems;
-
-      if (selectedInventoryUuids.length === 0) {
-        newErrors.inventory_uuids = "Please select at least one inventory";
-      }
-      if (inventoryItemUuids.length === 0) {
-        newErrors.inventory_item_uuids = "Please select at least one inventory item";
-      }
-      if (!formData.delivery_address) newErrors.delivery_address = "Delivery address is required";
-      if (!formData.delivery_date) newErrors.delivery_date = "Delivery date is required";
-      if (!formData.warehouse_uuid) newErrors.warehouse_uuid = "Please select a warehouse";
-
-      // Check if each selected inventory item has a location assigned
-      if (inventoryItemUuids.length > 0) {
-        const missingLocations = inventoryItemUuids.filter(uuid =>
-          !inventoryItems[uuid]?.location ||
-          inventoryItems[uuid].location.floor === undefined ||
-          inventoryItems[uuid].location.floor === null
-        );
-
-        if (missingLocations.length > 0) {
-          newErrors.locations = `Please assign a location for all selected inventory items. Missing locations for ${missingLocations.length} item(s).`;
-        }
-      }
-    }
-
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
-      return;
-    }
-
-    setIsLoading(true);
-
-    try {
-      let result;
-
-      if (selectedDeliveryId) {
-        // For IN_TRANSIT status, only pass inventory_items and required params
-        if (formData.status === "IN_TRANSIT") {
-          result = await updateDeliveryWithItems(
-            selectedDeliveryId,
-            formData.inventory_items || {},
-            undefined, // Don't update delivery_address
-            undefined, // Don't update delivery_date  
-            undefined, // Don't update operator_uuids
-            undefined, // Don't update notes
-            undefined, // Don't update name
-            user.company_uuid
-          );
-        } else {
-          // Full update for other statuses
-          result = await updateDeliveryWithItems(
-            selectedDeliveryId,
-            formData.inventory_items || {},
-            formData.delivery_address,
-            formData.delivery_date,
-            formData.operator_uuids,
-            formData.notes,
-            formData.name,
-            user.company_uuid
-          );
-        }
-      } else {
-        // Create new delivery using the new RPC function
-        result = await createDeliveryWithItems(
-          user.uuid,
-          user.company_uuid,
-          formData.warehouse_uuid as string,
-          formData.inventory_items || {},
-          formData.delivery_address || "",
-          formData.delivery_date || "",
-          formData.operator_uuids || [],
-          formData.notes || "",
-          formData.name
-        );
-      }
-
-      // Handle successful creation/update
-      if (result.success && result.data) {
-        const newDelivery = result.data;
-
-        // Update URL with new delivery ID for new deliveries
-        setTimeout(() => {
-          if (!selectedDeliveryId && newDelivery?.uuid) {
-            const params = new URLSearchParams(searchParams.toString());
-            params.set("deliveryId", newDelivery.uuid);
-            router.push(`?${params.toString()}`, { scroll: false });
-          }
-          setErrors({});
-        }, 500);
-
-        // Update local form data
-        setFormData(prev => ({
-          ...prev,
-          ...newDelivery
-        }));
-
-        // Update prevSelectedInventoryItems to reflect the new state
-        setPrevSelectedInventoryItems(selectedInventoryItems);
-
-        // Refresh occupied locations after successful update
-        await refreshOccupiedLocations();
-
-      } else {
-        alert(`Failed to ${selectedDeliveryId ? 'update' : 'create'} delivery. Please try again.`);
-      }
-    } catch (error) {
-      console.error(`Error ${selectedDeliveryId ? 'updating' : 'creating'} delivery:`, error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-
-  // Add function to toggle inventory expansion
-  const toggleInventoryExpansion = (inventoryUuid: string) => {
-    setExpandedInventories(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(inventoryUuid)) {
-        newSet.delete(inventoryUuid);
-      } else {
-        newSet.add(inventoryUuid);
-      }
-      return newSet;
-    });
-  };
-
-  // Function to get items for a specific inventory
-  const getInventoryItemsForInventory = (inventoryUuid: string) => {
-    return inventoryItems.filter(item => item.inventory_uuid === inventoryUuid);
-  };
-
-  // Function to get display items for a specific inventory
-  const getDisplayInventoryItemsListForInventory = (inventoryUuid: string) => {
-    let items = getInventoryItemsForInventory(inventoryUuid);
-
-    // Filter out IN_WAREHOUSE and USED items unless we're viewing a delivered delivery
-    if (formData.status !== 'DELIVERED' && formData.status !== 'CANCELLED') {
-      items = items.filter(item =>
-        item.status !== 'IN_WAREHOUSE' &&
-        item.status !== 'USED'
-      );
-    }
-
-    if (inventoryViewMode === 'flat') {
-      return items;
-    }
-
-    const groupedItems = groupInventoryItems(items);
-
-    // For grouped view, only show the first item of each group
-    const seenGroups = new Set<string>();
-    const displayItems: any[] = [];
-
-    items.forEach(item => {
-      const groupInfo = getGroupInfo(item, groupedItems);
-
-      if (groupInfo.isGroup && groupInfo.groupId) {
-        // For grouped items, only add if we haven't seen this group yet
-        if (!seenGroups.has(groupInfo.groupId)) {
-          seenGroups.add(groupInfo.groupId);
-          displayItems.push(item);
-        }
-      } else {
-        // For non-grouped items, always add
-        displayItems.push(item);
-      }
-    });
-
-    return displayItems;
-  };
-
-  // UPDATED: Load delivery details to properly set selected inventories
-  const loadDeliveryDetails = async (deliveryId: string) => {
-    try {
-      const result = await getDeliveryDetails(deliveryId, user?.company_uuid);
-      setIsLoading(false);
-
-      if (result.success && result.data) {
-        const deliveryData = result.data;
-
-        // Update form data with detailed information
-        setFormData(deliveryData);
-
-        // Extract inventory UUIDs from inventory_items and set selected inventories
-        if (deliveryData.inventory_items) {
-          const inventoryUuids = [...new Set(
-            Object.values(deliveryData.inventory_items).map((item: any) => item.inventory_uuid)
-          )];
-
-          setSelectedInventoryUuids(inventoryUuids);
-
-          const inventoryItemUuids = Object.keys(deliveryData.inventory_items);
-          const locations = Object.values(deliveryData.inventory_items).map((item: any) => item.location).filter(Boolean);
-
-          // Set the selected items and locations immediately
-          setSelectedInventoryItems(inventoryItemUuids);
-          setPrevSelectedInventoryItems(inventoryItemUuids);
-          setLocations(locations);
-
-          // Set first location details for 3D viewer
-          if (locations.length > 0) {
-            const firstLoc = locations[0];
-            setSelectedFloor(firstLoc.floor ?? null);
-            setSelectedColumnCode(parseColumn(firstLoc.column ?? null) || "");
-            setSelectedColumn(firstLoc.column ?? null);
-            setSelectedRow(firstLoc.row ?? null);
-            setSelectedDepth(firstLoc.depth ?? null);
-            setSelectedGroup(firstLoc.group ?? null);
-          }
-        } else {
-          setSelectedInventoryUuids([]);
-          setSelectedInventoryItems([]);
-          setPrevSelectedInventoryItems([]);
-          setLocations([]);
-        }
-
-        // Set selected operators if any are assigned
-        if (deliveryData.operator_info && Array.isArray(deliveryData.operator_info)) {
-          setSelectedOperators(deliveryData.operator_info);
-        } else {
-          setSelectedOperators([]);
-        }
-
-        return deliveryData;
-      } else {
-        console.error("Failed to load delivery details:", result.error);
-        return null;
-      }
-    } catch (error) {
-      console.error("Error loading delivery details:", error);
-      return null;
-    }
-  };
-
-  // Update the auto-assign shelf locations function to work with new format
-  const autoAssignShelfLocations = async () => {
-    if (isWarehouseNotSet() || isFloorConfigNotSet() || selectedInventoryItems.length === 0) {
-      return;
-    }
-
-    setIsAutoAssigning(true);
-    try {
-      // Get the suggested locations
-      const result = await suggestShelfLocations(
-        formData.warehouse_uuid as string,
-        selectedInventoryItems.length,
-      );
-
-      if (result.success && result.data) {
-        // Get locations from the result
-        const { locations } = result.data;
-
-        // Create inventory_items object
-        const inventoryLocations: Record<string, ShelfLocation> = {};
-        selectedInventoryItems.forEach((uuid, index) => {
-          if (locations[index]) {
-            inventoryLocations[uuid] = locations[index];
-          }
-        });
-
-        // Update state with the suggested locations
-        setLocations(locations);
-
-        // Update formData with the new inventory_items
-        setFormData(prev => ({
-          ...prev,
-          inventory_items: {
-            ...prev.inventory_items,
-            ...Object.fromEntries(selectedInventoryItems.map((uuid, index) => {
-              // Find the inventory item to get its inventory_uuid
-              const inventoryItem = inventoryItems.find(item => item.uuid === uuid);
-              return [
-                uuid,
-                {
-                  inventory_uuid: inventoryItem?.inventory_uuid || "",
-                  group_id: inventoryItem?.group_id || null,
-                  location: locations[index] || null
-                }
-              ];
-            }))
-          },
-          inventory_item_uuids: selectedInventoryItems,
-          locations: locations
-        }));
-
-        // Select the first location in the 3D view
-        if (locations.length > 0) {
-          setCurrentInventoryItemLocationIndex(0);
-          const firstLocation = locations[0];
-
-          setSelectedFloor(firstLocation.floor);
-          setSelectedGroup(firstLocation.group);
-          setSelectedRow(firstLocation.row);
-          setSelectedColumn(firstLocation.column);
-          setSelectedDepth(firstLocation.depth);
-          setSelectedColumnCode(parseColumn(firstLocation.column) || "");
-
-        }
-      } else {
-        console.error("Failed to auto-assign shelf locations:", result.error);
-      }
-    } catch (error) {
-      console.error("Error auto-assigning shelf locations:", error);
-    } finally {
-      setIsAutoAssigning(false);
-    }
-  };
-
-
-  // Update the handleSelectAllToggle function to respect the filtered items
-  const handleSelectAllToggle = (isSelected: boolean) => {
-    const displayItems = getDisplayInventoryItemsList();
-
-    if (isSelected) {
-      // Select all available items (excluding those with certain statuses unless they're in current delivery)
-      const availableItems = displayItems.filter(item => {
-        const statusStyling = getInventoryItemStatusStyling(item);
-        return !statusStyling.isDisabled;
-      });
-
-      // Get all inventory item UUIDs that should be selected
-      const allItemsToSelect: string[] = [];
-
-      availableItems.forEach(item => {
-        const groupedItems = getGroupedInventoryItems();
-        const groupInfo = getGroupInfo(item, groupedItems);
-
-        if (inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId) {
-          // For grouped items, add all items in the group (but only those that pass the filter)
-          const groupItems = inventoryItems.filter(groupItem =>
-            groupItem.group_id === groupInfo.groupId &&
-            // Filter out IN_WAREHOUSE and USED unless delivered
-            (formData.status === 'DELIVERED' || formData.status === 'CANCELLED' ||
-              (groupItem.status !== 'IN_WAREHOUSE' && groupItem.status !== 'USED'))
-          );
-          groupItems.forEach(groupItem => {
-            const groupItemStatusStyling = getInventoryItemStatusStyling(groupItem);
-            if (!groupItemStatusStyling.isDisabled && !allItemsToSelect.includes(groupItem.uuid)) {
-              allItemsToSelect.push(groupItem.uuid);
-            }
-          });
-        } else {
-          // For single items, add the item UUID
-          if (!allItemsToSelect.includes(item.uuid)) {
-            allItemsToSelect.push(item.uuid);
-          }
-        }
-      });
-
-      setSelectedInventoryItems(allItemsToSelect);
-
-      // Update formData with inventory_items format
-      const newInventoryLocations: Record<string, ShelfLocation> = {};
-      allItemsToSelect.forEach(uuid => {
-        const existingLocation = formData.inventory_items?.[uuid]?.location || null;
-        if (existingLocation) {
-          newInventoryLocations[uuid] = existingLocation;
-        }
-      });
-
-      setFormData(prev => ({
-        ...prev,
-        inventory_items: {
-          ...prev.inventory_items,
-          ...Object.fromEntries(allItemsToSelect.map(uuid => [
-            uuid,
-            {
-              inventory_uuid: inventoryItems.find(item => item.uuid === uuid)?.inventory_uuid || "",
-              group_id: inventoryItems.find(item => item.uuid === uuid)?.group_id || null,
-              location: newInventoryLocations[uuid] || null
-            }
-          ]))
-        },
-        inventory_item_uuids: allItemsToSelect,
-        locations: Object.values(newInventoryLocations).filter(loc => loc !== null && loc.floor !== undefined)
-      }));
-
-      const newLocationsArray = Object.values(newInventoryLocations).filter(loc => loc !== null && loc.floor !== undefined);
-      setLocations(newLocationsArray);
-
-    } else {
-      // Deselect all items
-      setSelectedInventoryItems([]);
-      setFormData(prev => ({
-        ...prev,
-        inventory_item_uuids: [],
-        locations: []
-      }));
-      setLocations([]);
-    }
-  };
-
-
-
-  // UPDATED: URL parameter handling
-  useEffect(() => {
-    const handleURLParams = async () => {
-      setIsLoading(true);
-
-      if (!user?.company_uuid || isLoadingItems || isLoadingWarehouses || warehouses.length === 0) return;
-
-      const deliveryId = searchParams.get("deliveryId");
-
-      if (deliveryId) {
-        // Set selected delivery from URL and load detailed information
-        setSelectedDeliveryId(deliveryId);
-
-        // Reset states before loading
-        setSelectedInventoryUuids([]);
-        setSelectedInventoryItems([]);
-        setLocations([]);
-        setSelectedOperators([]);
-        setDeliveryInput("");
-        setLoadedInventoryUuids(new Set());
-        setInventoryItems([]);
-        resetWarehouseLocation();
-
-        // Use the updated detailed loading function
-        const deliveryData = await loadDeliveryDetails(deliveryId);
-
-        if (deliveryData && deliveryData.warehouse_uuid) {
-          await handleWarehouseChange(deliveryData.warehouse_uuid);
-        }
-
-        // Load inventory items for the selected inventories after delivery data is loaded
-        if (deliveryData && deliveryData.inventory_items) {
-          const inventoryUuids = [...new Set(
-            Object.values(deliveryData.inventory_items).map((item: any) => item.inventory_uuid)
-          )];
-
-          // Load inventory items for each inventory
-          for (const inventoryUuid of inventoryUuids) {
-            await loadInventoryItems(inventoryUuid, true, false);
-          }
-        }
-
-      } else {
-        // Reset form for new delivery
-        setSelectedDeliveryId(null);
-        setFormData({
-          company_uuid: user.company_uuid,
-          admin_uuid: user.uuid,
-          inventory_items: {},
-          delivery_address: "",
-          delivery_date: format(new Date(), "yyyy-MM-dd"),
-          notes: "",
-          status: "PENDING",
-          warehouse_uuid: null,
-          operator_uuids: []
-        });
-
-        // Reset all inventory-related states
-        setSelectedInventoryUuids([]);
-        setSelectedInventoryItems([]);
-        setLocations([]);
-        setSelectedOperators([]);
-        setDeliveryInput("");
-        setLoadedInventoryUuids(new Set());
-        setInventoryItems([]);
-        resetWarehouseLocation();
-
-        // Load fresh inventory metadata for base URL
-        try {
-          const fetchedInventories = await getInventoryItems(user.company_uuid || "", true);
-          if (fetchedInventories.success && fetchedInventories.data) {
-            setInventories(fetchedInventories.data as any[]);
-            // Show all inventories initially
-            const allInventoryUuids = fetchedInventories.data.map((item: any) => item.uuid);
-            setSelectedInventoryUuids(allInventoryUuids);
-          }
-        } catch (error) {
-          console.error("Error loading inventories:", error);
-        }
-
-        setIsLoading(false);
-      }
-    };
-
-    handleURLParams();
-  }, [searchParams, user?.company_uuid, isLoadingItems, isLoadingWarehouses, warehouses.length]);
-
-
-  // UPDATED: Handle inventory item selection toggle
-  const handleInventoryItemSelectionToggle = async (inventoryitemUuid: string, isSelected: boolean) => {
-    // Find the inventory item to get its inventory_uuid
-    let inventoryItem = inventoryItems.find(item => item.uuid === inventoryitemUuid);
-
-
-    // if this inventory's items haven't been loaded yet, load them
-    const inventoryUuid = inventoryItem.inventory_uuid;
-    if (!loadedInventoryUuids.has(inventoryUuid)) {
-      await loadInventoryItems(inventoryUuid, true);
-      // re-fetch the item now that everything is loaded
-      inventoryItem = inventoryItems.find(item => item.uuid === inventoryitemUuid);
-
-      if (!inventoryItem) return;
-    }
-
-    // Get group information
-    const groupedItems = getGroupedInventoryItems();
-    const groupInfo = getGroupInfo(inventoryItem, groupedItems);
-
-    // Get all items that should be toggled (either the single item or all items in the group)
-    const itemsToToggle = inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId
-      ? inventoryItems.filter(groupItem =>
-        groupItem.group_id === groupInfo.groupId &&
-        groupItem.inventory_uuid === inventoryItem.inventory_uuid && // Ensure same inventory
-        // Filter out IN_WAREHOUSE and USED unless delivered
-        (formData.status === 'DELIVERED' || formData.status === 'CANCELLED' ||
-          (groupItem.status !== 'IN_WAREHOUSE' && groupItem.status !== 'USED'))
-      )
-      : [inventoryItem];
-
-    // Check if any of the items are already assigned to another delivery
-    for (const item of itemsToToggle) {
-      if (!isSelected && item.status === 'ON_DELIVERY' && selectedDeliveryId) {
-        const isAssignedToCurrentDelivery = formData.inventory_items?.[item.uuid] ||
-          prevSelectedInventoryItems.includes(item.uuid) ||
-          selectedInventoryItems.includes(item.uuid);
-
-        if (!isAssignedToCurrentDelivery) {
-          console.warn("One or more items are already assigned to another delivery");
-          return;
-        }
-      }
-    }
-
-    setSelectedInventoryItems(prev => {
-      let newSelectedItems;
-
-      if (isSelected) {
-        // Add all items in the group/single item
-        const itemUuidsToAdd = itemsToToggle.map(item => item.uuid);
-        newSelectedItems = [...prev, ...itemUuidsToAdd.filter(uuid => !prev.includes(uuid))];
-      } else {
-        // Remove all items in the group/single item
-        const itemUuidsToRemove = itemsToToggle.map(item => item.uuid);
-        newSelectedItems = prev.filter(uuid => !itemUuidsToRemove.includes(uuid));
-      }
-
-      // Update formData with inventory_items format
-      const currentInventoryItems = formData.inventory_items || {};
-      const newInventoryItems: Record<string, { inventory_uuid: string; group_id: string; location: any }> = {};
-
-      // Keep existing entries for items that are still selected
-      newSelectedItems.forEach(uuid => {
-        if (currentInventoryItems[uuid]) {
-          newInventoryItems[uuid] = currentInventoryItems[uuid];
-        } else {
-          // Create new entry for newly selected items
-          const item = inventoryItems.find(i => i.uuid === uuid);
-          if (item) {
-            newInventoryItems[uuid] = {
-              inventory_uuid: item.inventory_uuid,
-              group_id: item.group_id || "",
-              location: {}
-            };
-          }
-        }
-      });
-
-      // Update form data
-      setFormData(prev => ({
-        ...prev,
-        inventory_items: newInventoryItems
-      }));
-
-      // Update locations array to match selected items
-      const newLocationsArray = newSelectedItems.map(uuid =>
-        newInventoryItems[uuid]?.location || {}
-      ).filter(loc => loc && loc.floor !== undefined);
-
-      setLocations(newLocationsArray);
-
-      return newSelectedItems;
-    });
-  };
-
-  // Add helper function to update locations when current index changes
-  useEffect(() => {
-    if (currentInventoryItemLocationIndex >= 0 &&
-      currentInventoryItemLocationIndex < selectedInventoryItems.length &&
-      formData.inventory_items) {
-
-      const currentItemUuid = selectedInventoryItems[currentInventoryItemLocationIndex];
-      const currentLocation = formData.inventory_items[currentItemUuid].location;
-
-      if (currentLocation) {
-        setSelectedFloor(currentLocation.floor ?? null);
-        setSelectedGroup(currentLocation.group ?? null);
-        setSelectedRow(currentLocation.row ?? null);
-        setSelectedColumn(currentLocation.column ?? null);
-        setSelectedDepth(currentLocation.depth ?? null);
-        setSelectedColumnCode(parseColumn(currentLocation.column ?? null) || "");
-        setSelectedCode(currentLocation.code || "");
-      }
-    }
-  }, [currentInventoryItemLocationIndex, selectedInventoryItems, formData.inventory_items]);
-
-
-
-  // Update the effect that manages select all state to account for filtered items
-  useEffect(() => {
-    const displayItems = getDisplayInventoryItemsList();
-    const availableItems = displayItems.filter(item => {
-      const statusStyling = getInventoryItemStatusStyling(item);
-      return !statusStyling.isDisabled;
-    });
-
-    if (availableItems.length === 0) {
-      setIsSelectAllChecked(false);
-      setIsSelectAllIndeterminate(false);
-      return;
-    }
-
-    // Count how many available items are selected
-    let selectedAvailableCount = 0;
-    let totalAvailableCount = 0;
-
-    availableItems.forEach(item => {
-      const groupedItems = getGroupedInventoryItems();
-      const groupInfo = getGroupInfo(item, groupedItems);
-
-      if (inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId) {
-        const groupItems = inventoryItems.filter(groupItem =>
-          groupItem.group_id === groupInfo.groupId &&
-          // Filter out IN_WAREHOUSE and USED unless delivered
-          (formData.status === 'DELIVERED' || formData.status === 'CANCELLED' ||
-            (groupItem.status !== 'IN_WAREHOUSE' && groupItem.status !== 'USED'))
-        );
-        const availableGroupItems = groupItems.filter(groupItem => {
-          const groupItemStatusStyling = getInventoryItemStatusStyling(groupItem);
-          return !groupItemStatusStyling.isDisabled;
-        });
-
-        totalAvailableCount += availableGroupItems.length;
-        selectedAvailableCount += availableGroupItems.filter(groupItem =>
-          selectedInventoryItems.includes(groupItem.uuid)
-        ).length;
-      } else {
-        totalAvailableCount += 1;
-        if (selectedInventoryItems.includes(item.uuid)) {
-          selectedAvailableCount += 1;
-        }
-      }
-    });
-
-    if (selectedAvailableCount === 0) {
-      setIsSelectAllChecked(false);
-      setIsSelectAllIndeterminate(false);
-    } else if (selectedAvailableCount === totalAvailableCount) {
-      setIsSelectAllChecked(true);
-      setIsSelectAllIndeterminate(false);
-    } else {
-      setIsSelectAllChecked(false);
-      setIsSelectAllIndeterminate(true);
-    }
-  }, [selectedInventoryItems, inventoryItems, inventoryViewMode, formData.status, formData.inventory_items, prevSelectedInventoryItems]);
-
-  // UPDATED: Effect to handle pendingInventorySelection with better timing
-  useEffect(() => {
-    if (pendingInventorySelection && loadedInventoryUuids.has(pendingInventorySelection.inventoryUuid)) {
-      // Use setTimeout to ensure inventoryItems state is properly updated
-      setTimeout(() => {
-        _performInventorySelectionLogic(pendingInventorySelection.inventoryUuid, pendingInventorySelection.isSelected);
-        setPendingInventorySelection(null);
-      }, 100);
-    }
-  }, [inventoryItems, loadedInventoryUuids, pendingInventorySelection, formData.status, inventoryViewMode]);
-
-  /**
-   * Helper function to extract inventory item UUIDs from inventory_items
-   */
-  function getInventoryItemUuidsFromLocations(inventoryLocations: Record<string, ShelfLocation>): string[] {
-    return Object.keys(inventoryLocations);
-  }
-
-  /**
-   * Helper function to extract locations array from inventory_items
-   */
-  function getLocationsFromInventoryLocations(inventoryLocations: Record<string, ShelfLocation>): ShelfLocation[] {
-    return Object.values(inventoryLocations);
-  }
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const inputStyle = {
-    inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
-  };
-  const autoCompleteStyle = { classNames: inputStyle };
-
-  const resetWarehouseLocation = () => {
-    setSelectedFloor(null);
-    setSelectedColumn(null);
-    setSelectedRow(null);
-    setSelectedGroup(null);
-    setSelectedDepth(null);
-    setSelectedColumnCode("");
-    setSelectedCode("");
-    setLocations([]);
-    setFloorConfigs([]);
-    setOccupiedLocations([]);
-  };
-
-  // Generate URL for QR code 
-  const generateDeliveryUrl = (deliveryId?: string, autoAccept: boolean = false, showOptions: boolean = true) => {
-    const targetDeliveryId = deliveryId || selectedDeliveryId;
-    if (!targetDeliveryId || !formData) return "https://ropic.vercel.app/home/search";
-
-    const baseUrl = "https://ropic.vercel.app/home/search";
-    const params = new URLSearchParams({
-      q: targetDeliveryId,
-      ...(autoAccept && { deliveryAutoAccept: "true" }),
-      ...(showOptions && { showOptions: "true" })
-    });
-
-    return `${baseUrl}?${params.toString()}`;
-  };
-
-  // Updated function to regenerate URL when auto accept or show options changes
-  const updateQrCodeUrl = (autoAccept: boolean, showOptions?: boolean) => {
-    const currentShowOptions = showOptions !== undefined ? showOptions : qrCodeData.showOptions;
-    setQrCodeData(prev => ({
-      ...prev,
-      autoAccept,
-      ...(showOptions !== undefined && { showOptions }),
-      url: generateDeliveryUrl(prev.deliveryId, autoAccept, currentShowOptions),
-      description: `Scan this code to view delivery details for ${prev.deliveryName}${autoAccept ? '. This will automatically accept the delivery when scanned.' : '.'}`
-    }));
-  };
-
-  // Add new function to update show options
-  const updateShowOptions = (showOptions: boolean) => {
-    setQrCodeData(prev => ({
-      ...prev,
-      showOptions,
-      url: generateDeliveryUrl(prev.deliveryId, prev.autoAccept, showOptions)
-    }));
-  };
-
-  // Updated function to show QR code with proper state setup
-  const handleShowDeliveryQR = () => {
-    if (!selectedDeliveryId || !formData) return;
-
-    const inventoryNames = selectedInventoryUuids
-      .map(uuid => inventoryItems.find(item => item.uuid === uuid)?.name)
-      .filter(Boolean);
-    const deliveryName = inventoryNames.length > 0
-      ? `Delivery of ${inventoryNames.join(', ')}`
-      : 'Delivery';
-
-    setQrCodeData({
-      url: generateDeliveryUrl(selectedDeliveryId, false, true), // Start with autoAccept false, showOptions true
-      title: "Delivery QR Code",
-      description: `Scan this code to view delivery details for ${deliveryName}.`,
-      deliveryId: selectedDeliveryId,
-      deliveryName: deliveryName,
-      autoAccept: false, // Default to false
-      showOptions: true  // Default to true
-    });
-    setShowQrCode(true);
-  };
-
-  const isWarehouseNotSet = (): boolean => {
-    return formData.warehouse_uuid === "" || formData.warehouse_uuid === undefined || formData.warehouse_uuid === null
-  }
-
-  const isFloorConfigNotSet = (): boolean => {
-    return floorConfigs.length === 0 || floorConfigs === undefined || floorConfigs === null
-  }
-
-  const isDeliveryProcessing = (): boolean => {
-    return formData.status !== "DELIVERED" && formData.status !== "CANCELLED"
-  }
-
-  // Add a new helper function to check if only locations can be edited
-  const canOnlyEditLocations = (): boolean => {
-    return formData.status === "IN_TRANSIT" && user?.is_admin === true;
-  }
-
-  // Add a new helper function to check if all fields can be edited
-  const canEditAllFields = (): boolean => {
-    return (formData.status === "PENDING" || formData.status === "PROCESSING") && user?.is_admin === true;
-  }
-
-  const checkIfLocationOccupied = (location: any) => {
-    // Check if location is in occupied locations
-    const isOccupied = occupiedLocations.some(
-      loc =>
-        loc.floor === location.floor &&
-        loc.group === location.group &&
-        loc.row === location.row &&
-        loc.column === location.column &&
-        loc.depth === location.depth
-    );
-
-    // Check if location is in shelf color assignments (selected for delivery)
-    const isAssigned = shelfColorAssignments.some(
-      assignment =>
-        assignment.floor === location.floor &&
-        assignment.group === location.group &&
-        assignment.row === location.row &&
-        assignment.column === location.column &&
-        assignment.depth === location.depth
-    );
-
-    return isOccupied || isAssigned;
-  };
-
-  const filteredOccupiedLocations = useMemo(() => {
-    return occupiedLocations.filter(loc =>
-      !shelfColorAssignments.some(
-        assignment =>
-          assignment.floor === loc.floor &&
-          assignment.group === loc.group &&
-          assignment.row === loc.row &&
-          assignment.column === loc.column &&
-          assignment.depth === loc.depth
-      )
-    );
-  }, [occupiedLocations, shelfColorAssignments]);
-
-
-
-  // UPDATED: Load inventory items function with better error handling
-  const loadInventoryItems = useCallback(async (inventoryUuid: string, preserveSelection: boolean = false, forceReload: boolean = false) => {
-    if (!inventoryUuid) {
-      return Promise.resolve();
-    }
-
-    // Check if already loaded and not forcing reload
-    if (!forceReload && loadedInventoryUuids.has(inventoryUuid)) {
-      return Promise.resolve();
-    }
-
-    setIsLoadingInventoryItems(true);
-    try {
-      const result = await getInventoryItem(
-        inventoryUuid,
-        formData.status === "DELIVERED" || formData.status === "CANCELLED",
-        selectedDeliveryId || undefined
-      );
-
-      if (result.success && result.data.inventory_items) {
-        const itemsWithInventoryInfo = result.data.inventory_items.map((item: any) => ({
-          ...item,
-          inventory_uuid: inventoryUuid,
-          inventory_name: result.data.name || 'Unknown'
-        }));
-
-        // Add sequential IDs to items
-        const inventoryItemsWithIds = itemsWithInventoryInfo.map((item: any, index: number) => ({
-          ...item,
-          id: index + 1,
-        }));
-
-        // Update the state for this specific inventory
-        setInventoryItems(prev => {
-          // Remove existing items for this inventory and add new ones
-          const filteredItems = prev.filter(item => item.inventory_uuid !== inventoryUuid);
-          return [...filteredItems, ...inventoryItemsWithIds];
-        });
-
-        // Mark this inventory as loaded
-        setLoadedInventoryUuids(prev => new Set([...prev, inventoryUuid]));
-
-        setNextItemId(prev => Math.max(prev, inventoryItemsWithIds.length + 1));
-
-        return Promise.resolve();
-      }
-    } catch (error) {
-      console.error("Error loading inventory items:", error);
-      return Promise.reject(error);
-    } finally {
-      setIsLoadingInventoryItems(false);
-    }
-  }, [formData.status, selectedDeliveryId, loadedInventoryUuids]);
-
-
-  // NEW: Handle adding inventories to delivery
-  const handleAddInventory = (inventoryUuid: string) => {
-    if (!inventoryUuid || selectedInventoryUuids.includes(inventoryUuid)) return;
-
-    const newSelectedInventories = [...selectedInventoryUuids, inventoryUuid];
-    setSelectedInventoryUuids(newSelectedInventories);
-
-    // Load inventory items for all selected inventories
-    setTimeout(() => {
-      newSelectedInventories.forEach(uuid => {
-        loadInventoryItems(uuid, true);
-      });
-    }, 100);
-
-    // Reset search term and hide selector
-    setInventorySearchTerm('');
-    setShowInventorySelector(false);
-  };
-
-
-
-  // UPDATED: Handle accordion expansion with better loading
-  const handleAccordionSelectionChange = useCallback(async (keys: any) => {
-    const newExpandedKeys = keys as Set<string>;
-    setExpandedInventories(newExpandedKeys);
-
-    // Load inventory items for newly expanded inventories
-    const newlyExpanded = Array.from(newExpandedKeys).filter(uuid =>
-      !expandedInventories.has(uuid) && !loadedInventoryUuids.has(uuid)
-    );
-
-    for (const inventoryUuid of newlyExpanded) {
-      try {
-        await loadInventoryItems(inventoryUuid, true);
-      } catch (error) {
-        console.error(`Error loading items for inventory ${inventoryUuid}:`, error);
-      }
-    }
-  }, [expandedInventories, loadedInventoryUuids, loadInventoryItems]);
-
-  // NEW: Handle removing inventories from delivery
-  const handleRemoveInventory = (inventoryUuid: string) => {
-    const newSelectedInventories = selectedInventoryUuids.filter(uuid => uuid !== inventoryUuid);
-    setSelectedInventoryUuids(newSelectedInventories);
-
-    // Remove any selected inventory items that belong to this inventory
-    const itemsToRemove = inventoryItems
-      .filter(item => item.inventory_uuid === inventoryUuid)
-      .map(item => item.uuid);
-
-    const newSelectedItems = selectedInventoryItems.filter(uuid => !itemsToRemove.includes(uuid));
-    setSelectedInventoryItems(newSelectedItems);
-
-    // Update formData to remove items from this inventory
-    const newInventoryItems = { ...formData.inventory_items };
-    itemsToRemove.forEach(uuid => {
-      delete newInventoryItems[uuid];
-    });
-
-    setFormData(prev => ({
-      ...prev,
-      inventory_items: newInventoryItems
-    }));
-
-    // Update locations array
-    const newLocationsArray = Object.values(newInventoryItems).map(item => item.location).filter(Boolean);
-    setLocations(newLocationsArray);
-
-    // Reload inventory items for remaining inventories
-    if (newSelectedInventories.length > 0) {
-      setTimeout(() => {
-        newSelectedInventories.forEach(uuid => {
-          loadInventoryItems(uuid, true);
-        });
-      }, 100);
-    } else {
-      setInventoryItems([]);
-    }
-  };
-
-  // Use an effect to update the assignments when locations or currentInventoryItemLocationIndex change
-  useEffect(() => {
-    const assignments: Array<ShelfSelectorColorAssignment> = [];
-
-    // Get the currently focused inventoryitem location
-    const currentLocation = currentInventoryItemLocationIndex >= 0 && locations && locations[currentInventoryItemLocationIndex]
-      ? locations[currentInventoryItemLocationIndex]
-      : null;
-
-    // 1. Add all selected inventoryitem locations as secondary color, except the current one
-    if (locations && locations.length > 0) {
-      locations.forEach((location, index) => {
-        if (location && location.floor !== undefined) {
-          // Skip the currently focused location as it will be added as tertiary later
-          if (index === currentInventoryItemLocationIndex) {
-            return;
-          }
-          assignments.push({
-            floor: location.floor,
-            group: location.group,
-            row: location.row,
-            column: location.column,
-            depth: location.depth,
-            colorType: 'secondary'
-          });
-        }
-      });
-    }
-
-    // 2. Add the currently focused inventoryitem location as tertiary 
-    if (currentLocation && currentLocation.floor !== undefined) {
-      assignments.push({
-        floor: currentLocation.floor,
-        group: currentLocation.group,
-        row: currentLocation.row,
-        column: currentLocation.column,
-        depth: currentLocation.depth,
-        colorType: 'tertiary'
-      });
-    }
-
-    // Update the state with the new assignments
-    setShelfColorAssignments(assignments);
-  }, [locations, currentInventoryItemLocationIndex]);
-
-  // Update the inventory item change handler to use delivery context
-  const handleInventoryItemChange = async (inventoryItemUuid: string | null) => {
-    // Reset selected inventoryitems and locations
-    setSelectedInventoryItems([]);
-    setLocations([]);
-
-    // Update form data
-    setFormData(prev => ({
-      ...prev,
-      inventory_uuid: inventoryItemUuid,
-      inventory_item_uuids: [], // Reset inventoryitem selection
-      locations: [], // Reset locations
-      inventory_items: {} // Reset inventory locations
-    }));
-
-    // Load inventoryitem items for this inventory item with delivery context
-    if (inventoryItemUuid) {
-      await loadInventoryItems(inventoryItemUuid);
-    }
-  };
-
-  // Update the operator selection handler to add operator instead of replacing
-  const handleAddOperator = (operatorUuid: string) => {
-    if (!operatorUuid) return;
-
-    const operatorToAdd = operators.find(op => op.uuid === operatorUuid);
-    if (!operatorToAdd) return;
-
-    // Check if operator is already selected
-    if (selectedOperators.some(op => op.uuid === operatorUuid)) return;
-
-    // Ensure operator has uuid before adding and use type assertion to match the state type
-    const newSelectedOperators = [...selectedOperators, operatorToAdd];
-    setSelectedOperators(newSelectedOperators);
-
-    setFormData(prev => ({
-      ...prev,
-      operator_uuids: newSelectedOperators.map(op => op.uuid)
-    }));
-
-    // Clear validation error when operators are selected
-    setErrors(prev => {
-      const { operator_uuids, ...rest } = prev;
-      return rest;
-    });
-  };
-
-  const handleRemoveOperator = (operatorUuid: string) => {
-    const newSelectedOperators = selectedOperators.filter(op => op.uuid !== operatorUuid);
-    // Use type assertion to match the state type
-    setSelectedOperators(newSelectedOperators);
-
-    setFormData(prev => ({
-      ...prev,
-      operator_uuids: newSelectedOperators.map(op => op.uuid)
-    }));
-  };
-
-  // const handleViewInventory = () => {
-  //   if (formData.inventory_uuid) {
-  //     // Navigate to inventory page with the item ID
-  //     if ((user === null || user.is_admin))
-  //       router.push(`/home/inventory?itemId=${formData.inventory_uuid}`);
-  //     else
-  //       router.push(`/home/warehouse-items?itemId=${formData.inventory_uuid}`);
-  //   }
-  // };
-
-  // Handle creating a new delivery
-  const handleNewDelivery = () => {
-    // check if the current url is already a new delivery page
-    setIsLoading(searchParams.get("deliveryId") !== null);
-
-    // Clear the URL parameter
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("deliveryId");
-    router.push(`?${params.toString()}`, { scroll: false });
-  };
-
-  // Handle selecting a delivery
-  const handleSelectDelivery = (deliveryId: string) => {
-    setIsLoading(searchParams.get("deliveryId") !== deliveryId);
-
-    // Update the URL with the selected delivery ID without reloading the page
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("deliveryId", deliveryId);
-    router.push(`?${params.toString()}`, { scroll: false });
-  };
-
-  // Handle selecting a delivery
-  const handleGoToWarehouse = (warehouseUuid: string) => {
-    // Update the URL with the selected delivery ID without reloading the page
-    router.push(`/home/warehouses?warehouseId=${warehouseUuid}`);
-  };
-
-  // Handle form changes
-  const handleAutoSelectChange = async (name: string, value: any) => {
-    setFormData(prev => ({ ...prev, [name]: value }));
-
-    // If warehouse is selected, load the layout
-    if (name === "warehouse_uuid" && value) {
-      await handleWarehouseChange(value);
-    }
-
-    // If inventory_uuid is changed, load inventoryitem items
-    if (name === "inventory_uuid" && value) {
-      await loadInventoryItems(value);
-    }
-  };
-
-
-  // Update the handleWarehouseChange function to properly filter occupied locations
-  const handleWarehouseChange = async (warehouseUuid: string) => {
-    const selectedWarehouse = warehouses.find(wh => wh.uuid === warehouseUuid);
-    if (selectedWarehouse) {
-      // Fetch warehouse layout
-      const warehouseLayout = selectedWarehouse.layout || [];
-      setFloorConfigs(warehouseLayout);
-
-      setFormData(prev => ({
-        ...prev,
-        delivery_address: selectedWarehouse.address!.fullAddress || "",
-      }));
-
-      // Fetch occupied shelf locations
-      const occupiedResult = await getOccupiedShelfLocations(selectedWarehouse.uuid || "");
-      if (occupiedResult.success) {
-        // Filter out locations that are in current delivery's shelf color assignments
-        const filteredOccupiedLocations = (occupiedResult.data || []).filter(loc =>
-          !shelfColorAssignments.some(
-            assignment =>
-              assignment.floor === loc.floor &&
-              assignment.group === loc.group &&
-              assignment.row === loc.row &&
-              assignment.column === loc.column &&
-              assignment.depth === loc.depth
-          )
-        );
-        setOccupiedLocations(filteredOccupiedLocations);
-      }
-    } else {
-      setFormData(prev => ({
-        ...prev,
-        delivery_address: ""
-      }));
-      resetWarehouseLocation();
-    }
-  };
-
-  // Add a new function to refresh occupied locations after form updates
-  const refreshOccupiedLocations = async () => {
-    if (!formData.warehouse_uuid) return;
-
-    const occupiedResult = await getOccupiedShelfLocations(formData.warehouse_uuid);
-    if (occupiedResult.success) {
-      // Filter out locations that are in current delivery's shelf color assignments
-      const filteredOccupiedLocations = (occupiedResult.data || []).filter(loc =>
-        !shelfColorAssignments.some(
-          assignment =>
-            assignment.floor === loc.floor &&
-            assignment.group === loc.group &&
-            assignment.row === loc.row &&
-            assignment.column === loc.column &&
-            assignment.depth === loc.depth
-        )
-      );
-      setOccupiedLocations(filteredOccupiedLocations);
-    }
-  };
-
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  /* 3D Shelf Selector */
-  const handle3DLocationSelect = (location: ShelfLocation) => {
-    // Update maximum values if available
-    if (location.max_group !== undefined) setMaxGroupId(location.max_group);
-    if (location.max_row !== undefined) setMaxRow(location.max_row);
-    if (location.max_column !== undefined) setMaxColumn(location.max_column);
-    if (location.max_depth !== undefined) setMaxDepth(location.max_depth);
-  };
-
-  const handle3DLocationConfirm = (location: ShelfLocation) => {
-    // Update the locations array
-    const newLocations = [...locations];
-    newLocations[currentInventoryItemLocationIndex] = location;
-    setLocations(newLocations);
-
-    // Update inventory_items object
-    const currentInventoryItemUuid = selectedInventoryItems[currentInventoryItemLocationIndex];
-    if (currentInventoryItemUuid) {
-      const newInventoryItems = { ...formData.inventory_items };
-      if (newInventoryItems[currentInventoryItemUuid]) {
-        newInventoryItems[currentInventoryItemUuid] = {
-          ...newInventoryItems[currentInventoryItemUuid],
-          location: location
-        };
-      }
-
-      // Update formData
-      setFormData(prev => ({
-        ...prev,
-        inventory_items: newInventoryItems
-      }));
-    }
-
-    // Update local state for the selected location
-    setSelectedFloor(location.floor ?? null);
-    setSelectedColumn(location.column ?? null);
-    setSelectedColumnCode(parseColumn(location.column ?? null) || "");
-    setSelectedRow(location.row ?? null);
-    setSelectedGroup(location.group ?? null);
-    setSelectedDepth(location.depth ?? null);
-    setSelectedCode(location.code || "");
-  };
-
-  const handleOpenModal = () => {
-    onOpen();
-  };
-
-  // Get current location for the 3D selector
-  const getCurrentLocation = (): ShelfLocation | undefined => {
-    if (currentInventoryItemLocationIndex >= 0 &&
-      currentInventoryItemLocationIndex < selectedInventoryItems.length &&
-      formData.inventory_items) {
-
-      const currentItemUuid = selectedInventoryItems[currentInventoryItemLocationIndex];
-      const currentLocation = formData.inventory_items[currentItemUuid]?.location;
-
-      if (currentLocation) {
-        return {
-          floor: currentLocation.floor ?? undefined,
-          column: currentLocation.column ?? undefined,
-          row: currentLocation.row ?? undefined,
-          group: currentLocation.group ?? undefined,
-          depth: currentLocation.depth ?? undefined,
-          code: currentLocation.code || ""
-        };
-      }
-    }
-
-    return undefined;
-  };
-
-  /* QR Code Image Upload and Scanning */
-  // Update image upload handler to auto-accept
-  const handleQrImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsProcessingImage(true);
-
-    try {
-      const img = new Image();
-      const objectUrl = URL.createObjectURL(file);
-
-      img.onload = async () => {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-
-        if (!ctx) {
-          setValidationError("Failed to process image");
-          setIsProcessingImage(false);
-          URL.revokeObjectURL(objectUrl);
-          return;
-        }
-
-        canvas.width = img.width;
-        canvas.height = img.height;
-        ctx.drawImage(img, 0, 0);
-
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const code = jsQR(imageData.data, imageData.width, imageData.height);
-
-        if (code) {
-          // Extract UUID from the QR code data (URL or direct UUID)
-          let deliveryUuid = code.data;
-
-          try {
-            const url = new URL(code.data);
-            const searchParams = new URLSearchParams(url.search);
-            const qParam = searchParams.get('q');
-            if (qParam) {
-              deliveryUuid = qParam;
-            }
-          } catch (error) {
-            // Not a URL, treat as UUID directly
-          }
-
-          await handleAcceptDelivery(deliveryUuid);
-        } else {
-          setValidationError("No QR code found in the image");
-        }
-
-        setIsProcessingImage(false);
-        URL.revokeObjectURL(objectUrl);
-      };
-
-      img.onerror = () => {
-        setValidationError("Failed to load image");
-        setIsProcessingImage(false);
-        URL.revokeObjectURL(objectUrl);
-      };
-
-      img.src = objectUrl;
-    } catch (error) {
-      console.error("Error processing QR image:", error);
-      setValidationError("Failed to process the uploaded image");
-      setIsProcessingImage(false);
-    }
-  };
-
-  // Update the existing handleDeliveryJsonValidation function to work with paste link
-  const handlePasteLinkAccept = async (inputData = deliveryInput) => {
-    if (!inputData.trim()) return;
-
-    // Extract UUID from URL or use the input directly as UUID
-    let deliveryUuid = inputData.trim();
-
-    // If it's a URL, extract the UUID from query parameters
-    try {
-      const url = new URL(inputData);
-      const searchParams = new URLSearchParams(url.search);
-      const qParam = searchParams.get('q');
-      if (qParam) {
-        deliveryUuid = qParam;
-      }
-    } catch (error) {
-      // Not a valid URL, treat as UUID directly
-    }
-
-    await handleAcceptDelivery(deliveryUuid);
-  };
-
-  // Handle Enter key in paste link input
-  const handlePasteLinkKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handlePasteLinkAccept();
-    }
-  };
-
-  // Accept delivery function (updated for current version)
-  const handleAcceptDelivery = async (deliveryUuid?: string) => {
-    if (!deliveryUuid || !user) return;
-
-    setIsAcceptingDelivery(true);
-    setAcceptDeliveryError(null);
-    setAcceptDeliverySuccess(false);
-
-    try {
-      // Load delivery details first
-      const deliveryResult = await getDeliveryDetails(deliveryUuid, user.company_uuid);
-
-      if (!deliveryResult.success || !deliveryResult.data) {
-        setAcceptDeliveryError("Failed to load delivery details");
-        setShowAcceptStatusModal(true);
-        return;
-      }
-
-      const targetDelivery = deliveryResult.data;
-
-      // Check if the user is an operator (not admin)
-      if (user.is_admin) {
-        setAcceptDeliveryError("Admins cannot accept deliveries - only operators can");
-        setShowAcceptStatusModal(true);
-        return;
-      }
-
-      // Check if the delivery status is IN_TRANSIT
-      if (targetDelivery.status !== "IN_TRANSIT") {
-        setAcceptDeliveryError("This delivery cannot be accepted because it is not in transit");
-        setShowAcceptStatusModal(true);
-        return;
-      }
-
-      // Check if the operator is assigned to this delivery
-      const isAssignedOperator = targetDelivery.operator_uuids?.includes(user.uuid) ||
-        targetDelivery.operator_uuids === null ||
-        targetDelivery.operator_uuids?.length === 0;
-
-      if (!isAssignedOperator) {
-        setAcceptDeliveryError("You are not assigned to this delivery");
-        setShowAcceptStatusModal(true);
-        return;
-      }
-
-      // Update delivery status to DELIVERED using the RPC function
-      const result = await updateDeliveryStatusWithItems(
-        deliveryUuid,
-        "DELIVERED",
-        user.company_uuid
-      );
-
-      if (result.success) {
-        setAcceptDeliverySuccess(true);
-        setShowAcceptStatusModal(true);
-
-        // Update the current form data if this is the selected delivery
-        if (selectedDeliveryId === deliveryUuid) {
-          setFormData(prev => ({
-            ...prev,
-            status: "DELIVERED",
-            status_history: result.data.status_history,
-            updated_at: result.data.updated_at
-          }));
-
-        }
-
-        // Clear validation states
-        setValidationError("");
-        setValidationSuccess(true);
-        setDeliveryInput("");
-
-      } else {
-        setAcceptDeliveryError(result.error || "Failed to accept delivery");
-        setShowAcceptStatusModal(true);
-      }
-
-    } catch (error) {
-      console.error("Error accepting delivery:", error);
-      setAcceptDeliveryError(`Failed to accept delivery: ${(error as Error).message}`);
-      setShowAcceptStatusModal(true);
-    } finally {
-      setIsAcceptingDelivery(false);
-    }
-  };
-
-  // Function to automatically validate when text is pasted
-  const handleDeliveryPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-    const pastedText = e.clipboardData.getData('text');
-
-    if (pastedText.trim()) {
-      // Set the pasted text
-      setDeliveryInput(pastedText);
-
-      // Validate instantly only when pasted
-      setTimeout(() => {
-        handlePasteLinkAccept(pastedText);
-      }, 100);
-    }
-  };
-
-  // Add this useEffect to focus on the textarea when modal opens
-  useEffect(() => {
-    if (showAcceptDeliveryModal && acceptDeliveryTab === "paste-link") {
-      // Short timeout to ensure the modal is rendered before focusing
-      setTimeout(() => {
-        const input = document.querySelector('[placeholder="Paste delivery UUID or URL here..."]') as HTMLInputElement;
-        input?.focus();
-      }, 100);
-    }
-  }, [showAcceptDeliveryModal, acceptDeliveryTab]);
-
-  // Update the delivery filters to use the correct inventories data
-  const deliveryFilters: Record<string, FilterOption> = {
-    warehouse_filter: {
-      name: "Warehouse",
-      valueName: "warehouse_uuid",
-      color: "danger",
-      filters: warehouses.reduce(
-        (acc, warehouse) => ({
-          ...acc,
-          [warehouse.uuid]: warehouse.name
-        }),
-        { "": "All Warehouses" }
-      )
-    },
-    status_filter: {
-      name: "Status",
-      valueName: "status",
-      color: "primary",
-      filters: {
-        "": "All Statuses",
-        PENDING: "Pending",
-        PROCESSING: "Processing",
-        IN_TRANSIT: "In Transit",
-        DELIVERED: "Delivered",
-        CANCELLED: "Cancelled"
-      }
-    },
-    operator_filter: {
-      name: "Operator",
-      valueName: "operator_uuids",
-      color: "secondary",
-      filters: operators.reduce(
-        (acc, operator) => ({
-          ...acc,
-          [operator.uuid]: operator.full_name
-        }),
-        { "": "All Operators" }
-      )
-    },
-    inventory_filter: {
-      name: "Inventory",
-      valueName: "inventory_uuid",
-      color: "success",
-      filters: inventories.reduce( // Use inventories instead of inventoryItems
-        (acc, item) => ({
-          ...acc,
-          [item.uuid]: item.name
-        }),
-        { "": "All Items" }
-      )
-    }
-  };
-
-  // Update the getInventoryItemStatusStyling function to properly handle previously selected items
-  const getInventoryItemStatusStyling = (item: any) => {
-    // For new delivery creation (no selectedDeliveryId), only allow AVAILABLE items
-    if (!selectedDeliveryId) {
-      switch (item.status) {
-        case 'AVAILABLE':
-          return {
-            isDisabled: false,
-            disabledReason: null
-          };
-        case 'ON_DELIVERY':
-          return {
-            isDisabled: true,
-            disabledReason: 'This item is assigned to another delivery'
-          };
-        case 'IN_WAREHOUSE':
-          return {
-            isDisabled: true,
-            disabledReason: 'This item is already in warehouse'
-          };
-        case 'USED':
-          return {
-            isDisabled: true,
-            disabledReason: 'This item has been used'
-          };
-        default:
-          return {
-            isDisabled: true,
-            disabledReason: 'Item is not available for delivery'
-          };
-      }
-    }
-
-    // For editing existing delivery, check if item is part of current delivery or was previously selected
-    const isPartOfCurrentDelivery = formData.inventory_items?.[item.uuid] ||
-      prevSelectedInventoryItems.includes(item.uuid);
-
-    switch (item.status) {
-      case 'ON_DELIVERY':
-        return {
-          isDisabled: !isPartOfCurrentDelivery,
-          disabledReason: isPartOfCurrentDelivery ? null : 'This item is assigned to another delivery'
-        };
-      case 'IN_WAREHOUSE':
-        return {
-          isDisabled: formData.status !== 'DELIVERED' && formData.status !== 'CANCELLED',
-          disabledReason: 'This item is already in warehouse'
-        };
-      case 'USED':
-        return {
-          isDisabled: formData.status !== 'DELIVERED' && formData.status !== 'CANCELLED',
-          disabledReason: 'This item has been used'
-        };
-      case 'AVAILABLE':
-      default:
-        return {
-          isDisabled: false,
-          disabledReason: null
-        };
-    }
-  };
-
-  useEffect(() => {
-    // Refresh occupied locations when shelf color assignments change
-    if (formData.warehouse_uuid && shelfColorAssignments.length >= 0) {
-      refreshOccupiedLocations();
-    }
-  }, [shelfColorAssignments, formData.warehouse_uuid]);
-
-
-  // Update the inventory item rendering to include status indicators
-  // This would be used in the inventory item selection UI components
-  const renderInventoryItemWithStatus = (item: any, isSelected: boolean) => {
-    const statusStyling = getInventoryItemStatusStyling(item);
-
-    // Get group information
-    const groupedItems = getGroupedInventoryItems();
-    const groupInfo = getGroupInfo(item, groupedItems);
-
-    // Calculate display number for the item
-    const displayItems = getDisplayInventoryItemsList();
-    const displayIndex = displayItems.findIndex(displayItem => displayItem.uuid === item.uuid);
-    const displayNumber = displayIndex + 1;
-
-    // Calculate group totals if this is a group item
-    let groupStats = null;
-    if (inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId) {
-      const groupItems = inventoryItems.filter(groupItem => groupItem.group_id === groupInfo.groupId);
-      const availableGroupItems = groupItems.filter(groupItem => {
-        const groupItemStatusStyling = getInventoryItemStatusStyling(groupItem);
-        return !groupItemStatusStyling.isDisabled;
-      });
-      const selectedGroupItems = groupItems.filter(groupItem => selectedInventoryItems.includes(groupItem.uuid));
-
-      groupStats = {
-        total: groupItems.length,
-        available: availableGroupItems.length,
-        selected: selectedGroupItems.length
-      };
-    }
-
-    // Function to determine if checkbox should be shown
-    const shouldShowCheckbox = () => {
-      if (formData.status !== 'PENDING') {
-        return false;
-      }
-
-      // For editing existing delivery, check if item is part of current delivery
-      if (['ON_DELIVERY', 'IN_WAREHOUSE', 'USED'].includes(item.status)) {
-        const isPartOfCurrentDelivery = formData.inventory_items?.[item.uuid] ||
-          prevSelectedInventoryItems.includes(item.uuid) ||
-          selectedInventoryItems.includes(item.uuid);
-
-        return isPartOfCurrentDelivery || formData.status === 'PENDING';
-      }
-
-      return true;
-    };
-
-    return (
-      <div className={`rounded-lg ${statusStyling.isDisabled ? 'opacity-60' : ''}`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {shouldShowCheckbox() && (
-              <Checkbox
-                isSelected={isSelected}
-                onValueChange={(checked) => handleInventoryItemSelectionToggle(item.uuid, checked)}
-                isDisabled={statusStyling.isDisabled}
-              />
-            )}
-            <div>
-              {/* Show Group/Item number as main text */}
-              <p className="font-medium">
-                {inventoryViewMode === 'grouped' && groupInfo.isGroup
-                  ? `Group ${displayNumber}`
-                  : `Item ${inventoryViewMode === 'flat' ? item.id : displayNumber}`
-                }
-              </p>
-              <p className="text-sm text-default-500">
-                {item.unit_value} {item.unit}
-                {groupStats && (
-                  <span className="ml-2 text-xs">
-                    ({groupStats.selected}/{groupStats.available} selected)
-                  </span>
-                )}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {/* Item code as a chip */}
-            <Chip
-              color="default"
-              size="sm"
-              variant="flat"
-              className="font-mono text-xs"
-            >
-              {item.item_code || 'No Code'}
-            </Chip>
-
-            <Chip
-              color={getStatusColor(item.status)}
-              size="sm"
-              variant="flat"
-            >
-              {formatStatus(item.status || 'Unknown')}
-            </Chip>
-            {statusStyling.isDisabled && statusStyling.disabledReason && (
-              <Tooltip content={statusStyling.disabledReason}>
-                <Icon icon="mdi:information-outline" className="text-warning" />
-              </Tooltip>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-
-
-  useEffect(() => {
-    // When the delivery status changes to DELIVERED, we want to ensure location fields are ready
-    // Skip this effect for already delivered items that are just being viewed
-    if (formData.status === "DELIVERED" &&
-      // Add this condition to prevent the infinite loop for already delivered items
-      !selectedDeliveryId &&
-      selectedFloor !== null &&
-      selectedColumn !== null &&
-      selectedRow !== null &&
-      selectedGroup !== null) {
-
-      // Create the location object for current inventoryitem
-      const location = {
-        floor: selectedFloor,
-        group: selectedGroup,
-        row: selectedRow,
-        column: selectedColumn !== null ? selectedColumn : 0,
-        depth: selectedDepth !== null ? selectedDepth : 0
-      };
-
-      // Create new locations and location codes arrays if needed
-      const newLocations = [...locations];
-
-      // Update for current inventoryitem
-      if (currentInventoryItemLocationIndex < newLocations.length) {
-        newLocations[currentInventoryItemLocationIndex] = location;
-      } else {
-        newLocations.push(location);
-      }
-
-      // Update form data
-      setFormData(prev => ({
-        ...prev,
-        locations: newLocations
-      }));
-
-      // Update local state
-      setLocations(newLocations);
-    }
-  }, [selectedFloor, selectedColumn, selectedRow, selectedGroup, selectedDepth, formData.status, currentInventoryItemLocationIndex, locations, selectedDeliveryId]);
 
   return (
     <motion.div {...motionTransition}>
@@ -2881,6 +2769,20 @@ export default function DeliveryPage() {
                                   </Chip>
                                 )}
 
+                                {/* Auto-assign locations button - only show for admin when items are selected and warehouse is set */}
+                                {(user?.is_admin) && selectedInventoryItems.length > 0 && !isWarehouseNotSet() && !isFloorConfigNotSet() && (canEditAllFields() || canOnlyEditLocations()) && (
+                                  <Button
+                                    color="warning"
+                                    variant="shadow"
+                                    size="sm"
+                                    onPress={autoAssignShelfLocations}
+                                    isLoading={isAutoAssigning}
+                                    startContent={!isAutoAssigning && <Icon icon="mdi:auto-fix" />}
+                                  >
+                                    {isAutoAssigning ? 'Auto-assigning...' : 'Auto-assign'}
+                                  </Button>
+                                )}
+
                                 <Button
                                   color={inventoryViewMode === 'grouped' ? "primary" : "default"}
                                   variant={inventoryViewMode === 'grouped' ? "shadow" : "flat"}
@@ -2895,7 +2797,6 @@ export default function DeliveryPage() {
                                 </Button>
                               </div>
                             </div>
-
                             <div className="py-4">
                               <Accordion
                                 selectionMode="multiple"
@@ -2951,7 +2852,7 @@ export default function DeliveryPage() {
                                         <LoadingAnimation
                                           condition={isLoadingInventoryItems && !loadedInventoryUuids.has(inventoryUuid)}
                                           skeleton={
-                                            <div className="space-y-2">
+                                            <div className="space-y-2 mx-2">
                                               {[...Array(3)].map((_, i) => (
                                                 <div key={i} className="border border-default-200 rounded-xl p-4">
                                                   <div className="flex items-center justify-between">
@@ -3208,7 +3109,7 @@ export default function DeliveryPage() {
                                                                                 color="primary"
                                                                                 variant="flat"
                                                                                 size="sm"
-                                                                                onPress={() => {  
+                                                                                onPress={() => {
                                                                                   // Set the current item location index and open modal
                                                                                   setCurrentInventoryItemLocationIndex(itemLocationIndex >= 0 ? itemLocationIndex : selectedInventoryItems.length);
 
@@ -4058,12 +3959,6 @@ export default function DeliveryPage() {
           onLocationConfirm={handle3DLocationConfirm}
           isDeliveryProcessing={isDeliveryProcessing()}
           isAdmin={user?.is_admin || false}
-          maxValues={{
-            maxGroupId,
-            maxRow,
-            maxColumn,
-            maxDepth
-          }}
         />
       </div >
     </motion.div >

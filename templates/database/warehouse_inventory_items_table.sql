@@ -2,9 +2,9 @@
 CREATE TABLE IF NOT EXISTS public.warehouse_inventory_items (
   uuid UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_uuid UUID NOT NULL REFERENCES public.companies(uuid) ON DELETE CASCADE,
-  admin_uuid UUID NOT NULL REFERENCES public.profiles(uuid) ON DELETE SET NULL,
   warehouse_uuid UUID NOT NULL REFERENCES public.warehouses(uuid) ON DELETE CASCADE,
   inventory_uuid UUID NOT NULL REFERENCES public.inventory(uuid) ON DELETE CASCADE,
+  inventory_item_uuid UUID NOT NULL REFERENCES public.inventory_items(uuid) ON DELETE CASCADE,
   delivery_uuid UUID not null REFERENCES public.delivery_items (uuid) on DELETE CASCADE,
   group_id TEXT,
   item_code TEXT NOT NULL,

@@ -28,12 +28,6 @@ interface Delivery3DShelfSelectorProps {
   onLocationConfirm: (location: ShelfLocation) => void;
   isDeliveryProcessing: boolean;
   isAdmin: boolean;
-  maxValues: {
-    maxGroupId: number;
-    maxRow: number;
-    maxColumn: number;
-    maxDepth: number;
-  };
 }
 
 export function Delivery3DShelfSelector({
@@ -46,8 +40,7 @@ export function Delivery3DShelfSelector({
   onLocationSelect,
   onLocationConfirm,
   isDeliveryProcessing,
-  isAdmin,
-  maxValues
+  isAdmin
 }: Delivery3DShelfSelectorProps) {
   // 3D shelf selector states
   const [tempSelectedFloor, setTempSelectedFloor] = useState<number | null>(null);
@@ -64,6 +57,13 @@ export function Delivery3DShelfSelector({
   const [externalSelection, setExternalSelection] = useState<ShelfLocation | undefined>(undefined);
   const [showControls, setShowControls] = useState(false);
 
+
+  // Add state for maximum values
+  const [maxGroupId, setMaxGroupId] = useState(0);
+  const [maxRow, setMaxRow] = useState(0);
+  const [maxColumn, setMaxColumn] = useState(0);
+  const [maxDepth, setMaxDepth] = useState(0);
+
   // Initialize temporary selections when modal opens
   useEffect(() => {
     if (isOpen && selectedLocation) {
@@ -75,7 +75,7 @@ export function Delivery3DShelfSelector({
       setTempSelectedGroup(selectedLocation.group ?? null);
       setTempSelectedCode(selectedLocation.code || "");
       setExternalSelection(selectedLocation);
-      
+
       if (selectedLocation.floor !== null && selectedLocation.floor !== undefined) {
         setHighlightedFloor(selectedLocation.floor);
       }
@@ -122,6 +122,11 @@ export function Delivery3DShelfSelector({
   };
 
   const handleShelfSelection = (location: ShelfLocation) => {
+    if (location.max_group !== undefined) setMaxGroupId(location.max_group);
+    if (location.max_row !== undefined) setMaxRow(location.max_row);
+    if (location.max_column !== undefined) setMaxColumn(location.max_column);
+    if (location.max_depth !== undefined) setMaxDepth(location.max_depth);
+
     const floorNumber = location.floor || 0;
     const columnNumber = location.column || 0;
     const columnCode = String.fromCharCode(65 + columnNumber);
@@ -284,12 +289,12 @@ export function Delivery3DShelfSelector({
   );
 
   return (
-    <Modal 
-      isOpen={isOpen} 
-      onClose={handleCancelLocation} 
-      placement='auto' 
-      classNames={{ backdrop: "bg-background/50", wrapper: 'overflow-hidden' }} 
-      backdrop="blur" 
+    <Modal
+      isOpen={isOpen}
+      onClose={handleCancelLocation}
+      placement='auto'
+      classNames={{ backdrop: "bg-background/50", wrapper: 'overflow-hidden' }}
+      backdrop="blur"
       size="5xl"
     >
       <ModalContent>
@@ -319,7 +324,7 @@ export function Delivery3DShelfSelector({
             {/* Shelf controls */}
             <AnimatePresence>
               {externalSelection && showControls && (
-                <motion.div 
+                <motion.div
                   {...motionTransition}
                   className="absolute overflow-hidden bottom-4 left-4 flex flex-col gap-2 bg-background/50 rounded-2xl backdrop-blur-lg w-auto"
                 >
@@ -370,8 +375,8 @@ export function Delivery3DShelfSelector({
                           <Button
                             size="sm"
                             isIconOnly
-                            onPress={() => handleGroupChange(Math.min(maxValues.maxGroupId + 1, ((externalSelection?.group || 0) + 1) + 1))}
-                            isDisabled={(externalSelection?.group || 0) + 1 > maxValues.maxGroupId}
+                            onPress={() => handleGroupChange(Math.min(maxGroupId + 1, ((externalSelection?.group || 0) + 1) + 1))}
+                            isDisabled={(externalSelection?.group || 0) + 1 > maxGroupId}
                             className="min-w-8 h-8"
                           >
                             <Icon icon="mdi:chevron-right" className="text-sm" />
@@ -399,8 +404,8 @@ export function Delivery3DShelfSelector({
                           <Button
                             size="sm"
                             isIconOnly
-                            onPress={() => handleRowChange(Math.min(maxValues.maxRow + 1, ((externalSelection?.row || 0) + 1) + 1))}
-                            isDisabled={(externalSelection?.row || 0) + 1 > maxValues.maxRow}
+                            onPress={() => handleRowChange(Math.min(maxRow + 1, ((externalSelection?.row || 0) + 1) + 1))}
+                            isDisabled={(externalSelection?.row || 0) + 1 > maxRow}
                             className="min-w-8 h-8"
                           >
                             <Icon icon="mdi:chevron-right" className="text-sm" />
@@ -426,8 +431,8 @@ export function Delivery3DShelfSelector({
                           <Button
                             size="sm"
                             isIconOnly
-                            onPress={() => handleColumnChange(Math.min(maxValues.maxColumn + 1, ((externalSelection?.column || 0) + 1) + 1))}
-                            isDisabled={(externalSelection?.column || 0) + 1 > maxValues.maxColumn}
+                            onPress={() => handleColumnChange(Math.min(maxColumn + 1, ((externalSelection?.column || 0) + 1) + 1))}
+                            isDisabled={(externalSelection?.column || 0) + 1 > maxColumn}
                             className="min-w-8 h-8"
                           >
                             <Icon icon="mdi:chevron-right" className="text-sm" />
@@ -453,8 +458,8 @@ export function Delivery3DShelfSelector({
                           <Button
                             size="sm"
                             isIconOnly
-                            onPress={() => handleDepthChange(Math.min(maxValues.maxDepth + 1, ((externalSelection?.depth || 0) + 1) + 1))}
-                            isDisabled={(externalSelection?.depth || 0) + 1 > maxValues.maxDepth}
+                            onPress={() => handleDepthChange(Math.min(maxDepth + 1, ((externalSelection?.depth || 0) + 1) + 1))}
+                            isDisabled={(externalSelection?.depth || 0) + 1 > maxDepth}
                             className="min-w-8 h-8"
                           >
                             <Icon icon="mdi:chevron-right" className="text-sm" />
@@ -469,7 +474,7 @@ export function Delivery3DShelfSelector({
 
             <AnimatePresence>
               {(externalSelection || showControls) && (
-                <motion.div 
+                <motion.div
                   {...motionTransition}
                   className={`absolute overflow-hidden ${showControls ? "bottom-8 left-8 h-8 shadow-sm" : "bottom-4 left-4 h-10 shadow-lg"} w-[12.6rem] bg-default-200/50 rounded-xl backdrop-blur-lg z-10 transition-all duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]`}
                 >
@@ -489,8 +494,8 @@ export function Delivery3DShelfSelector({
 
             <AnimatePresence>
               {externalSelection && (
-                <motion.div 
-                  {...motionTransition} 
+                <motion.div
+                  {...motionTransition}
                   className="absolute top-4 right-4 flex items-center gap-2 bg-background/50 rounded-2xl backdrop-blur-lg"
                 >
                   <span className="text-sm font-semibold p-4">CODE: <b>{externalSelection?.code}</b></span>
@@ -507,10 +512,10 @@ export function Delivery3DShelfSelector({
               {isDeliveryProcessing && isAdmin ? "Cancel" : "Close"}
             </Button>
             {isDeliveryProcessing && isAdmin && (
-              <Button 
-                color="primary" 
-                variant="shadow" 
-                onPress={handleConfirmLocation} 
+              <Button
+                color="primary"
+                variant="shadow"
+                onPress={handleConfirmLocation}
                 isDisabled={isSelectedLocationOccupied}
               >
                 {isSelectedLocationOccupied ? "Location Occupied" : "Confirm Location"}
