@@ -39,7 +39,6 @@ import {
   getDeliveryDetails,
   getOccupiedShelfLocations,
   suggestShelfLocations,
-  updateDeliveryItem,
   updateDeliveryStatusWithItems,
   updateDeliveryWithItems
 } from "./actions";
@@ -100,9 +99,15 @@ export default function DeliveryPage() {
   const [selectedDeliveryId, setSelectedDeliveryId] = useState<string | null>(null);
 
   // Inventory inventoryitem items
+  const [selectedInventoryUuids, setSelectedInventoryUuids] = useState<string[]>([]);
   const [inventoryInventoryItems, setInventoryInventoryItems] = useState<any[]>([]);
   const [selectedInventoryItems, setSelectedInventoryItems] = useState<string[]>([]);
   const [prevSelectedInventoryItems, setPrevSelectedInventoryItems] = useState<string[]>([]);
+
+  // New state for managing multi-inventory selection
+  const [inventorySearchTerm, setInventorySearchTerm] = useState<string>('');
+  const [showInventorySelector, setShowInventorySelector] = useState<boolean>(false);
+
 
   // InventoryItem details state
   const [expandedInventoryItemDetails, setExpandedInventoryItemDetails] = useState<Set<string>>(new Set());
@@ -116,6 +121,9 @@ export default function DeliveryPage() {
   const [deliveryInput, setDeliveryInput] = useState("");
   const [validationError, setValidationError] = useState("");
   const [validationSuccess, setValidationSuccess] = useState(false);
+
+  const [expandedInventories, setExpandedInventories] = useState<Set<string>>(new Set());
+
 
   // Add delivery acceptance states
   const [isAcceptingDelivery, setIsAcceptingDelivery] = useState(false);
@@ -177,7 +185,6 @@ export default function DeliveryPage() {
   const [isSelectAllChecked, setIsSelectAllChecked] = useState(false);
   const [isSelectAllIndeterminate, setIsSelectAllIndeterminate] = useState(false);
 
-
   // Add new state for QR code data with auto accept option
   const [qrCodeData, setQrCodeData] = useState<{
     url: string;
@@ -197,11 +204,134 @@ export default function DeliveryPage() {
     showOptions: true
   });
 
+  // Form state
+  const [formData, setFormData] = useState<Partial<DeliveryItem>>({
+    company_uuid: null,
+    admin_uuid: null,
+    inventory_items: {},
+    warehouse_uuid: null,
+    delivery_address: "",
+    delivery_date: format(new Date(), "yyyy-MM-dd"),
+    operator_uuids: [], // Changed from operator_uuid
+    notes: "",
+    status: "PENDING",
+  });
+
+
   // Add to the existing state declarations in the DeliveryPage component
   const [inventoryViewMode, setInventoryViewMode] = useState<'grouped' | 'flat'>('grouped');
 
   // Add next item ID state for generating sequential IDs
   const [nextItemId, setNextItemId] = useState(1);
+
+  const [inventorySelectAllStates, setInventorySelectAllStates] = useState<Record<string, { isChecked: boolean; isIndeterminate: boolean; }>>({});
+  // Add state to track which inventories have been loaded
+  const [loadedInventoryUuids, setLoadedInventoryUuids] = useState<Set<string>>(new Set());
+  const [pendingInventorySelection, setPendingInventorySelection] = useState<{ inventoryUuid: string; isSelected: boolean } | null>(null);
+
+
+  // Add function to handle per-inventory select all
+  const handleInventorySelectAllToggle = async (inventoryUuid: string, isSelected: boolean) => {
+    if (!loadedInventoryUuids.has(inventoryUuid)) {
+      setPendingInventorySelection({ inventoryUuid, isSelected });
+      await loadInventoryInventoryItems(inventoryUuid, true);
+      // The useEffect will handle the selection once items are loaded
+    } else {
+      // Items are already loaded, perform selection/deselection directly
+      _performInventorySelectionLogic(inventoryUuid, isSelected);
+    }
+  };
+
+  // Helper function to encapsulate the selection/deselection logic
+  const _performInventorySelectionLogic = (inventoryUuid: string, isSelected: boolean) => {
+    // Ensure we are using the latest inventoryInventoryItems
+    const currentInventoryItems = inventoryInventoryItems;
+    const inventoryItemsForThisInventory = currentInventoryItems.filter(item => item.inventory_uuid === inventoryUuid);
+    const displayItems = getDisplayInventoryItemsListForInventory(inventoryUuid);
+
+    if (isSelected) {
+      const availableItems = displayItems.filter(item => {
+        const statusStyling = getInventoryItemStatusStyling(item);
+        return !statusStyling.isDisabled;
+      });
+
+      const itemsToSelect: string[] = [];
+      availableItems.forEach(item => {
+        const groupedItems = getGroupedInventoryItems(); // Uses global inventoryInventoryItems
+        const groupInfo = getGroupInfo(item, groupedItems);
+
+        if (inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId) {
+          const groupItems = inventoryItemsForThisInventory.filter(groupItem =>
+            groupItem.group_id === groupInfo.groupId &&
+            (formData.status === 'DELIVERED' || formData.status === 'CANCELLED' ||
+              (groupItem.status !== 'IN_WAREHOUSE' && groupItem.status !== 'USED'))
+          );
+          groupItems.forEach(groupItem => {
+            const groupItemStatusStyling = getInventoryItemStatusStyling(groupItem);
+            if (!groupItemStatusStyling.isDisabled && !itemsToSelect.includes(groupItem.uuid)) {
+              itemsToSelect.push(groupItem.uuid);
+            }
+          });
+        } else {
+          if (!itemsToSelect.includes(item.uuid)) {
+            itemsToSelect.push(item.uuid);
+          }
+        }
+      });
+
+      setSelectedInventoryItems(prevSelected => {
+        const newSelectedItems = Array.from(new Set([...prevSelected, ...itemsToSelect]));
+        setFormData(prevFd => {
+          const newFdInventoryItems = { ...prevFd.inventory_items };
+          itemsToSelect.forEach(uuid => {
+            const itemDetails = currentInventoryItems.find(i => i.uuid === uuid);
+            newFdInventoryItems[uuid] = {
+              inventory_uuid: itemDetails?.inventory_uuid || inventoryUuid,
+              inventory_item_uuid: uuid,
+              location: itemDetails?.location || null
+            };
+          });
+
+          const derivedLocations = Object.values(newFdInventoryItems)
+            .map((item: any) => item.location)
+            .filter(loc => loc && typeof loc.floor !== 'undefined');
+          setLocations(derivedLocations);
+
+          return {
+            ...prevFd,
+            inventory_items: newFdInventoryItems,
+            inventory_item_uuids: newSelectedItems,
+          };
+        });
+        return newSelectedItems;
+      });
+    } else { // Deselect
+      const itemsToDeselect = inventoryItemsForThisInventory.map(item => item.uuid);
+      setSelectedInventoryItems(prevSelected => {
+        const newSelectedItems = prevSelected.filter(uuid => !itemsToDeselect.includes(uuid));
+        setFormData(prevFd => {
+          const newFdInventoryItems = { ...prevFd.inventory_items };
+          itemsToDeselect.forEach(uuid => {
+            delete newFdInventoryItems[uuid];
+          });
+
+          const derivedLocations = Object.values(newFdInventoryItems)
+            .map((item: any) => item.location)
+            .filter(loc => loc && typeof loc.floor !== 'undefined');
+          setLocations(derivedLocations);
+
+          return {
+            ...prevFd,
+            inventory_items: newFdInventoryItems,
+            inventory_item_uuids: newSelectedItems,
+          };
+        });
+        return newSelectedItems;
+      });
+    }
+  };
+
+
 
   // Helper functions for inventory grouping
   const getGroupedInventoryItems = () => groupInventoryItems(inventoryInventoryItems);
@@ -246,6 +376,70 @@ export default function DeliveryPage() {
     return displayItems;
   };
 
+
+  // Add effect to update per-inventory select all states
+  useEffect(() => {
+    const newStates: Record<string, { isChecked: boolean; isIndeterminate: boolean }> = {};
+
+    selectedInventoryUuids.forEach(inventoryUuid => {
+      const inventoryItemsForThisInventory = getInventoryItemsForInventory(inventoryUuid);
+      const displayItems = getDisplayInventoryItemsListForInventory(inventoryUuid);
+      const availableItems = displayItems.filter(item => {
+        const statusStyling = getInventoryItemStatusStyling(item);
+        return !statusStyling.isDisabled;
+      });
+
+      if (availableItems.length === 0) {
+        newStates[inventoryUuid] = { isChecked: false, isIndeterminate: false };
+        return;
+      }
+
+      // Count how many available items are selected in this inventory
+      let selectedAvailableCount = 0;
+      let totalAvailableCount = 0;
+
+      availableItems.forEach(item => {
+        const groupedItems = getGroupedInventoryItems();
+        const groupInfo = getGroupInfo(item, groupedItems);
+
+        if (inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId) {
+          const groupItems = inventoryItemsForThisInventory.filter(groupItem =>
+            groupItem.group_id === groupInfo.groupId &&
+            // Filter out IN_WAREHOUSE and USED unless delivered
+            (formData.status === 'DELIVERED' || formData.status === 'CANCELLED' ||
+              (groupItem.status !== 'IN_WAREHOUSE' && groupItem.status !== 'USED'))
+          );
+          const availableGroupItems = groupItems.filter(groupItem => {
+            const groupItemStatusStyling = getInventoryItemStatusStyling(groupItem);
+            return !groupItemStatusStyling.isDisabled;
+          });
+
+          totalAvailableCount += availableGroupItems.length;
+          selectedAvailableCount += availableGroupItems.filter(groupItem =>
+            selectedInventoryItems.includes(groupItem.uuid)
+          ).length;
+        } else {
+          totalAvailableCount += 1;
+          if (selectedInventoryItems.includes(item.uuid)) {
+            selectedAvailableCount += 1;
+          }
+        }
+      });
+
+      if (selectedAvailableCount === 0) {
+        newStates[inventoryUuid] = { isChecked: false, isIndeterminate: false };
+      } else if (selectedAvailableCount === totalAvailableCount) {
+        newStates[inventoryUuid] = { isChecked: true, isIndeterminate: false };
+      } else {
+        newStates[inventoryUuid] = { isChecked: false, isIndeterminate: true };
+      }
+    });
+
+    setInventorySelectAllStates(newStates);
+  }, [selectedInventoryItems, inventoryInventoryItems, inventoryViewMode, formData.status, formData.inventory_items, prevSelectedInventoryItems, selectedInventoryUuids]);
+
+
+  // Update the effect that loads initial data
   useEffect(() => {
     const fetchData = async () => {
       const fetchedUser = await getUserFromCookies();
@@ -257,8 +451,11 @@ export default function DeliveryPage() {
       }
 
       const fetchedInventoryItems = await getInventoryItems(fetchedUser.company_uuid || "", true);
-      if (fetchedInventoryItems.success) {
+      if (fetchedInventoryItems.success && fetchedInventoryItems.data) {
         setInventoryItems(fetchedInventoryItems.data as any[]);
+        // Show all inventories initially
+        const allInventoryUuids = fetchedInventoryItems.data.map((item: any) => item.uuid);
+        setSelectedInventoryUuids(allInventoryUuids);
       } else {
         showErrorToast("Failed to fetch inventory items", "Inventory items error");
       }
@@ -293,8 +490,8 @@ export default function DeliveryPage() {
     }
 
     // If changing to DELIVERED, ensure we have location data for each inventory item
-    if (status === "DELIVERED" && formData.inventory_locations) {
-      const inventoryItemCount = Object.keys(formData.inventory_locations).length;
+    if (status === "DELIVERED" && formData.inventory_items) {
+      const inventoryItemCount = Object.keys(formData.inventory_items).length;
       if (inventoryItemCount === 0) {
         return { error: "Please assign warehouse locations for all selected inventory items before marking as delivered." };
       }
@@ -317,7 +514,7 @@ export default function DeliveryPage() {
           status: result.data.status,
           status_history: result.data.status_history,
           updated_at: result.data.updated_at,
-          inventory_locations: result.data.inventory_locations || prev.inventory_locations
+          inventory_items: result.data.inventory_items || prev.inventory_items
         }));
 
         // Update prevSelectedInventoryItems to reflect the current state
@@ -325,12 +522,6 @@ export default function DeliveryPage() {
 
         // Refresh occupied locations after status change
         await refreshOccupiedLocations();
-
-        // Reload inventory items to show updated statuses with delivery context
-        if (formData.inventory_uuid) {
-          await loadInventoryInventoryItems(formData.inventory_uuid, true);
-        }
-
         return { error: null };
       } else {
         return { error: result.error || "Failed to update delivery status" };
@@ -343,20 +534,19 @@ export default function DeliveryPage() {
     }
   };
 
-  // Update the handleSubmit function to refresh occupied locations after successful updates
+  // UPDATED: Submit function - removed inventory_uuid validation
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Only allow admins to submit form changes
     if (!user?.is_admin) {
       return;
     }
 
     const newErrors: Record<string, string> = {};
 
-    // For IN_TRANSIT status, only validate inventory locations
+    // Validation for IN_TRANSIT status
     if (formData.status === "IN_TRANSIT") {
-      const inventoryLocations = formData.inventory_locations || {};
+      const inventoryItems = formData.inventory_items || {};
       const inventoryItemUuids = selectedInventoryItems;
 
       if (inventoryItemUuids.length === 0) {
@@ -366,9 +556,9 @@ export default function DeliveryPage() {
       // Check if each selected inventory item has a location assigned
       if (inventoryItemUuids.length > 0) {
         const missingLocations = inventoryItemUuids.filter(uuid =>
-          !inventoryLocations[uuid] ||
-          inventoryLocations[uuid].floor === undefined ||
-          inventoryLocations[uuid].floor === null
+          !inventoryItems[uuid]?.location ||
+          inventoryItems[uuid].location.floor === undefined ||
+          inventoryItems[uuid].location.floor === null
         );
 
         if (missingLocations.length > 0) {
@@ -377,11 +567,12 @@ export default function DeliveryPage() {
       }
     } else {
       // Full validation for other statuses
-      if (!formData.inventory_uuid) newErrors.inventory_uuid = "Please select an inventory item";
-
-      const inventoryLocations = formData.inventory_locations || {};
+      const inventoryItems = formData.inventory_items || {};
       const inventoryItemUuids = selectedInventoryItems;
 
+      if (selectedInventoryUuids.length === 0) {
+        newErrors.inventory_uuids = "Please select at least one inventory";
+      }
       if (inventoryItemUuids.length === 0) {
         newErrors.inventory_item_uuids = "Please select at least one inventory item";
       }
@@ -392,9 +583,9 @@ export default function DeliveryPage() {
       // Check if each selected inventory item has a location assigned
       if (inventoryItemUuids.length > 0) {
         const missingLocations = inventoryItemUuids.filter(uuid =>
-          !inventoryLocations[uuid] ||
-          inventoryLocations[uuid].floor === undefined ||
-          inventoryLocations[uuid].floor === null
+          !inventoryItems[uuid]?.location ||
+          inventoryItems[uuid].location.floor === undefined ||
+          inventoryItems[uuid].location.floor === null
         );
 
         if (missingLocations.length > 0) {
@@ -414,11 +605,11 @@ export default function DeliveryPage() {
       let result;
 
       if (selectedDeliveryId) {
-        // For IN_TRANSIT status, only pass inventory_locations and required params
+        // For IN_TRANSIT status, only pass inventory_items and required params
         if (formData.status === "IN_TRANSIT") {
           result = await updateDeliveryWithItems(
             selectedDeliveryId,
-            formData.inventory_locations || {},
+            formData.inventory_items || {},
             undefined, // Don't update delivery_address
             undefined, // Don't update delivery_date  
             undefined, // Don't update operator_uuids
@@ -430,7 +621,7 @@ export default function DeliveryPage() {
           // Full update for other statuses
           result = await updateDeliveryWithItems(
             selectedDeliveryId,
-            formData.inventory_locations || {},
+            formData.inventory_items || {},
             formData.delivery_address,
             formData.delivery_date,
             formData.operator_uuids,
@@ -444,9 +635,8 @@ export default function DeliveryPage() {
         result = await createDeliveryWithItems(
           user.uuid,
           user.company_uuid,
-          formData.inventory_uuid as string,
           formData.warehouse_uuid as string,
-          formData.inventory_locations || {},
+          formData.inventory_items || {},
           formData.delivery_address || "",
           formData.delivery_date || "",
           formData.operator_uuids || [],
@@ -481,11 +671,6 @@ export default function DeliveryPage() {
         // Refresh occupied locations after successful update
         await refreshOccupiedLocations();
 
-        // Reload inventory items to show updated statuses
-        if (formData.inventory_uuid) {
-          await loadInventoryInventoryItems(formData.inventory_uuid, true);
-        }
-
       } else {
         alert(`Failed to ${selectedDeliveryId ? 'update' : 'create'} delivery. Please try again.`);
       }
@@ -496,7 +681,66 @@ export default function DeliveryPage() {
     }
   };
 
-  // Update the loadDeliveryDetails function to properly set prevSelectedInventoryItems
+
+  // Add function to toggle inventory expansion
+  const toggleInventoryExpansion = (inventoryUuid: string) => {
+    setExpandedInventories(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(inventoryUuid)) {
+        newSet.delete(inventoryUuid);
+      } else {
+        newSet.add(inventoryUuid);
+      }
+      return newSet;
+    });
+  };
+
+  // Function to get items for a specific inventory
+  const getInventoryItemsForInventory = (inventoryUuid: string) => {
+    return inventoryInventoryItems.filter(item => item.inventory_uuid === inventoryUuid);
+  };
+
+  // Function to get display items for a specific inventory
+  const getDisplayInventoryItemsListForInventory = (inventoryUuid: string) => {
+    let items = getInventoryItemsForInventory(inventoryUuid);
+
+    // Filter out IN_WAREHOUSE and USED items unless we're viewing a delivered delivery
+    if (formData.status !== 'DELIVERED' && formData.status !== 'CANCELLED') {
+      items = items.filter(item =>
+        item.status !== 'IN_WAREHOUSE' &&
+        item.status !== 'USED'
+      );
+    }
+
+    if (inventoryViewMode === 'flat') {
+      return items;
+    }
+
+    const groupedItems = groupInventoryItems(items);
+
+    // For grouped view, only show the first item of each group
+    const seenGroups = new Set<string>();
+    const displayItems: any[] = [];
+
+    items.forEach(item => {
+      const groupInfo = getGroupInfo(item, groupedItems);
+
+      if (groupInfo.isGroup && groupInfo.groupId) {
+        // For grouped items, only add if we haven't seen this group yet
+        if (!seenGroups.has(groupInfo.groupId)) {
+          seenGroups.add(groupInfo.groupId);
+          displayItems.push(item);
+        }
+      } else {
+        // For non-grouped items, always add
+        displayItems.push(item);
+      }
+    });
+
+    return displayItems;
+  };
+
+  // UPDATED: Load delivery details to properly set selected inventories
   const loadDeliveryDetails = async (deliveryId: string) => {
     try {
       const result = await getDeliveryDetails(deliveryId, user?.company_uuid);
@@ -508,14 +752,20 @@ export default function DeliveryPage() {
         // Update form data with detailed information
         setFormData(deliveryData);
 
-        // Extract inventory item UUIDs and locations from inventory_locations
-        if (deliveryData.inventory_locations) {
-          const inventoryItemUuids = getInventoryItemUuidsFromLocations(deliveryData.inventory_locations);
-          const locations = getLocationsFromInventoryLocations(deliveryData.inventory_locations);
+        // Extract inventory UUIDs from inventory_items and set selected inventories
+        if (deliveryData.inventory_items) {
+          const inventoryUuids = [...new Set(
+            Object.values(deliveryData.inventory_items).map((item: any) => item.inventory_uuid)
+          )];
+
+          setSelectedInventoryUuids(inventoryUuids);
+
+          const inventoryItemUuids = Object.keys(deliveryData.inventory_items);
+          const locations = Object.values(deliveryData.inventory_items).map((item: any) => item.location).filter(Boolean);
 
           // Set the selected items and locations immediately
           setSelectedInventoryItems(inventoryItemUuids);
-          setPrevSelectedInventoryItems(inventoryItemUuids); // This is crucial for proper checkbox logic
+          setPrevSelectedInventoryItems(inventoryItemUuids);
           setLocations(locations);
 
           // Set first location details for 3D viewer
@@ -529,6 +779,7 @@ export default function DeliveryPage() {
             setSelectedGroup(firstLoc.group ?? null);
           }
         } else {
+          setSelectedInventoryUuids([]);
           setSelectedInventoryItems([]);
           setPrevSelectedInventoryItems([]);
           setLocations([]);
@@ -539,11 +790,6 @@ export default function DeliveryPage() {
           setSelectedOperators(deliveryData.operator_info);
         } else {
           setSelectedOperators([]);
-        }
-
-        // Load inventory items AFTER setting the form data and selections
-        if (deliveryData.inventory_uuid) {
-          await loadInventoryInventoryItems(deliveryData.inventory_uuid, true);
         }
 
         return deliveryData;
@@ -575,7 +821,7 @@ export default function DeliveryPage() {
         // Get locations from the result
         const { locations } = result.data;
 
-        // Create inventory_locations object
+        // Create inventory_items object
         const inventoryLocations: Record<string, ShelfLocation> = {};
         selectedInventoryItems.forEach((uuid, index) => {
           if (locations[index]) {
@@ -586,11 +832,24 @@ export default function DeliveryPage() {
         // Update state with the suggested locations
         setLocations(locations);
 
-        // Update formData with the new inventory_locations
+        // Update formData with the new inventory_items
         setFormData(prev => ({
           ...prev,
-          inventory_locations: inventoryLocations,
-          // Remove old format fields for consistency
+          inventory_items: {
+            ...prev.inventory_items,
+            ...Object.fromEntries(selectedInventoryItems.map((uuid, index) => {
+              // Find the inventory item to get its inventory_uuid
+              const inventoryItem = inventoryInventoryItems.find(item => item.uuid === uuid);
+              return [
+                uuid,
+                {
+                  inventory_uuid: inventoryItem?.inventory_uuid || "",
+                  inventory_item_uuid: uuid,
+                  location: locations[index] || null
+                }
+              ];
+            }))
+          },
           inventory_item_uuids: selectedInventoryItems,
           locations: locations
         }));
@@ -663,10 +922,10 @@ export default function DeliveryPage() {
 
       setSelectedInventoryItems(allItemsToSelect);
 
-      // Update formData with inventory_locations format
+      // Update formData with inventory_items format
       const newInventoryLocations: Record<string, ShelfLocation> = {};
       allItemsToSelect.forEach(uuid => {
-        const existingLocation = formData.inventory_locations?.[uuid];
+        const existingLocation = formData.inventory_items?.[uuid]?.location || null;
         if (existingLocation) {
           newInventoryLocations[uuid] = existingLocation;
         }
@@ -674,9 +933,19 @@ export default function DeliveryPage() {
 
       setFormData(prev => ({
         ...prev,
-        inventory_locations: newInventoryLocations,
+        inventory_items: {
+          ...prev.inventory_items,
+          ...Object.fromEntries(allItemsToSelect.map(uuid => [
+            uuid,
+            {
+              inventory_uuid: inventoryInventoryItems.find(item => item.uuid === uuid)?.inventory_uuid || "",
+              inventory_item_uuid: uuid,
+              location: newInventoryLocations[uuid] || null
+            }
+          ]))
+        },
         inventory_item_uuids: allItemsToSelect,
-        locations: Object.values(newInventoryLocations).filter(loc => loc && loc.floor !== undefined)
+        locations: Object.values(newInventoryLocations).filter(loc => loc !== null && loc.floor !== undefined)
       }));
 
       const newLocationsArray = Object.values(newInventoryLocations).filter(loc => loc !== null && loc.floor !== undefined);
@@ -687,7 +956,6 @@ export default function DeliveryPage() {
       setSelectedInventoryItems([]);
       setFormData(prev => ({
         ...prev,
-        inventory_locations: {},
         inventory_item_uuids: [],
         locations: []
       }));
@@ -696,7 +964,7 @@ export default function DeliveryPage() {
   };
 
 
-  // Update the handleConfirmLocation function to work with new format
+  // UPDATED: Handle confirm location
   const handleConfirmLocation = () => {
     // Create the location object with null values converted to undefined
     const location: ShelfLocation = {
@@ -713,18 +981,21 @@ export default function DeliveryPage() {
     newLocations[currentInventoryItemLocationIndex] = location;
     setLocations(newLocations);
 
-    // Update inventory_locations object
+    // Update inventory_items object
     const currentInventoryItemUuid = selectedInventoryItems[currentInventoryItemLocationIndex];
     if (currentInventoryItemUuid) {
-      const newInventoryLocations = { ...formData.inventory_locations };
-      newInventoryLocations[currentInventoryItemUuid] = location;
+      const newInventoryItems = { ...formData.inventory_items };
+      if (newInventoryItems[currentInventoryItemUuid]) {
+        newInventoryItems[currentInventoryItemUuid] = {
+          ...newInventoryItems[currentInventoryItemUuid],
+          location: location
+        };
+      }
 
       // Update formData
       setFormData(prev => ({
         ...prev,
-        inventory_locations: newInventoryLocations,
-        locations: newLocations, // Keep backward compatibility
-        inventory_item_uuids: selectedInventoryItems // Keep backward compatibility
+        inventory_items: newInventoryItems
       }));
     }
 
@@ -739,22 +1010,21 @@ export default function DeliveryPage() {
     onClose();
   };
 
-  // Update the useEffect for URL params to ensure proper loading sequence
+  // UPDATED: URL parameter handling
   useEffect(() => {
     const handleURLParams = async () => {
       setIsLoading(true);
 
-      // Wait for all required data to be loaded before processing URL params
       if (!user?.company_uuid || isLoadingItems || isLoadingWarehouses || warehouses.length === 0) return;
 
       const deliveryId = searchParams.get("deliveryId");
-      const setInventoryId = searchParams.get("setInventory");
 
       if (deliveryId) {
         // Set selected delivery from URL and load detailed information
         setSelectedDeliveryId(deliveryId);
 
         // Reset states before loading
+        setSelectedInventoryUuids([]);
         setSelectedInventoryItems([]);
         setLocations([]);
         setSelectedOperators([]);
@@ -768,39 +1038,13 @@ export default function DeliveryPage() {
           await handleWarehouseChange(deliveryData.warehouse_uuid);
         }
 
-      } else if (setInventoryId) {
-        // Handle setting inventory ID logic (existing code)
-        setSelectedDeliveryId(null);
-        setFormData({
-          company_uuid: user.company_uuid,
-          admin_uuid: user.uuid,
-          inventory_uuid: setInventoryId,
-          inventory_locations: {},
-          delivery_address: "",
-          delivery_date: format(new Date(), "yyyy-MM-dd"),
-          notes: "",
-          status: "PENDING",
-          warehouse_uuid: null,
-          operator_uuids: []
-        });
-        setSelectedInventoryItems([]);
-        setLocations([]);
-        setSelectedOperators([]);
-        setDeliveryInput("");
-        resetWarehouseLocation();
-
-        // Load inventory items for the set inventory
-        await loadInventoryInventoryItems(setInventoryId, false);
-
-        setIsLoading(false);
       } else {
         // Reset form for new delivery
         setSelectedDeliveryId(null);
         setFormData({
           company_uuid: user.company_uuid,
           admin_uuid: user.uuid,
-          inventory_uuid: null,
-          inventory_locations: {},
+          inventory_items: {},
           delivery_address: "",
           delivery_date: format(new Date(), "yyyy-MM-dd"),
           notes: "",
@@ -808,6 +1052,7 @@ export default function DeliveryPage() {
           warehouse_uuid: null,
           operator_uuids: []
         });
+        setSelectedInventoryUuids([]);
         setSelectedInventoryItems([]);
         setLocations([]);
         setSelectedOperators([]);
@@ -820,36 +1065,45 @@ export default function DeliveryPage() {
     handleURLParams();
   }, [searchParams, user?.company_uuid, isLoadingItems, isLoadingWarehouses, warehouses.length]);
 
-  // Update the handleInventoryItemSelectionToggle function to respect the filtered items
-  const handleInventoryItemSelectionToggle = (inventoryitemUuid: string, isSelected: boolean) => {
-    // Find the inventory item to check its status and group
-    const inventoryItem = inventoryInventoryItems.find(item => item.uuid === inventoryitemUuid);
+  // UPDATED: Handle inventory item selection toggle
+  const handleInventoryItemSelectionToggle = async (inventoryitemUuid: string, isSelected: boolean) => {
+    // Find the inventory item to get its inventory_uuid
+    let inventoryItem = inventoryInventoryItems.find(item => item.uuid === inventoryitemUuid);
 
-    // If we're in grouped view, check if this is a group selection
+
+    // if this inventory's items haven't been loaded yet, load them
+    const inventoryUuid = inventoryItem.inventory_uuid;
+    if (!loadedInventoryUuids.has(inventoryUuid)) {
+      await loadInventoryInventoryItems(inventoryUuid, true);
+      // re-fetch the item now that everything is loaded
+      inventoryItem = inventoryInventoryItems.find(item => item.uuid === inventoryitemUuid);
+
+      if (!inventoryItem) return;
+    }
+
+    // Get group information
     const groupedItems = getGroupedInventoryItems();
-    const groupInfo = getGroupInfo(inventoryItem!, groupedItems);
+    const groupInfo = getGroupInfo(inventoryItem, groupedItems);
 
     // Get all items that should be toggled (either the single item or all items in the group)
-    // But filter out IN_WAREHOUSE and USED items unless we're viewing delivered items
     const itemsToToggle = inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId
       ? inventoryInventoryItems.filter(groupItem =>
         groupItem.group_id === groupInfo.groupId &&
+        groupItem.inventory_uuid === inventoryItem.inventory_uuid && // Ensure same inventory
         // Filter out IN_WAREHOUSE and USED unless delivered
         (formData.status === 'DELIVERED' || formData.status === 'CANCELLED' ||
           (groupItem.status !== 'IN_WAREHOUSE' && groupItem.status !== 'USED'))
       )
-      : [inventoryItem!];
+      : [inventoryItem];
 
     // Check if any of the items are already assigned to another delivery
     for (const item of itemsToToggle) {
       if (!isSelected && item.status === 'ON_DELIVERY' && selectedDeliveryId) {
-        // Check if this item belongs to the current delivery (was originally selected or currently selected)
-        const isAssignedToCurrentDelivery = formData.inventory_locations?.[item.uuid] ||
+        const isAssignedToCurrentDelivery = formData.inventory_items?.[item.uuid] ||
           prevSelectedInventoryItems.includes(item.uuid) ||
-          selectedInventoryItems.includes(item.uuid); // Add current selection check
+          selectedInventoryItems.includes(item.uuid);
 
         if (!isAssignedToCurrentDelivery) {
-          // Show error message or toast
           console.warn("One or more items are already assigned to another delivery");
           return;
         }
@@ -869,30 +1123,37 @@ export default function DeliveryPage() {
         newSelectedItems = prev.filter(uuid => !itemUuidsToRemove.includes(uuid));
       }
 
-      // Update formData with inventory_locations format
-      const currentInventoryLocations = formData.inventory_locations || {};
-      const newInventoryLocations: Record<string, ShelfLocation> = {};
+      // Update formData with inventory_items format
+      const currentInventoryItems = formData.inventory_items || {};
+      const newInventoryItems: Record<string, { inventory_uuid: string; inventory_item_uuid: string; location: any }> = {};
 
-      // Keep existing locations for items that are still selected
+      // Keep existing entries for items that are still selected
       newSelectedItems.forEach(uuid => {
-        if (currentInventoryLocations[uuid]) {
-          newInventoryLocations[uuid] = currentInventoryLocations[uuid];
+        if (currentInventoryItems[uuid]) {
+          newInventoryItems[uuid] = currentInventoryItems[uuid];
+        } else {
+          // Create new entry for newly selected items
+          const item = inventoryInventoryItems.find(i => i.uuid === uuid);
+          if (item) {
+            newInventoryItems[uuid] = {
+              inventory_uuid: item.inventory_uuid,
+              inventory_item_uuid: uuid,
+              location: {}
+            };
+          }
         }
       });
 
       // Update form data
       setFormData(prev => ({
         ...prev,
-        inventory_locations: newInventoryLocations,
-        // Keep backward compatibility
-        inventory_item_uuids: newSelectedItems,
-        locations: Object.values(newInventoryLocations).filter(loc => loc && loc.floor !== undefined)
+        inventory_items: newInventoryItems
       }));
 
-      // Update locations array to match selected items - only include valid locations
+      // Update locations array to match selected items
       const newLocationsArray = newSelectedItems.map(uuid =>
-        newInventoryLocations[uuid] || null
-      ).filter(loc => loc !== null && loc.floor !== undefined);
+        newInventoryItems[uuid]?.location || {}
+      ).filter(loc => loc && loc.floor !== undefined);
 
       setLocations(newLocationsArray);
 
@@ -900,28 +1161,14 @@ export default function DeliveryPage() {
     });
   };
 
-  // Form state
-  const [formData, setFormData] = useState<Partial<DeliveryItem>>({
-    company_uuid: null,
-    admin_uuid: null,
-    inventory_uuid: null,
-    inventory_locations: {}, // Changed from inventory_item_uuids and locations to inventory_locations
-    warehouse_uuid: null,
-    delivery_address: "",
-    delivery_date: format(new Date(), "yyyy-MM-dd"),
-    operator_uuids: [], // Changed from operator_uuid
-    notes: "",
-    status: "PENDING",
-  });
-
   // Add helper function to update locations when current index changes
   useEffect(() => {
     if (currentInventoryItemLocationIndex >= 0 &&
       currentInventoryItemLocationIndex < selectedInventoryItems.length &&
-      formData.inventory_locations) {
+      formData.inventory_items) {
 
       const currentItemUuid = selectedInventoryItems[currentInventoryItemLocationIndex];
-      const currentLocation = formData.inventory_locations[currentItemUuid];
+      const currentLocation = formData.inventory_items[currentItemUuid].location;
 
       if (currentLocation) {
         setSelectedFloor(currentLocation.floor ?? null);
@@ -933,7 +1180,7 @@ export default function DeliveryPage() {
         setSelectedCode(currentLocation.code || "");
       }
     }
-  }, [currentInventoryItemLocationIndex, selectedInventoryItems, formData.inventory_locations]);
+  }, [currentInventoryItemLocationIndex, selectedInventoryItems, formData.inventory_items]);
 
 
 
@@ -993,18 +1240,25 @@ export default function DeliveryPage() {
       setIsSelectAllChecked(false);
       setIsSelectAllIndeterminate(true);
     }
-  }, [selectedInventoryItems, inventoryInventoryItems, inventoryViewMode, formData.status, formData.inventory_locations, prevSelectedInventoryItems]);
+  }, [selectedInventoryItems, inventoryInventoryItems, inventoryViewMode, formData.status, formData.inventory_items, prevSelectedInventoryItems]);
 
+  useEffect(() => {
+    if (pendingInventorySelection && loadedInventoryUuids.has(pendingInventorySelection.inventoryUuid)) {
+      // inventoryInventoryItems state is now updated with items for pendingInventorySelection.inventoryUuid
+      _performInventorySelectionLogic(pendingInventorySelection.inventoryUuid, pendingInventorySelection.isSelected);
+      setPendingInventorySelection(null); // Reset pending state
+    }
+  }, [inventoryInventoryItems, loadedInventoryUuids, pendingInventorySelection, formData.status, inventoryViewMode]);
 
   /**
-   * Helper function to extract inventory item UUIDs from inventory_locations
+   * Helper function to extract inventory item UUIDs from inventory_items
    */
   function getInventoryItemUuidsFromLocations(inventoryLocations: Record<string, ShelfLocation>): string[] {
     return Object.keys(inventoryLocations);
   }
 
   /**
-   * Helper function to extract locations array from inventory_locations
+   * Helper function to extract locations array from inventory_items
    */
   function getLocationsFromInventoryLocations(inventoryLocations: Record<string, ShelfLocation>): ShelfLocation[] {
     return Object.values(inventoryLocations);
@@ -1079,7 +1333,13 @@ export default function DeliveryPage() {
   const handleShowDeliveryQR = () => {
     if (!selectedDeliveryId || !formData) return;
 
-    const deliveryName = `Delivery of ${inventoryItems.find(item => item.uuid === formData.inventory_uuid)?.name || 'Unknown Item'}`;
+    const inventoryNames = selectedInventoryUuids
+      .map(uuid => inventoryItems.find(item => item.uuid === uuid)?.name)
+      .filter(Boolean);
+    const deliveryName = inventoryNames.length > 0
+      ? `Delivery of ${inventoryNames.join(', ')}`
+      : 'Delivery';
+
     setQrCodeData({
       url: generateDeliveryUrl(selectedDeliveryId, false, true), // Start with autoAccept false, showOptions true
       title: "Delivery QR Code",
@@ -1167,105 +1427,121 @@ export default function DeliveryPage() {
     }
   };
 
-  // Update the loadInventoryInventoryItems function to properly handle delivery context
-  const loadInventoryInventoryItems = useCallback(async (inventoryItemUuid: string, preserveSelection: boolean = false) => {
-    if (inventoryItemUuid === null || inventoryItemUuid === "null" || inventoryItemUuid === "") {
-      setInventoryInventoryItems([]);
-      setSelectedInventoryItems([]);
-      setLocations([]);
-      return;
+  // Update loadInventoryInventoryItems to only load when accordion is expanded
+  const loadInventoryInventoryItems = useCallback(async (inventoryUuid: string, preserveSelection: boolean = false, forceReload: boolean = false) => {
+    if (!inventoryUuid) {
+      return Promise.resolve();
+    }
+
+    // Check if already loaded and not forcing reload
+    if (!forceReload && loadedInventoryUuids.has(inventoryUuid)) {
+      return Promise.resolve();
     }
 
     setIsLoadingInventoryItems(true);
     try {
-      // For existing deliveries, we need to load items differently
-      if (selectedDeliveryId && formData.inventory_locations) {
-        // When we have a selected delivery, load all inventory items for the inventory
-        // but prioritize showing the ones that are part of this delivery
-        const result = await getInventoryItem(
-          inventoryItemUuid,
-          false, // Don't filter by delivered status when loading for existing delivery
-          undefined // Don't filter by delivery UUID to get all items
-        );
+      const result = await getInventoryItem(
+        inventoryUuid,
+        formData.status === "DELIVERED" || formData.status === "CANCELLED",
+        selectedDeliveryId || undefined
+      );
 
-        if (result.success) {
-          const allInventoryItems = result.data.inventory_items || [];
+      if (result.success && result.data.inventory_items) {
+        const itemsWithInventoryInfo = result.data.inventory_items.map((item: any) => ({
+          ...item,
+          inventory_uuid: inventoryUuid,
+          inventory_name: inventoryItems.find(inv => inv.uuid === inventoryUuid)?.name || 'Unknown'
+        }));
 
-          // Add sequential IDs to all items
-          const inventoryItemsWithIds = allInventoryItems.map((item: any, index: number) => ({
-            ...item,
-            id: index + 1,
-          }));
+        // Add sequential IDs to items
+        const inventoryItemsWithIds = itemsWithInventoryInfo.map((item: any, index: number) => ({
+          ...item,
+          id: index + 1,
+        }));
 
-          setInventoryInventoryItems(inventoryItemsWithIds);
-          setNextItemId(inventoryItemsWithIds.length + 1);
+        // Update the state for this specific inventory
+        setInventoryInventoryItems(prev => {
+          // Remove existing items for this inventory and add new ones
+          const filteredItems = prev.filter(item => item.inventory_uuid !== inventoryUuid);
+          return [...filteredItems, ...inventoryItemsWithIds];
+        });
 
-          // If we have inventory_locations in formData, extract the selected items
-          if (formData.inventory_locations && Object.keys(formData.inventory_locations).length > 0) {
-            const selectedItemUuids = Object.keys(formData.inventory_locations);
+        // Mark this inventory as loaded
+        setLoadedInventoryUuids(prev => new Set([...prev, inventoryUuid]));
 
-            if (!preserveSelection) {
-              setSelectedInventoryItems(selectedItemUuids);
+        setNextItemId(prev => Math.max(prev, inventoryItemsWithIds.length + 1));
 
-              // Convert inventory_locations back to locations array
-              const locationsArray = selectedItemUuids.map(uuid => formData.inventory_locations![uuid]);
-              setLocations(locationsArray);
-            }
-          } else if (!preserveSelection) {
-            setSelectedInventoryItems([]);
-            setLocations([]);
-          }
-        } else {
-          console.error("Failed to load inventory items:", result.error);
-          setInventoryInventoryItems([]);
-          if (!preserveSelection) {
-            setSelectedInventoryItems([]);
-            setLocations([]);
-          }
-        }
-      } else {
-        // For new deliveries or when no delivery is selected, use the original logic
-        const result = await getInventoryItem(
-          inventoryItemUuid,
-          formData.status === "DELIVERED" || formData.status === "CANCELLED",
-          selectedDeliveryId || undefined
-        );
-
-        if (result.success) {
-          console.log("Loaded inventory items:", result.data.inventory_items);
-          const inventoryItemsWithIds = (result.data.inventory_items || []).map((item: any, index: number) => ({
-            ...item,
-            id: index + 1,
-          }));
-
-          setInventoryInventoryItems(inventoryItemsWithIds);
-          setNextItemId(inventoryItemsWithIds.length + 1);
-
-          // Reset selected items only when not preserving selection and no existing delivery
-          if (!preserveSelection) {
-            setSelectedInventoryItems([]);
-            setLocations([]);
-          }
-        } else {
-          console.error("Failed to load inventory items:", result.error);
-          setInventoryInventoryItems([]);
-          if (!preserveSelection) {
-            setSelectedInventoryItems([]);
-            setLocations([]);
-          }
-        }
+        return Promise.resolve();
       }
     } catch (error) {
       console.error("Error loading inventory items:", error);
-      setInventoryInventoryItems([]);
-      if (!preserveSelection) {
-        setSelectedInventoryItems([]);
-        setLocations([]);
-      }
+      return Promise.reject(error);
     } finally {
       setIsLoadingInventoryItems(false);
     }
-  }, [formData.status, selectedDeliveryId, formData.inventory_locations]);
+  }, [formData.status, selectedDeliveryId, inventoryItems, loadedInventoryUuids]);
+
+
+
+
+  // NEW: Handle adding inventories to delivery
+  const handleAddInventory = (inventoryUuid: string) => {
+    if (!inventoryUuid || selectedInventoryUuids.includes(inventoryUuid)) return;
+
+    const newSelectedInventories = [...selectedInventoryUuids, inventoryUuid];
+    setSelectedInventoryUuids(newSelectedInventories);
+
+    // Load inventory items for all selected inventories
+    setTimeout(() => {
+      newSelectedInventories.forEach(uuid => {
+        loadInventoryInventoryItems(uuid, true);
+      });
+    }, 100);
+
+    // Reset search term and hide selector
+    setInventorySearchTerm('');
+    setShowInventorySelector(false);
+  };
+
+  // NEW: Handle removing inventories from delivery
+  const handleRemoveInventory = (inventoryUuid: string) => {
+    const newSelectedInventories = selectedInventoryUuids.filter(uuid => uuid !== inventoryUuid);
+    setSelectedInventoryUuids(newSelectedInventories);
+
+    // Remove any selected inventory items that belong to this inventory
+    const itemsToRemove = inventoryInventoryItems
+      .filter(item => item.inventory_uuid === inventoryUuid)
+      .map(item => item.uuid);
+
+    const newSelectedItems = selectedInventoryItems.filter(uuid => !itemsToRemove.includes(uuid));
+    setSelectedInventoryItems(newSelectedItems);
+
+    // Update formData to remove items from this inventory
+    const newInventoryItems = { ...formData.inventory_items };
+    itemsToRemove.forEach(uuid => {
+      delete newInventoryItems[uuid];
+    });
+
+    setFormData(prev => ({
+      ...prev,
+      inventory_items: newInventoryItems
+    }));
+
+    // Update locations array
+    const newLocationsArray = Object.values(newInventoryItems).map(item => item.location).filter(Boolean);
+    setLocations(newLocationsArray);
+
+    // Reload inventory items for remaining inventories
+    if (newSelectedInventories.length > 0) {
+      setTimeout(() => {
+        newSelectedInventories.forEach(uuid => {
+          loadInventoryInventoryItems(uuid, true);
+        });
+      }, 100);
+    } else {
+      setInventoryInventoryItems([]);
+    }
+  };
 
   // Use an effect to update the assignments when locations or currentInventoryItemLocationIndex change
   useEffect(() => {
@@ -1324,12 +1600,12 @@ export default function DeliveryPage() {
       inventory_uuid: inventoryItemUuid,
       inventory_item_uuids: [], // Reset inventoryitem selection
       locations: [], // Reset locations
-      inventory_locations: {} // Reset inventory locations
+      inventory_items: {} // Reset inventory locations
     }));
 
     // Load inventoryitem items for this inventory item with delivery context
     if (inventoryItemUuid) {
-      await loadInventoryInventoryItems(inventoryItemUuid, false);
+      await loadInventoryInventoryItems(inventoryItemUuid);
     }
   };
 
@@ -1370,15 +1646,15 @@ export default function DeliveryPage() {
     }));
   };
 
-  const handleViewInventory = () => {
-    if (formData.inventory_uuid) {
-      // Navigate to inventory page with the item ID
-      if ((user === null || user.is_admin))
-        router.push(`/home/inventory?itemId=${formData.inventory_uuid}`);
-      else
-        router.push(`/home/warehouse-items?itemId=${formData.inventory_uuid}`);
-    }
-  };
+  // const handleViewInventory = () => {
+  //   if (formData.inventory_uuid) {
+  //     // Navigate to inventory page with the item ID
+  //     if ((user === null || user.is_admin))
+  //       router.push(`/home/inventory?itemId=${formData.inventory_uuid}`);
+  //     else
+  //       router.push(`/home/warehouse-items?itemId=${formData.inventory_uuid}`);
+  //   }
+  // };
 
   // Handle creating a new delivery
   const handleNewDelivery = () => {
@@ -1824,10 +2100,6 @@ export default function DeliveryPage() {
             updated_at: result.data.updated_at
           }));
 
-          // Reload inventory items to show updated statuses
-          if (formData.inventory_uuid) {
-            await loadInventoryInventoryItems(formData.inventory_uuid, true);
-          }
         }
 
         // Clear validation states
@@ -1961,7 +2233,7 @@ export default function DeliveryPage() {
     }
 
     // For editing existing delivery, check if item is part of current delivery or was previously selected
-    const isPartOfCurrentDelivery = formData.inventory_locations?.[item.uuid] ||
+    const isPartOfCurrentDelivery = formData.inventory_items?.[item.uuid] ||
       prevSelectedInventoryItems.includes(item.uuid);
 
     switch (item.status) {
@@ -2036,7 +2308,7 @@ export default function DeliveryPage() {
 
       // For editing existing delivery, check if item is part of current delivery
       if (['ON_DELIVERY', 'IN_WAREHOUSE', 'USED'].includes(item.status)) {
-        const isPartOfCurrentDelivery = formData.inventory_locations?.[item.uuid] ||
+        const isPartOfCurrentDelivery = formData.inventory_items?.[item.uuid] ||
           prevSelectedInventoryItems.includes(item.uuid) ||
           selectedInventoryItems.includes(item.uuid);
 
@@ -2317,7 +2589,7 @@ export default function DeliveryPage() {
                         >
                           <div className="flex items-center gap-1">
                             <Icon icon="mdi:package-variant" width={14} height={14} />
-                            {Object.keys(delivery.inventory_locations || {}).length} item{(Object.keys(delivery.inventory_locations || {}).length) !== 1 ? 's' : ''}
+                            {Object.keys(delivery.inventory_items || {}).length} item{(Object.keys(delivery.inventory_items || {}).length) !== 1 ? 's' : ''}
                           </div>
                         </Chip>
                       </div>
@@ -2709,447 +2981,413 @@ export default function DeliveryPage() {
                         {formData.status === "DELIVERED" ? "Inventory Details" : "Inventory to Deliver"}
                       </h2>
                       <div className="space-y-4">
-                        {/* Inventory Item Selection */}
-                        <Autocomplete
-                          selectedKey={formData.inventory_uuid || ""}
-                          name="inventory_uuid"
-                          label="Inventory Item"
-                          placeholder="Select an inventory item"
-                          onSelectionChange={(e) => {
-                            handleInventoryItemChange(e as any);
-                          }}
-                          popoverProps={{ className: !!selectedDeliveryId ? "collapse" : "" }}
-                          isRequired={!selectedDeliveryId}
-                          inputProps={autoCompleteStyle}
-                          classNames={{ clearButton: "text-default-800" }}
-                          isInvalid={!!errors.inventory_uuid}
-                          errorMessage={errors.inventory_uuid}
-                          isReadOnly={!!selectedDeliveryId}
-                          selectorIcon={!!selectedDeliveryId ? null : <Icon icon="heroicons:chevron-down" height={15} />}
-                          startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
-                        >
-                          {inventoryItems.map((item) => (
-                            <AutocompleteItem key={item.uuid}>
-                              {item.name}
-                            </AutocompleteItem>
-                          ))}
-                        </Autocomplete>
+                        {/* Multiple Inventory Selection */}
+                        <div className="space-y-4">
+                          {/* Selected Inventories Display */}
+                          {selectedInventoryUuids.length > 0 && (
+                            <div className="border-2 border-default-200 rounded-xl bg-gradient-to-b from-background to-default-50/30 overflow-hidden">
+                              <div className="flex justify-between items-center border-b border-default-200 p-4">
+                                <h3 className="text-lg font-semibold">Selected Inventories</h3>
+                                <div className="flex gap-2 items-center">
+                                  {selectedInventoryItems.length > 0 && !(canEditAllFields() || canOnlyEditLocations()) && (
+                                    <Chip color="primary" size="sm" variant="flat">
+                                      {selectedInventoryItems.length} items selected
+                                    </Chip>
+                                  )}
 
-                        {/* Inventory Items Selection */}
-                        {formData.inventory_uuid && (
-                          <div className="border-2 border-default-200 rounded-xl bg-gradient-to-b from-background to-default-50/30 overflow-hidden">
-                            <div className="flex justify-between items-center border-b border-default-200 p-4">
-                              <h3 className="text-lg font-semibold">Inventory Items</h3>
-                              <div className="flex gap-2 items-center">
-                                {selectedInventoryItems.length > 0 && !(canEditAllFields() || canOnlyEditLocations()) && (
-                                  <Chip color="primary" size="sm" variant="flat">
-                                    {selectedInventoryItems.length} selected
-                                  </Chip>
-                                )}
-
-                                <Button
-                                  color={inventoryViewMode === 'grouped' ? "primary" : "default"}
-                                  variant={inventoryViewMode === 'grouped' ? "shadow" : "flat"}
-                                  size="sm"
-                                  onPress={() => {
-                                    setInventoryViewMode(inventoryViewMode === 'grouped' ? 'flat' : 'grouped')
-                                    setExpandedInventoryItemDetails(new Set())
-                                  }}
-                                  startContent={<Icon icon={inventoryViewMode === 'grouped' ? "mdi:format-list-group" : "mdi:format-list-bulleted"} />}
-                                >
-                                  {inventoryViewMode === 'grouped' ? 'Grouped' : 'Flat'}
-                                </Button>
-                              </div>
-                            </div>
-
-                            {/* Add Select All Checkbox Section */}
-                            {(user && user.is_admin) && inventoryInventoryItems.length > 0 && (
-                              (canEditAllFields() || canOnlyEditLocations()) && formData.status === "PENDING"
-                            ) && (
-                                <div className="border-b border-default-200 px-4 py-3 bg-default-50/50">
-                                  <div className="flex items-center justify-between flex-row-reverse">
-                                    <div className="flex items-center gap-2">
-                                      {selectedInventoryItems.length > 0 && (
-                                        <Chip color="primary" size="sm" variant="flat">
-                                          {selectedInventoryItems.length} selected
-                                        </Chip>
-                                      )}
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                      <Checkbox
-                                        isSelected={isSelectAllChecked}
-                                        isIndeterminate={isSelectAllIndeterminate}
-                                        onValueChange={handleSelectAllToggle}
-                                        color="primary" />
-                                      <div className="flex flex-col">
-                                        <span className="text-sm font-medium text-default-700">
-                                          Select All Available Items
-                                        </span>
-                                        <span className="text-xs text-default-500">
-                                          {(() => {
-                                            const displayItems = getDisplayInventoryItemsList();
-                                            const availableItems = displayItems.filter(item => {
-                                              const statusStyling = getInventoryItemStatusStyling(item);
-                                              return !statusStyling.isDisabled;
-                                            });
-
-                                            let totalAvailableCount = 0;
-                                            availableItems.forEach(item => {
-                                              const groupedItems = getGroupedInventoryItems();
-                                              const groupInfo = getGroupInfo(item, groupedItems);
-
-                                              if (inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId) {
-                                                const groupItems = inventoryInventoryItems.filter(groupItem =>
-                                                  groupItem.group_id === groupInfo.groupId
-                                                );
-                                                const availableGroupItems = groupItems.filter(groupItem => {
-                                                  const groupItemStatusStyling = getInventoryItemStatusStyling(groupItem);
-                                                  return !groupItemStatusStyling.isDisabled;
-                                                });
-                                                totalAvailableCount += availableGroupItems.length;
-                                              } else {
-                                                totalAvailableCount += 1;
-                                              }
-                                            });
-
-                                            return `${selectedInventoryItems.length} of ${totalAvailableCount} available items selected`;
-                                          })()}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  </div>
+                                  <Button
+                                    color={inventoryViewMode === 'grouped' ? "primary" : "default"}
+                                    variant={inventoryViewMode === 'grouped' ? "shadow" : "flat"}
+                                    size="sm"
+                                    onPress={() => {
+                                      setInventoryViewMode(inventoryViewMode === 'grouped' ? 'flat' : 'grouped')
+                                      setExpandedInventoryItemDetails(new Set())
+                                    }}
+                                    startContent={<Icon icon={inventoryViewMode === 'grouped' ? "mdi:format-list-group" : "mdi:format-list-bulleted"} />}
+                                  >
+                                    {inventoryViewMode === 'grouped' ? 'Grouped' : 'Flat'}
+                                  </Button>
                                 </div>
-                              )}
+                              </div>
 
-                            <div>
-                              <LoadingAnimation
-                                condition={isLoadingInventoryItems}
-                                skeleton={
-                                  <div className="space-y-2 p-4">
-                                    {[...Array(3)].map((_, i) => (
-                                      <div key={i} className="border border-default-200 rounded-xl p-4">
-                                        <div className="flex items-center justify-between">
-                                          <div className="flex items-center gap-3">
-                                            <Skeleton className="w-5 h-5 rounded" />
-                                            <Skeleton className="h-4 w-32 rounded-xl" />
-                                          </div>
-                                          <Skeleton className="h-6 w-16 rounded-xl" />
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                }
-                              >
-                                {inventoryInventoryItems.length === 0 ? (
-                                  <div className="text-center py-8 text-default-500">
-                                    <Icon icon="mdi:package-variant-closed" className="mx-auto mb-2 opacity-50" width={40} height={40} />
-                                    <p>No inventory items available</p>
-                                  </div>
-                                ) : (
-                                  <div className="py-4">
-                                    <Accordion
-                                      selectionMode="multiple"
-                                      variant="splitted"
-                                      selectedKeys={expandedInventoryItemDetails}
-                                      onSelectionChange={(keys) => setExpandedInventoryItemDetails(keys as Set<string>)}
-                                      itemClasses={{
-                                        base: "p-0 bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
-                                        title: "font-normal text-lg font-semibold",
-                                        trigger: "p-4 data-[hover=true]:bg-default-100 flex items-center transition-colors",
-                                        indicator: "text-medium",
-                                        content: "text-small p-0",
-                                      }}
-                                    >
-                                      {/* Filter the display list based on status and selection */}
-                                      {getDisplayInventoryItemsList()
-                                        .filter((item, index) => {
-                                          // If status is PROCESSING or beyond, only show selected items
-                                          if (
-                                            formData.status === "PROCESSING" ||
-                                            formData.status === "IN_TRANSIT" ||
-                                            formData.status === "DELIVERED" ||
-                                            formData.status === "CANCELLED"
-                                          ) {
-                                            const groupedItems = getGroupedInventoryItems();
-                                            const groupInfo = getGroupInfo(item, groupedItems);
+                              <div className="py-4">
+                                <Accordion
+                                  selectionMode="multiple"
+                                  variant="splitted"
+                                  selectedKeys={expandedInventories}
+                                  onSelectionChange={(keys) => {
+                                    const newExpandedKeys = keys as Set<string>;
+                                    setExpandedInventories(newExpandedKeys);
 
-                                            // For grouped view, check if any item in the group is selected
-                                            if (inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId) {
-                                              const groupItems = inventoryInventoryItems.filter(groupItem =>
-                                                groupItem.group_id === groupInfo.groupId
-                                              );
-                                              return groupItems.some(groupItem => selectedInventoryItems.includes(groupItem.uuid));
-                                            } else {
-                                              // For flat view or non-grouped items, check if the item itself is selected
-                                              return selectedInventoryItems.includes(item.uuid);
-                                            }
-                                          }
+                                    // Only load inventory items for newly expanded inventories
+                                    newExpandedKeys.forEach(inventoryUuid => {
+                                      if (!expandedInventories.has(inventoryUuid) && !loadedInventoryUuids.has(inventoryUuid)) {
+                                        loadInventoryInventoryItems(inventoryUuid, true);
+                                      }
+                                    });
+                                  }}
+                                  itemClasses={{
+                                    base: "p-0 bg-default-50 rounded-xl overflow-hidden border-2 border-default-200",
+                                    title: "font-normal text-lg font-semibold",
+                                    trigger: "p-4 data-[hover=true]:bg-default-100 flex items-center transition-colors",
+                                    indicator: "text-medium",
+                                    content: "text-small py-4 px-2",
+                                  }}
+                                >
+                                  {selectedInventoryUuids.map((inventoryUuid) => {
+                                    const inventory = inventoryItems.find(inv => inv.uuid === inventoryUuid);
+                                    const inventoryItemsForThisInventory = getInventoryItemsForInventory(inventoryUuid);
+                                    const selectedItemCount = inventoryItemsForThisInventory.filter(item =>
+                                      selectedInventoryItems.includes(item.uuid)
+                                    ).length;
 
-                                          // For PENDING status, show all items
-                                          return true;
-                                        })
-                                        .map((item, index: number) => {
-                                          const groupedItems = getGroupedInventoryItems();
-                                          const groupInfo = getGroupInfo(item, groupedItems);
-                                          const displayNumber = index + 1; // Simple display number based on filtered list
-
-                                          // Get all items that should be selected for this display item
-                                          const itemsToSelect = inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId
-                                            ? inventoryInventoryItems.filter(groupItem => groupItem.group_id === groupInfo.groupId)
-                                            : [item];
-
-                                          const isSelected = itemsToSelect.every(groupItem => selectedInventoryItems.includes(groupItem.uuid));
-
-                                          return (
-                                            <AccordionItem
-                                              key={`${item.uuid}-${inventoryViewMode}`} // Use uuid + view mode for unique key
-                                              aria-label={`Item ${displayNumber}`}
-                                              className="mx-2"
-                                              title={
-                                                renderInventoryItemWithStatus(item, isSelected)
-                                              }
-                                            >
-                                              <div>
-                                                {/* Group identifier for grouped items */}
-                                                {inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId && (
-                                                  <div className="space-y-4 px-4 pt-4">
-                                                    <Input
-                                                      label="Group Identifier"
-                                                      value={groupInfo.groupId}
-                                                      isReadOnly
-                                                      classNames={{ inputWrapper: inputStyle.inputWrapper }}
-                                                      startContent={<Icon icon="mdi:group" className="text-default-500 mb-[0.2rem]" />}
-                                                      endContent={
-                                                        <Button
-                                                          variant="flat"
-                                                          color="default"
-                                                          isIconOnly
-                                                          onPress={() => copyToClipboard(groupInfo.groupId!)}
-                                                        >
-                                                          <Icon icon="mdi:content-copy" className="text-default-500" />
-                                                        </Button>
-                                                      }
-                                                    />
-                                                  </div>
+                                    return (
+                                      <AccordionItem
+                                        key={inventoryUuid}
+                                        aria-label={inventory?.name || 'Unknown Inventory'}
+                                        className="mx-2"
+                                        title={
+                                          <div className="flex items-center justify-between w-full">
+                                            <div className="flex items-center gap-3">
+                                              {(user && user.is_admin) && (
+                                                (canEditAllFields() || canOnlyEditLocations()) && formData.status === "PENDING"
+                                              ) && (
+                                                  <Checkbox
+                                                    isSelected={inventorySelectAllStates[inventoryUuid]?.isChecked || false}
+                                                    isIndeterminate={inventorySelectAllStates[inventoryUuid]?.isIndeterminate || false}
+                                                    onValueChange={(checked) => handleInventorySelectAllToggle(inventoryUuid, checked)}
+                                                    color="primary" />
                                                 )}
 
-                                                {/* List all items in group or show single item */}
-                                                <div className="space-y-4 p-4">
-                                                  {(() => {
-                                                    const itemsToShow = inventoryViewMode === 'grouped' && groupInfo.isGroup
-                                                      ? inventoryInventoryItems.filter(groupItem => groupItem.group_id === groupInfo.groupId)
-                                                      : [item];
+                                              <div className="text-left">
+                                                <p className="font-medium">{inventory?.name || 'Unknown Inventory'}</p>
+                                                <p className="text-sm text-default-500">
+                                                  {selectedItemCount}/{inventory?.count?.available || 0} items selected
+                                                </p>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        }
+                                      >
+                                        <div className="space-y-4">
+                                          {/* Items display using same layout as main inventory items section */}
+                                          <LoadingAnimation
+                                            condition={isLoadingInventoryItems && !loadedInventoryUuids.has(inventoryUuid)}
+                                            skeleton={
+                                              <div className="space-y-2">
+                                                {[...Array(3)].map((_, i) => (
+                                                  <div key={i} className="border border-default-200 rounded-xl p-4">
+                                                    <div className="flex items-center justify-between">
+                                                      <div className="flex items-center gap-3">
+                                                        <Skeleton className="w-5 h-5 rounded" />
+                                                        <Skeleton className="h-4 w-32 rounded-xl" />
+                                                      </div>
+                                                      <Skeleton className="h-6 w-16 rounded-xl" />
+                                                    </div>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            }
+                                          >
+                                            {inventoryItemsForThisInventory.length === 0 ? (
+                                              <div className="text-center py-8 text-default-500">
+                                                <Icon icon="mdi:package-variant-closed" className="mx-auto mb-2 opacity-50" width={40} height={40} />
+                                                <p>No inventory items available</p>
+                                              </div>
+                                            ) : (
+                                              <div>
+                                                <Accordion
+                                                  selectionMode="multiple"
+                                                  variant="splitted"
+                                                  selectedKeys={expandedInventoryItemDetails}
+                                                  onSelectionChange={(keys) => setExpandedInventoryItemDetails(keys as Set<string>)}
+                                                  itemClasses={{
+                                                    base: "p-0 bg-transparent rounded-xl overflow-hidden border-2 border-default-200",
+                                                    title: "font-normal text-lg font-semibold",
+                                                    trigger: "p-4 data-[hover=true]:bg-default-100 flex items-center transition-colors",
+                                                    indicator: "text-medium",
+                                                    content: "text-small p-0",
+                                                  }}
+                                                >
+                                                  {/* Filter the display list based on status and selection */}
+                                                  {getDisplayInventoryItemsListForInventory(inventoryUuid)
+                                                    .filter((item, index) => {
+                                                      // If status is PROCESSING or beyond, only show selected items
+                                                      if (
+                                                        formData.status === "PROCESSING" ||
+                                                        formData.status === "IN_TRANSIT" ||
+                                                        formData.status === "DELIVERED" ||
+                                                        formData.status === "CANCELLED"
+                                                      ) {
+                                                        const groupedItems = getGroupedInventoryItems();
+                                                        const groupInfo = getGroupInfo(item, groupedItems);
 
-                                                    return (
-                                                      <div className="space-y-4">
-                                                        {/* Show item details only once for grouped items */}
-                                                        {inventoryViewMode === 'grouped' && groupInfo.isGroup ? (
-                                                          <div className="bg-default-100/50 rounded-xl p-3 border border-default-200">
-                                                            <h4 className="text-sm font-medium text-default-700 mb-2">Group Item Details</h4>
-                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                                                              <div>
-                                                                <span className="text-default-500">Item Code:</span>
-                                                                <span className="ml-2 font-medium text-default-700">{item.item_code || 'Not set'}</span>
-                                                              </div>
-                                                              <div>
-                                                                <span className="text-default-500">Unit Value:</span>
-                                                                <span className="ml-2 font-medium text-default-700">
-                                                                  {item.unit_value || 0} {item.unit || 'units'}
-                                                                </span>
-                                                              </div>
-                                                              <div>
-                                                                <span className="text-default-500">Packaging:</span>
-                                                                <span className="ml-2 font-medium text-default-700">{item.packaging_unit || 'Not set'}</span>
-                                                              </div>
-                                                              <div>
-                                                                <span className="text-default-500">Cost:</span>
-                                                                <span className="ml-2 font-medium text-default-700">₱{item.cost || 0}</span>
-                                                              </div>
-                                                            </div>
-                                                          </div>
-                                                        ) : null}
+                                                        // For grouped view, check if any item in the group is selected
+                                                        if (inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId) {
+                                                          const groupItems = inventoryItemsForThisInventory.filter(groupItem =>
+                                                            groupItem.group_id === groupInfo.groupId
+                                                          );
+                                                          return groupItems.some(groupItem => selectedInventoryItems.includes(groupItem.uuid));
+                                                        } else {
+                                                          // For flat view or non-grouped items, check if the item itself is selected
+                                                          return selectedInventoryItems.includes(item.uuid);
+                                                        }
+                                                      }
 
-                                                        {/* List individual items */}
-                                                        {itemsToShow.map((inventoryItem, itemIndex) => {
-                                                          const itemLocationIndex = selectedInventoryItems.indexOf(inventoryItem.uuid);
-                                                          const hasAssignedLocation = itemLocationIndex >= 0 && locations[itemLocationIndex];
-                                                          const isItemSelected = selectedInventoryItems.includes(inventoryItem.uuid);
+                                                      // For PENDING status, show all items
+                                                      return true;
+                                                    })
+                                                    .map((item, index: number) => {
+                                                      const groupedItems = getGroupedInventoryItems();
+                                                      const groupInfo = getGroupInfo(item, groupedItems);
+                                                      const displayNumber = index + 1; // Simple display number based on filtered list
 
-                                                          return (
-                                                            <div key={inventoryItem.uuid} className="border border-default-200 rounded-xl p-4 bg-default-50/50">
-                                                              <div className="space-y-3">
-                                                                {/* Item details section - display only for single items (not grouped) */}
-                                                                {!(inventoryViewMode === 'grouped' && groupInfo.isGroup) && (
-                                                                  <div className="bg-default-100/50 rounded-xl p-3 border border-default-200">
-                                                                    <h4 className="text-sm font-medium text-default-700 mb-2">Item Details</h4>
-                                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                                                                      <div>
-                                                                        <span className="text-default-500">Item Code:</span>
-                                                                        <span className="ml-2 font-medium text-default-700">{inventoryItem.item_code || 'Not set'}</span>
-                                                                      </div>
-                                                                      <div>
-                                                                        <span className="text-default-500">Unit Value:</span>
-                                                                        <span className="ml-2 font-medium text-default-700">
-                                                                          {inventoryItem.unit_value || 0} {inventoryItem.unit || 'units'}
-                                                                        </span>
-                                                                      </div>
-                                                                      <div>
-                                                                        <span className="text-default-500">Packaging:</span>
-                                                                        <span className="ml-2 font-medium text-default-700">{inventoryItem.packaging_unit || 'Not set'}</span>
-                                                                      </div>
-                                                                      <div>
-                                                                        <span className="text-default-500">Cost:</span>
-                                                                        <span className="ml-2 font-medium text-default-700">₱{inventoryItem.cost || 0}</span>
-                                                                      </div>
-                                                                    </div>
-                                                                  </div>
-                                                                )}
+                                                      // Get all items that should be selected for this display item
+                                                      const itemsToSelect = inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId
+                                                        ? inventoryItemsForThisInventory.filter(groupItem => groupItem.group_id === groupInfo.groupId)
+                                                        : [item];
 
-                                                                {/* Item status - show for each individual item in grouped view only */}
-                                                                {inventoryViewMode === 'grouped' && inventoryItem.status && (
-                                                                  <div className="flex items-center gap-2 justify-between">
-                                                                    <span className="text-sm text-default-500">Item {itemIndex + 1}</span>
-                                                                    <Chip color={getStatusColor(inventoryItem.status)} variant="flat" size="sm">
-                                                                      {formatStatus(inventoryItem.status)}
-                                                                    </Chip>
-                                                                  </div>
-                                                                )}
+                                                      const isSelected = itemsToSelect.every(groupItem => selectedInventoryItems.includes(groupItem.uuid));
 
-                                                                {/* Group identifier for flat view if item has group */}
-                                                                {inventoryViewMode === 'flat' && inventoryItem.group_id && (
-                                                                  <Input
-                                                                    label="Group Identifier"
-                                                                    value={inventoryItem.group_id}
-                                                                    isReadOnly
-                                                                    classNames={{ inputWrapper: inputStyle.inputWrapper }}
-                                                                    startContent={<Icon icon="mdi:group" className="text-default-500 mb-[0.2rem]" />}
-                                                                    endContent={
-                                                                      <Button
-                                                                        variant="flat"
-                                                                        color="default"
-                                                                        isIconOnly
-                                                                        onPress={() => copyToClipboard(inventoryItem.group_id!)}
-                                                                      >
-                                                                        <Icon icon="mdi:content-copy" className="text-default-500" />
-                                                                      </Button>
-                                                                    }
-                                                                  />
-                                                                )}
-
-                                                                {/* Item identifier */}
+                                                      return (
+                                                        <AccordionItem
+                                                          key={`${item.uuid}-${inventoryViewMode}-${inventoryUuid}`} // Use uuid + view mode + inventory for unique key
+                                                          aria-label={`Item ${displayNumber}`}
+                                                          title={
+                                                            renderInventoryItemWithStatus(item, isSelected)
+                                                          }
+                                                        >
+                                                          <div>
+                                                            {/* Group identifier for grouped items */}
+                                                            {inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId && (
+                                                              <div className="space-y-4 px-4 pt-4">
                                                                 <Input
-                                                                  label={"Item Identifier"}
-                                                                  value={inventoryItem.uuid}
+                                                                  label="Group Identifier"
+                                                                  value={groupInfo.groupId}
                                                                   isReadOnly
                                                                   classNames={{ inputWrapper: inputStyle.inputWrapper }}
-                                                                  startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
+                                                                  startContent={<Icon icon="mdi:group" className="text-default-500 mb-[0.2rem]" />}
                                                                   endContent={
                                                                     <Button
                                                                       variant="flat"
                                                                       color="default"
                                                                       isIconOnly
-                                                                      onPress={() => copyToClipboard(inventoryItem.uuid)}
+                                                                      onPress={() => copyToClipboard(groupInfo.groupId!)}
                                                                     >
                                                                       <Icon icon="mdi:content-copy" className="text-default-500" />
                                                                     </Button>
                                                                   }
                                                                 />
-
-                                                                {/* Location assignment - only show if item is selected AND not delivered/cancelled */}
-                                                                {isItemSelected && formData.status !== "DELIVERED" && formData.status !== "CANCELLED" && (
-                                                                  <div className="flex items-center justify-between gap-3">
-                                                                    <div className="flex-1">
-                                                                      {hasAssignedLocation ? (
-                                                                        <div className="flex items-center gap-2">
-                                                                          <Chip color="success" variant="flat" size="sm">
-                                                                            <div className="flex items-center gap-1">
-                                                                              <Icon icon="mdi:map-marker-check" width={14} height={14} />
-                                                                              {locations[itemLocationIndex]?.code}
-                                                                            </div>
-                                                                          </Chip>
-                                                                        </div>
-                                                                      ) : (
-                                                                        <Chip color="warning" variant="flat" size="sm">
-                                                                          <div className="flex items-center gap-1">
-                                                                            <Icon icon="mdi:map-marker-alert" width={14} height={14} />
-                                                                            No Location Assigned
-                                                                          </div>
-                                                                        </Chip>
-                                                                      )}
-                                                                    </div>
-
-                                                                    <Button
-                                                                      color="primary"
-                                                                      variant="flat"
-                                                                      size="sm"
-                                                                      onPress={() => {
-                                                                        // Set the current item location index and open modal
-                                                                        setCurrentInventoryItemLocationIndex(itemLocationIndex >= 0 ? itemLocationIndex : selectedInventoryItems.length);
-
-                                                                        if (hasAssignedLocation) {
-                                                                          setExternalSelection(locations[itemLocationIndex]);
-                                                                        } else {
-                                                                          setExternalSelection(undefined);
-                                                                        }
-
-                                                                        // Ensure the item is selected first
-                                                                        if (!selectedInventoryItems.includes(inventoryItem.uuid)) {
-                                                                          handleInventoryItemSelectionToggle(inventoryItem.uuid, true);
-                                                                        }
-
-                                                                        handleOpenModal();
-                                                                      }}
-                                                                      isDisabled={!(user === null || user.is_admin) || isWarehouseNotSet() || isFloorConfigNotSet()}
-                                                                      startContent={<Icon icon="mdi:map-marker-plus" width={14} height={14} />}
-                                                                    >
-                                                                      {hasAssignedLocation ? 'Change Location' : 'Assign Location'}
-                                                                    </Button>
-                                                                  </div>
-                                                                )}
                                                               </div>
+                                                            )}
+
+                                                            {/* List all items in group or show single item */}
+                                                            <div className="space-y-4 p-4">
+                                                              {(() => {
+                                                                const itemsToShow = inventoryViewMode === 'grouped' && groupInfo.isGroup
+                                                                  ? inventoryItemsForThisInventory.filter(groupItem => groupItem.group_id === groupInfo.groupId)
+                                                                  : [item];
+
+                                                                return (
+                                                                  <div className="space-y-4">
+                                                                    {/* Show item details only once for grouped items */}
+                                                                    {inventoryViewMode === 'grouped' && groupInfo.isGroup ? (
+                                                                      <div className="bg-default-100/50 rounded-xl p-3 border border-default-200">
+                                                                        <h4 className="text-sm font-medium text-default-700 mb-2">Group Item Details</h4>
+                                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                                                          <div>
+                                                                            <span className="text-default-500">Item Code:</span>
+                                                                            <span className="ml-2 font-medium text-default-700">{item.item_code || 'Not set'}</span>
+                                                                          </div>
+                                                                          <div>
+                                                                            <span className="text-default-500">Unit Value:</span>
+                                                                            <span className="ml-2 font-medium text-default-700">
+                                                                              {item.unit_value || 0} {item.unit || 'units'}
+                                                                            </span>
+                                                                          </div>
+                                                                          <div>
+                                                                            <span className="text-default-500">Packaging:</span>
+                                                                            <span className="ml-2 font-medium text-default-700">{item.packaging_unit || 'Not set'}</span>
+                                                                          </div>
+                                                                          <div>
+                                                                            <span className="text-default-500">Cost:</span>
+                                                                            <span className="ml-2 font-medium text-default-700">₱{item.cost || 0}</span>
+                                                                          </div>
+                                                                        </div>
+                                                                      </div>
+                                                                    ) : null}
+
+                                                                    {/* List individual items */}
+                                                                    {itemsToShow.map((inventoryItem, itemIndex) => {
+                                                                      const itemLocationIndex = selectedInventoryItems.indexOf(inventoryItem.uuid);
+                                                                      const hasAssignedLocation = itemLocationIndex >= 0 && locations[itemLocationIndex];
+                                                                      const isItemSelected = selectedInventoryItems.includes(inventoryItem.uuid);
+
+                                                                      return (
+                                                                        <div key={inventoryItem.uuid} className="border border-default-200 rounded-xl p-4 bg-default-50/50">
+                                                                          <div className="space-y-3">
+
+                                                                            {/* Item status - show for each individual item in grouped view only */}
+                                                                            {inventoryViewMode === 'grouped' && inventoryItem.status && (
+                                                                              <div className="flex items-center gap-2 justify-between">
+                                                                                <span className="text-sm text-default-500">Item {itemIndex + 1}</span>
+                                                                                <Chip color={getStatusColor(inventoryItem.status)} variant="flat" size="sm">
+                                                                                  {formatStatus(inventoryItem.status)}
+                                                                                </Chip>
+                                                                              </div>
+                                                                            )}
+
+                                                                            {/* Group identifier for flat view if item has group */}
+                                                                            {inventoryViewMode === 'flat' && inventoryItem.group_id && (
+                                                                              <Input
+                                                                                label="Group Identifier"
+                                                                                value={inventoryItem.group_id}
+                                                                                isReadOnly
+                                                                                classNames={{ inputWrapper: inputStyle.inputWrapper }}
+                                                                                startContent={<Icon icon="mdi:group" className="text-default-500 mb-[0.2rem]" />}
+                                                                                endContent={
+                                                                                  <Button
+                                                                                    variant="flat"
+                                                                                    color="default"
+                                                                                    isIconOnly
+                                                                                    onPress={() => copyToClipboard(inventoryItem.group_id!)}
+                                                                                  >
+                                                                                    <Icon icon="mdi:content-copy" className="text-default-500" />
+                                                                                  </Button>
+                                                                                }
+                                                                              />
+                                                                            )}
+
+                                                                            {/* Item identifier */}
+                                                                            <Input
+                                                                              label={"Item Identifier"}
+                                                                              value={inventoryItem.uuid}
+                                                                              isReadOnly
+                                                                              classNames={{ inputWrapper: inputStyle.inputWrapper }}
+                                                                              startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
+                                                                              endContent={
+                                                                                <Button
+                                                                                  variant="flat"
+                                                                                  color="default"
+                                                                                  isIconOnly
+                                                                                  onPress={() => copyToClipboard(inventoryItem.uuid)}
+                                                                                >
+                                                                                  <Icon icon="mdi:content-copy" className="text-default-500" />
+                                                                                </Button>
+                                                                              }
+                                                                            />
+
+                                                                            {/* Item details section - display only for single items (not grouped) */}
+                                                                            {!(inventoryViewMode === 'grouped' && groupInfo.isGroup) && (
+                                                                              <div className="bg-default-100/50 rounded-xl p-3 border border-default-200">
+                                                                                <h4 className="text-sm font-medium text-default-700 mb-2">Item Details</h4>
+                                                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                                                                  <div>
+                                                                                    <span className="text-default-500">Item Code:</span>
+                                                                                    <span className="ml-2 font-medium text-default-700">{inventoryItem.item_code || 'Not set'}</span>
+                                                                                  </div>
+                                                                                  <div>
+                                                                                    <span className="text-default-500">Unit Value:</span>
+                                                                                    <span className="ml-2 font-medium text-default-700">
+                                                                                      {inventoryItem.unit_value || 0} {inventoryItem.unit || 'units'}
+                                                                                    </span>
+                                                                                  </div>
+                                                                                  <div>
+                                                                                    <span className="text-default-500">Packaging:</span>
+                                                                                    <span className="ml-2 font-medium text-default-700">{inventoryItem.packaging_unit || 'Not set'}</span>
+                                                                                  </div>
+                                                                                  <div>
+                                                                                    <span className="text-default-500">Cost:</span>
+                                                                                    <span className="ml-2 font-medium text-default-700">₱{inventoryItem.cost || 0}</span>
+                                                                                  </div>
+                                                                                </div>
+                                                                              </div>
+                                                                            )}
+
+                                                                            {/* Location assignment - only show if item is selected AND not delivered/cancelled */}
+                                                                            {isItemSelected && formData.status !== "DELIVERED" && formData.status !== "CANCELLED" && (
+                                                                              <div className="flex items-center justify-between gap-3">
+                                                                                <div className="flex-1">
+                                                                                  {hasAssignedLocation ? (
+                                                                                    <div className="flex items-center gap-2">
+                                                                                      <Chip color="success" variant="flat" size="sm">
+                                                                                        <div className="flex items-center gap-1">
+                                                                                          <Icon icon="mdi:map-marker-check" width={14} height={14} />
+                                                                                          {locations[itemLocationIndex]?.code}
+                                                                                        </div>
+                                                                                      </Chip>
+                                                                                    </div>
+                                                                                  ) : (
+                                                                                    <Chip color="warning" variant="flat" size="sm">
+                                                                                      <div className="flex items-center gap-1">
+                                                                                        <Icon icon="mdi:map-marker-alert" width={14} height={14} />
+                                                                                        No Location Assigned
+                                                                                      </div>
+                                                                                    </Chip>
+                                                                                  )}
+                                                                                </div>
+
+                                                                                <Button
+                                                                                  color="primary"
+                                                                                  variant="flat"
+                                                                                  size="sm"
+                                                                                  onPress={() => {
+                                                                                    // Set the current item location index and open modal
+                                                                                    setCurrentInventoryItemLocationIndex(itemLocationIndex >= 0 ? itemLocationIndex : selectedInventoryItems.length);
+
+                                                                                    if (hasAssignedLocation) {
+                                                                                      setExternalSelection(locations[itemLocationIndex]);
+                                                                                    } else {
+                                                                                      setExternalSelection(undefined);
+                                                                                    }
+
+                                                                                    // Ensure the item is selected first
+                                                                                    if (!selectedInventoryItems.includes(inventoryItem.uuid)) {
+                                                                                      handleInventoryItemSelectionToggle(inventoryItem.uuid, true);
+                                                                                    }
+
+                                                                                    handleOpenModal();
+                                                                                  }}
+                                                                                  isDisabled={!(user === null || user.is_admin) || isWarehouseNotSet() || isFloorConfigNotSet()}
+                                                                                  startContent={<Icon icon="mdi:map-marker-plus" width={14} height={14} />}
+                                                                                >
+                                                                                  {hasAssignedLocation ? 'Change Location' : 'Assign Location'}
+                                                                                </Button>
+                                                                              </div>
+                                                                            )}
+                                                                          </div>
+                                                                        </div>
+                                                                      );
+                                                                    })}
+                                                                  </div>
+                                                                );
+                                                              })()}
                                                             </div>
-                                                          );
-                                                        })}
-                                                      </div>
-                                                    );
-                                                  })()}
-                                                </div>
+                                                          </div>
+                                                        </AccordionItem>
+                                                      );
+                                                    })}
+                                                </Accordion>
                                               </div>
-                                            </AccordionItem>
-                                          );
-                                        })}
-                                    </Accordion>
-                                  </div>
-                                )}
-                              </LoadingAnimation>
-
-                              {/* Auto-assign locations button - only show when not delivered/cancelled */}
-                              {selectedInventoryItems.length > 0 && user.is_admin && !isWarehouseNotSet() && !isFloorConfigNotSet() &&
-                                (canEditAllFields() || canOnlyEditLocations()) && (
-                                  <div className="bg-default-100 p-4">
-                                    <Button
-                                      color="secondary"
-                                      variant="shadow"
-                                      className="w-full"
-                                      onPress={autoAssignShelfLocations}
-                                      startContent={!isAutoAssigning && <Icon icon="mdi:auto-fix" />}
-                                      isLoading={isAutoAssigning}
-                                      isDisabled={isLoading || isLoadingItems || isLoadingInventoryItems}
-                                    >
-                                      {isAutoAssigning ? "Auto-assigning..." : "Auto-assign Locations"}
-                                    </Button>
-                                  </div>
-                                )}
-
-                              {/* Validation message for locations */}
-                              {errors.locations && (
-                                <Alert color="danger" variant="flat" className="mt-4">
-                                  {errors.locations}
-                                </Alert>
-                              )}
+                                            )}
+                                          </LoadingAnimation>
+                                        </div>
+                                      </AccordionItem>
+                                    );
+                                  })}
+                                </Accordion>
+                              </div>
                             </div>
-                          </div>
-                        )}
+                          )}
+
+                          {/* Error display for inventory selection */}
+                          {errors.inventory_uuids && (
+                            <Alert color="danger" variant="flat">
+                              {errors.inventory_uuids}
+                            </Alert>
+                          )}
+                        </div>
+
                       </div>
                     </LoadingAnimation>
                   </div>
@@ -3417,7 +3655,7 @@ export default function DeliveryPage() {
                                   Show Delivery QR
                                 </Button>
 
-                                {formData.status === "DELIVERED" && (
+                                {/* {formData.status === "DELIVERED" && (
                                   <Button
                                     color="success"
                                     variant="shadow"
@@ -3429,7 +3667,7 @@ export default function DeliveryPage() {
                                       ? "Show Inventory"
                                       : "Show in Warehouse"}
                                   </Button>
-                                )}
+                                )} */}
                               </>
                             )}
 

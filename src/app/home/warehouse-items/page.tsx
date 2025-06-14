@@ -956,7 +956,7 @@ export default function WarehouseItemsPage() {
                           </div>
                         )}
 
-                        {/* Bulk Mark as Used Section */}
+                          {/* Bulk Mark as Used Section */}
                         {formData.count?.available > 0 && (
                           <div className="p-4 bg-warning-50 rounded-xl border-2 border-warning-200">
                             <div className="flex items-center gap-3 mb-3 justify-between">
@@ -999,10 +999,24 @@ export default function WarehouseItemsPage() {
                               >
                                 Mark as Used
                               </Button>
+                              <Button
+                                color="warning"
+                                variant="flat"
+                                size="sm"
+                                onPress={() => handleMarkItemsBulkAsUsed(1)}
+                                startContent={
+                                  isLoadingMarkBulkAsUsed ?
+                                    <Spinner size="sm" color="warning" />
+                                    : <Icon icon="mdi:package-variant" width={16} height={16} />
+                                }
+                                isDisabled={isLoadingMarkBulkAsUsed || formData.count.available <= 0}
+                                className="flex-shrink-0"
+                              >
+                                Mark 1 Item
+                              </Button>
                             </div>
                           </div>
                         )}
-
                       </div>
                     </div>
                   </LoadingAnimation>
@@ -1560,7 +1574,7 @@ export default function WarehouseItemsPage() {
                                             </div>
                                           )}
 
-                                          {/* Group Bulk Mark as Used Section */}
+                                         {/* Group Bulk Mark as Used Section */}
                                           {(() => {
                                             const groupItems = formData.items?.filter((groupItem: any) => groupItem.group_id === groupId) || [];
                                             const availableCount = groupItems.filter((item: any) => item.status === 'AVAILABLE').length;
@@ -1598,6 +1612,21 @@ export default function WarehouseItemsPage() {
                                                     className="flex-shrink-0"
                                                   >
                                                     Mark as Used
+                                                  </Button>
+                                                  <Button
+                                                    color="warning"
+                                                    variant="flat"
+                                                    size="sm"
+                                                    onPress={() => handleMarkGroupBulkAsUsed(groupId, 1)}
+                                                    startContent={
+                                                      isLoadingMarkGroupBulkAsUsed ?
+                                                        <Spinner size="sm" color="warning" />
+                                                        : <Icon icon="mdi:package-variant" width={16} height={16} />
+                                                    }
+                                                    isDisabled={isLoadingMarkGroupBulkAsUsed || availableCount <= 0}
+                                                    className="flex-shrink-0"
+                                                  >
+                                                    Mark 1 Item
                                                   </Button>
                                                 </div>
                                                 <div className="text-xs text-warning-600 mt-2">
