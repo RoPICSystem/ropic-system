@@ -18,7 +18,7 @@ export interface DeliveryItem {
   status_history?: Record<string, string>;
   inventory_items: Record<string, {
     inventory_uuid: string;
-    inventory_item_uuid: string;
+    group_id: string;
     location: ShelfLocation;
   }>; 
   operator_uuids?: string[];
@@ -35,9 +35,9 @@ export async function createDeliveryWithItems(
   warehouseUuid: string,
   inventoryItems: Record<string, {
     inventory_uuid: string;
-    inventory_item_uuid: string;
+    group_id: string;
     location: ShelfLocation;
-  }>, // Key as UUID, value as {inventory_uuid, inventory_item_uuid, location}
+  }>, // Key as UUID, value as {inventory_uuid, group_id, location}
   deliveryAddress: string,
   deliveryDate: string,
   operatorUuids: string[] = [],
@@ -119,7 +119,7 @@ export async function updateDeliveryWithItems(
   deliveryUuid: string,
   inventoryItems: Record<string, {
     inventory_uuid: string;
-    inventory_item_uuid: string;
+    group_id: string;
     location: ShelfLocation;
   }>,
   deliveryAddress?: string,
@@ -196,7 +196,7 @@ export async function createWarehouseInventoryItems(
   deliveryUuid: string,
   inventoryItems: Record<string, {
     inventory_uuid: string;
-    inventory_item_uuid: string;
+    group_id: string;
     location: ShelfLocation;
   }>
 ) {
@@ -204,7 +204,7 @@ export async function createWarehouseInventoryItems(
 
   try {
     // Extract inventory item UUIDs from the structure
-    const inventoryItemUuids = Object.values(inventoryItems).map(item => item.inventory_item_uuid);
+    const inventoryItemUuids = Object.values(inventoryItems).map(item => item.group_id);
 
     // Get all inventory items that match the provided UUIDs
     const { data: inventoryItemDetails, error: itemsError } = await supabase
@@ -308,7 +308,7 @@ export async function createWarehouseInventoryItems(
       const warehouseItemPromises = items.map(async (item) => {
         // Find the matching location for this item
         const inventoryItemEntry = Object.entries(inventoryItems).find(
-          ([_, value]) => value.inventory_item_uuid === item.uuid
+          ([key, _]) => key === item.uuid
         );
         const location = inventoryItemEntry ? inventoryItemEntry[1].location : null;
 
@@ -407,7 +407,7 @@ export async function getOccupiedShelfLocations(warehouseUuid: string) {
         if (!item.inventory_items) return [];
         return Object.values(item.inventory_items as Record<string, {
           inventory_uuid: string;
-          inventory_item_uuid: string;
+          group_id: string;
           location: ShelfLocation;
         }>).map(entry => entry.location);
       })
@@ -648,7 +648,7 @@ export async function getDeliveryHistory(inventoryUuids: string[]) {
       
       const deliveryInventoryUuids = Object.values(delivery.inventory_items as Record<string, {
         inventory_uuid: string;
-        inventory_item_uuid: string;
+        group_id: string;
         location: ShelfLocation;
       }>).map(item => item.inventory_uuid);
       

@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS public.delivery_items (
   company_uuid UUID NOT NULL REFERENCES public.companies(uuid) ON DELETE CASCADE,
   admin_uuid UUID NOT NULL REFERENCES public.profiles(uuid) ON DELETE SET NULL,
   warehouse_uuid UUID NOT NULL REFERENCES public.warehouses(uuid) ON DELETE SET NULL,
-  inventory_items JSONB DEFAULT '{}'::jsonb, -- Key as UUID, value as {inventory_uuid, inventory_item_uuid, location}
+  inventory_items JSONB DEFAULT '{}'::jsonb, -- Key as UUID, value as {inventory_uuid, group_id, location}
   name TEXT,
   delivery_address TEXT NOT NULL,
   delivery_date DATE NOT NULL,
@@ -25,11 +25,12 @@ BEFORE UPDATE ON public.delivery_items
 FOR EACH ROW
 EXECUTE FUNCTION update_status_history();
 
+-- Updated function to create delivery with group_id structure
 CREATE OR REPLACE FUNCTION public.create_delivery_with_items(
   p_admin_uuid uuid,
   p_company_uuid uuid,
   p_warehouse_uuid uuid,
-  p_inventory_items jsonb, -- Key as UUID, value as {inventory_uuid, inventory_item_uuid, location}
+  p_inventory_items jsonb, -- Key as UUID, value as {inventory_uuid, group_id, location}
   p_delivery_address text,
   p_delivery_date date,
   p_operator_uuids uuid[] DEFAULT '{}',
@@ -46,7 +47,7 @@ DECLARE
   v_timestamp text;
   v_item_record jsonb;
   v_result jsonb;
-  v_inventory_item_uuids uuid[];
+  v_group_ids text[];
   v_inventory_uuids uuid[];
   v_item_key text;
 BEGIN
@@ -59,32 +60,32 @@ BEGIN
     v_item_record := p_inventory_items->v_item_key;
     
     -- Validate that required fields exist
-    IF NOT (v_item_record ? 'inventory_uuid' AND v_item_record ? 'inventory_item_uuid') THEN
+    IF NOT (v_item_record ? 'inventory_uuid' AND v_item_record ? 'group_id') THEN
       RETURN jsonb_build_object(
         'success', false,
-        'error', 'Invalid inventory item structure. Missing inventory_uuid or inventory_item_uuid'
+        'error', 'Invalid inventory item structure. Missing inventory_uuid or group_id'
       );
     END IF;
     
-    -- Collect UUIDs for validation
-    v_inventory_item_uuids := array_append(v_inventory_item_uuids, (v_item_record->>'inventory_item_uuid')::uuid);
+    -- Collect group IDs and inventory UUIDs for validation
+    v_group_ids := array_append(v_group_ids, v_item_record->>'group_id');
     v_inventory_uuids := array_append(v_inventory_uuids, (v_item_record->>'inventory_uuid')::uuid);
   END LOOP;
   
-  -- Validate that all inventory item UUIDs exist and belong to their specified inventories
-  IF v_inventory_item_uuids IS NOT NULL AND array_length(v_inventory_item_uuids, 1) > 0 THEN
-    -- Check each inventory item belongs to its specified inventory
-    FOR i IN 1..array_length(v_inventory_item_uuids, 1)
+  -- Validate that all group IDs exist and belong to their specified inventories
+  IF v_group_ids IS NOT NULL AND array_length(v_group_ids, 1) > 0 THEN
+    -- Check each group belongs to its specified inventory
+    FOR i IN 1..array_length(v_group_ids, 1)
     LOOP
       PERFORM 1 FROM inventory_items 
-      WHERE uuid = v_inventory_item_uuids[i]
+      WHERE group_id = v_group_ids[i]
         AND inventory_uuid = v_inventory_uuids[i]
         AND company_uuid = p_company_uuid;
       
       IF NOT FOUND THEN
         RETURN jsonb_build_object(
           'success', false,
-          'error', 'Inventory item ' || v_inventory_item_uuids[i] || ' not found or does not belong to specified inventory'
+          'error', 'Group ID ' || v_group_ids[i] || ' not found or does not belong to specified inventory'
         );
       END IF;
     END LOOP;
@@ -118,14 +119,14 @@ BEGIN
   )
   RETURNING uuid INTO v_delivery_uuid;
 
-  -- Update inventory item status to 'ON_DELIVERY' for each selected item
-  IF v_inventory_item_uuids IS NOT NULL AND array_length(v_inventory_item_uuids, 1) > 0 THEN
+  -- Update inventory item status to 'ON_DELIVERY' for each selected group
+  IF v_group_ids IS NOT NULL AND array_length(v_group_ids, 1) > 0 THEN
     UPDATE inventory_items 
     SET 
       status = 'ON_DELIVERY',
       status_history = COALESCE(status_history, '{}'::jsonb) || jsonb_build_object(v_timestamp, 'ON_DELIVERY'),
       updated_at = now()
-    WHERE uuid = ANY(v_inventory_item_uuids)
+    WHERE group_id = ANY(v_group_ids)
       AND company_uuid = p_company_uuid;
   END IF;
 
@@ -150,7 +151,7 @@ EXCEPTION
 END;
 $function$;
 
--- Update the existing update_delivery_with_items function to handle new structure
+-- Update the update_delivery_with_items function to handle group_id structure
 CREATE OR REPLACE FUNCTION public.update_delivery_with_items(
   p_delivery_uuid uuid,
   p_inventory_items jsonb,
@@ -170,10 +171,10 @@ DECLARE
   v_delivery_record RECORD;
   v_timestamp text;
   v_result jsonb;
-  v_new_inventory_item_uuids uuid[];
-  v_old_inventory_item_uuids uuid[];
-  v_items_to_add uuid[];
-  v_items_to_remove uuid[];
+  v_new_group_ids text[];
+  v_old_group_ids text[];
+  v_groups_to_add text[];
+  v_groups_to_remove text[];
   v_item_record jsonb;
   v_item_key text;
 BEGIN
@@ -221,56 +222,56 @@ BEGIN
     );
   END IF;
 
-  -- Extract new inventory item UUIDs from the new structure
+  -- Extract new group IDs from the new structure
   FOR v_item_key IN SELECT jsonb_object_keys(p_inventory_items)
   LOOP
     v_item_record := p_inventory_items->v_item_key;
-    IF v_item_record ? 'inventory_item_uuid' THEN
-      v_new_inventory_item_uuids := array_append(v_new_inventory_item_uuids, (v_item_record->>'inventory_item_uuid')::uuid);
+    IF v_item_record ? 'group_id' THEN
+      v_new_group_ids := array_append(v_new_group_ids, v_item_record->>'group_id');
     END IF;
   END LOOP;
   
-  -- Extract old inventory item UUIDs from existing structure
+  -- Extract old group IDs from existing structure
   FOR v_item_key IN SELECT jsonb_object_keys(v_delivery_record.inventory_items)
   LOOP
     v_item_record := v_delivery_record.inventory_items->v_item_key;
-    IF v_item_record ? 'inventory_item_uuid' THEN
-      v_old_inventory_item_uuids := array_append(v_old_inventory_item_uuids, (v_item_record->>'inventory_item_uuid')::uuid);
+    IF v_item_record ? 'group_id' THEN
+      v_old_group_ids := array_append(v_old_group_ids, v_item_record->>'group_id');
     END IF;
   END LOOP;
 
   -- Handle null arrays
-  v_new_inventory_item_uuids := COALESCE(v_new_inventory_item_uuids, ARRAY[]::uuid[]);
-  v_old_inventory_item_uuids := COALESCE(v_old_inventory_item_uuids, ARRAY[]::uuid[]);
+  v_new_group_ids := COALESCE(v_new_group_ids, ARRAY[]::text[]);
+  v_old_group_ids := COALESCE(v_old_group_ids, ARRAY[]::text[]);
 
-  -- Find items to add (in new but not in old)
-  SELECT array_agg(uuid_val) INTO v_items_to_add
-  FROM unnest(v_new_inventory_item_uuids) AS uuid_val
-  WHERE uuid_val != ALL(v_old_inventory_item_uuids);
+  -- Find groups to add (in new but not in old)
+  SELECT array_agg(group_val) INTO v_groups_to_add
+  FROM unnest(v_new_group_ids) AS group_val
+  WHERE group_val != ALL(v_old_group_ids);
 
-  -- Find items to remove (in old but not in new)
-  SELECT array_agg(uuid_val) INTO v_items_to_remove
-  FROM unnest(v_old_inventory_item_uuids) AS uuid_val
-  WHERE uuid_val != ALL(v_new_inventory_item_uuids);
+  -- Find groups to remove (in old but not in new)
+  SELECT array_agg(group_val) INTO v_groups_to_remove
+  FROM unnest(v_old_group_ids) AS group_val
+  WHERE group_val != ALL(v_new_group_ids);
 
   -- Handle null arrays
-  v_items_to_add := COALESCE(v_items_to_add, ARRAY[]::uuid[]);
-  v_items_to_remove := COALESCE(v_items_to_remove, ARRAY[]::uuid[]);
+  v_groups_to_add := COALESCE(v_groups_to_add, ARRAY[]::text[]);
+  v_groups_to_remove := COALESCE(v_groups_to_remove, ARRAY[]::text[]);
 
-  -- Validate that all new inventory item UUIDs exist and belong to their specified inventories
+  -- Validate that all new group IDs exist and belong to their specified inventories
   FOR v_item_key IN SELECT jsonb_object_keys(p_inventory_items)
   LOOP
     v_item_record := p_inventory_items->v_item_key;
     
     PERFORM 1 FROM inventory_items 
-    WHERE uuid = (v_item_record->>'inventory_item_uuid')::uuid
+    WHERE group_id = v_item_record->>'group_id'
       AND inventory_uuid = (v_item_record->>'inventory_uuid')::uuid
       AND company_uuid = v_delivery_record.company_uuid;
     
     IF NOT FOUND THEN
       RETURN jsonb_build_object(
         'success', false,
-        'error', 'Inventory item not found or does not belong to the specified inventory'
+        'error', 'Group ID not found or does not belong to the specified inventory'
       );
     END IF;
   END LOOP;
@@ -287,25 +288,25 @@ BEGIN
     updated_at = now()
   WHERE uuid = p_delivery_uuid;
 
-  -- Add new items: set status to 'ON_DELIVERY'
-  IF array_length(v_items_to_add, 1) > 0 THEN
+  -- Add new groups: set status to 'ON_DELIVERY'
+  IF array_length(v_groups_to_add, 1) > 0 THEN
     UPDATE inventory_items 
     SET 
       status = 'ON_DELIVERY',
       status_history = COALESCE(status_history, '{}'::jsonb) || jsonb_build_object(v_timestamp, 'ON_DELIVERY'),
       updated_at = now()
-    WHERE uuid = ANY(v_items_to_add)
+    WHERE group_id = ANY(v_groups_to_add)
       AND company_uuid = v_delivery_record.company_uuid;
   END IF;
 
-  -- Remove items: revert status to 'AVAILABLE' (only if they were ON_DELIVERY)
-  IF array_length(v_items_to_remove, 1) > 0 THEN
+  -- Remove groups: revert status to 'AVAILABLE' (only if they were ON_DELIVERY)
+  IF array_length(v_groups_to_remove, 1) > 0 THEN
     UPDATE inventory_items 
     SET 
       status = 'AVAILABLE',
       status_history = COALESCE(status_history, '{}'::jsonb) || jsonb_build_object(v_timestamp, 'AVAILABLE'),
       updated_at = now()
-    WHERE uuid = ANY(v_items_to_remove)
+    WHERE group_id = ANY(v_groups_to_remove)
       AND company_uuid = v_delivery_record.company_uuid
       AND status = 'ON_DELIVERY'; -- Only revert if currently on delivery
   END IF;
@@ -330,7 +331,7 @@ EXCEPTION
 END;
 $function$;
 
--- Updated function to handle warehouse inventory creation when delivery is marked as DELIVERED
+-- Update the status function to work with group_id
 CREATE OR REPLACE FUNCTION public.update_delivery_status_with_items(
   p_delivery_uuid uuid,
   p_status text,
@@ -346,7 +347,7 @@ DECLARE
   v_timestamp text;
   v_inventory_status text;
   v_result jsonb;
-  v_inventory_item_uuids uuid[];
+  v_group_ids text[];
   v_warehouse_result jsonb;
   v_item_record jsonb;
   v_item_key text;
@@ -367,12 +368,12 @@ BEGIN
     );
   END IF;
 
-  -- Extract inventory item UUIDs from the new structure
+  -- Extract group IDs from the new structure
   FOR v_item_key IN SELECT jsonb_object_keys(v_delivery_record.inventory_items)
   LOOP
     v_item_record := v_delivery_record.inventory_items->v_item_key;
-    IF v_item_record ? 'inventory_item_uuid' THEN
-      v_inventory_item_uuids := array_append(v_inventory_item_uuids, (v_item_record->>'inventory_item_uuid')::uuid);
+    IF v_item_record ? 'group_id' THEN
+      v_group_ids := array_append(v_group_ids, v_item_record->>'group_id');
     END IF;
   END LOOP;
 
@@ -394,14 +395,14 @@ BEGIN
     updated_at = now()
   WHERE uuid = p_delivery_uuid;
 
-  -- Update inventory item status for each item in the delivery
-  IF v_inventory_item_uuids IS NOT NULL AND array_length(v_inventory_item_uuids, 1) > 0 THEN
+  -- Update inventory item status for each group in the delivery
+  IF v_group_ids IS NOT NULL AND array_length(v_group_ids, 1) > 0 THEN
     UPDATE inventory_items 
     SET 
       status = v_inventory_status,
       status_history = COALESCE(status_history, '{}'::jsonb) || jsonb_build_object(v_timestamp, v_inventory_status),
       updated_at = now()
-    WHERE uuid = ANY(v_inventory_item_uuids)
+    WHERE group_id = ANY(v_group_ids)
       AND company_uuid = v_delivery_record.company_uuid;
   END IF;
 
@@ -410,7 +411,7 @@ BEGIN
     SELECT public.create_warehouse_inventory_from_delivery(
       v_delivery_record.warehouse_uuid,
       p_delivery_uuid,
-      v_inventory_item_uuids,
+      v_group_ids,
       v_delivery_record.inventory_items
     ) INTO v_warehouse_result;
     
@@ -443,11 +444,11 @@ EXCEPTION
 END;
 $function$;
 
--- Updated function to create warehouse inventory from delivery with new structure
+-- Updated function to create warehouse inventory from delivery with group_id structure
 CREATE OR REPLACE FUNCTION public.create_warehouse_inventory_from_delivery(
   p_warehouse_uuid uuid,
   p_delivery_uuid uuid,
-  p_inventory_item_uuids uuid[],
+  p_group_ids text[],
   p_inventory_items jsonb
 )
 RETURNS jsonb
@@ -466,18 +467,18 @@ BEGIN
   -- Generate timestamp
   v_timestamp := to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
   
-  -- Create warehouse inventory items for each delivered item
+  -- Create warehouse inventory items for each delivered group
   FOR v_inventory_item IN 
     SELECT * FROM inventory_items 
-    WHERE uuid = ANY(p_inventory_item_uuids)
+    WHERE group_id = ANY(p_group_ids)
   LOOP
-    -- Find the location for this item from inventory_items structure
+    -- Find the location for this group from inventory_items structure
     FOR v_item_key IN SELECT jsonb_object_keys(p_inventory_items)
     LOOP
       v_item_record := p_inventory_items->v_item_key;
       
-      -- Check if this record matches our inventory item
-      IF (v_item_record->>'inventory_item_uuid')::uuid = v_inventory_item.uuid THEN
+      -- Check if this record matches our group
+      IF v_item_record->>'group_id' = v_inventory_item.group_id THEN
         v_location := v_item_record->'location';
         v_inventory_uuid := (v_item_record->>'inventory_uuid')::uuid;
         EXIT; -- Found the matching record
@@ -534,7 +535,7 @@ EXCEPTION
 END;
 $function$;
 
--- RPC function to get delivery details with related information
+-- Update get_delivery_details to work with group_id
 CREATE OR REPLACE FUNCTION public.get_delivery_details(
   p_delivery_uuid uuid,
   p_company_uuid uuid DEFAULT NULL
@@ -550,7 +551,7 @@ DECLARE
   v_warehouse_info jsonb;
   v_operator_info jsonb;
   v_result jsonb;
-  v_inventory_item_uuids uuid[];
+  v_group_ids text[];
   v_item_record jsonb;
   v_item_key text;
 BEGIN
@@ -567,17 +568,17 @@ BEGIN
     );
   END IF;
 
-  -- Extract inventory item UUIDs from the new structure
+  -- Extract group IDs from the new structure
   FOR v_item_key IN SELECT jsonb_object_keys(v_delivery_record.inventory_items)
   LOOP
     v_item_record := v_delivery_record.inventory_items->v_item_key;
-    IF v_item_record ? 'inventory_item_uuid' THEN
-      v_inventory_item_uuids := array_append(v_inventory_item_uuids, (v_item_record->>'inventory_item_uuid')::uuid);
+    IF v_item_record ? 'group_id' THEN
+      v_group_ids := array_append(v_group_ids, v_item_record->>'group_id');
     END IF;
   END LOOP;
 
   -- Get inventory items details if they exist
-  IF v_inventory_item_uuids IS NOT NULL AND array_length(v_inventory_item_uuids, 1) > 0 THEN
+  IF v_group_ids IS NOT NULL AND array_length(v_group_ids, 1) > 0 THEN
     SELECT jsonb_agg(
       jsonb_build_object(
         'uuid', ii.uuid,
@@ -593,13 +594,13 @@ BEGIN
         'location', (
           SELECT v_delivery_record.inventory_items->v_key->'location'
           FROM jsonb_object_keys(v_delivery_record.inventory_items) v_key
-          WHERE (v_delivery_record.inventory_items->v_key->>'inventory_item_uuid')::uuid = ii.uuid
+          WHERE v_delivery_record.inventory_items->v_key->>'group_id' = ii.group_id
           LIMIT 1
         )
       )
     ) INTO v_inventory_items
     FROM inventory_items ii
-    WHERE ii.uuid = ANY(v_inventory_item_uuids);
+    WHERE ii.group_id = ANY(v_group_ids);
   ELSE
     v_inventory_items := '[]'::jsonb;
   END IF;
@@ -666,215 +667,124 @@ EXCEPTION
 END;
 $function$;
 
--- Update the existing filtered function to work with new structure
-CREATE OR REPLACE FUNCTION public.get_delivery_filtered(
-  p_company_uuid uuid DEFAULT NULL::uuid, 
-  p_search text DEFAULT ''::text, 
-  p_status text DEFAULT NULL::text, 
-  p_warehouse_uuid uuid DEFAULT NULL::uuid, 
-  p_operator_uuids uuid[] DEFAULT NULL::uuid[], 
-  p_inventory_uuid uuid DEFAULT NULL::uuid, 
-  p_date_from date DEFAULT NULL::date, 
-  p_date_to date DEFAULT NULL::date, 
-  p_year integer DEFAULT NULL::integer, 
-  p_month integer DEFAULT NULL::integer, 
-  p_week integer DEFAULT NULL::integer, 
-  p_day integer DEFAULT NULL::integer, 
-  p_limit integer DEFAULT 10, 
-  p_offset integer DEFAULT 0
+-- Update the inventory filtering function for delivery context
+CREATE OR REPLACE FUNCTION public.get_inventory_details_for_delivery(
+  p_inventory_uuid uuid, 
+  p_include_warehouse_items boolean DEFAULT false,
+  p_delivery_uuid uuid DEFAULT NULL
 )
-RETURNS TABLE(
+ RETURNS TABLE(
   uuid uuid, 
-  admin_uuid uuid, 
   company_uuid uuid, 
-  warehouse_uuid uuid, 
+  admin_uuid uuid, 
   name text, 
-  delivery_address text, 
-  delivery_date date, 
+  description text, 
+  measurement_unit text,
+  standard_unit text,
+  unit_values jsonb,
+  count jsonb,
   status text, 
-  operator_uuids uuid[], 
-  inventory_items jsonb,
-  warehouse_name text,
-  inventory_names text,
-  inventory_items_count integer,
+  properties jsonb, 
   created_at timestamp with time zone, 
   updated_at timestamp with time zone, 
-  total_count bigint
-)
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
+  inventory_items jsonb)
+ LANGUAGE plpgsql
 AS $function$
-DECLARE
-  total_rows BIGINT;
 BEGIN
-  -- First get the total count
-  SELECT COUNT(*) INTO total_rows
-  FROM delivery_items di
-  LEFT JOIN warehouses w ON di.warehouse_uuid = w.uuid
-  WHERE 
-    (p_company_uuid IS NULL OR di.company_uuid = p_company_uuid)
-    AND (p_status IS NULL OR di.status = p_status)
-    AND (p_warehouse_uuid IS NULL OR di.warehouse_uuid = p_warehouse_uuid)
-    
-    -- Operators filter (check if any of the provided operator UUIDs exist in the array)
-    AND (p_operator_uuids IS NULL OR di.operator_uuids && p_operator_uuids)
-    
-    -- Inventory UUID filter (check if any inventory item matches)
-    AND (p_inventory_uuid IS NULL OR EXISTS (
-      SELECT 1 FROM jsonb_object_keys(di.inventory_items) k
-      WHERE (di.inventory_items->k->>'inventory_uuid')::uuid = p_inventory_uuid
-    ))
-    
-    -- Date filter
-    AND (p_date_from IS NULL OR di.delivery_date >= p_date_from)
-    AND (p_date_to IS NULL OR di.delivery_date <= p_date_to)
-    AND (p_year IS NULL OR EXTRACT(YEAR FROM di.delivery_date) = p_year)
-    AND (p_month IS NULL OR EXTRACT(MONTH FROM di.delivery_date) = p_month)
-    AND (p_week IS NULL OR EXTRACT(WEEK FROM di.delivery_date) = p_week)
-    AND (p_day IS NULL OR EXTRACT(DAY FROM di.delivery_date) = p_day)
-    
-    -- Comprehensive search across all requested columns
-    AND (
-      p_search = '' 
-      -- Text fields
-      OR di.name ILIKE '%' || p_search || '%'
-      OR di.status ILIKE '%' || p_search || '%'
-      OR di.delivery_address ILIKE '%' || p_search || '%'
-      
-      -- UUID fields (converted to text)
-      OR di.uuid::text ILIKE '%' || p_search || '%'
-      OR di.company_uuid::text ILIKE '%' || p_search || '%'
-      OR di.admin_uuid::text ILIKE '%' || p_search || '%'
-      OR di.warehouse_uuid::text ILIKE '%' || p_search || '%'
-      
-      -- Array fields
-      OR array_to_string(di.operator_uuids::text[], ',') ILIKE '%' || p_search || '%'
-      
-      -- Warehouse fields
-      OR w.name ILIKE '%' || p_search || '%'
-      OR w.address->>'fullAddress' ILIKE '%' || p_search || '%'
-    );
-
-  -- Return the paginated results with total count
   RETURN QUERY
   SELECT 
-    di.uuid,
-    di.admin_uuid,
-    di.company_uuid,
-    di.warehouse_uuid,
-    di.name,
-    di.delivery_address,
-    di.delivery_date,
-    di.status,
-    di.operator_uuids,
-    di.inventory_items,
-    w.name as warehouse_name,
-    (
-      SELECT string_agg(DISTINCT inv.name, ', ')
-      FROM jsonb_object_keys(di.inventory_items) k
-      JOIN inventory inv ON inv.uuid = (di.inventory_items->k->>'inventory_uuid')::uuid
-    ) as inventory_names,
-    (SELECT COUNT(*) FROM jsonb_object_keys(di.inventory_items))::integer as inventory_items_count,
-    di.created_at,
-    di.updated_at,
-    total_rows as total_count
-  FROM delivery_items di
-  LEFT JOIN warehouses w ON di.warehouse_uuid = w.uuid
-  WHERE 
-    (p_company_uuid IS NULL OR di.company_uuid = p_company_uuid)
-    AND (p_status IS NULL OR di.status = p_status)
-    AND (p_warehouse_uuid IS NULL OR di.warehouse_uuid = p_warehouse_uuid)
-    AND (p_operator_uuids IS NULL OR di.operator_uuids && p_operator_uuids)
-    AND (p_inventory_uuid IS NULL OR EXISTS (
-      SELECT 1 FROM jsonb_object_keys(di.inventory_items) k
-      WHERE (di.inventory_items->k->>'inventory_uuid')::uuid = p_inventory_uuid
-    ))
-    AND (p_date_from IS NULL OR di.delivery_date >= p_date_from)
-    AND (p_date_to IS NULL OR di.delivery_date <= p_date_to)
-    AND (p_year IS NULL OR EXTRACT(YEAR FROM di.delivery_date) = p_year)
-    AND (p_month IS NULL OR EXTRACT(MONTH FROM di.delivery_date) = p_month)
-    AND (p_week IS NULL OR EXTRACT(WEEK FROM di.delivery_date) = p_week)
-    AND (p_day IS NULL OR EXTRACT(DAY FROM di.delivery_date) = p_day)
+    i.uuid,
+    i.company_uuid,
+    i.admin_uuid,  
+    i.name,
+    i.description,
+    i.measurement_unit,
+    i.standard_unit,
+    i.unit_values,
+    i.count,
+    i.status,
+    i.properties,
+    i.created_at,
+    i.updated_at,
+    COALESCE(
+      jsonb_agg(
+        CASE 
+          WHEN ii.uuid IS NOT NULL THEN
+            jsonb_build_object(
+              'uuid', ii.uuid,
+              'company_uuid', ii.company_uuid,
+              'inventory_uuid', ii.inventory_uuid,
+              'item_code', ii.item_code,
+              'unit', ii.unit,
+              'unit_value', ii.unit_value,
+              'packaging_unit', ii.packaging_unit,
+              'cost', ii.cost,
+              'properties', ii.properties,
+              'group_id', ii.group_id,
+              'status', ii.status,
+              'status_history', ii.status_history,
+              'created_at', ii.created_at,
+              'updated_at', ii.updated_at
+            )
+          ELSE NULL
+        END
+      ) FILTER (WHERE ii.uuid IS NOT NULL), 
+      '[]'::jsonb
+    ) AS inventory_items
+  FROM inventory i
+  LEFT JOIN inventory_items ii ON i.uuid = ii.inventory_uuid
     AND (
-      p_search = '' 
-      OR di.name ILIKE '%' || p_search || '%'
-      OR di.status ILIKE '%' || p_search || '%'
-      OR di.delivery_address ILIKE '%' || p_search || '%'
-      OR di.uuid::text ILIKE '%' || p_search || '%'
-      OR di.company_uuid::text ILIKE '%' || p_search || '%'
-      OR di.admin_uuid::text ILIKE '%' || p_search || '%'
-      OR di.warehouse_uuid::text ILIKE '%' || p_search || '%'
-      OR array_to_string(di.operator_uuids::text[], ',') ILIKE '%' || p_search || '%'
-      OR w.name ILIKE '%' || p_search || '%'
-      OR w.address->>'fullAddress' ILIKE '%' || p_search || '%'
+      -- Always include if it's for warehouse viewing
+      p_include_warehouse_items OR
+      -- For delivery context, filter based on status and delivery assignment
+      (
+        p_delivery_uuid IS NULL OR
+        (
+          -- Include AVAILABLE items (can be selected)
+          ii.status = 'AVAILABLE' OR
+          ii.status IS NULL OR
+          -- Include items that are already assigned to this specific delivery
+          EXISTS (
+            SELECT 1 FROM delivery_items di 
+            WHERE di.uuid = p_delivery_uuid 
+            AND EXISTS (SELECT 1 FROM jsonb_object_keys(di.inventory_items) k WHERE (di.inventory_items->k->>'group_id') = ii.group_id)
+          )
+        )
+      )
     )
-  ORDER BY di.created_at DESC
-  LIMIT p_limit OFFSET p_offset;
+    -- Exclude IN_WAREHOUSE and USED items from delivery selection (unless viewing warehouse)
+    AND (
+      p_include_warehouse_items OR 
+      (ii.status != 'IN_WAREHOUSE' AND ii.status != 'USED')
+    )
+    -- Exclude items that are ON_DELIVERY for other deliveries
+    AND (
+      p_delivery_uuid IS NULL OR
+      ii.status != 'ON_DELIVERY' OR
+      EXISTS (
+        SELECT 1 FROM delivery_items di 
+        WHERE di.uuid = p_delivery_uuid 
+        AND EXISTS (SELECT 1 FROM jsonb_object_keys(di.inventory_items) k WHERE (di.inventory_items->k->>'group_id') = ii.group_id)
+      )
+    )
+  WHERE i.uuid = p_inventory_uuid
+  GROUP BY 
+    i.uuid,
+    i.company_uuid,
+    i.admin_uuid,
+    i.name,
+    i.description,
+    i.measurement_unit,
+    i.standard_unit,
+    i.unit_values,
+    i.count,
+    i.status,
+    i.properties,
+    i.created_at,
+    i.updated_at;
 END;
 $function$;
 
--- Create policies for the delivery_items table
-CREATE POLICY "delivery_items_select_policy" ON public.delivery_items
-FOR SELECT TO authenticated
-USING (
-  company_uuid = public.get_user_company_uuid((select auth.uid()))
-  AND public.get_user_company_uuid((select auth.uid())) IS NOT NULL
-);
 
-CREATE POLICY "delivery_items_insert_policy" ON public.delivery_items
-FOR INSERT TO authenticated
-WITH CHECK (
-  public.is_user_admin((select auth.uid())) = true
-  AND public.get_user_company_uuid((select auth.uid())) IS NOT NULL
-  AND company_uuid = public.get_user_company_uuid((select auth.uid()))
-);
-
-CREATE POLICY "delivery_items_update_policy" ON public.delivery_items
-FOR UPDATE TO authenticated
-USING (
-  company_uuid = public.get_user_company_uuid((select auth.uid()))
-  AND public.get_user_company_uuid((select auth.uid())) IS NOT NULL
-  AND (
-    -- Admins can update all delivery items in their company
-    public.is_user_admin((select auth.uid())) = true
-    OR 
-    -- Operators can only update deliveries assigned to them and only change status to DELIVERED
-    (
-      public.is_user_admin((select auth.uid())) = false
-      AND operator_uuids @> ARRAY[auth.uid()]::uuid[]
-      AND status = 'IN_TRANSIT'
-    )
-  )
-)
-WITH CHECK (
-  company_uuid = public.get_user_company_uuid((select auth.uid()))
-  AND public.get_user_company_uuid((select auth.uid())) IS NOT NULL
-  AND (
-    -- Admins can make any updates
-    public.is_user_admin((select auth.uid())) = true
-    OR
-    -- Operators can only change status to DELIVERED when assigned to the delivery
-    (
-      public.is_user_admin((select auth.uid())) = false
-      AND operator_uuids @> ARRAY[auth.uid()]::uuid[]
-      AND status IN ('DELIVERED', 'IN_TRANSIT')
-    )
-  )
-);
-
-CREATE POLICY "delivery_items_delete_policy" ON public.delivery_items
-FOR DELETE TO authenticated
-USING (
-  public.is_user_admin((select auth.uid())) = true
-  AND public.get_user_company_uuid((select auth.uid())) IS NOT NULL
-  AND company_uuid = public.get_user_company_uuid((select auth.uid()))
-);
-
--- Grant execute permissions to authenticated users for RPC functions
-GRANT EXECUTE ON FUNCTION public.create_delivery_with_items TO authenticated;
-GRANT EXECUTE ON FUNCTION public.update_delivery_with_items TO authenticated;
-GRANT EXECUTE ON FUNCTION public.update_delivery_status_with_items TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_delivery_details TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_delivery_filtered TO authenticated;
-GRANT EXECUTE ON FUNCTION public.create_warehouse_inventory_from_delivery TO authenticated;
+-- Grant execute permissions
+GRANT EXECUTE ON FUNCTION public.get_inventory_details_for_delivery TO authenticated;
