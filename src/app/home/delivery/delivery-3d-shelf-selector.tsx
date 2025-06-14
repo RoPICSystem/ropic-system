@@ -24,7 +24,7 @@ interface Delivery3DShelfSelectorProps {
   occupiedLocations: any[];
   shelfColorAssignments: ShelfSelectorColorAssignment[];
   selectedLocation?: ShelfLocation;
-  onLocationSelect: (location: ShelfLocation) => void;
+  onLocationSelect?: (location: ShelfLocation) => void;
   onLocationConfirm: (location: ShelfLocation) => void;
   isDeliveryProcessing: boolean;
   isAdmin: boolean;
@@ -151,7 +151,9 @@ export function Delivery3DShelfSelector({
     setIsSelectedLocationOccupied(checkIfLocationOccupied(location));
 
     setExternalSelection(location);
-    onLocationSelect(location);
+
+    if (onLocationSelect)
+      onLocationSelect(location);
   };
 
   const handleFloorChange = (floorNum: number) => {

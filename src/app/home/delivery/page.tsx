@@ -151,16 +151,7 @@ export default function DeliveryPage() {
   const [currentInventoryItemLocationIndex, setCurrentInventoryItemLocationIndex] = useState<number>(0);
   const [floorConfigs, setFloorConfigs] = useState<any[]>([]);
   const [shelfColorAssignments, setShelfColorAssignments] = useState<Array<ShelfSelectorColorAssignment>>([]);
-  const [maxGroupId, setMaxGroupId] = useState(0);
-  const [maxRow, setMaxRow] = useState(0);
-  const [maxColumn, setMaxColumn] = useState(0);
-  const [maxDepth, setMaxDepth] = useState(0);
   const [isAutoAssigning, setIsAutoAssigning] = useState(false);
-
-  
-
-
-
 
   // ===== ACCEPT DELIVERY STATES =====
   const [showAcceptDeliveryModal, setShowAcceptDeliveryModal] = useState(false);
@@ -195,12 +186,7 @@ export default function DeliveryPage() {
     showOptions: true
   });
 
-
-
-
-
-
-
+  // ===== SEARCH AND FILTER STATES =====
   const deliveryFilters: Record<string, FilterOption> = {
     warehouse_filter: {
       name: "Warehouse",
@@ -243,7 +229,7 @@ export default function DeliveryPage() {
       name: "Inventory",
       valueName: "inventory_uuid",
       color: "success",
-      filters: inventories.reduce( 
+      filters: inventories.reduce(
         (acc, item) => ({
           ...acc,
           [item.uuid]: item.name
@@ -253,9 +239,7 @@ export default function DeliveryPage() {
     }
   };
 
-
-
-
+  // ===== OTHER STATES =====
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputStyle = {
     inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
@@ -489,6 +473,7 @@ export default function DeliveryPage() {
       if (result.success && result.data) {
         const deliveryData = result.data;
 
+        // Set formData first and wait for state update
         setFormData(deliveryData);
 
         if (deliveryData.inventory_items) {
@@ -514,6 +499,15 @@ export default function DeliveryPage() {
             setSelectedDepth(firstLoc.depth ?? null);
             setSelectedGroup(firstLoc.group ?? null);
           }
+
+          // Load inventory items with the updated formData
+          for (const inventoryUuid of inventoryUuids) {
+            try {
+              await loadInventoryItemsWithCurrentData(inventoryUuid, true, deliveryData, deliveryId);
+            } catch (error) {
+              console.error(`Error loading inventory items for ${inventoryUuid}:`, error);
+            }
+          }
         } else {
           setSelectedInventoryUuids([]);
           setSelectedInventoryItems([]);
@@ -538,7 +532,8 @@ export default function DeliveryPage() {
     }
   };
 
-  const loadInventoryItems = useCallback(async (inventoryUuid: string, forceReload: boolean = false) => {
+  // Create a version that uses current formData
+  const loadInventoryItemsWithCurrentData = useCallback(async (inventoryUuid: string, forceReload: boolean = false, currentFormData?: any, currentSelectedDeliveryId?: string | null) => {
     if (!inventoryUuid) {
       return Promise.resolve();
     }
@@ -551,8 +546,8 @@ export default function DeliveryPage() {
     try {
       const result = await getInventoryItem(
         inventoryUuid,
-        formData.status === "DELIVERED" || formData.status === "CANCELLED",
-        selectedDeliveryId || undefined
+        (currentFormData || formData).status === "DELIVERED" || (currentFormData || formData).status === "CANCELLED",
+        currentSelectedDeliveryId || selectedDeliveryId || undefined
       );
 
       console.log("Loaded inventory items for", inventoryUuid, result);
@@ -574,7 +569,6 @@ export default function DeliveryPage() {
           return [...filteredItems, ...inventoryItemsWithIds];
         });
 
-
         setLoadedInventoryUuids(prev => new Set([...prev, inventoryUuid]));
 
         setNextItemId(prev => Math.max(prev, inventoryItemsWithIds.length + 1));
@@ -588,6 +582,7 @@ export default function DeliveryPage() {
       setIsLoadingInventoryItems(false);
     }
   }, [formData, selectedDeliveryId, loadedInventoryUuids]);
+
 
   const handleStatusChange = async (status: string) => {
     if (!selectedDeliveryId) return { error: "No delivery selected" };
@@ -894,9 +889,16 @@ export default function DeliveryPage() {
   const handleInventoryItemSelectionToggle = async (inventoryitemUuid: string, isSelected: boolean) => {
     let inventoryItem = inventoryItems.find(item => item.uuid === inventoryitemUuid);
 
+    if (!inventoryItem) {
+      console.error("Inventory item not found:", inventoryitemUuid);
+      return;
+    }
+
     const inventoryUuid = inventoryItem.inventory_uuid;
     if (!loadedInventoryUuids.has(inventoryUuid)) {
-      await loadInventoryItems(inventoryUuid);
+      // Use current formData when loading
+      await loadInventoryItemsWithCurrentData(inventoryUuid, false, formData, selectedDeliveryId);
+      // Re-find the item after loading
       inventoryItem = inventoryItems.find(item => item.uuid === inventoryitemUuid);
 
       if (!inventoryItem) return;
@@ -1137,7 +1139,7 @@ export default function DeliveryPage() {
     if (!loadedInventoryUuids.has(inventoryUuid)) {
       setPendingInventorySelection({ inventoryUuid, isSelected });
       try {
-        await loadInventoryItems(inventoryUuid);
+        await loadInventoryItemsWithCurrentData(inventoryUuid, false, formData, selectedDeliveryId);
       } catch (error) {
         console.error("Error loading inventory items for selection:", error);
         setPendingInventorySelection(null);
@@ -1169,12 +1171,12 @@ export default function DeliveryPage() {
 
     for (const inventoryUuid of newlyExpanded) {
       try {
-        await loadInventoryItems(inventoryUuid);
+        await loadInventoryItemsWithCurrentData(inventoryUuid, false, formData, selectedDeliveryId);
       } catch (error) {
         console.error(`Error loading items for inventory ${inventoryUuid}:`, error);
       }
     }
-  }, [expandedInventories, loadedInventoryUuids, loadInventoryItems]);
+  }, [expandedInventories, loadedInventoryUuids, loadInventoryItemsWithCurrentData]);
 
   const handleAddInventory = (inventoryUuid: string) => {
     if (!inventoryUuid || selectedInventoryUuids.includes(inventoryUuid)) return;
@@ -1184,7 +1186,7 @@ export default function DeliveryPage() {
 
     setTimeout(() => {
       newSelectedInventories.forEach(uuid => {
-        loadInventoryItems(uuid);
+        loadInventoryItemsWithCurrentData(uuid, false, formData, selectedDeliveryId);
       });
     }, 100);
 
@@ -1219,7 +1221,7 @@ export default function DeliveryPage() {
     if (newSelectedInventories.length > 0) {
       setTimeout(() => {
         newSelectedInventories.forEach(uuid => {
-          loadInventoryItems(uuid);
+          loadInventoryItemsWithCurrentData(uuid, false, formData, selectedDeliveryId);
         });
       }, 100);
     } else {
@@ -1240,7 +1242,7 @@ export default function DeliveryPage() {
     }));
 
     if (inventoryItemUuid) {
-      await loadInventoryItems(inventoryItemUuid);
+      await loadInventoryItemsWithCurrentData(inventoryItemUuid, false, formData, selectedDeliveryId);
     }
   };
 
@@ -1301,10 +1303,6 @@ export default function DeliveryPage() {
 
     if (name === "warehouse_uuid" && value) {
       await handleWarehouseChange(value);
-    }
-
-    if (name === "inventory_uuid" && value) {
-      await loadInventoryItems(value);
     }
   };
 
@@ -1439,15 +1437,9 @@ export default function DeliveryPage() {
 
 
 
-  
 
-  // ===== DELIVERY3DSHELF SELECTOR FUNCTIONS =====
-  const handle3DLocationSelect = (location: ShelfLocation) => {
-    if (location.max_group !== undefined) setMaxGroupId(location.max_group);
-    if (location.max_row !== undefined) setMaxRow(location.max_row);
-    if (location.max_column !== undefined) setMaxColumn(location.max_column);
-    if (location.max_depth !== undefined) setMaxDepth(location.max_depth);
-  };
+
+  
 
   const handle3DLocationConfirm = (location: ShelfLocation) => {
     const newLocations = [...locations];
@@ -1990,7 +1982,7 @@ export default function DeliveryPage() {
         setPendingInventorySelection(null);
       }, 100);
     }
-  }, [inventoryItems, loadedInventoryUuids, pendingInventorySelection, formData.status, inventoryViewMode]);
+  }, [inventoryItems, loadedInventoryUuids, pendingInventorySelection]);
 
   // UPDATED: URL parameter handling
   useEffect(() => {
@@ -2015,29 +2007,17 @@ export default function DeliveryPage() {
         setInventoryItems([]);
         resetWarehouseLocation();
 
-        // Use the updated detailed loading function
+        // Load delivery details which will handle formData update and inventory loading
         const deliveryData = await loadDeliveryDetails(deliveryId);
 
         if (deliveryData && deliveryData.warehouse_uuid) {
           await handleWarehouseChange(deliveryData.warehouse_uuid);
         }
 
-        // Load inventory items for the selected inventories after delivery data is loaded
-        if (deliveryData && deliveryData.inventory_items) {
-          const inventoryUuids = [...new Set(
-            Object.values(deliveryData.inventory_items).map((item: any) => item.inventory_uuid)
-          )];
-
-          // Load inventory items for each inventory
-          for (const inventoryUuid of inventoryUuids) {
-            await loadInventoryItems(inventoryUuid, false);
-          }
-        }
-
       } else {
         // Reset form for new delivery
         setSelectedDeliveryId(null);
-        setFormData({
+        const newFormData = {
           company_uuid: user.company_uuid,
           admin_uuid: user.uuid,
           inventory_items: {},
@@ -2047,7 +2027,9 @@ export default function DeliveryPage() {
           status: "PENDING",
           warehouse_uuid: null,
           operator_uuids: []
-        });
+        };
+
+        setFormData(newFormData);
 
         // Reset all inventory-related states
         setSelectedInventoryUuids([]);
@@ -2075,10 +2057,10 @@ export default function DeliveryPage() {
         setIsLoading(false);
       }
     };
-    
 
     handleURLParams();
   }, [searchParams, user?.company_uuid, isLoadingItems, isLoadingWarehouses, warehouses.length]);
+
 
   // Add effect to update per-inventory select all states
   useEffect(() => {
@@ -3958,7 +3940,6 @@ export default function DeliveryPage() {
           occupiedLocations={occupiedLocations}
           shelfColorAssignments={shelfColorAssignments}
           selectedLocation={getCurrentLocation()}
-          onLocationSelect={handle3DLocationSelect}
           onLocationConfirm={handle3DLocationConfirm}
           isDeliveryProcessing={isDeliveryProcessing()}
           isAdmin={user?.is_admin || false}
