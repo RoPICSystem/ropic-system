@@ -20,7 +20,7 @@ export interface DeliveryItem {
     inventory_uuid: string;
     group_id: string;
     location: ShelfLocation;
-  }>; 
+  }>;
   operator_uuids?: string[];
   created_at: string;
   updated_at: string;
@@ -433,7 +433,8 @@ export async function getOccupiedShelfLocations(warehouseUuid: string) {
 export async function suggestShelfLocations(
   warehouseUuid: string,
   itemCount: number,
-  startingShelf?: { floor: number, group: number, row: number, column: number, depth: number }
+  startingShelf?: { floor: number, group: number, row: number, column: number, depth: number },
+  currentDeliveryLocations?: ShelfLocation[] // Add parameter to exclude current delivery locations
 ) {
   // Get warehouse layout
   const supabase = await createClient();
@@ -450,6 +451,21 @@ export async function suggestShelfLocations(
 
     // Get currently occupied locations
     const { data: occupiedLocations } = await getOccupiedShelfLocations(warehouseUuid);
+
+    // Filter out locations that belong to the current delivery being edited
+    const filteredOccupiedLocations = occupiedLocations?.filter((occupiedLoc: any) => {
+      // If currentDeliveryLocations is provided, exclude those locations from occupied list
+      if (currentDeliveryLocations && currentDeliveryLocations.length > 0) {
+        return !currentDeliveryLocations.some((currentLoc: any) =>
+          currentLoc.floor === occupiedLoc.floor &&
+          currentLoc.group === occupiedLoc.group &&
+          currentLoc.row === occupiedLoc.row &&
+          currentLoc.column === occupiedLoc.column &&
+          currentLoc.depth === occupiedLoc.depth
+        );
+      }
+      return true;
+    }) || [];
 
     const layout = warehouseData.layout as FloorConfig[];
     const suggestions: any[] = [];
@@ -500,8 +516,8 @@ export async function suggestShelfLocations(
           continue;
         }
 
-        // Check if this location is occupied
-        const isOccupied = occupiedLocations?.some((loc: any) =>
+        // Check if this location is occupied (using filtered list)
+        const isOccupied = filteredOccupiedLocations?.some((loc: any) =>
           loc.floor === currentFloor &&
           loc.group === currentGroup &&
           loc.row === currentRow &&
@@ -645,13 +661,13 @@ export async function getDeliveryHistory(inventoryUuids: string[]) {
     // Filter deliveries that contain any of the specified inventory UUIDs
     const filteredData = data?.filter(delivery => {
       if (!delivery.inventory_items) return false;
-      
+
       const deliveryInventoryUuids = Object.values(delivery.inventory_items as Record<string, {
         inventory_uuid: string;
         group_id: string;
         location: ShelfLocation;
       }>).map(item => item.inventory_uuid);
-      
+
       return inventoryUuids.some(uuid => deliveryInventoryUuids.includes(uuid));
     }) || [];
 

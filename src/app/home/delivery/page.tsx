@@ -744,6 +744,7 @@ export default function DeliveryPage() {
           );
         }
       } else {
+        // Fix: Pass the delivery name when creating a new delivery
         result = await createDeliveryWithItems(
           user.uuid,
           user.company_uuid,
@@ -753,7 +754,7 @@ export default function DeliveryPage() {
           formData.delivery_date || "",
           formData.operator_uuids || [],
           formData.notes || "",
-          formData.name
+          deliveryNameValue 
         );
       }
 
@@ -848,9 +849,16 @@ export default function DeliveryPage() {
 
     setIsAutoAssigning(true);
     try {
+      // Get current delivery's assigned locations to exclude them from occupied locations
+      const currentDeliveryLocations = selectedInventoryItems
+        .map(itemUuid => formData.inventory_items?.[itemUuid]?.location)
+        .filter((location): location is ShelfLocation => location != null && location.floor !== undefined);
+
       const result = await suggestShelfLocations(
         formData.warehouse_uuid as string,
         selectedInventoryItems.length,
+        undefined, // startingShelf
+        currentDeliveryLocations,
       );
 
       if (result.success && result.data) {
@@ -895,7 +903,6 @@ export default function DeliveryPage() {
           setSelectedColumn(firstLocation.column);
           setSelectedDepth(firstLocation.depth);
           setSelectedColumnCode(parseColumn(firstLocation.column) || "");
-
         }
       } else {
         console.error("Failed to auto-assign shelf locations:", result.error);
@@ -2351,8 +2358,8 @@ export default function DeliveryPage() {
                 onPress={() => handleSelectDelivery(delivery.uuid)}
                 variant="shadow"
                 className={`w-full !transition-all duration-300 rounded-2xl p-0 group overflow-hidden
-        ${delivery.delivery_address ? 'min-h-[9.5rem]' : 'min-h-[7rem]'}
-        ${selectedDeliveryId === delivery.uuid ?
+                            ${delivery.delivery_address ? 'min-h-[9.5rem]' : 'min-h-[7rem]'}
+                            ${selectedDeliveryId === delivery.uuid ?
                     '!bg-gradient-to-br from-primary-500 to-primary-600 hover:from-primary-400 hover:to-primary-500 !shadow-xl hover:!shadow-2xl !shadow-primary-300/50 border-2 border-primary-300/30' :
                     '!bg-gradient-to-br from-background to-default-50 hover:from-default-50 hover:to-default-100 !shadow-lg hover:!shadow-xl !shadow-default-300/30 border-2 border-default-200/50 hover:border-default-300/50'}`}
               >
@@ -2367,12 +2374,12 @@ export default function DeliveryPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0 text-left">
                         <span className={`font-bold text-lg leading-tight block truncate text-left
-                      ${selectedDeliveryId === delivery.uuid ? 'text-primary-50' : 'text-default-800'}`}>
+                                          ${selectedDeliveryId === delivery.uuid ? 'text-primary-50' : 'text-default-800'}`}>
                           {delivery.name || 'Unknown Item'}
                         </span>
                         {delivery.delivery_address && (
                           <div className={`w-full mt-2 text-sm leading-relaxed text-left break-words whitespace-normal
-                  ${selectedDeliveryId === delivery.uuid ? 'text-primary-100' : 'text-default-600'}`}
+                                          ${selectedDeliveryId === delivery.uuid ? 'text-primary-100' : 'text-default-600'}`}
                             style={{
                               display: '-webkit-box',
                               WebkitLineClamp: 2,
@@ -2551,7 +2558,7 @@ export default function DeliveryPage() {
                         <Input
                           name="name"
                           label="Delivery Name"
-                          value={getDefaultDeliveryName()}
+                          value={deliveryNameValue}
                           onChange={handleInputChange}
                           isRequired={canEditAllFields()}
                           isReadOnly={!canEditAllFields()}
@@ -3014,9 +3021,21 @@ export default function DeliveryPage() {
                                                           {/* List all items in group or show single item */}
                                                           <div className="space-y-4 p-4">
                                                             {(() => {
-                                                              const itemsToShow = inventoryViewMode === 'grouped' && groupInfo.isGroup
+                                                              let itemsToShow = inventoryViewMode === 'grouped' && groupInfo.isGroup
                                                                 ? inventoryItemsForThisInventory.filter(groupItem => groupItem.group_id === groupInfo.groupId)
                                                                 : [item];
+
+                                                              // Filter out unselected items for non-PENDING statuses
+                                                              if (
+                                                                formData.status === "PROCESSING" ||
+                                                                formData.status === "IN_TRANSIT" ||
+                                                                formData.status === "DELIVERED" ||
+                                                                formData.status === "CANCELLED"
+                                                              ) {
+                                                                itemsToShow = itemsToShow.filter(inventoryItem =>
+                                                                  selectedInventoryItems.includes(inventoryItem.uuid)
+                                                                );
+                                                              }
 
                                                               return (
                                                                 <div className="space-y-4">
@@ -3047,174 +3066,182 @@ export default function DeliveryPage() {
                                                                     </div>
                                                                   ) : null}
 
-                                                                  {/* List individual items */}
-                                                                  {itemsToShow.map((inventoryItem, itemIndex) => {
-                                                                    const itemLocationIndex = selectedInventoryItems.indexOf(inventoryItem.uuid);
-                                                                    const hasAssignedLocation = itemLocationIndex >= 0 && locations[itemLocationIndex];
-                                                                    const isItemSelected = selectedInventoryItems.includes(inventoryItem.uuid);
-                                                                    const itemStatusStyling = getInventoryItemStatusStyling(inventoryItem);
+                                                                  {/* Show message if no items to display (all filtered out) */}
+                                                                  {itemsToShow.length === 0 ? (
+                                                                    <div className="text-center py-4 text-default-500">
+                                                                      <Icon icon="mdi:package-variant-closed" className="mx-auto mb-2 opacity-50" width={32} height={32} />
+                                                                      <p className="text-sm">No selected items in this group</p>
+                                                                    </div>
+                                                                  ) : (
+                                                                    /* List individual items */
+                                                                    itemsToShow.map((inventoryItem, itemIndex) => {
+                                                                      const itemLocationIndex = selectedInventoryItems.indexOf(inventoryItem.uuid);
+                                                                      const hasAssignedLocation = itemLocationIndex >= 0 && locations[itemLocationIndex];
+                                                                      const isItemSelected = selectedInventoryItems.includes(inventoryItem.uuid);
+                                                                      const itemStatusStyling = getInventoryItemStatusStyling(inventoryItem);
 
-                                                                    return (
-                                                                      <div key={inventoryItem.uuid} className="border border-default-200 rounded-xl p-4 bg-default-50/50">
-                                                                        <div className="space-y-3">
-                                                                          {/* Individual item header with checkbox for grouped items */}
-                                                                          {inventoryViewMode === 'grouped' && groupInfo.isGroup && (
-                                                                            <div className="flex items-center justify-between">
-                                                                              <div className="flex items-center gap-3">
-                                                                                {formData.status === 'PENDING' && (
-                                                                                  <Checkbox
-                                                                                    isSelected={isItemSelected}
-                                                                                    onValueChange={(checked) => handleInventoryItemSelectionToggle(inventoryItem.uuid, checked)}
-                                                                                    isDisabled={itemStatusStyling.isDisabled}
-                                                                                    size="sm"
-                                                                                  />
-                                                                                )}
-                                                                                <div>
-                                                                                  <span className="text-sm font-medium text-default-700">Item {itemIndex + 1}</span>
-                                                                                  <p className="text-xs text-default-500">
-                                                                                    {inventoryItem.unit_value} {inventoryItem.unit}
-                                                                                  </p>
+                                                                      return (
+                                                                        <div key={inventoryItem.uuid} className="border border-default-200 rounded-xl p-4 bg-default-50/50">
+                                                                          <div className="space-y-3">
+                                                                            {/* Individual item header with checkbox for grouped items */}
+                                                                            {inventoryViewMode === 'grouped' && groupInfo.isGroup && (
+                                                                              <div className="flex items-center justify-between">
+                                                                                <div className="flex items-center gap-3">
+                                                                                  {formData.status === 'PENDING' && (
+                                                                                    <Checkbox
+                                                                                      isSelected={isItemSelected}
+                                                                                      onValueChange={(checked) => handleInventoryItemSelectionToggle(inventoryItem.uuid, checked)}
+                                                                                      isDisabled={itemStatusStyling.isDisabled}
+                                                                                      size="sm"
+                                                                                    />
+                                                                                  )}
+                                                                                  <div>
+                                                                                    <span className="text-sm font-medium text-default-700">Item {itemIndex + 1}</span>
+                                                                                    <p className="text-xs text-default-500">
+                                                                                      {inventoryItem.unit_value} {inventoryItem.unit}
+                                                                                    </p>
+                                                                                  </div>
+                                                                                </div>
+                                                                                <div className="flex items-center gap-2">
+                                                                                  <Chip color={getStatusColor(inventoryItem.status)} variant="flat" size="sm">
+                                                                                    {formatStatus(inventoryItem.status)}
+                                                                                  </Chip>
+                                                                                  {itemStatusStyling.isDisabled && itemStatusStyling.disabledReason && (
+                                                                                    <Tooltip content={itemStatusStyling.disabledReason}>
+                                                                                      <Icon icon="mdi:information-outline" className="text-warning" />
+                                                                                    </Tooltip>
+                                                                                  )}
                                                                                 </div>
                                                                               </div>
-                                                                              <div className="flex items-center gap-2">
+                                                                            )}
+
+                                                                            {/* Item status - show for each individual item in grouped view only */}
+                                                                            {inventoryViewMode === 'grouped' && inventoryItem.status && !groupInfo.isGroup && (
+                                                                              <div className="flex items-center gap-2 justify-between">
+                                                                                <span className="text-sm text-default-500">Item {itemIndex + 1}</span>
                                                                                 <Chip color={getStatusColor(inventoryItem.status)} variant="flat" size="sm">
                                                                                   {formatStatus(inventoryItem.status)}
                                                                                 </Chip>
-                                                                                {itemStatusStyling.isDisabled && itemStatusStyling.disabledReason && (
-                                                                                  <Tooltip content={itemStatusStyling.disabledReason}>
-                                                                                    <Icon icon="mdi:information-outline" className="text-warning" />
-                                                                                  </Tooltip>
-                                                                                )}
                                                                               </div>
-                                                                            </div>
-                                                                          )}
+                                                                            )}
 
-                                                                          {/* Item status - show for each individual item in grouped view only */}
-                                                                          {inventoryViewMode === 'grouped' && inventoryItem.status && !groupInfo.isGroup && (
-                                                                            <div className="flex items-center gap-2 justify-between">
-                                                                              <span className="text-sm text-default-500">Item {itemIndex + 1}</span>
-                                                                              <Chip color={getStatusColor(inventoryItem.status)} variant="flat" size="sm">
-                                                                                {formatStatus(inventoryItem.status)}
-                                                                              </Chip>
-                                                                            </div>
-                                                                          )}
+                                                                            {/* Group identifier for flat view if item has group */}
+                                                                            {inventoryViewMode === 'flat' && inventoryItem.group_id && (
+                                                                              <Input
+                                                                                label="Group Identifier"
+                                                                                value={inventoryItem.group_id}
+                                                                                isReadOnly
+                                                                                classNames={{ inputWrapper: inputStyle.inputWrapper }}
+                                                                                startContent={<Icon icon="mdi:group" className="text-default-500 mb-[0.2rem]" />}
+                                                                                endContent={
+                                                                                  <Button
+                                                                                    variant="flat"
+                                                                                    color="default"
+                                                                                    isIconOnly
+                                                                                    onPress={() => copyToClipboard(inventoryItem.group_id!)}
+                                                                                  >
+                                                                                    <Icon icon="mdi:content-copy" className="text-default-500" />
+                                                                                  </Button>
+                                                                                }
+                                                                              />
+                                                                            )}
 
-                                                                          {/* Group identifier for flat view if item has group */}
-                                                                          {inventoryViewMode === 'flat' && inventoryItem.group_id && (
+                                                                            {/* Item identifier */}
                                                                             <Input
-                                                                              label="Group Identifier"
-                                                                              value={inventoryItem.group_id}
+                                                                              label={"Item Identifier"}
+                                                                              value={inventoryItem.uuid}
                                                                               isReadOnly
                                                                               classNames={{ inputWrapper: inputStyle.inputWrapper }}
-                                                                              startContent={<Icon icon="mdi:group" className="text-default-500 mb-[0.2rem]" />}
+                                                                              startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
                                                                               endContent={
                                                                                 <Button
                                                                                   variant="flat"
                                                                                   color="default"
                                                                                   isIconOnly
-                                                                                  onPress={() => copyToClipboard(inventoryItem.group_id!)}
+                                                                                  onPress={() => copyToClipboard(inventoryItem.uuid)}
                                                                                 >
                                                                                   <Icon icon="mdi:content-copy" className="text-default-500" />
                                                                                 </Button>
                                                                               }
                                                                             />
-                                                                          )}
 
-                                                                          {/* Item identifier */}
-                                                                          <Input
-                                                                            label={"Item Identifier"}
-                                                                            value={inventoryItem.uuid}
-                                                                            isReadOnly
-                                                                            classNames={{ inputWrapper: inputStyle.inputWrapper }}
-                                                                            startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
-                                                                            endContent={
-                                                                              <Button
-                                                                                variant="flat"
-                                                                                color="default"
-                                                                                isIconOnly
-                                                                                onPress={() => copyToClipboard(inventoryItem.uuid)}
-                                                                              >
-                                                                                <Icon icon="mdi:content-copy" className="text-default-500" />
-                                                                              </Button>
-                                                                            }
-                                                                          />
-
-                                                                          {/* Item details section - display only for single items (not grouped) */}
-                                                                          {!(inventoryViewMode === 'grouped' && groupInfo.isGroup) && (
-                                                                            <div className="bg-default-100/50 rounded-xl p-3 border border-default-200">
-                                                                              <h4 className="text-sm font-medium text-default-700 mb-2">Item Details</h4>
-                                                                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                                                                                <div>
-                                                                                  <span className="text-default-500">Item Code:</span>
-                                                                                  <span className="ml-2 font-medium text-default-700">{inventoryItem.item_code || 'Not set'}</span>
-                                                                                </div>
-                                                                                <div>
-                                                                                  <span className="text-default-500">Unit Value:</span>
-                                                                                  <span className="ml-2 font-medium text-default-700">
-                                                                                    {inventoryItem.unit_value || 0} {inventoryItem.unit || 'units'}
-                                                                                  </span>
-                                                                                </div>
-                                                                                <div>
-                                                                                  <span className="text-default-500">Packaging:</span>
-                                                                                  <span className="ml-2 font-medium text-default-700">{inventoryItem.packaging_unit || 'Not set'}</span>
-                                                                                </div>
-                                                                                <div>
-                                                                                  <span className="text-default-500">Cost:</span>
-                                                                                  <span className="ml-2 font-medium text-default-700">₱{inventoryItem.cost || 0}</span>
+                                                                            {/* Item details section - display only for single items (not grouped) */}
+                                                                            {!(inventoryViewMode === 'grouped' && groupInfo.isGroup) && (
+                                                                              <div className="bg-default-100/50 rounded-xl p-3 border border-default-200">
+                                                                                <h4 className="text-sm font-medium text-default-700 mb-2">Item Details</h4>
+                                                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                                                                  <div>
+                                                                                    <span className="text-default-500">Item Code:</span>
+                                                                                    <span className="ml-2 font-medium text-default-700">{inventoryItem.item_code || 'Not set'}</span>
+                                                                                  </div>
+                                                                                  <div>
+                                                                                    <span className="text-default-500">Unit Value:</span>
+                                                                                    <span className="ml-2 font-medium text-default-700">
+                                                                                      {inventoryItem.unit_value || 0} {inventoryItem.unit || 'units'}
+                                                                                    </span>
+                                                                                  </div>
+                                                                                  <div>
+                                                                                    <span className="text-default-500">Packaging:</span>
+                                                                                    <span className="ml-2 font-medium text-default-700">{inventoryItem.packaging_unit || 'Not set'}</span>
+                                                                                  </div>
+                                                                                  <div>
+                                                                                    <span className="text-default-500">Cost:</span>
+                                                                                    <span className="ml-2 font-medium text-default-700">₱{inventoryItem.cost || 0}</span>
+                                                                                  </div>
                                                                                 </div>
                                                                               </div>
-                                                                            </div>
-                                                                          )}
+                                                                            )}
 
-                                                                          {/* Location assignment - only show if item is selected AND not delivered/cancelled */}
-                                                                          {isItemSelected && formData.status !== "DELIVERED" && formData.status !== "CANCELLED" && (
-                                                                            <div className="flex items-center justify-between gap-3">
-                                                                              <div className="flex-1">
-                                                                                {hasAssignedLocation ? (
-                                                                                  <div className="flex items-center gap-2">
-                                                                                    <Chip color="success" variant="flat" size="sm">
+                                                                            {/* Location assignment - only show if item is selected AND not delivered/cancelled */}
+                                                                            {isItemSelected && formData.status !== "DELIVERED" && formData.status !== "CANCELLED" && (
+                                                                              <div className="flex items-center justify-between gap-3">
+                                                                                <div className="flex-1">
+                                                                                  {hasAssignedLocation ? (
+                                                                                    <div className="flex items-center gap-2">
+                                                                                      <Chip color="success" variant="flat" size="sm">
+                                                                                        <div className="flex items-center gap-1">
+                                                                                          <Icon icon="mdi:map-marker-check" width={14} height={14} />
+                                                                                          {locations[itemLocationIndex]?.code}
+                                                                                        </div>
+                                                                                      </Chip>
+                                                                                    </div>
+                                                                                  ) : (
+                                                                                    <Chip color="warning" variant="flat" size="sm">
                                                                                       <div className="flex items-center gap-1">
-                                                                                        <Icon icon="mdi:map-marker-check" width={14} height={14} />
-                                                                                        {locations[itemLocationIndex]?.code}
+                                                                                        <Icon icon="mdi:map-marker-alert" width={14} height={14} />
+                                                                                        No Location Assigned
                                                                                       </div>
                                                                                     </Chip>
-                                                                                  </div>
-                                                                                ) : (
-                                                                                  <Chip color="warning" variant="flat" size="sm">
-                                                                                    <div className="flex items-center gap-1">
-                                                                                      <Icon icon="mdi:map-marker-alert" width={14} height={14} />
-                                                                                      No Location Assigned
-                                                                                    </div>
-                                                                                  </Chip>
-                                                                                )}
+                                                                                  )}
+                                                                                </div>
+
+                                                                                <Button
+                                                                                  color="primary"
+                                                                                  variant="flat"
+                                                                                  size="sm"
+                                                                                  onPress={() => {
+                                                                                    // Set the current item location index and open modal
+                                                                                    setCurrentInventoryItemLocationIndex(itemLocationIndex >= 0 ? itemLocationIndex : selectedInventoryItems.length);
+
+                                                                                    // Ensure the item is selected first
+                                                                                    if (!selectedInventoryItems.includes(inventoryItem.uuid)) {
+                                                                                      handleInventoryItemSelectionToggle(inventoryItem.uuid, true);
+                                                                                    }
+
+                                                                                    handleOpenModal();
+                                                                                  }}
+                                                                                  isDisabled={!(user === null || user.is_admin) || isWarehouseNotSet() || isFloorConfigNotSet()}
+                                                                                  startContent={<Icon icon="mdi:map-marker-plus" width={14} height={14} />}
+                                                                                >
+                                                                                  {hasAssignedLocation ? 'Change Location' : 'Assign Location'}
+                                                                                </Button>
                                                                               </div>
-
-                                                                              <Button
-                                                                                color="primary"
-                                                                                variant="flat"
-                                                                                size="sm"
-                                                                                onPress={() => {
-                                                                                  // Set the current item location index and open modal
-                                                                                  setCurrentInventoryItemLocationIndex(itemLocationIndex >= 0 ? itemLocationIndex : selectedInventoryItems.length);
-
-                                                                                  // Ensure the item is selected first
-                                                                                  if (!selectedInventoryItems.includes(inventoryItem.uuid)) {
-                                                                                    handleInventoryItemSelectionToggle(inventoryItem.uuid, true);
-                                                                                  }
-
-                                                                                  handleOpenModal();
-                                                                                }}
-                                                                                isDisabled={!(user === null || user.is_admin) || isWarehouseNotSet() || isFloorConfigNotSet()}
-                                                                                startContent={<Icon icon="mdi:map-marker-plus" width={14} height={14} />}
-                                                                              >
-                                                                                {hasAssignedLocation ? 'Change Location' : 'Assign Location'}
-                                                                              </Button>
-                                                                            </div>
-                                                                          )}
+                                                                            )}
+                                                                          </div>
                                                                         </div>
-                                                                      </div>
-                                                                    );
-                                                                  })}
+                                                                      );
+                                                                    })
+                                                                  )}
                                                                 </div>
                                                               );
                                                             })()}
