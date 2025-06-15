@@ -91,7 +91,7 @@ export function SearchListPanel({
   // Initialize dateTabKey based on dateFilters
   const getInitialDateTabKey = () => {
     if (!dateFilters || dateFilters.length === 0) return "range";
-    
+
     const firstFilter = dateFilters[0];
     switch (firstFilter) {
       case "dateRange":
@@ -253,6 +253,7 @@ export function SearchListPanel({
         async () => {
           console.log("Real-time change detected, reloading items...");
           await handleSearch();
+          setIsLoading(false);
         }
       )
       .subscribe();
