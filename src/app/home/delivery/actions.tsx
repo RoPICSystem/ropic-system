@@ -690,7 +690,7 @@ export async function getDeliveryHistory(inventoryUuids: string[]) {
  */
 export async function getInventoryItemDetails(inventoryItemUuids: string[]) {
   const supabase = await createClient();
-
+  
   try {
     const { data: itemsData, error: itemsError } = await supabase
       .from("inventory_items")

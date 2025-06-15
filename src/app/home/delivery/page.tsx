@@ -569,6 +569,7 @@ export default function DeliveryPage() {
     setIsLoadingInventoryItems(true);
     try {
 
+
       const result = await getInventoryItem(
         inventoryUuid,
         (currentFormData || formData).status === "DELIVERED" || (currentFormData || formData).status === "CANCELLED",

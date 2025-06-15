@@ -101,12 +101,6 @@ export async function getInventoryItem(
 ) {
   const supabase = await createClient();
 
-  console.log("Fetching inventory item:", {
-    inventoryUuid,
-    includeWarehouseItems,
-    deliveryUuid
-  });
-
   try {
     // Use the delivery-specific function when delivery context is provided
     if (deliveryUuid) {

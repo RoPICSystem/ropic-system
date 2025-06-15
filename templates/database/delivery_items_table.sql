@@ -707,5 +707,129 @@ END;
 $function$;
 
 
+-- Update the inventory filtering function for delivery context
+CREATE OR REPLACE FUNCTION public.get_inventory_details_for_delivery(
+  p_inventory_uuid uuid, 
+  p_include_warehouse_items boolean DEFAULT false,
+  p_delivery_uuid uuid DEFAULT NULL
+)
+ RETURNS TABLE(
+  uuid uuid, 
+  company_uuid uuid, 
+  admin_uuid uuid, 
+  name text, 
+  description text, 
+  measurement_unit text,
+  standard_unit text,
+  unit_values jsonb,
+  count jsonb,
+  status text, 
+  properties jsonb, 
+  created_at timestamp with time zone, 
+  updated_at timestamp with time zone, 
+  inventory_items jsonb)
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    i.uuid,
+    i.company_uuid,
+    i.admin_uuid,  
+    i.name,
+    i.description,
+    i.measurement_unit,
+    i.standard_unit,
+    i.unit_values,
+    i.count,
+    i.status,
+    i.properties,
+    i.created_at,
+    i.updated_at,
+    COALESCE(
+      jsonb_agg(
+        CASE 
+          WHEN ii.uuid IS NOT NULL THEN
+            jsonb_build_object(
+              'uuid', ii.uuid,
+              'company_uuid', ii.company_uuid,
+              'inventory_uuid', ii.inventory_uuid,
+              'item_code', ii.item_code,
+              'unit', ii.unit,
+              'unit_value', ii.unit_value,
+              'packaging_unit', ii.packaging_unit,
+              'cost', ii.cost,
+              'properties', ii.properties,
+              'group_id', ii.group_id,
+              'status', ii.status,
+              'status_history', ii.status_history,
+              'created_at', ii.created_at,
+              'updated_at', ii.updated_at
+            )
+          ELSE NULL
+        END
+      ) FILTER (WHERE ii.uuid IS NOT NULL), 
+      '[]'::jsonb
+    ) AS inventory_items
+  FROM inventory i
+  LEFT JOIN inventory_items ii ON i.uuid = ii.inventory_uuid
+    AND (
+      -- Always include if it's for warehouse viewing
+      p_include_warehouse_items OR
+      -- For delivery context, filter based on status and delivery assignment
+      (
+        p_delivery_uuid IS NULL OR
+        (
+          -- Include AVAILABLE items (can be selected)
+          ii.status = 'AVAILABLE' OR
+          ii.status IS NULL OR
+          -- Include items that are already assigned to this specific delivery by checking inventory_items keys
+          EXISTS (
+            SELECT 1 FROM delivery_items di 
+            WHERE di.uuid = p_delivery_uuid 
+            AND di.inventory_items ? ii.uuid::text
+          )
+        )
+      )
+    )
+    -- Exclude IN_WAREHOUSE and USED items from delivery selection (unless viewing warehouse)
+    AND (
+      p_include_warehouse_items OR 
+      (ii.status != 'IN_WAREHOUSE' AND ii.status != 'USED')
+    )
+    -- Exclude items that are ON_DELIVERY for other deliveries
+    AND (
+      p_delivery_uuid IS NULL OR
+      ii.status != 'ON_DELIVERY' OR
+      EXISTS (
+        SELECT 1 FROM delivery_items di 
+        WHERE di.uuid = p_delivery_uuid 
+        AND di.inventory_items ? ii.uuid::text
+      )
+    )
+  WHERE i.uuid = p_inventory_uuid
+  GROUP BY 
+    i.uuid,
+    i.company_uuid,
+    i.admin_uuid,
+    i.name,
+    i.description,
+    i.measurement_unit,
+    i.standard_unit,
+    i.unit_values,
+    i.count,
+    i.status,
+    i.properties,
+    i.created_at,
+    i.updated_at;
+END;
+$function$;
+
 -- Grant execute permissions
 GRANT EXECUTE ON FUNCTION public.get_inventory_details_for_delivery TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_delivery_with_items TO authenticated;
+GRANT EXECUTE ON FUNCTION public.update_delivery_with_items TO authenticated;
+GRANT EXECUTE ON FUNCTION public.update_delivery_status_with_items TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_delivery_details TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_delivery_filtered TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_warehouse_inventory_from_delivery TO authenticated;
