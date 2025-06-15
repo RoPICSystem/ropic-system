@@ -8,11 +8,6 @@ export async function getFilteredItems(
 ) {
   const supabase = await createClient();
 
-  console.log(
-    functionName,
-    params
-  )
-
   try {
     const { data, error } = await supabase.rpc(functionName, params);
 

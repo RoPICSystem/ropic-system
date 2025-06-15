@@ -8,7 +8,7 @@ import { getStatusColor, herouiColor } from "@/utils/colors";
 import { motionTransition, popoverTransition } from "@/utils/anim";
 import { getMeasurementUnitOptions, getPackagingUnitOptions, getUnitFullName, getUnitOptions, getDefaultStandardUnit, convertUnit } from "@/utils/measurements";
 import { getUserFromCookies } from '@/utils/supabase/server/user';
-import { copyToClipboard, formatDate, formatNumber } from "@/utils/tools";
+import { copyToClipboard, formatDate, formatNumber, showErrorToast } from "@/utils/tools";
 import {
   groupInventoryItems,
   getGroupInfo,
@@ -709,6 +709,14 @@ export default function InventoryPage() {
       }
     }
   };
+
+  // error handling for loading states
+  useEffect(() => {
+    if (error) {
+      showErrorToast("Error", error);
+      setError(null);
+    }
+  }, [error]);
 
   return (
     <motion.div {...motionTransition}>
@@ -1841,16 +1849,6 @@ export default function InventoryPage() {
                 {/* Action buttons section */}
                 <motion.div {...motionTransition}>
                   <div className="flex flex-col gap-4">
-                    <AnimatePresence>
-                      {error && (
-                        <motion.div {...motionTransition}>
-                          <Alert color="danger" variant="flat" onClose={() => setError(null)}>
-                            {error}
-                          </Alert>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-
                     <LoadingAnimation
                       condition={!user || isLoading}
                       skeleton={

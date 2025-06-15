@@ -115,7 +115,7 @@ export default function CustomProperties({
     const propertiesObject = propertiesArray
       .filter(prop => prop.key.trim() !== "" && prop.value.trim() !== "")
       .reduce((acc, prop) => {
-        acc[prop.key.trim()] = prop.value.trim();
+        acc[prop.key.trim()] = prop.value;
         return acc;
       }, {} as Record<string, any>);
 
@@ -172,8 +172,8 @@ export default function CustomProperties({
               </div>
             </motion.div>
           ) : (
-            <CustomScrollbar 
-              className='max-h-96 p-4 pt-2' 
+            <CustomScrollbar
+              className='max-h-96 p-4 pt-2'
               hideHorizontalScrollbar
               scrollbarMarginBottom='.5rem'
               scrollShadow
@@ -224,7 +224,7 @@ export default function CustomProperties({
                               classNames={{
                                 inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16 rounded-r-xl rounded-l-none border-l-1 pb-2",
                               }}
-                              startContent={<Icon icon="mdi:text" className="text-default-500 mb-[0.1rem]" width={16}  />}
+                              startContent={<Icon icon="mdi:text" className="text-default-500 mb-[0.1rem]" width={16} />}
                             />
                           </div>
 

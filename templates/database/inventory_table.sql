@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS public.inventory (
   status TEXT DEFAULT 'AVAILABLE' check (
     status in ('AVAILABLE', 'WARNING', 'CRITICAL', 'OUT_OF_STOCK')
   ),
-  status_history JSONB DEFAULT '{}'::jsonb,
+  status_history JSONB DEFAULT (jsonb_build_object(to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), 'AVAILABLE')),
   created_at timestamp with time zone default now(),
   updated_at timestamp with time zone default now()
 );
@@ -571,7 +571,8 @@ BEGIN
       packaging_unit,
       cost,
       group_id,
-      properties
+      properties,
+      status_history
     )
     SELECT 
       (elem->>'company_uuid')::UUID,
@@ -582,7 +583,8 @@ BEGIN
       (elem->>'packaging_unit')::TEXT,
       (elem->>'cost')::NUMERIC,
       (elem->>'group_id')::TEXT,
-      (elem->'properties')::JSONB
+      (elem->'properties')::JSONB,
+      jsonb_build_object(to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), 'AVAILABLE')
     FROM jsonb_array_elements(p_new_inventory_item) as elem;
   END IF;
 

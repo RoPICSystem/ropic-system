@@ -222,3 +222,25 @@ export async function getOperators(operatorUuids: string[]) {
   }
 }
 
+export async function getFilteredItems(supabaseFunction: string, params: Record<string, any>) {
+  const supabase = await createClient();
+
+  try {
+    const { data, error } = await supabase.rpc(supabaseFunction, params);
+
+    if (error) throw error;
+
+    return {
+      success: true,
+      data: data || [],
+      error: null
+    };
+  } catch (error: any) {
+    console.error(`Error calling ${supabaseFunction}:`, error);
+    return {
+      success: false,
+      data: [],
+      error: error.message || `Failed to call ${supabaseFunction}`
+    };
+  }
+}

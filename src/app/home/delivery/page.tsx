@@ -1771,12 +1771,78 @@ export default function DeliveryPage() {
 
 
 
+  // === PDF GENERATION FUNCTIONS ===
+  const handlePdfExport = async (data: any) => {
+    setIsPdfGenerating(true);
 
+    try {
+      // Get selected deliveries
+      const deliveriesToExport = data.selectedItems.length > 0
+        ? data.allFilteredItems.filter((item: { uuid: any; }) => data.selectedItems.includes(item.uuid))
+        : data.allFilteredItems;
 
+      // Prepare deliveries with QR URLs and warehouse names
+      const preparedDeliveries = deliveriesToExport.map((delivery: { uuid: string; warehouse_uuid: string; delivery_date: any; inventory_uuid: any; }) => {
+        // Generate QR URL for each delivery with options
+        const baseUrl = "https://ropic.vercel.app/home/search";
+        const params = new URLSearchParams();
 
+        params.set('q', delivery.uuid);
 
+        if (data.exportOptions.includeAutoAccept) {
+          params.set('deliveryAutoAccept', 'true');
+        }
 
+        if (data.exportOptions.includeShowOptions) {
+          params.set('showOptions', 'true');
+        }
 
+        const qrUrl = `${baseUrl}?${params.toString()}`;
+
+        // Find warehouse name
+        const warehouse = warehouses.find(w => w.uuid === delivery.warehouse_uuid);
+        const warehouseName = warehouse?.name || 'Unknown Warehouse';
+
+        return {
+          ...delivery,
+          qrUrl,
+          deliveryDate: delivery.delivery_date,
+          itemName: inventoryItems.find(i => i.uuid === delivery.inventory_uuid)?.name || 'Unknown Item',
+          warehouse_name: warehouseName
+        };
+      });
+
+      // Get company data including logo
+      const companyData = await getUserCompanyDetails(user.uuid);
+
+      let companyLogoUrl = null;
+      if (companyData?.data?.logo_url && !companyData?.data?.logo_url.error) {
+        companyLogoUrl = companyData.data.logo_url;
+      }
+
+      // Generate PDF with selected page size
+      const pdfBlob = await generatePdfBlob({
+        deliveries: preparedDeliveries,
+        companyName: companyData?.data?.name || "Your Company",
+        companyLogoUrl: companyLogoUrl,
+        dateGenerated: new Date().toLocaleString(),
+        pageSize: data.exportOptions.pageSize
+      });
+
+      // Create download link
+      const url = URL.createObjectURL(pdfBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Delivery_QR_Codes_${data.exportOptions.pageSize}_${new Date().toISOString().split('T')[0]}_${new Date().toTimeString().split(' ')[0].replace(/:/g, '-')}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (error) {
+      console.error("Error generating delivery QR PDF:", error);
+    } finally {
+      setIsPdfGenerating(false);
+    }
+  };
 
 
 
@@ -2269,77 +2335,7 @@ export default function DeliveryPage() {
               operators={operators}
               inventoryItems={inventoryItems}
               isPdfGenerating={isPdfGenerating}
-              onExport={async (data) => {
-                setIsPdfGenerating(true);
-
-                try {
-                  // Get selected deliveries
-                  const deliveriesToExport = data.selectedItems.length > 0
-                    ? data.allFilteredItems.filter(item => data.selectedItems.includes(item.uuid))
-                    : data.allFilteredItems;
-
-                  // Prepare deliveries with QR URLs and warehouse names
-                  const preparedDeliveries = deliveriesToExport.map(delivery => {
-                    // Generate QR URL for each delivery with options
-                    const baseUrl = "https://ropic.vercel.app/home/search";
-                    const params = new URLSearchParams();
-
-                    params.set('q', delivery.uuid);
-
-                    if (data.exportOptions.includeAutoAccept) {
-                      params.set('deliveryAutoAccept', 'true');
-                    }
-
-                    if (data.exportOptions.includeShowOptions) {
-                      params.set('showOptions', 'true');
-                    }
-
-                    const qrUrl = `${baseUrl}?${params.toString()}`;
-
-                    // Find warehouse name
-                    const warehouse = warehouses.find(w => w.uuid === delivery.warehouse_uuid);
-                    const warehouseName = warehouse?.name || 'Unknown Warehouse';
-
-                    return {
-                      ...delivery,
-                      qrUrl,
-                      deliveryDate: delivery.delivery_date,
-                      itemName: inventoryItems.find(i => i.uuid === delivery.inventory_uuid)?.name || 'Unknown Item',
-                      warehouse_name: warehouseName
-                    };
-                  });
-
-                  // Get company data including logo
-                  const companyData = await getUserCompanyDetails(user.uuid);
-
-                  let companyLogoUrl = null;
-                  if (companyData?.data?.logo_url && !companyData?.data?.logo_url.error) {
-                    companyLogoUrl = companyData.data.logo_url;
-                  }
-
-                  // Generate PDF with selected page size
-                  const pdfBlob = await generatePdfBlob({
-                    deliveries: preparedDeliveries,
-                    companyName: companyData?.data?.name || "Your Company",
-                    companyLogoUrl: companyLogoUrl,
-                    dateGenerated: new Date().toLocaleString(),
-                    pageSize: data.exportOptions.pageSize
-                  });
-
-                  // Create download link
-                  const url = URL.createObjectURL(pdfBlob);
-                  const link = document.createElement('a');
-                  link.href = url;
-                  link.download = `Delivery_QR_Codes_${data.exportOptions.pageSize}_${new Date().toISOString().split('T')[0]}_${new Date().toTimeString().split(' ')[0].replace(/:/g, '-')}.pdf`;
-                  document.body.appendChild(link);
-                  link.click();
-                  document.body.removeChild(link);
-                } catch (error) {
-                  console.error("Error generating delivery QR PDF:", error);
-                } finally {
-                  setIsPdfGenerating(false);
-                }
-              }}
+              onExport={handlePdfExport}
             />
 
           </div>

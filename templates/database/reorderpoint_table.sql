@@ -16,7 +16,7 @@ create table if not exists public.reorder_point_logs (
   unit character varying(20),
   created_at timestamp with time zone default now(),
   updated_at timestamp with time zone default now(),
-  constraint reorder_point_logs_status_check check (status in ('IN_STOCK', 'WARNING', 'CRITICAL', 'OUT_OF_STOCK'))
+  constraint reorder_point_logs_status_check check (status in ('IN_STOCK', 'WARNING',   'CRITICAL', 'OUT_OF_STOCK'))
 );
 
 

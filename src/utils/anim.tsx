@@ -103,7 +103,7 @@ export const motionTransitionScale = {
   exit: "exit"
 }
 
-export const popoverTransition = (direction: 'up' | 'down' | 'left' | 'right' = 'down') => {
+export const popoverTransition = (direction: 'up' | 'down' | 'left' | 'right' = 'up') => {
   const getInitialOffset = () => {
     switch (direction) {
       case 'up': return { y: '-5rem', x: 0 };

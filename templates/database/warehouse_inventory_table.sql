@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS public.warehouse_inventory (
   status TEXT DEFAULT 'AVAILABLE' check (
     status in ('AVAILABLE', 'WARNING', 'CRITICAL', 'USED')
   ),
-  status_history JSONB DEFAULT '{}'::jsonb,
+  status_history JSONB DEFAULT (jsonb_build_object(to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), 'AVAILABLE')),
   created_at timestamp with time zone default now(),
   updated_at timestamp with time zone default now()
 );

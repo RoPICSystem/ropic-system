@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS public.delivery_items (
   notes TEXT,
   
   status TEXT DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'IN_TRANSIT', 'DELIVERED', 'CONFIRMED', 'CANCELLED')),
-  status_history JSONB DEFAULT '{}'::jsonb,
+  status_history JSONB DEFAULT (jsonb_build_object(to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), 'AVAILABLE')),
   created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
 );
@@ -624,7 +624,7 @@ BEGIN
       COALESCE(v_location, '{}'::jsonb),
       v_inventory_item.group_id,
       'AVAILABLE',
-      jsonb_build_object(v_timestamp, 'Created from delivery ' || p_delivery_uuid::text)
+      jsonb_build_object(v_timestamp, 'AVAILABLE')
     );
   END LOOP;
 
