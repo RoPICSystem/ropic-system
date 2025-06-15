@@ -362,7 +362,7 @@ export default function DeliveryPage() {
     return formData.status !== "DELIVERED" && formData.status !== "CANCELLED"
   }
 
-  const canOnlyEditLocations = (): boolean => {
+  const canEditLimited = (): boolean => {
     return formData.status === "IN_TRANSIT" && user?.is_admin === true;
   }
 
@@ -427,28 +427,6 @@ export default function DeliveryPage() {
           disabledReason: null
         };
     }
-  };
-
-  const checkIfLocationOccupied = (location: any) => {
-    const isOccupied = occupiedLocations.some(
-      loc =>
-        loc.floor === location.floor &&
-        loc.group === location.group &&
-        loc.row === location.row &&
-        loc.column === location.column &&
-        loc.depth === location.depth
-    );
-
-    const isAssigned = shelfColorAssignments.some(
-      assignment =>
-        assignment.floor === location.floor &&
-        assignment.group === location.group &&
-        assignment.row === location.row &&
-        assignment.column === location.column &&
-        assignment.depth === location.depth
-    );
-
-    return isOccupied || isAssigned;
   };
 
   const resetWarehouseLocation = () => {
@@ -705,7 +683,7 @@ export default function DeliveryPage() {
             formData.inventory_items || {},
             undefined,
             undefined,
-            undefined,
+            formData.operator_uuids,
             undefined,
             undefined,
             user.company_uuid
@@ -1178,74 +1156,6 @@ export default function DeliveryPage() {
     }
   }, [expandedInventories, loadedInventoryUuids, loadInventoryItemsWithCurrentData]);
 
-  const handleAddInventory = (inventoryUuid: string) => {
-    if (!inventoryUuid || selectedInventoryUuids.includes(inventoryUuid)) return;
-
-    const newSelectedInventories = [...selectedInventoryUuids, inventoryUuid];
-    setSelectedInventoryUuids(newSelectedInventories);
-
-    setTimeout(() => {
-      newSelectedInventories.forEach(uuid => {
-        loadInventoryItemsWithCurrentData(uuid, false, formData, selectedDeliveryId);
-      });
-    }, 100);
-
-    setInventorySearchTerm('');
-    setShowInventorySelector(false);
-  };
-
-  const handleRemoveInventory = (inventoryUuid: string) => {
-    const newSelectedInventories = selectedInventoryUuids.filter(uuid => uuid !== inventoryUuid);
-    setSelectedInventoryUuids(newSelectedInventories);
-
-    const itemsToRemove = inventoryItems
-      .filter(item => item.inventory_uuid === inventoryUuid)
-      .map(item => item.uuid);
-
-    const newSelectedItems = selectedInventoryItems.filter(uuid => !itemsToRemove.includes(uuid));
-    setSelectedInventoryItems(newSelectedItems);
-
-    const newInventoryItems = { ...formData.inventory_items };
-    itemsToRemove.forEach(uuid => {
-      delete newInventoryItems[uuid];
-    });
-
-    setFormData(prev => ({
-      ...prev,
-      inventory_items: newInventoryItems
-    }));
-
-    const newLocationsArray = Object.values(newInventoryItems).map(item => item.location).filter(Boolean);
-    setLocations(newLocationsArray);
-
-    if (newSelectedInventories.length > 0) {
-      setTimeout(() => {
-        newSelectedInventories.forEach(uuid => {
-          loadInventoryItemsWithCurrentData(uuid, false, formData, selectedDeliveryId);
-        });
-      }, 100);
-    } else {
-      setInventoryItems([]);
-    }
-  };
-
-  const handleInventoryItemChange = async (inventoryItemUuid: string | null) => {
-    setSelectedInventoryItems([]);
-    setLocations([]);
-
-    setFormData(prev => ({
-      ...prev,
-      inventory_uuid: inventoryItemUuid,
-      inventory_item_uuids: [],
-      locations: [],
-      inventory_items: {}
-    }));
-
-    if (inventoryItemUuid) {
-      await loadInventoryItemsWithCurrentData(inventoryItemUuid, false, formData, selectedDeliveryId);
-    }
-  };
-
   const handleAddOperator = (operatorUuid: string) => {
     if (!operatorUuid) return;
 
@@ -1409,13 +1319,6 @@ export default function DeliveryPage() {
     );
   };
 
-  function getInventoryItemUuidsFromLocations(inventoryLocations: Record<string, ShelfLocation>): string[] {
-    return Object.keys(inventoryLocations);
-  }
-
-  function getLocationsFromInventoryLocations(inventoryLocations: Record<string, ShelfLocation>): ShelfLocation[] {
-    return Object.values(inventoryLocations);
-  }
 
 
 
@@ -1433,13 +1336,7 @@ export default function DeliveryPage() {
 
 
 
-
-
-
-
-
-
-  
+  // ===== 3D LOCATION MODAL FUNCTIONS =====
 
   const handle3DLocationConfirm = (location: ShelfLocation) => {
     const newLocations = [...locations];
@@ -2324,7 +2221,7 @@ export default function DeliveryPage() {
                       <div className="flex-1 min-w-0 text-left">
                         <span className={`font-bold text-lg leading-tight block truncate text-left
                       ${selectedDeliveryId === delivery.uuid ? 'text-primary-50' : 'text-default-800'}`}>
-                          {inventoryItems.find(i => i.uuid === delivery.inventory_uuid)?.name || 'Unknown Item'}
+                          {delivery.name || 'Unknown Item'}
                         </span>
                         {delivery.delivery_address && (
                           <div className={`w-full mt-2 text-sm leading-relaxed text-left break-words whitespace-normal
@@ -2439,9 +2336,17 @@ export default function DeliveryPage() {
             renderEmptyCard={(
               <>
                 <Icon icon="fluent:box-dismiss-20-filled" className="text-5xl text-default-300" />
-                <p className="text-default-500 mt-2">No deliveries found</p>
-                <Button color="primary" variant="light" size="sm" className="mt-4" onPress={handleNewDelivery}>
-                  Create New Delivery
+                <p className="text-default-500 mt-2 mx-8 text-center">
+                  No deliveries found
+                </p>
+                <Button
+                  color="primary"
+                  variant="flat"
+                  size="sm"
+                  className="mt-4"
+                  onPress={handleNewDelivery}
+                  startContent={<Icon icon="mdi:plus" className="text-default-500" />}>
+                  Create Delivery
                 </Button>
               </>
             )}
@@ -2476,6 +2381,17 @@ export default function DeliveryPage() {
                       }>
                       <div className="space-y-4">
                         <h2 className="text-xl font-semibold w-full text-center">Delivery Information</h2>
+
+                        <Input
+                          name="name"
+                          label="Delivery Name"
+                          value={formData.name || ""}
+                          onChange={handleInputChange}
+                          isRequired={canEditAllFields()}
+                          isReadOnly={!canEditAllFields()}
+                          classNames={inputStyle}
+                          startContent={<Icon icon="mdi:package" className="text-default-500 mb-[0.2rem]" />}
+                        />
 
                         {selectedDeliveryId && (
                           <Input
@@ -2576,7 +2492,7 @@ export default function DeliveryPage() {
                         <h3 className="text-lg text-center font-semibold">Assigned Operators</h3>
 
                         {/* Operator Selection Autocomplete - only show if delivery is processing and user is admin */}
-                        {canEditAllFields() && (
+                        {canEditLimited() && (
                           <Autocomplete
                             label="Add Operator"
                             placeholder="Select an operator to add"
@@ -2748,14 +2664,14 @@ export default function DeliveryPage() {
                             <div className="flex justify-between items-center border-b border-default-200 p-4">
                               <h3 className="text-lg font-semibold">Inventories</h3>
                               <div className="flex gap-2 items-center">
-                                {selectedInventoryItems.length > 0 && !(canEditAllFields() || canOnlyEditLocations()) && (
+                                {selectedInventoryItems.length > 0 && !(canEditAllFields() || canEditLimited()) && (
                                   <Chip color="primary" size="sm" variant="flat">
                                     {selectedInventoryItems.length} items selected
                                   </Chip>
                                 )}
 
                                 {/* Auto-assign locations button - only show for admin when items are selected and warehouse is set */}
-                                {(user?.is_admin) && selectedInventoryItems.length > 0 && !isWarehouseNotSet() && !isFloorConfigNotSet() && (canEditAllFields() || canOnlyEditLocations()) && (
+                                {(user?.is_admin) && selectedInventoryItems.length > 0 && !isWarehouseNotSet() && !isFloorConfigNotSet() && (canEditAllFields() || canEditLimited()) && (
                                   <Button
                                     color="warning"
                                     variant="shadow"
@@ -2813,7 +2729,7 @@ export default function DeliveryPage() {
                                         <div className="flex items-center justify-between w-full">
                                           <div className="flex items-center gap-3">
                                             {(user && user.is_admin) && (
-                                              (canEditAllFields() || canOnlyEditLocations()) && formData.status === "PENDING"
+                                              (canEditAllFields() || canEditLimited()) && formData.status === "PENDING"
                                             ) && (
                                                 <Checkbox
                                                   isSelected={inventorySelectAllStates[inventoryUuid]?.isChecked || false}

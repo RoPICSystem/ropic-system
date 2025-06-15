@@ -1031,7 +1031,7 @@ export default function WarehouseLayoutEditorModal({
                   <div className="flex gap-4">
                     <Popover
                       classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
-                      motionProps={popoverTransition(false)}
+                      motionProps={popoverTransition('up')}
                       offset={10} placement="bottom">
                       <PopoverTrigger>
                         <Button className="capitalize" color="warning" variant="flat">

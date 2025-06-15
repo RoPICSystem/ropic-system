@@ -5,7 +5,7 @@ import CustomProperties from "@/components/custom-properties";
 import LoadingAnimation from '@/components/loading-animation';
 import { FilterOption, SearchListPanel } from "@/components/search-list-panel/search-list-panel";
 import { getStatusColor, herouiColor } from "@/utils/colors";
-import { motionTransition } from "@/utils/anim";
+import { motionTransition, popoverTransition } from "@/utils/anim";
 import { getMeasurementUnitOptions, getPackagingUnitOptions, getUnitFullName, getUnitOptions, getDefaultStandardUnit, convertUnit } from "@/utils/measurements";
 import { getUserFromCookies } from '@/utils/supabase/server/user';
 import { copyToClipboard, formatDate, formatNumber } from "@/utils/tools";
@@ -55,6 +55,7 @@ import {
   updateInventoryItem
 } from './actions';
 import CustomScrollbar from "@/components/custom-scrollbar";
+import { generateItemDescription } from "@/utils/supabase/server/groq";
 
 
 export default function InventoryPage() {
@@ -98,6 +99,11 @@ export default function InventoryPage() {
   const defaultMeasurementUnit = "length";
   const defaultPackagingUnit = "roll";
   const defaultUnit = "m";
+
+  // AI description generation
+  const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
+  const [descriptionLength, setDescriptionLength] = useState<'short' | 'medium' | 'long'>('medium');
+  const [aiPopoverOpen, setAiPopoverOpen] = useState(false);
 
   // Form state
   const [inventoryForm, setInventoryForm] = useState<{
@@ -232,6 +238,42 @@ export default function InventoryPage() {
     const params = new URLSearchParams(searchParams.toString());
     params.set("itemId", itemId);
     router.push(`?${params.toString()}`, { scroll: false });
+  };
+
+  const handleGenerateDescription = async (length: 'short' | 'medium' | 'long' = 'medium') => {
+    setIsGeneratingDescription(true);
+
+    if (!inventoryForm.name.trim()) {
+      setError("Please enter an item name first");
+      return;
+    }
+
+    setError(null);
+    setAiPopoverOpen(false);
+
+    try {
+      const result = await generateItemDescription({
+        itemName: inventoryForm.name,
+        measurementUnit: inventoryForm.measurement_unit,
+        properties: inventoryForm.properties,
+        existingDescription: inventoryForm.description,
+        length: length
+      });
+
+      if (result.success && result.data) {
+        setInventoryForm(prev => ({
+          ...prev,
+          description: result.data
+        }));
+      } else {
+        setError(result.error || "Failed to generate description");
+      }
+    } catch (error) {
+      setError("An error occurred while generating description");
+      console.error(error);
+    } finally {
+      setIsGeneratingDescription(false);
+    }
   };
 
   const handleInventoryPropertiesChange = (properties: Record<string, any>) => {
@@ -818,7 +860,9 @@ export default function InventoryPage() {
             renderEmptyCard={(
               <>
                 <Icon icon="mdi:package-variant" className="text-5xl text-default-300" />
-                <p className="text-default-500 mt-2">No inventory items found</p>
+                <p className="text-default-500 mt-2 mx-8 text-center">
+                  No inventory items found
+                </p>
                 <Button
                   color="primary"
                   variant="flat"
@@ -926,7 +970,7 @@ export default function InventoryPage() {
                         label="Item Name"
                         value={inventoryForm.name}
                         onChange={(e) => handleInventoryFormChange('name', e.target.value)}
-                        isRequired
+                        isReadOnly={selectedItemId ? true : false}
                         placeholder="Enter item name"
                         classNames={inputStyle}
                         startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.2rem]" />}
@@ -939,13 +983,12 @@ export default function InventoryPage() {
                           selectedKey={inventoryForm.measurement_unit}
                           onSelectionChange={(key) => handleInventoryFormChange('measurement_unit', key)}
                           startContent={<Icon icon="mdi:ruler" className="text-default-500 mb-[0.1rem]" />}
-                          isRequired={!selectedItemId}
-                          isReadOnly={!selectedItemId}
-                          isClearable={!selectedItemId}
+                          isRequired={selectedItemId ? false : true}
+                          isReadOnly={selectedItemId ? true : false}
+                          isClearable={selectedItemId ? false : true}
                           inputProps={autoCompleteStyle}
-
-                          popoverProps={{ className: !!selectedItemId ? "collapse" : "" }}
-                          selectorButtonProps={{ className: !!selectedItemId ? "collapse" : "" }}
+                          popoverProps={{ className: selectedItemId ? "collapse" : "" }}
+                          selectorButtonProps={{ className: selectedItemId ? "collapse" : "" }}
                         >
                           {measurementUnitOptions.map((measurement_unit) => (
                             <AutocompleteItem key={measurement_unit}>{measurement_unit.charAt(0).toUpperCase() + measurement_unit.slice(1)}</AutocompleteItem>
@@ -959,12 +1002,12 @@ export default function InventoryPage() {
                           selectedKey={inventoryForm.standard_unit}
                           onSelectionChange={(key) => handleInventoryFormChange('standard_unit', key)}
                           startContent={<Icon icon="mdi:scale-balance" className="text-default-500 mb-[0.1rem]" />}
-                          isRequired={!selectedItemId}
-                          isReadOnly={!selectedItemId}
-                          isClearable={!selectedItemId}
+                          isRequired={selectedItemId ? false : true}
+                          isReadOnly={selectedItemId ? true : false}
+                          isClearable={selectedItemId ? false : true}
                           inputProps={autoCompleteStyle}
-                          popoverProps={{ className: !!selectedItemId ? "collapse" : "" }}
-                          selectorButtonProps={{ className: !!selectedItemId ? "collapse" : "" }}
+                          popoverProps={{ className: selectedItemId ? "collapse" : "" }}
+                          selectorButtonProps={{ className: selectedItemId ? "collapse" : "" }}
                         >
                           {getUnitOptions(inventoryForm.measurement_unit).map((unit) => (
                             <AutocompleteItem key={unit}>{getUnitFullName(unit)}</AutocompleteItem>
@@ -975,10 +1018,114 @@ export default function InventoryPage() {
                       <Textarea
                         label="Description"
                         value={inventoryForm.description}
+                        isReadOnly={selectedItemId ? true : false}
                         onChange={(e) => handleInventoryFormChange('description', e.target.value)}
                         placeholder="Enter item description (optional)"
-                        classNames={inputStyle}
+                        classNames={{
+                          inputWrapper: `${inputStyle.inputWrapper} pr-12`,
+                        }}
                         startContent={<Icon icon="mdi:text-box" className="text-default-500 mt-[0.1rem]" />}
+                        endContent={
+                          <div className="flex flex-col gap-2 mt-1 absolute right-3 top-3">
+                            <Popover
+                              isOpen={aiPopoverOpen}
+                              onOpenChange={setAiPopoverOpen}
+                              classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
+                              motionProps={popoverTransition('right')}
+                              placement="left"
+                            >
+                              <PopoverTrigger>
+                                <Button
+                                  variant="flat"
+                                  color="primary"
+                                  isIconOnly
+                                  size="sm"
+                                  isDisabled={!inventoryForm.name.trim() || isLoading}
+                                  title="Generate AI description"
+                                  isLoading={isGeneratingDescription}
+                                >
+                                  {!isGeneratingDescription &&
+                                    <Icon icon="mingcute:ai-fill" className="text-primary-500 text-md" />
+                                  }
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-64 p-0">
+                                <div className="w-full">
+                                  <div className="text-sm font-medium text-center p-4 pb-0">
+                                    Generate AI Description
+                                  </div>
+
+                                  <div className="space-y-2 p-4">
+                                    <div className="flex flex-col gap-2 w-full">
+                                      <Button
+                                        size="sm"
+                                        variant={descriptionLength === 'short' ? 'solid' : 'flat'}
+                                        color="primary"
+                                        className="justify-start"
+                                        onPress={() => {
+                                          setDescriptionLength('short');
+                                          handleGenerateDescription('short');
+                                        }}
+                                        isLoading={isGeneratingDescription && descriptionLength === 'short'}
+                                        startContent={<Icon icon="mdi:text-short" width={16} />}
+                                      >
+                                        Short (1 sentence)
+                                      </Button>
+
+                                      <Button
+                                        size="sm"
+                                        variant={descriptionLength === 'medium' ? 'solid' : 'flat'}
+                                        color="primary"
+                                        className="justify-start"
+                                        onPress={() => {
+                                          setDescriptionLength('medium');
+                                          handleGenerateDescription('medium');
+                                        }}
+                                        isLoading={isGeneratingDescription && descriptionLength === 'medium'}
+                                        startContent={<Icon icon="mdi:text" width={16} />}
+                                      >
+                                        Medium (2-3 sentences)
+                                      </Button>
+
+                                      <Button
+                                        size="sm"
+                                        variant={descriptionLength === 'long' ? 'solid' : 'flat'}
+                                        color="primary"
+                                        className="justify-start"
+                                        onPress={() => {
+                                          setDescriptionLength('long');
+                                          handleGenerateDescription('long');
+                                        }}
+                                        isLoading={isGeneratingDescription && descriptionLength === 'long'}
+                                        startContent={<Icon icon="mdi:text-long" width={16} />}
+                                      >
+                                        Long (3-5 sentences)
+                                      </Button>
+                                    </div>
+                                  </div>
+
+                                  {inventoryForm.description && (
+                                    <div className="p-4 border-t border-default-200">
+                                      <Button
+                                        size="sm"
+                                        variant="flat"
+                                        color="secondary"
+                                        className="w-full justify-start"
+                                        onPress={() => {
+                                          handleGenerateDescription(descriptionLength);
+                                        }}
+                                        isLoading={isGeneratingDescription}
+                                        startContent={<Icon icon="mdi:refresh" width={16} />}
+                                      >
+                                        Improve existing
+                                      </Button>
+                                    </div>
+                                  )}
+                                </div>
+                              </PopoverContent>
+                            </Popover>
+                          </div>
+                        }
                       />
 
                       {/* Display aggregated values if they exist */}
@@ -1446,7 +1593,7 @@ export default function InventoryPage() {
                                         </div>
 
                                         {/* Group Items Details - only show for groups in grouped view */}
-                                        {viewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId && (
+                                        {viewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId && selectedItemId && (
                                           <div className="px-2 pb-4">
                                             <Accordion
                                               selectionMode="multiple"

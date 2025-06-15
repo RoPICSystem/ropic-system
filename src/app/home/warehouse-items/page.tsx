@@ -799,7 +799,9 @@ export default function WarehouseItemsPage() {
             renderEmptyCard={(
               <>
                 <Icon icon="mdi:package-variant" className="text-5xl text-default-300" />
-                <p className="text-default-500 mt-2">No warehouse inventory items found</p>
+                <p className="text-default-500 mt-2 mx-8 text-center">
+                  No warehouse inventory items found
+                </p>
               </>
             )}
             onItemSelect={handleSelectItem}

@@ -684,7 +684,9 @@ export default function WarehousePage() {
             renderEmptyCard={(
               <>
                 <Icon icon="material-symbols:warehouse-rounded" className="text-5xl text-default-300" />
-                <p className="text-default-500 mt-2">No warehouses found</p>
+                <p className="text-default-500 mt-2 mx-8 text-center">
+                  No warehouses found
+                </p>
                 <Button
                   color="primary"
                   variant="flat"

@@ -103,7 +103,30 @@ export const motionTransitionScale = {
   exit: "exit"
 }
 
-export const popoverTransition = (isUp = true) => {
+export const popoverTransition = (direction: 'up' | 'down' | 'left' | 'right' = 'down') => {
+  const getInitialOffset = () => {
+    switch (direction) {
+      case 'up': return { y: '-5rem', x: 0 };
+      case 'down': return { y: '5rem', x: 0 };
+      case 'left': return { y: 0, x: '-5rem' };
+      case 'right': return { y: 0, x: '5rem' };
+      default: return { y: '5rem', x: 0 };
+    }
+  };
+
+  const getExitOffset = () => {
+    switch (direction) {
+      case 'up': return { y: '-2.5rem', x: 0 };
+      case 'down': return { y: '2.5rem', x: 0 };
+      case 'left': return { y: 0, x: '-2.5rem' };
+      case 'right': return { y: 0, x: '2.5rem' };
+      default: return { y: '2.5rem', x: 0 };
+    }
+  };
+
+  const initialOffset = getInitialOffset();
+  const exitOffset = getExitOffset();
+
   return {
     variants: {
       initial: {
@@ -111,7 +134,8 @@ export const popoverTransition = (isUp = true) => {
         borderRadius: "1rem",
         backgroundColor: `${herouiColor("background", "hex")}`,
         scale: (window as any).chrome ? 1 : 0,
-        y: (window as any).chrome ? isUp ?'-5rem' : '5rem' : 0,
+        y: (window as any).chrome ? initialOffset.y : 0,
+        x: (window as any).chrome ? initialOffset.x : 0,
         transition: {
           duration: 0.3,
           ease: [0.25, 0.1, 0.25, 1], // cubic-bezier for smoother easing
@@ -122,6 +146,7 @@ export const popoverTransition = (isUp = true) => {
         opacity: 1,
         backgroundColor: "#00000000",
         y: 0,
+        x: 0,
         scale: 1,
         transition: {
           scale: {
@@ -132,6 +157,13 @@ export const popoverTransition = (isUp = true) => {
             mass: 1.2,       // added mass for more natural physics
           },
           y: {
+            duration: 0.4,
+            type: "spring",
+            stiffness: 150, // lower stiffness for smoother movement
+            damping: 15,    // adjusted damping
+            mass: 1.2,       // added mass for more natural physics
+          },
+          x: {
             duration: 0.4,
             type: "spring",
             stiffness: 150, // lower stiffness for smoother movement
@@ -159,7 +191,8 @@ export const popoverTransition = (isUp = true) => {
         opacity: 0,
         filter: (window as any).chrome ?  "blur(8px)" : '',
         scale: (window as any).chrome ? 1 : 0,
-        y: (window as any).chrome ? isUp ? '-2.5rem' : '2.5rem' : 0,
+        y: (window as any).chrome ? exitOffset.y : 0,
+        x: (window as any).chrome ? exitOffset.x : 0,
         transition: {
           scale: {
             duration: 0.3,
@@ -167,6 +200,11 @@ export const popoverTransition = (isUp = true) => {
             staggerChildren: 0.05,
           },
           y: {
+            duration: 0.3,
+            ease: [0.25, 0.1, 0.25, 1], // matching initial easing
+            staggerChildren: 0.05,
+          },
+          x: {
             duration: 0.3,
             ease: [0.25, 0.1, 0.25, 1], // matching initial easing
             staggerChildren: 0.05,
@@ -181,4 +219,3 @@ export const popoverTransition = (isUp = true) => {
     }
   }
 }
-
