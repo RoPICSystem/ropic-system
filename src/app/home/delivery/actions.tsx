@@ -37,7 +37,7 @@ export async function createDeliveryWithItems(
     inventory_uuid: string;
     group_id: string;
     location: ShelfLocation;
-  }>, // Key as UUID, value as {inventory_uuid, group_id, location}
+  }>, 
   deliveryAddress: string,
   deliveryDate: string,
   operatorUuids: string[] = [],

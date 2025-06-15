@@ -564,7 +564,6 @@ BEGIN
 END;
 $function$;
 
-
 -- Function to get warehouse inventory items by delivery
 CREATE OR REPLACE FUNCTION public.get_warehouse_items_by_delivery(
   p_delivery_uuid uuid,
@@ -615,6 +614,146 @@ BEGIN
   WHERE wii.delivery_uuid = p_delivery_uuid
     AND (p_company_uuid IS NULL OR wii.company_uuid = p_company_uuid)
   ORDER BY wii.created_at DESC;
+END;
+$function$;
+
+-- Fix the warehouse inventory creation function to work with individual item UUIDs
+CREATE OR REPLACE FUNCTION public.create_warehouse_inventory_from_delivery(
+  p_warehouse_uuid uuid,
+  p_delivery_uuid uuid,
+  p_item_uuids uuid[],
+  p_inventory_items jsonb
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inventory_item RECORD;
+  v_location jsonb;
+  v_timestamp text;
+  v_item_record jsonb;
+  v_item_key text;
+  v_inventory_uuid uuid;
+  v_warehouse_inventory_uuid uuid;
+  v_company_uuid uuid;
+BEGIN
+  -- Generate timestamp
+  v_timestamp := to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
+  
+  -- Get company UUID from the first inventory item
+  SELECT company_uuid INTO v_company_uuid
+  FROM inventory_items 
+  WHERE uuid = ANY(p_item_uuids)
+  LIMIT 1;
+  
+  IF v_company_uuid IS NULL THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'Could not determine company UUID from inventory items'
+    );
+  END IF;
+  
+  -- Create warehouse inventory items for each delivered item
+  FOR v_inventory_item IN 
+    SELECT * FROM inventory_items 
+    WHERE uuid = ANY(p_item_uuids)
+  LOOP
+    -- Find the location for this specific item from inventory_items structure
+    FOR v_item_key IN SELECT jsonb_object_keys(p_inventory_items)
+    LOOP
+      -- Check if this record matches our item UUID
+      IF v_item_key = v_inventory_item.uuid::text THEN
+        v_item_record := p_inventory_items->v_item_key;
+        v_location := v_item_record->'location';
+        v_inventory_uuid := (v_item_record->>'inventory_uuid')::uuid;
+        EXIT; -- Found the matching record
+      END IF;
+    END LOOP;
+    
+    -- Check if warehouse_inventory exists for this warehouse + inventory combination
+    SELECT uuid INTO v_warehouse_inventory_uuid
+    FROM warehouse_inventory
+    WHERE warehouse_uuid = p_warehouse_uuid
+      AND inventory_uuid = v_inventory_uuid;
+    
+    -- If warehouse_inventory doesn't exist, create it
+    IF v_warehouse_inventory_uuid IS NULL THEN
+      -- Get inventory details to create warehouse_inventory
+      INSERT INTO warehouse_inventory (
+        company_uuid,
+        admin_uuid,
+        warehouse_uuid,
+        inventory_uuid,
+        name,
+        description,
+        measurement_unit,
+        standard_unit,
+        status
+      )
+      SELECT 
+        v_company_uuid,
+        inv.admin_uuid,
+        p_warehouse_uuid,
+        inv.uuid,
+        inv.name,
+        inv.description,
+        inv.measurement_unit,
+        inv.standard_unit,
+        'AVAILABLE'
+      FROM inventory inv
+      WHERE inv.uuid = v_inventory_uuid
+      RETURNING uuid INTO v_warehouse_inventory_uuid;
+    END IF;
+    
+    -- Create warehouse inventory item with the found location
+    INSERT INTO warehouse_inventory_items (
+      company_uuid,
+      warehouse_uuid,
+      inventory_uuid,
+      inventory_item_uuid,
+      delivery_uuid,
+      item_code,
+      unit,
+      unit_value,
+      packaging_unit,
+      cost,
+      properties,
+      location,
+      group_id,
+      status,
+      status_history
+    ) VALUES (
+      v_company_uuid,
+      p_warehouse_uuid,
+      v_inventory_uuid,
+      v_inventory_item.uuid,
+      p_delivery_uuid,
+      v_inventory_item.item_code,
+      v_inventory_item.unit,
+      v_inventory_item.unit_value,
+      v_inventory_item.packaging_unit,
+      v_inventory_item.cost,
+      v_inventory_item.properties,
+      COALESCE(v_location, '{}'::jsonb),
+      v_inventory_item.group_id,
+      'AVAILABLE',
+      jsonb_build_object(v_timestamp, 'Created from delivery ' || p_delivery_uuid::text)
+    );
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'message', 'Warehouse inventory items created successfully'
+  );
+
+EXCEPTION
+  WHEN OTHERS THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', SQLERRM
+    );
 END;
 $function$;
 

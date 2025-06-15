@@ -754,7 +754,7 @@ export default function DeliveryPage() {
           formData.delivery_date || "",
           formData.operator_uuids || [],
           formData.notes || "",
-          deliveryNameValue 
+          deliveryNameValue
         );
       }
 
@@ -780,7 +780,9 @@ export default function DeliveryPage() {
         await refreshOccupiedLocations();
 
       } else {
-        alert(`Failed to ${selectedDeliveryId ? 'update' : 'create'} delivery. Please try again.`);
+        setErrors({
+          delivery: `Failed to ${selectedDeliveryId ? 'update' : 'create'} delivery. Please try again.`
+        });
       }
     } catch (error) {
       console.error(`Error ${selectedDeliveryId ? 'updating' : 'creating'} delivery:`, error);
@@ -3025,6 +3027,13 @@ export default function DeliveryPage() {
                                                                 ? inventoryItemsForThisInventory.filter(groupItem => groupItem.group_id === groupInfo.groupId)
                                                                 : [item];
 
+                                                              // Filter out items with IN_WAREHOUSE or USED status unless delivery is delivered/cancelled
+                                                              if (formData.status !== 'DELIVERED' && formData.status !== 'CANCELLED') {
+                                                                itemsToShow = itemsToShow.filter(inventoryItem =>
+                                                                  inventoryItem.status !== 'IN_WAREHOUSE' && inventoryItem.status !== 'USED'
+                                                                );
+                                                              }
+
                                                               // Filter out unselected items for non-PENDING statuses
                                                               if (
                                                                 formData.status === "PROCESSING" ||
@@ -3070,7 +3079,12 @@ export default function DeliveryPage() {
                                                                   {itemsToShow.length === 0 ? (
                                                                     <div className="text-center py-4 text-default-500">
                                                                       <Icon icon="mdi:package-variant-closed" className="mx-auto mb-2 opacity-50" width={32} height={32} />
-                                                                      <p className="text-sm">No selected items in this group</p>
+                                                                      <p className="text-sm">
+                                                                        {formData.status === 'DELIVERED' || formData.status === 'CANCELLED'
+                                                                          ? "No selected items in this group"
+                                                                          : "No available items in this group"
+                                                                        }
+                                                                      </p>
                                                                     </div>
                                                                   ) : (
                                                                     /* List individual items */
@@ -3164,6 +3178,27 @@ export default function DeliveryPage() {
                                                                                 </Button>
                                                                               }
                                                                             />
+
+                                                                            {/* Location */}
+                                                                            {hasAssignedLocation && (formData.status === "DELIVERED" || formData.status === "CANCELLED") && (
+                                                                              <Input
+                                                                                label="Assigned Location"
+                                                                                value={locations[itemLocationIndex]?.code || 'Not assigned'}
+                                                                                isReadOnly
+                                                                                classNames={{ inputWrapper: inputStyle.inputWrapper }}
+                                                                                startContent={<Icon icon="mdi:map-marker" className="text-default-500 mb-[0.2rem]" />}
+                                                                                endContent={
+                                                                                  <Button
+                                                                                    variant="flat"
+                                                                                    color="default"
+                                                                                    isIconOnly
+                                                                                    onPress={() => copyToClipboard(locations[itemLocationIndex]?.code || '')}
+                                                                                  >
+                                                                                    <Icon icon="mdi:content-copy" className="text-default-500" />
+                                                                                  </Button>
+                                                                                }
+                                                                              />
+                                                                            )}
 
                                                                             {/* Item details section - display only for single items (not grouped) */}
                                                                             {!(inventoryViewMode === 'grouped' && groupInfo.isGroup) && (
@@ -3836,8 +3871,7 @@ export default function DeliveryPage() {
                                 color="primary"
                                 className="w-full"
                                 onPress={() => handlePasteLinkAccept()}
-                                isLoading={isLoading || isAcceptingDelivery}
-                                isDisabled={!deliveryInput.trim()}
+                                isDisabled={!deliveryInput.trim() || isLoading || isAcceptingDelivery}
                                 variant="flat"
                               >
                                 {isLoading || isAcceptingDelivery ? (
