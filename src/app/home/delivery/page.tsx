@@ -851,7 +851,7 @@ export default function DeliveryPage() {
 
     setIsAutoAssigning(true);
     try {
-      // Get current delivery's assigned locations to exclude them from occupied locations
+      // UPDATED: Get current delivery's assigned locations using inventory item UUIDs
       const currentDeliveryLocations = selectedInventoryItems
         .map(itemUuid => formData.inventory_items?.[itemUuid]?.location)
         .filter((location): location is ShelfLocation => location != null && location.floor !== undefined);
@@ -859,22 +859,16 @@ export default function DeliveryPage() {
       const result = await suggestShelfLocations(
         formData.warehouse_uuid as string,
         selectedInventoryItems.length,
-        undefined, // startingShelf
+        undefined,
         currentDeliveryLocations,
       );
 
       if (result.success && result.data) {
         const { locations } = result.data;
 
-        const inventoryLocations: Record<string, ShelfLocation> = {};
-        selectedInventoryItems.forEach((uuid, index) => {
-          if (locations[index]) {
-            inventoryLocations[uuid] = locations[index];
-          }
-        });
-
         setLocations(locations);
 
+        // UPDATED: Build inventory_items using inventory item UUIDs as keys
         setFormData(prev => ({
           ...prev,
           inventory_items: {
@@ -882,7 +876,7 @@ export default function DeliveryPage() {
             ...Object.fromEntries(selectedInventoryItems.map((uuid, index) => {
               const inventoryItem = inventoryItems.find(item => item.uuid === uuid);
               return [
-                uuid,
+                uuid, // Use inventory item UUID as key
                 {
                   inventory_uuid: inventoryItem?.inventory_uuid || "",
                   group_id: inventoryItem?.group_id || null,
@@ -926,11 +920,8 @@ export default function DeliveryPage() {
 
     const inventoryUuid = inventoryItem.inventory_uuid;
     if (!loadedInventoryUuids.has(inventoryUuid)) {
-      // Use current formData when loading
       await loadInventoryItemsWithCurrentData(inventoryUuid, false, formData, selectedDeliveryId);
-      // Re-find the item after loading
       inventoryItem = inventoryItems.find(item => item.uuid === inventoryitemUuid);
-
       if (!inventoryItem) return;
     }
 
@@ -946,20 +937,18 @@ export default function DeliveryPage() {
       }
     }
 
-    // Handle individual item selection (not group selection)
     setSelectedInventoryItems(prev => {
       let newSelectedItems;
 
       if (isSelected) {
-        // Add only this specific item
         newSelectedItems = [...prev, inventoryitemUuid].filter((uuid, index, arr) => arr.indexOf(uuid) === index);
       } else {
-        // Remove only this specific item
         newSelectedItems = prev.filter(uuid => uuid !== inventoryitemUuid);
       }
 
+      // UPDATED: Build inventory_items using inventory item UUIDs as keys
       const currentInventoryItems = formData.inventory_items || {};
-      const newInventoryItems: Record<string, { inventory_uuid: string; group_id: string; location: any }> = {};
+      const newInventoryItems: Record<string, { inventory_uuid: string; group_id: string | null; location: any }> = {};
 
       newSelectedItems.forEach(uuid => {
         if (currentInventoryItems[uuid]) {
@@ -967,9 +956,10 @@ export default function DeliveryPage() {
         } else {
           const item = inventoryItems.find(i => i.uuid === uuid);
           if (item) {
+            // UPDATED: Use inventory item UUID as key, store group_id as nullable value
             newInventoryItems[uuid] = {
               inventory_uuid: item.inventory_uuid,
-              group_id: item.group_id || "",
+              group_id: item.group_id || null,
               location: {}
             };
           }
@@ -989,6 +979,53 @@ export default function DeliveryPage() {
 
       return newSelectedItems;
     });
+  };
+
+
+  const handleGroupSelectionToggle = async (groupId: string, inventoryUuid: string, isSelected: boolean) => {
+    // Handle null/empty group_id case
+    if (!groupId || groupId === '' || groupId === 'null') {
+      // For items without groups, find individual items
+      const individualItems = inventoryItems.filter(item =>
+        item.inventory_uuid === inventoryUuid &&
+        (!item.group_id || item.group_id === '' || item.group_id === null) &&
+        (formData.status === 'DELIVERED' || formData.status === 'CANCELLED' ||
+          (item.status !== 'IN_WAREHOUSE' && item.status !== 'USED'))
+      );
+
+      const availableIndividualItems = individualItems.filter(item => {
+        const statusStyling = getInventoryItemStatusStyling(item);
+        return !statusStyling.isDisabled;
+      });
+
+      for (const item of availableIndividualItems) {
+        const isCurrentlySelected = selectedInventoryItems.includes(item.uuid);
+        if (isSelected !== isCurrentlySelected) {
+          await handleInventoryItemSelectionToggle(item.uuid, isSelected);
+        }
+      }
+      return;
+    }
+
+    // Handle grouped items
+    const groupItems = inventoryItems.filter(item =>
+      item.group_id === groupId &&
+      item.inventory_uuid === inventoryUuid &&
+      (formData.status === 'DELIVERED' || formData.status === 'CANCELLED' ||
+        (item.status !== 'IN_WAREHOUSE' && item.status !== 'USED'))
+    );
+
+    const availableGroupItems = groupItems.filter(item => {
+      const statusStyling = getInventoryItemStatusStyling(item);
+      return !statusStyling.isDisabled;
+    });
+
+    for (const item of availableGroupItems) {
+      const isCurrentlySelected = selectedInventoryItems.includes(item.uuid);
+      if (isSelected !== isCurrentlySelected) {
+        await handleInventoryItemSelectionToggle(item.uuid, isSelected);
+      }
+    }
   };
 
   const handleSelectAllToggle = (isSelected: boolean) => {
@@ -1035,12 +1072,13 @@ export default function DeliveryPage() {
         }
       });
 
+      // UPDATED: Build inventory_items using inventory item UUIDs as keys
       setFormData(prev => ({
         ...prev,
         inventory_items: {
           ...prev.inventory_items,
           ...Object.fromEntries(allItemsToSelect.map(uuid => [
-            uuid,
+            uuid, // Use inventory item UUID as key
             {
               inventory_uuid: inventoryItems.find(item => item.uuid === uuid)?.inventory_uuid || "",
               group_id: inventoryItems.find(item => item.uuid === uuid)?.group_id || null,
@@ -1105,6 +1143,8 @@ export default function DeliveryPage() {
         const newSelectedItems = Array.from(new Set([...prevSelected, ...itemsToSelect]));
         setFormData(prevFd => {
           const newFdInventoryItems = { ...prevFd.inventory_items };
+
+          // UPDATED: Use inventory item UUIDs as keys
           itemsToSelect.forEach(uuid => {
             const itemDetails = currentInventoryItems.find(i => i.uuid === uuid);
             newFdInventoryItems[uuid] = {
@@ -1133,6 +1173,8 @@ export default function DeliveryPage() {
         const newSelectedItems = prevSelected.filter(uuid => !itemsToDeselect.includes(uuid));
         setFormData(prevFd => {
           const newFdInventoryItems = { ...prevFd.inventory_items };
+
+          // UPDATED: Remove by inventory item UUID keys
           itemsToDeselect.forEach(uuid => {
             delete newFdInventoryItems[uuid];
           });
@@ -1399,12 +1441,25 @@ export default function DeliveryPage() {
 
   // Add this helper function near the other helper functions (around line 300)
   const getGroupItemSelectionState = (groupId: string, inventoryUuid: string) => {
-    const groupItems = inventoryItems.filter(item =>
-      item.group_id === groupId &&
-      item.inventory_uuid === inventoryUuid &&
-      (formData.status === 'DELIVERED' || formData.status === 'CANCELLED' ||
-        (item.status !== 'IN_WAREHOUSE' && item.status !== 'USED'))
-    );
+    let groupItems;
+
+    // Handle items without groups
+    if (!groupId || groupId === '' || groupId === 'null') {
+      groupItems = inventoryItems.filter(item =>
+        item.inventory_uuid === inventoryUuid &&
+        (!item.group_id || item.group_id === '' || item.group_id === null) &&
+        (formData.status === 'DELIVERED' || formData.status === 'CANCELLED' ||
+          (item.status !== 'IN_WAREHOUSE' && item.status !== 'USED'))
+      );
+    } else {
+      // Handle grouped items
+      groupItems = inventoryItems.filter(item =>
+        item.group_id === groupId &&
+        item.inventory_uuid === inventoryUuid &&
+        (formData.status === 'DELIVERED' || formData.status === 'CANCELLED' ||
+          (item.status !== 'IN_WAREHOUSE' && item.status !== 'USED'))
+      );
+    }
 
     const availableGroupItems = groupItems.filter(item => {
       const statusStyling = getInventoryItemStatusStyling(item);
@@ -1432,29 +1487,6 @@ export default function DeliveryPage() {
   const handleGroupItemSelectionToggle = async (itemUuid: string, isSelected: boolean, groupId: string) => {
     await handleInventoryItemSelectionToggle(itemUuid, isSelected);
   };
-
-  // Add this function to handle entire group selection
-  const handleGroupSelectionToggle = async (groupId: string, inventoryUuid: string, isSelected: boolean) => {
-    const groupItems = inventoryItems.filter(item =>
-      item.group_id === groupId &&
-      item.inventory_uuid === inventoryUuid &&
-      (formData.status === 'DELIVERED' || formData.status === 'CANCELLED' ||
-        (item.status !== 'IN_WAREHOUSE' && item.status !== 'USED'))
-    );
-
-    const availableGroupItems = groupItems.filter(item => {
-      const statusStyling = getInventoryItemStatusStyling(item);
-      return !statusStyling.isDisabled;
-    });
-
-    for (const item of availableGroupItems) {
-      const isCurrentlySelected = selectedInventoryItems.includes(item.uuid);
-      if (isSelected !== isCurrentlySelected) {
-        await handleInventoryItemSelectionToggle(item.uuid, isSelected);
-      }
-    }
-  };
-
 
 
 
@@ -1502,6 +1534,7 @@ export default function DeliveryPage() {
     setSelectedDepth(location.depth ?? null);
     setSelectedCode(location.code || "");
   };
+
 
   const handleOpenModal = () => {
     onOpen();
@@ -1998,8 +2031,9 @@ export default function DeliveryPage() {
       currentInventoryItemLocationIndex < selectedInventoryItems.length &&
       formData.inventory_items) {
 
+      // UPDATED: Use inventory item UUID to get location
       const currentItemUuid = selectedInventoryItems[currentInventoryItemLocationIndex];
-      const currentLocation = formData.inventory_items[currentItemUuid].location;
+      const currentLocation = formData.inventory_items[currentItemUuid]?.location;
 
       if (currentLocation) {
         setSelectedFloor(currentLocation.floor ?? null);
@@ -2012,6 +2046,7 @@ export default function DeliveryPage() {
       }
     }
   }, [currentInventoryItemLocationIndex, selectedInventoryItems, formData.inventory_items]);
+
 
   // Update the effect that manages select all state to account for filtered items
   useEffect(() => {

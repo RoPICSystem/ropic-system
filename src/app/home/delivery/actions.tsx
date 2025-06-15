@@ -18,7 +18,7 @@ export interface DeliveryItem {
   status_history?: Record<string, string>;
   inventory_items: Record<string, {
     inventory_uuid: string;
-    group_id: string;
+    group_id: string | null;
     location: ShelfLocation;
   }>;
   operator_uuids?: string[];
@@ -35,9 +35,9 @@ export async function createDeliveryWithItems(
   warehouseUuid: string,
   inventoryItems: Record<string, {
     inventory_uuid: string;
-    group_id: string;
+    group_id: string | null; // Made nullable
     location: ShelfLocation;
-  }>, 
+  }>,
   deliveryAddress: string,
   deliveryDate: string,
   operatorUuids: string[] = [],
@@ -119,7 +119,7 @@ export async function updateDeliveryWithItems(
   deliveryUuid: string,
   inventoryItems: Record<string, {
     inventory_uuid: string;
-    group_id: string;
+    group_id: string | null; // Made nullable
     location: ShelfLocation;
   }>,
   deliveryAddress?: string,
@@ -196,7 +196,7 @@ export async function createWarehouseInventoryItems(
   deliveryUuid: string,
   inventoryItems: Record<string, {
     inventory_uuid: string;
-    group_id: string;
+    group_id: string | null;
     location: ShelfLocation;
   }>
 ) {
@@ -407,7 +407,7 @@ export async function getOccupiedShelfLocations(warehouseUuid: string) {
         if (!item.inventory_items) return [];
         return Object.values(item.inventory_items as Record<string, {
           inventory_uuid: string;
-          group_id: string;
+          group_id: string | null;
           location: ShelfLocation;
         }>).map(entry => entry.location);
       })
@@ -664,7 +664,7 @@ export async function getDeliveryHistory(inventoryUuids: string[]) {
 
       const deliveryInventoryUuids = Object.values(delivery.inventory_items as Record<string, {
         inventory_uuid: string;
-        group_id: string;
+        group_id: string | null;
         location: ShelfLocation;
       }>).map(item => item.inventory_uuid);
 

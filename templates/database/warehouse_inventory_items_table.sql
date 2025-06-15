@@ -42,8 +42,7 @@ USING (
 CREATE POLICY "warehouse_inventory_items_insert_policy" ON public.warehouse_inventory_items
 FOR INSERT TO authenticated
 WITH CHECK (
-  public.is_user_admin((select auth.uid())) = true
-  AND public.get_user_company_uuid((select auth.uid())) IS NOT NULL
+  public.get_user_company_uuid((select auth.uid())) IS NOT NULL
   AND company_uuid = public.get_user_company_uuid((select auth.uid()))
 );
 
@@ -57,7 +56,6 @@ USING (
 CREATE POLICY "warehouse_inventory_items_delete_policy" ON public.warehouse_inventory_items
 FOR DELETE TO authenticated
 USING (
-  public.is_user_admin((select auth.uid())) = true
-  AND public.get_user_company_uuid((select auth.uid())) IS NOT NULL
+  public.get_user_company_uuid((select auth.uid())) IS NOT NULL
   AND company_uuid = public.get_user_company_uuid((select auth.uid()))
 );
