@@ -451,7 +451,7 @@ export default function ReorderPointPage() {
                     >
                       <div className="flex items-center gap-1">
                         <Icon icon="mdi:package-variant" width={12} height={12} />
-                        {log.current_stock} {log.unit}
+                        {log.current_stock}{log.unit}
                       </div>
                     </Chip>
 
@@ -463,7 +463,7 @@ export default function ReorderPointPage() {
                     >
                       <div className="flex items-center gap-1">
                         <Icon icon="mdi:alert-circle" width={12} height={12} />
-                        RP: {Math.ceil(log.reorder_point)} {log.unit}
+                        RP: {Math.ceil(log.reorder_point)}{log.unit}
                       </div>
                     </Chip>
                   </div>

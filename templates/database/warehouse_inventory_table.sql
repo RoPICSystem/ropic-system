@@ -1,204 +1,544 @@
--- Create wearehosue_inventory table
-CREATE TABLE IF NOT EXISTS public.warehouse_inventory (
+-- Create reorder_point_logs table for Supabase
+CREATE TABLE IF NOT EXISTS public.reorder_point_logs (
   uuid UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_uuid UUID NOT NULL REFERENCES public.companies(uuid) ON DELETE CASCADE,
-  admin_uuid UUID NOT NULL REFERENCES public.profiles(uuid) ON DELETE SET NULL,
-  warehouse_uuid UUID not null REFERENCES public.warehouses (uuid) on DELETE CASCADE,
-  inventory_uuid UUID  REFERENCES public.inventory (uuid) ON DELETE SET NULL,
-  name TEXT NOT NULL,
-  description TEXT,
-  measurement_unit TEXT NOT NULL,
-  standard_unit TEXT NOT NULL,
-  unit_values JSONB DEFAULT '{"available": 0, "used": 0, "transferred": 0, "total": 0}'::jsonb, -- Aggregated unit values
-  count JSONB DEFAULT '{"available": 0, "used": 0, "transferred": 0, "total": 0}'::jsonb, -- Aggregated counts
-  properties JSONB DEFAULT '{}'::jsonb,
+  warehouse_uuid UUID NOT NULL REFERENCES public.warehouses(uuid) ON DELETE CASCADE,
+  inventory_uuid UUID REFERENCES public.inventory(uuid) ON DELETE SET NULL,
+  warehouse_inventory_uuid UUID REFERENCES public.warehouse_inventory(uuid) ON DELETE CASCADE,
   
-  status TEXT DEFAULT 'AVAILABLE' check (
-    status in ('AVAILABLE', 'WARNING', 'CRITICAL', 'USED')
-  ),
-  status_history JSONB DEFAULT (jsonb_build_object(to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), 'AVAILABLE')),
-  created_at timestamp with time zone default now(),
-  updated_at timestamp with time zone default now()
+  current_stock NUMERIC(10, 2) NOT NULL DEFAULT 0,
+  average_daily_unit_sales NUMERIC(10, 2) NOT NULL DEFAULT 0,
+  lead_time_days NUMERIC(10, 2) NOT NULL DEFAULT 5,
+  safety_stock NUMERIC(10, 2) NOT NULL DEFAULT 0,
+  reorder_point NUMERIC(10, 2) NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'IN_STOCK' CHECK (status IN ('IN_STOCK', 'WARNING', 'CRITICAL', 'OUT_OF_STOCK')),
+  unit TEXT NOT NULL DEFAULT 'units',
+  
+  custom_safety_stock NUMERIC(10, 2),
+  notes TEXT,
+  
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  
+  UNIQUE(company_uuid, warehouse_uuid, inventory_uuid)
 );
 
-ALTER TABLE public.warehouse_inventory ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.warehouse_inventory REPLICA IDENTITY FULL;
+-- Enable RLS
+ALTER TABLE public.reorder_point_logs ENABLE ROW LEVEL SECURITY;
 
-CREATE or REPLACE TRIGGER trg_update_status_history_warehouse_inventory
-BEFORE UPDATE ON public.warehouse_inventory
-FOR EACH ROW
-EXECUTE FUNCTION update_status_history();
-
--- Function to update warehouse inventory aggregations
-CREATE OR REPLACE FUNCTION update_warehouse_inventory_aggregations(p_warehouse_inventory_uuid uuid)
-RETURNS VOID AS $$
-DECLARE
-  wh_inv_record RECORD;
-  total_unit_values RECORD;
-  total_counts RECORD;
-BEGIN
-  -- Skip if warehouse inventory UUID is null
-  IF p_warehouse_inventory_uuid IS NULL THEN
-    RETURN;
-  END IF;
-
-  -- Get warehouse inventory record to access standard_unit
-  SELECT standard_unit INTO wh_inv_record FROM warehouse_inventory WHERE uuid = p_warehouse_inventory_uuid;
-  
-  IF wh_inv_record IS NULL THEN
-    RETURN;
-  END IF;
-
-  -- Calculate aggregated unit values (converted to standard unit)
-  SELECT 
-    COALESCE(SUM(CASE 
-      WHEN wii.status = 'AVAILABLE' 
-      THEN public.convert_unit(wii.unit_value::numeric, wii.unit, wh_inv_record.standard_unit) 
-      ELSE 0 
-    END), 0) as available,
-    COALESCE(SUM(CASE 
-      WHEN wii.status = 'USED' 
-      THEN public.convert_unit(wii.unit_value::numeric, wii.unit, wh_inv_record.standard_unit) 
-      ELSE 0 
-    END), 0) as used,
-    COALESCE(SUM(CASE 
-      WHEN wii.status = 'TRANSFERRED' 
-      THEN public.convert_unit(wii.unit_value::numeric, wii.unit, wh_inv_record.standard_unit) 
-      ELSE 0 
-    END), 0) as transferred,
-    COALESCE(SUM(public.convert_unit(wii.unit_value::numeric, wii.unit, wh_inv_record.standard_unit)), 0) as total
-  INTO total_unit_values
-  FROM warehouse_inventory_items wii
-  WHERE wii.warehouse_uuid = (SELECT warehouse_uuid FROM warehouse_inventory WHERE uuid = p_warehouse_inventory_uuid)
-    AND wii.inventory_uuid = (SELECT inventory_uuid FROM warehouse_inventory WHERE uuid = p_warehouse_inventory_uuid);
-
-  -- Calculate aggregated counts
-  SELECT 
-    COALESCE(COUNT(CASE WHEN wii.status = 'AVAILABLE' THEN 1 END), 0) as available,
-    COALESCE(COUNT(CASE WHEN wii.status = 'USED' THEN 1 END), 0) as used,
-    COALESCE(COUNT(CASE WHEN wii.status = 'TRANSFERRED' THEN 1 END), 0) as transferred,
-    COALESCE(COUNT(*), 0) as total
-  INTO total_counts
-  FROM warehouse_inventory_items wii
-  WHERE wii.warehouse_uuid = (SELECT warehouse_uuid FROM warehouse_inventory WHERE uuid = p_warehouse_inventory_uuid)
-    AND wii.inventory_uuid = (SELECT inventory_uuid FROM warehouse_inventory WHERE uuid = p_warehouse_inventory_uuid);
-
-  -- Update the warehouse inventory table with aggregated values
-  UPDATE warehouse_inventory 
-  SET 
-    unit_values = jsonb_build_object(
-      'available', total_unit_values.available,
-      'used', total_unit_values.used,
-      'transferred', total_unit_values.transferred,
-      'total', total_unit_values.total
-    ),
-    count = jsonb_build_object(
-      'available', total_counts.available,
-      'used', total_counts.used,
-      'transferred', total_counts.transferred,
-      'total', total_counts.total
-    ),
-    updated_at = NOW()
-  WHERE uuid = p_warehouse_inventory_uuid;
-END;
-$$ LANGUAGE plpgsql;
-
-
--- Add trigger function for warehouse inventory items
-CREATE OR REPLACE FUNCTION update_warehouse_inventory_aggregations_trigger()
-RETURNS TRIGGER AS $$
-DECLARE
-    target_warehouse_inventory_uuid UUID;
-BEGIN
-    -- Find the warehouse inventory UUID for this warehouse and inventory combination
-    IF TG_OP = 'DELETE' THEN
-        SELECT uuid INTO target_warehouse_inventory_uuid
-        FROM warehouse_inventory
-        WHERE warehouse_uuid = OLD.warehouse_uuid AND inventory_uuid = OLD.inventory_uuid;
-    ELSE
-        SELECT uuid INTO target_warehouse_inventory_uuid
-        FROM warehouse_inventory
-        WHERE warehouse_uuid = NEW.warehouse_uuid AND inventory_uuid = NEW.inventory_uuid;
-    END IF;
-
-    -- Update aggregations if warehouse inventory exists
-    IF target_warehouse_inventory_uuid IS NOT NULL THEN
-        PERFORM update_warehouse_inventory_aggregations(target_warehouse_inventory_uuid);
-    END IF;
-
-    RETURN COALESCE(NEW, OLD);
-END;
-$$ LANGUAGE plpgsql;
-
--- Create trigger for warehouse inventory items aggregation
-DROP TRIGGER IF EXISTS trg_warehouse_inventory_items_aggregation ON warehouse_inventory_items;
-CREATE TRIGGER trg_warehouse_inventory_items_aggregation
-    AFTER INSERT OR UPDATE OR DELETE ON warehouse_inventory_items
-    FOR EACH ROW
-    EXECUTE FUNCTION update_warehouse_inventory_aggregations_trigger();
-
--- Add policies for warehouse inventory
-CREATE POLICY "warehouse_inventory_select_policy" ON public.warehouse_inventory
+-- Add RLS policies
+CREATE POLICY "reorder_point_logs_select_policy" ON public.reorder_point_logs
 FOR SELECT TO authenticated
 USING (
   company_uuid = public.get_user_company_uuid((select auth.uid()))
   AND public.get_user_company_uuid((select auth.uid())) IS NOT NULL
 );
 
-CREATE POLICY "warehouse_inventory_insert_policy" ON public.warehouse_inventory
+CREATE POLICY "reorder_point_logs_insert_policy" ON public.reorder_point_logs
 FOR INSERT TO authenticated
 WITH CHECK (
   public.get_user_company_uuid((select auth.uid())) IS NOT NULL
   AND company_uuid = public.get_user_company_uuid((select auth.uid()))
 );
 
-CREATE POLICY "warehouse_inventory_update_policy" ON public.warehouse_inventory
+CREATE POLICY "reorder_point_logs_update_policy" ON public.reorder_point_logs
 FOR UPDATE TO authenticated
 USING (
   company_uuid = public.get_user_company_uuid((select auth.uid()))
   AND public.get_user_company_uuid((select auth.uid())) IS NOT NULL
 );
 
-CREATE POLICY "warehouse_inventory_delete_policy" ON public.warehouse_inventory
+CREATE POLICY "reorder_point_logs_delete_policy" ON public.reorder_point_logs
 FOR DELETE TO authenticated
 USING (
   public.get_user_company_uuid((select auth.uid())) IS NOT NULL
   AND company_uuid = public.get_user_company_uuid((select auth.uid()))
 );
 
+-- Create or replace the update timestamp function specifically for reorder_point_logs
+CREATE OR REPLACE FUNCTION update_reorder_point_logs_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
--- Function to get filtered warehouse inventory
-CREATE OR REPLACE FUNCTION public.get_warehouse_inventory_filtered(
-  p_company_uuid uuid DEFAULT NULL,
-  p_search text DEFAULT '',
-  p_warehouse_uuid uuid DEFAULT NULL,
-  p_status text DEFAULT NULL,
-  p_year integer DEFAULT NULL,
-  p_month integer DEFAULT NULL,
-  p_week integer DEFAULT NULL,
-  p_day integer DEFAULT NULL,
-  p_limit integer DEFAULT 100,
-  p_offset integer DEFAULT 0
+-- Add trigger for updated_at timestamp
+DROP TRIGGER IF EXISTS trg_update_reorder_point_logs ON public.reorder_point_logs;
+CREATE TRIGGER trg_update_reorder_point_logs
+BEFORE UPDATE ON public.reorder_point_logs
+FOR EACH ROW
+EXECUTE FUNCTION update_reorder_point_logs_timestamp();
+
+-- Main function to calculate reorder points using warehouse inventory data
+CREATE OR REPLACE FUNCTION public.calculate_reorder_points()
+RETURNS SETOF public.reorder_point_logs AS $$
+DECLARE
+  warehouse_inv_record RECORD;
+  avg_daily_sales NUMERIC(10, 2);
+  lead_time NUMERIC(10, 2);
+  safety_stock NUMERIC(10, 2);
+  reorder_point NUMERIC(10, 2);
+  current_stock NUMERIC(10, 2);
+  max_daily_sales NUMERIC(10, 2);
+  stock_status TEXT;
+  custom_safety NUMERIC(10, 2);
+  item_unit TEXT;
+  log_record public.reorder_point_logs%ROWTYPE;
+BEGIN
+  -- Loop through all warehouse inventories
+  FOR warehouse_inv_record IN
+    SELECT 
+      wi.uuid as warehouse_inventory_uuid,
+      wi.company_uuid,
+      wi.warehouse_uuid,
+      wi.inventory_uuid,
+      wi.standard_unit,
+      wi.unit_values,
+      wi.count,
+      COALESCE(inv.name, wi.name) as inventory_name
+    FROM 
+      warehouse_inventory wi
+    LEFT JOIN inventory inv ON wi.inventory_uuid = inv.uuid
+    WHERE wi.inventory_uuid IS NOT NULL
+  LOOP
+    item_unit := COALESCE(warehouse_inv_record.standard_unit, 'units');
+    
+    -- Get current available stock from warehouse inventory
+    current_stock := COALESCE((warehouse_inv_record.unit_values->>'available')::NUMERIC, 0);
+    
+    -- Calculate average daily sales based on warehouse inventory item usage
+    -- This looks at items that have been marked as 'USED' over the last 90 days
+    WITH daily_usage AS (
+      SELECT 
+        DATE_TRUNC('day', updated_at) as usage_date,
+        SUM(COALESCE(unit_value::numeric, 0)) as daily_total
+      FROM warehouse_inventory_items wii
+      WHERE wii.warehouse_uuid = warehouse_inv_record.warehouse_uuid
+        AND wii.inventory_uuid = warehouse_inv_record.inventory_uuid
+        AND wii.status = 'USED'
+        AND wii.updated_at >= NOW() - INTERVAL '90 days'
+        AND wii.updated_at >= wii.created_at -- Ensure we're looking at usage, not creation
+      GROUP BY DATE_TRUNC('day', updated_at)
+    )
+    SELECT 
+      COALESCE(AVG(daily_total), 0)
+    INTO avg_daily_sales
+    FROM daily_usage
+    WHERE usage_date >= NOW() - INTERVAL '90 days';
+    
+    -- Get maximum daily sales for safety stock calculation
+    WITH daily_usage AS (
+      SELECT 
+        DATE_TRUNC('day', updated_at) as usage_date,
+        SUM(COALESCE(unit_value::numeric, 0)) as daily_total
+      FROM warehouse_inventory_items wii
+      WHERE wii.warehouse_uuid = warehouse_inv_record.warehouse_uuid
+        AND wii.inventory_uuid = warehouse_inv_record.inventory_uuid
+        AND wii.status = 'USED'
+        AND wii.updated_at >= NOW() - INTERVAL '90 days'
+        AND wii.updated_at >= wii.created_at
+      GROUP BY DATE_TRUNC('day', updated_at)
+    )
+    SELECT 
+      COALESCE(MAX(daily_total), 0)
+    INTO max_daily_sales
+    FROM daily_usage;
+    
+    -- Calculate average lead time from delivery history
+    -- This looks at the time between delivery creation and when items were added to warehouse
+    WITH delivery_lead_times AS (
+      SELECT 
+        EXTRACT(EPOCH FROM (wii.created_at - di.created_at)) / 86400 as lead_days
+      FROM warehouse_inventory_items wii
+      LEFT JOIN delivery_items di ON wii.delivery_uuid = di.uuid
+      WHERE wii.warehouse_uuid = warehouse_inv_record.warehouse_uuid
+        AND wii.inventory_uuid = warehouse_inv_record.inventory_uuid
+        AND di.created_at IS NOT NULL
+        AND wii.created_at >= NOW() - INTERVAL '90 days'
+        AND EXTRACT(EPOCH FROM (wii.created_at - di.created_at)) > 0
+    )
+    SELECT 
+      COALESCE(AVG(lead_days), 5) -- Default to 5 days if no data
+    INTO lead_time
+    FROM delivery_lead_times;
+    
+    -- Check if a custom safety stock exists
+    SELECT 
+      custom_safety_stock
+    INTO 
+      custom_safety
+    FROM 
+      public.reorder_point_logs
+    WHERE 
+      warehouse_inventory_uuid = warehouse_inv_record.warehouse_inventory_uuid
+      AND company_uuid = warehouse_inv_record.company_uuid
+    ORDER BY 
+      updated_at DESC
+    LIMIT 1;
+    
+    -- Calculate safety stock (either use custom or calculate)
+    IF custom_safety IS NOT NULL THEN
+      safety_stock := custom_safety;
+    ELSE
+      safety_stock := (max_daily_sales - avg_daily_sales) * SQRT(lead_time);
+      IF safety_stock < 0 THEN
+        safety_stock := avg_daily_sales * 0.1; -- Minimum 10% of daily sales
+      END IF;
+    END IF;
+    
+    -- Calculate reorder point
+    reorder_point := (avg_daily_sales * lead_time) + safety_stock;
+    
+    -- Determine status
+    IF current_stock <= 0 THEN
+      stock_status := 'OUT_OF_STOCK';
+    ELSIF current_stock <= safety_stock THEN
+      stock_status := 'CRITICAL';
+    ELSIF current_stock <= reorder_point THEN
+      stock_status := 'WARNING';
+    ELSE
+      stock_status := 'IN_STOCK';
+    END IF;
+    
+    -- Insert or update the reorder_point_logs
+    INSERT INTO public.reorder_point_logs (
+      company_uuid,
+      warehouse_uuid,
+      inventory_uuid,
+      warehouse_inventory_uuid,
+      current_stock,
+      average_daily_unit_sales,
+      lead_time_days,
+      safety_stock,
+      reorder_point,
+      status,
+      unit,
+      custom_safety_stock
+    ) VALUES (
+      warehouse_inv_record.company_uuid,
+      warehouse_inv_record.warehouse_uuid,
+      warehouse_inv_record.inventory_uuid,
+      warehouse_inv_record.warehouse_inventory_uuid,
+      current_stock,
+      avg_daily_sales,
+      lead_time,
+      safety_stock,
+      reorder_point,
+      stock_status,
+      item_unit,
+      custom_safety
+    )
+    ON CONFLICT (company_uuid, warehouse_uuid, inventory_uuid)
+    DO UPDATE SET
+      current_stock = EXCLUDED.current_stock,
+      average_daily_unit_sales = EXCLUDED.average_daily_unit_sales,
+      lead_time_days = EXCLUDED.lead_time_days,
+      safety_stock = EXCLUDED.safety_stock,
+      reorder_point = EXCLUDED.reorder_point,
+      status = EXCLUDED.status,
+      unit = EXCLUDED.unit,
+      warehouse_inventory_uuid = EXCLUDED.warehouse_inventory_uuid,
+      updated_at = NOW()
+    RETURNING * INTO log_record;
+    
+    RETURN NEXT log_record;
+  END LOOP;
+  
+  RETURN;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to calculate reorder point for a specific warehouse inventory
+CREATE OR REPLACE FUNCTION public.calculate_specific_reorder_point(
+  p_warehouse_inventory_uuid UUID
+)
+RETURNS SETOF public.reorder_point_logs AS $$
+DECLARE
+  warehouse_inv_record RECORD;
+  avg_daily_sales NUMERIC(10, 2);
+  lead_time NUMERIC(10, 2);
+  safety_stock NUMERIC(10, 2);
+  reorder_point NUMERIC(10, 2);
+  current_stock NUMERIC(10, 2);
+  max_daily_sales NUMERIC(10, 2);
+  stock_status TEXT;
+  custom_safety NUMERIC(10, 2);
+  item_unit TEXT;
+  log_record public.reorder_point_logs%ROWTYPE;
+BEGIN
+  -- Get the specific warehouse inventory record
+  SELECT 
+    wi.uuid as warehouse_inventory_uuid,
+    wi.company_uuid,
+    wi.warehouse_uuid,
+    wi.inventory_uuid,
+    wi.standard_unit,
+    wi.unit_values,
+    wi.count,
+    COALESCE(inv.name, wi.name) as inventory_name
+  INTO 
+    warehouse_inv_record
+  FROM 
+    warehouse_inventory wi
+  LEFT JOIN inventory inv ON wi.inventory_uuid = inv.uuid
+  WHERE wi.uuid = p_warehouse_inventory_uuid;
+  
+  IF warehouse_inv_record IS NULL THEN
+    RAISE EXCEPTION 'Warehouse inventory record not found for UUID: %', p_warehouse_inventory_uuid;
+  END IF;
+
+  item_unit := COALESCE(warehouse_inv_record.standard_unit, 'units');
+  
+  -- Get current available stock from warehouse inventory
+  current_stock := COALESCE((warehouse_inv_record.unit_values->>'available')::NUMERIC, 0);
+  
+  -- Calculate average daily sales based on warehouse inventory item usage
+  WITH daily_usage AS (
+    SELECT 
+      DATE_TRUNC('day', updated_at) as usage_date,
+      SUM(COALESCE(unit_value::numeric, 0)) as daily_total
+    FROM warehouse_inventory_items wii
+    WHERE wii.warehouse_uuid = warehouse_inv_record.warehouse_uuid
+      AND wii.inventory_uuid = warehouse_inv_record.inventory_uuid
+      AND wii.status = 'USED'
+      AND wii.updated_at >= NOW() - INTERVAL '90 days'
+      AND wii.updated_at >= wii.created_at
+    GROUP BY DATE_TRUNC('day', updated_at)
+  )
+  SELECT 
+    COALESCE(AVG(daily_total), 0)
+  INTO avg_daily_sales
+  FROM daily_usage;
+  
+  -- Get maximum daily sales for safety stock calculation
+  WITH daily_usage AS (
+    SELECT 
+      DATE_TRUNC('day', updated_at) as usage_date,
+      SUM(COALESCE(unit_value::numeric, 0)) as daily_total
+    FROM warehouse_inventory_items wii
+    WHERE wii.warehouse_uuid = warehouse_inv_record.warehouse_uuid
+      AND wii.inventory_uuid = warehouse_inv_record.inventory_uuid
+      AND wii.status = 'USED'
+      AND wii.updated_at >= NOW() - INTERVAL '90 days'
+      AND wii.updated_at >= wii.created_at
+    GROUP BY DATE_TRUNC('day', updated_at)
+  )
+  SELECT 
+    COALESCE(MAX(daily_total), 0)
+  INTO max_daily_sales
+  FROM daily_usage;
+  
+  -- Calculate average lead time from delivery history
+  WITH delivery_lead_times AS (
+    SELECT 
+      EXTRACT(EPOCH FROM (wii.created_at - di.created_at)) / 86400 as lead_days
+    FROM warehouse_inventory_items wii
+    LEFT JOIN delivery_items di ON wii.delivery_uuid = di.uuid
+    WHERE wii.warehouse_uuid = warehouse_inv_record.warehouse_uuid
+      AND wii.inventory_uuid = warehouse_inv_record.inventory_uuid
+      AND di.created_at IS NOT NULL
+      AND wii.created_at >= NOW() - INTERVAL '90 days'
+      AND EXTRACT(EPOCH FROM (wii.created_at - di.created_at)) > 0
+  )
+  SELECT 
+    COALESCE(AVG(lead_days), 5)
+  INTO lead_time
+  FROM delivery_lead_times;
+  
+  -- Check if a custom safety stock exists
+  SELECT 
+    custom_safety_stock
+  INTO 
+    custom_safety
+  FROM 
+    public.reorder_point_logs
+  WHERE 
+    warehouse_inventory_uuid = warehouse_inv_record.warehouse_inventory_uuid
+    AND company_uuid = warehouse_inv_record.company_uuid
+  ORDER BY 
+    updated_at DESC
+  LIMIT 1;
+  
+  -- Calculate safety stock
+  IF custom_safety IS NOT NULL THEN
+    safety_stock := custom_safety;
+  ELSE
+    safety_stock := (max_daily_sales - avg_daily_sales) * SQRT(lead_time);
+    IF safety_stock < 0 THEN
+      safety_stock := avg_daily_sales * 0.1;
+    END IF;
+  END IF;
+  
+  -- Calculate reorder point
+  reorder_point := (avg_daily_sales * lead_time) + safety_stock;
+  
+  -- Determine status
+  IF current_stock <= 0 THEN
+    stock_status := 'OUT_OF_STOCK';
+  ELSIF current_stock <= safety_stock THEN
+    stock_status := 'CRITICAL';
+  ELSIF current_stock <= reorder_point THEN
+    stock_status := 'WARNING';
+  ELSE
+    stock_status := 'IN_STOCK';
+  END IF;
+  
+  -- Insert or update the reorder_point_logs
+  INSERT INTO public.reorder_point_logs (
+    company_uuid,
+    warehouse_uuid,
+    inventory_uuid,
+    warehouse_inventory_uuid,
+    current_stock,
+    average_daily_unit_sales,
+    lead_time_days,
+    safety_stock,
+    reorder_point,
+    status,
+    unit,
+    custom_safety_stock
+  ) VALUES (
+    warehouse_inv_record.company_uuid,
+    warehouse_inv_record.warehouse_uuid,
+    warehouse_inv_record.inventory_uuid,
+    warehouse_inv_record.warehouse_inventory_uuid,
+    current_stock,
+    avg_daily_sales,
+    lead_time,
+    safety_stock,
+    reorder_point,
+    stock_status,
+    item_unit,
+    custom_safety
+  )
+  ON CONFLICT (company_uuid, warehouse_uuid, inventory_uuid)
+  DO UPDATE SET
+    current_stock = EXCLUDED.current_stock,
+    average_daily_unit_sales = EXCLUDED.average_daily_unit_sales,
+    lead_time_days = EXCLUDED.lead_time_days,
+    safety_stock = EXCLUDED.safety_stock,
+    reorder_point = EXCLUDED.reorder_point,
+    status = EXCLUDED.status,
+    unit = EXCLUDED.unit,
+    warehouse_inventory_uuid = EXCLUDED.warehouse_inventory_uuid,
+    updated_at = NOW()
+  RETURNING * INTO log_record;
+  
+  RETURN NEXT log_record;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to update custom safety stock
+CREATE OR REPLACE FUNCTION public.update_custom_safety_stock(
+  p_warehouse_inventory_uuid UUID,
+  p_custom_safety_stock NUMERIC(10, 2),
+  p_notes TEXT DEFAULT NULL
+) RETURNS SETOF public.reorder_point_logs AS $$
+DECLARE
+  result public.reorder_point_logs%ROWTYPE;
+  warehouse_inv_record RECORD;
+BEGIN
+  -- Get warehouse inventory details
+  SELECT 
+    wi.company_uuid,
+    wi.warehouse_uuid,
+    wi.inventory_uuid
+  INTO 
+    warehouse_inv_record
+  FROM 
+    warehouse_inventory wi
+  WHERE 
+    wi.uuid = p_warehouse_inventory_uuid;
+  
+  IF warehouse_inv_record IS NULL THEN
+    RAISE EXCEPTION 'Warehouse inventory record not found for UUID: %', p_warehouse_inventory_uuid;
+  END IF;
+  
+  -- Update the custom safety stock
+  UPDATE public.reorder_point_logs
+  SET 
+    custom_safety_stock = p_custom_safety_stock,
+    safety_stock = p_custom_safety_stock,
+    notes = COALESCE(p_notes, notes),
+    updated_at = NOW()
+  WHERE 
+    warehouse_inventory_uuid = p_warehouse_inventory_uuid
+    AND company_uuid = warehouse_inv_record.company_uuid
+  RETURNING * INTO result;
+  
+  -- If no record exists yet, create one by running calculate_specific_reorder_point first
+  IF result IS NULL THEN
+    PERFORM public.calculate_specific_reorder_point(p_warehouse_inventory_uuid);
+    
+    UPDATE public.reorder_point_logs
+    SET 
+      custom_safety_stock = p_custom_safety_stock,
+      safety_stock = p_custom_safety_stock,
+      notes = COALESCE(p_notes, notes),
+      updated_at = NOW()
+    WHERE 
+      warehouse_inventory_uuid = p_warehouse_inventory_uuid
+      AND company_uuid = warehouse_inv_record.company_uuid
+    RETURNING * INTO result;
+  END IF;
+  
+  -- Recalculate reorder point with new safety stock
+  UPDATE public.reorder_point_logs
+  SET 
+    reorder_point = (average_daily_unit_sales * lead_time_days) + safety_stock,
+    status = CASE 
+      WHEN current_stock <= 0 THEN 'OUT_OF_STOCK'
+      WHEN current_stock <= safety_stock THEN 'CRITICAL'
+      WHEN current_stock <= ((average_daily_unit_sales * lead_time_days) + safety_stock) THEN 'WARNING'
+      ELSE 'IN_STOCK'
+    END,
+    updated_at = NOW()
+  WHERE 
+    warehouse_inventory_uuid = p_warehouse_inventory_uuid
+    AND company_uuid = warehouse_inv_record.company_uuid
+  RETURNING * INTO result;
+  
+  RETURN NEXT result;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to get filtered reorder point logs
+CREATE OR REPLACE FUNCTION public.get_reorder_point_logs_filtered(
+  p_company_uuid UUID DEFAULT NULL,
+  p_warehouse_uuid UUID DEFAULT NULL,
+  p_status TEXT DEFAULT NULL,
+  p_search TEXT DEFAULT '',
+  p_date_from DATE DEFAULT NULL,
+  p_date_to DATE DEFAULT NULL,
+  p_year INTEGER DEFAULT NULL,
+  p_month INTEGER DEFAULT NULL,
+  p_week INTEGER DEFAULT NULL,
+  p_day INTEGER DEFAULT NULL,
+  p_limit INTEGER DEFAULT 100,
+  p_offset INTEGER DEFAULT 0
 )
 RETURNS TABLE(
-  uuid uuid,
-  company_uuid uuid,
-  admin_uuid uuid,
-  warehouse_uuid uuid,
-  inventory_uuid uuid,
-  name text,
-  description text,
-  measurement_unit text,
-  standard_unit text,
-  unit_values jsonb,
-  count jsonb,
-  status text,
-  warehouse_name text,
-  inventory_name text,
-  items_count integer,
-  created_at timestamp with time zone,
-  updated_at timestamp with time zone,
-  total_count bigint
+  uuid UUID,
+  company_uuid UUID,
+  warehouse_uuid UUID,
+  inventory_uuid UUID,
+  warehouse_inventory_uuid UUID,
+  current_stock NUMERIC(10, 2),
+  average_daily_unit_sales NUMERIC(10, 2),
+  lead_time_days NUMERIC(10, 2),
+  safety_stock NUMERIC(10, 2),
+  reorder_point NUMERIC(10, 2),
+  status TEXT,
+  unit TEXT,
+  custom_safety_stock NUMERIC(10, 2),
+  notes TEXT,
+  created_at TIMESTAMP WITH TIME ZONE,
+  updated_at TIMESTAMP WITH TIME ZONE,
+  warehouse_name TEXT,
+  inventory_name TEXT,
+  total_count BIGINT
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -212,938 +552,193 @@ BEGIN
   
   -- Get total count
   SELECT COUNT(*) INTO total_rows
-  FROM warehouse_inventory wi
-  LEFT JOIN warehouses w ON wi.warehouse_uuid = w.uuid
-  LEFT JOIN inventory inv ON wi.inventory_uuid = inv.uuid
+  FROM reorder_point_logs rpl
+  LEFT JOIN warehouses w ON rpl.warehouse_uuid = w.uuid
+  LEFT JOIN inventory inv ON rpl.inventory_uuid = inv.uuid
+  LEFT JOIN warehouse_inventory wi ON rpl.warehouse_inventory_uuid = wi.uuid
   WHERE 
-    (p_company_uuid IS NULL OR wi.company_uuid = p_company_uuid)
-    AND (p_warehouse_uuid IS NULL OR wi.warehouse_uuid = p_warehouse_uuid)
-    AND (p_status IS NULL OR wi.status = p_status)
-    AND (p_year IS NULL OR EXTRACT(YEAR FROM wi.created_at) = p_year)
-    AND (p_month IS NULL OR EXTRACT(MONTH FROM wi.created_at) = p_month)
-    AND (p_week IS NULL OR EXTRACT(WEEK FROM wi.created_at) = p_week)
-    AND (p_day IS NULL OR EXTRACT(DAY FROM wi.created_at) = p_day)
+    (p_company_uuid IS NULL OR rpl.company_uuid = p_company_uuid)
+    AND (p_warehouse_uuid IS NULL OR rpl.warehouse_uuid = p_warehouse_uuid)
+    AND (p_status IS NULL OR rpl.status = p_status)
+    AND (p_date_from IS NULL OR DATE(rpl.updated_at) >= p_date_from)
+    AND (p_date_to IS NULL OR DATE(rpl.updated_at) <= p_date_to)
+    AND (p_year IS NULL OR EXTRACT(YEAR FROM rpl.updated_at) = p_year)
+    AND (p_month IS NULL OR EXTRACT(MONTH FROM rpl.updated_at) = p_month)
+    AND (p_week IS NULL OR EXTRACT(WEEK FROM rpl.updated_at) = p_week)
+    AND (p_day IS NULL OR EXTRACT(DAY FROM rpl.updated_at) = p_day)
     AND (
       p_search = '' OR p_search IS NULL
-      OR wi.uuid::TEXT ILIKE v_search_pattern
-      OR wi.name ILIKE v_search_pattern
-      OR COALESCE(wi.description, '') ILIKE v_search_pattern
+      OR rpl.uuid::TEXT ILIKE v_search_pattern
+      OR COALESCE(inv.name, wi.name, '') ILIKE v_search_pattern
       OR w.name ILIKE v_search_pattern
-      OR inv.name ILIKE v_search_pattern
+      OR rpl.status ILIKE v_search_pattern
+      OR rpl.notes ILIKE v_search_pattern
     );
 
   RETURN QUERY
   SELECT 
-    wi.uuid,
-    wi.company_uuid,
-    wi.admin_uuid,
-    wi.warehouse_uuid,
-    wi.inventory_uuid,
-    wi.name,
-    wi.description,
-    wi.measurement_unit,
-    wi.standard_unit,
-    wi.unit_values,
-    wi.count,
-    wi.status,
+    rpl.uuid,
+    rpl.company_uuid,
+    rpl.warehouse_uuid,
+    rpl.inventory_uuid,
+    rpl.warehouse_inventory_uuid,
+    rpl.current_stock,
+    rpl.average_daily_unit_sales,
+    rpl.lead_time_days,
+    rpl.safety_stock,
+    rpl.reorder_point,
+    rpl.status,
+    rpl.unit,
+    rpl.custom_safety_stock,
+    rpl.notes,
+    rpl.created_at,
+    rpl.updated_at,
     w.name as warehouse_name,
-    inv.name as inventory_name,
-    (wi.count->>'total')::INT AS items_count,
-    wi.created_at,
-    wi.updated_at,
+    COALESCE(inv.name, wi.name) as inventory_name,
     total_rows
-  FROM warehouse_inventory wi
-  LEFT JOIN warehouses w ON wi.warehouse_uuid = w.uuid
-  LEFT JOIN inventory inv ON wi.inventory_uuid = inv.uuid
+  FROM reorder_point_logs rpl
+  LEFT JOIN warehouses w ON rpl.warehouse_uuid = w.uuid
+  LEFT JOIN inventory inv ON rpl.inventory_uuid = inv.uuid
+  LEFT JOIN warehouse_inventory wi ON rpl.warehouse_inventory_uuid = wi.uuid
   WHERE 
-    (p_company_uuid IS NULL OR wi.company_uuid = p_company_uuid)
-    AND (p_warehouse_uuid IS NULL OR wi.warehouse_uuid = p_warehouse_uuid)
-    AND (p_status IS NULL OR wi.status = p_status)
-    AND (p_year IS NULL OR EXTRACT(YEAR FROM wi.created_at) = p_year)
-    AND (p_month IS NULL OR EXTRACT(MONTH FROM wi.created_at) = p_month)
-    AND (p_week IS NULL OR EXTRACT(WEEK FROM wi.created_at) = p_week)
-    AND (p_day IS NULL OR EXTRACT(DAY FROM wi.created_at) = p_day)
+    (p_company_uuid IS NULL OR rpl.company_uuid = p_company_uuid)
+    AND (p_warehouse_uuid IS NULL OR rpl.warehouse_uuid = p_warehouse_uuid)
+    AND (p_status IS NULL OR rpl.status = p_status)
+    AND (p_date_from IS NULL OR DATE(rpl.updated_at) >= p_date_from)
+    AND (p_date_to IS NULL OR DATE(rpl.updated_at) <= p_date_to)
+    AND (p_year IS NULL OR EXTRACT(YEAR FROM rpl.updated_at) = p_year)
+    AND (p_month IS NULL OR EXTRACT(MONTH FROM rpl.updated_at) = p_month)
+    AND (p_week IS NULL OR EXTRACT(WEEK FROM rpl.updated_at) = p_week)
+    AND (p_day IS NULL OR EXTRACT(DAY FROM rpl.updated_at) = p_day)
     AND (
       p_search = '' OR p_search IS NULL
-      OR wi.uuid::TEXT ILIKE v_search_pattern
-      OR wi.name ILIKE v_search_pattern
-      OR COALESCE(wi.description, '') ILIKE v_search_pattern
+      OR rpl.uuid::TEXT ILIKE v_search_pattern
+      OR COALESCE(inv.name, wi.name, '') ILIKE v_search_pattern
       OR w.name ILIKE v_search_pattern
-      OR inv.name ILIKE v_search_pattern
+      OR rpl.status ILIKE v_search_pattern
+      OR rpl.notes ILIKE v_search_pattern
     )
-  ORDER BY wi.created_at DESC
+  ORDER BY
+    CASE 
+      WHEN rpl.status = 'OUT_OF_STOCK' THEN 1
+      WHEN rpl.status = 'CRITICAL' THEN 2
+      WHEN rpl.status = 'WARNING' THEN 3
+      WHEN rpl.status = 'IN_STOCK' THEN 4
+      ELSE 5
+    END,
+    rpl.updated_at DESC
   LIMIT p_limit OFFSET p_offset;
 END;
 $function$;
 
-
--- Function to get warehouse inventory details with items and delivery information
-CREATE OR REPLACE FUNCTION public.get_warehouse_inventory_details(
-  p_warehouse_inventory_uuid uuid
-)
-RETURNS TABLE(
-  uuid uuid,
-  company_uuid uuid,
-  admin_uuid uuid,
-  warehouse_uuid uuid,
-  inventory_uuid uuid,
-  name text,
-  description text,
-  measurement_unit text,
-  standard_unit text,
-  unit_values jsonb,
-  count jsonb,
-  properties jsonb,
-  status text,
-  warehouse_info jsonb,
-  inventory_info jsonb,
-  delivery_info jsonb,
-  items jsonb,
-  created_at timestamp with time zone,
-  updated_at timestamp with time zone
-)
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $function$
-BEGIN
-  RETURN QUERY
-  SELECT 
-    wi.uuid,
-    wi.company_uuid,
-    wi.admin_uuid,
-    wi.warehouse_uuid,
-    wi.inventory_uuid,
-    wi.name,
-    wi.description,
-    wi.measurement_unit,
-    wi.standard_unit,
-    wi.unit_values,
-    wi.count,
-    wi.properties,
-    wi.status,
-    jsonb_build_object(
-      'uuid', w.uuid,
-      'name', w.name,
-      'address', w.address
-    ) as warehouse_info,
-    jsonb_build_object(
-      'uuid', inv.uuid,
-      'name', inv.name,
-      'description', inv.description
-    ) as inventory_info,
-    COALESCE(
-      jsonb_agg(
-        DISTINCT jsonb_build_object(
-          'uuid', di.uuid,
-          'name', di.name,
-          'delivery_address', di.delivery_address,
-          'delivery_date', di.delivery_date,
-          'status', di.status,
-          'created_at', di.created_at
-        )
-      ) FILTER (WHERE di.uuid IS NOT NULL),
-      '[]'::jsonb
-    ) as delivery_info,
-    COALESCE(
-      jsonb_agg(
-        CASE 
-          WHEN wii.uuid IS NOT NULL THEN
-            jsonb_build_object(
-              'uuid', wii.uuid,
-              'company_uuid', wii.company_uuid,
-              'warehouse_uuid', wii.warehouse_uuid,
-              'inventory_uuid', wii.inventory_uuid,
-              'delivery_uuid', wii.delivery_uuid,
-              'group_id', wii.group_id,
-              'item_code', wii.item_code,
-              'unit', wii.unit,
-              'unit_value', wii.unit_value,
-              'packaging_unit', wii.packaging_unit,
-              'cost', wii.cost,
-              'properties', wii.properties,
-              'location', wii.location,
-              'status', wii.status,
-              'status_history', wii.status_history,
-              'delivery_item', CASE 
-                WHEN wii.delivery_uuid IS NOT NULL THEN
-                  jsonb_build_object(
-                    'uuid', di_item.uuid,
-                    'name', di_item.name,
-                    'delivery_address', di_item.delivery_address,
-                    'delivery_date', di_item.delivery_date,
-                    'status', di_item.status
-                  )
-                ELSE NULL
-              END,
-              'created_at', wii.created_at,
-              'updated_at', wii.updated_at
-            )
-          ELSE NULL
-        END
-      ) FILTER (WHERE wii.uuid IS NOT NULL),
-      '[]'::jsonb
-    ) AS items,
-    wi.created_at,
-    wi.updated_at
-  FROM warehouse_inventory wi
-  LEFT JOIN warehouses w ON wi.warehouse_uuid = w.uuid
-  LEFT JOIN inventory inv ON wi.inventory_uuid = inv.uuid
-  LEFT JOIN warehouse_inventory_items wii ON wi.warehouse_uuid = wii.warehouse_uuid 
-    AND wi.inventory_uuid = wii.inventory_uuid
-  LEFT JOIN delivery_items di ON wii.delivery_uuid = di.uuid
-  LEFT JOIN delivery_items di_item ON wii.delivery_uuid = di_item.uuid
-  WHERE wi.uuid = p_warehouse_inventory_uuid
-  GROUP BY 
-    wi.uuid, wi.company_uuid, wi.admin_uuid, wi.warehouse_uuid, wi.inventory_uuid,
-    wi.name, wi.description, wi.measurement_unit, wi.standard_unit,
-    wi.unit_values, wi.count, wi.properties, wi.status, wi.created_at, wi.updated_at,
-    w.uuid, w.name, w.address, inv.uuid, inv.name, inv.description;
-END;
-$function$;
-
--- Function to mark warehouse item as used
-CREATE OR REPLACE FUNCTION public.mark_warehouse_item_as_used(
-  p_item_uuid uuid
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $function$
+-- Create improved trigger function that handles status updates properly
+CREATE OR REPLACE FUNCTION public.trigger_reorder_point_recalculation()
+RETURNS TRIGGER AS $$
 DECLARE
-  v_timestamp text;
-  v_warehouse_inventory_uuid uuid;
+  target_warehouse_inventory_uuid UUID;
 BEGIN
-  v_timestamp := to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
-  
-  -- Update the warehouse inventory item status
-  UPDATE warehouse_inventory_items 
-  SET 
-    status = 'USED',
-    status_history = COALESCE(status_history, '{}'::jsonb) || jsonb_build_object(v_timestamp, 'USED'),
-    updated_at = now()
-  WHERE uuid = p_item_uuid;
-  
-  IF NOT FOUND THEN
-    RETURN jsonb_build_object(
-      'success', false,
-      'error', 'Warehouse inventory item not found'
-    );
-  END IF;
-
-  -- Get the warehouse inventory UUID to update aggregations
-  SELECT wi.uuid INTO v_warehouse_inventory_uuid
-  FROM warehouse_inventory wi
-  JOIN warehouse_inventory_items wii ON wi.warehouse_uuid = wii.warehouse_uuid 
-    AND wi.inventory_uuid = wii.inventory_uuid
-  WHERE wii.uuid = p_item_uuid;
-
-  -- Update warehouse inventory aggregations
-  IF v_warehouse_inventory_uuid IS NOT NULL THEN
-    PERFORM update_warehouse_inventory_aggregations(v_warehouse_inventory_uuid);
-  END IF;
-
-  RETURN jsonb_build_object(
-    'success', true,
-    'message', 'Warehouse inventory item marked as used successfully'
-  );
-
-EXCEPTION
-  WHEN OTHERS THEN
-    RETURN jsonb_build_object(
-      'success', false,
-      'error', SQLERRM
-    );
-END;
-$function$;
-
--- Function to mark warehouse group as used
-CREATE OR REPLACE FUNCTION public.mark_warehouse_group_as_used(
-  p_group_id text
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $function$
-DECLARE
-  v_timestamp text;
-  v_warehouse_inventory_uuids uuid[];
-  v_warehouse_inventory_uuid uuid;
-BEGIN
-  v_timestamp := to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
-  
-  -- Update all warehouse inventory items in the group
-  UPDATE warehouse_inventory_items 
-  SET 
-    status = 'USED',
-    status_history = COALESCE(status_history, '{}'::jsonb) || jsonb_build_object(v_timestamp, 'USED'),
-    updated_at = now()
-  WHERE group_id = p_group_id;
-  
-  IF NOT FOUND THEN
-    RETURN jsonb_build_object(
-      'success', false,
-      'error', 'Warehouse inventory group not found'
-    );
-  END IF;
-
-  -- Get affected warehouse inventory UUIDs to update aggregations
-  SELECT array_agg(DISTINCT wi.uuid) INTO v_warehouse_inventory_uuids
-  FROM warehouse_inventory wi
-  JOIN warehouse_inventory_items wii ON wi.warehouse_uuid = wii.warehouse_uuid 
-    AND wi.inventory_uuid = wii.inventory_uuid
-  WHERE wii.group_id = p_group_id;
-
-  -- Update warehouse inventory aggregations for all affected warehouse inventories
-  IF v_warehouse_inventory_uuids IS NOT NULL THEN
-    FOREACH v_warehouse_inventory_uuid IN ARRAY v_warehouse_inventory_uuids
-    LOOP
-      PERFORM update_warehouse_inventory_aggregations(v_warehouse_inventory_uuid);
-    END LOOP;
-  END IF;
-
-  RETURN jsonb_build_object(
-    'success', true,
-    'message', 'Warehouse inventory group marked as used successfully'
-  );
-
-EXCEPTION
-  WHEN OTHERS THEN
-    RETURN jsonb_build_object(
-      'success', false,
-      'error', SQLERRM
-    );
-END;
-$function$;
-
-
-
--- Function to get delivery history for warehouse inventory
-CREATE OR REPLACE FUNCTION public.get_warehouse_inventory_delivery_history(
-  p_warehouse_inventory_uuid uuid
-)
-RETURNS TABLE(
-  delivery_uuid uuid,
-  delivery_name text,
-  delivery_address text,
-  delivery_date date,
-  delivery_status text,
-  items_count bigint,
-  total_cost numeric,
-  created_at timestamp with time zone
-)
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $function$
-BEGIN
-  RETURN QUERY
-  SELECT 
-    di.uuid as delivery_uuid,
-    di.name as delivery_name,
-    di.delivery_address,
-    di.delivery_date,
-    di.status as delivery_status,
-    COUNT(wii.uuid) as items_count,
-    SUM(wii.cost) as total_cost,
-    di.created_at
-  FROM warehouse_inventory wi
-  JOIN warehouse_inventory_items wii ON wi.warehouse_uuid = wii.warehouse_uuid 
-    AND wi.inventory_uuid = wii.inventory_uuid
-  JOIN delivery_items di ON wii.delivery_uuid = di.uuid
-  WHERE wi.uuid = p_warehouse_inventory_uuid
-    AND wii.delivery_uuid IS NOT NULL
-  GROUP BY 
-    di.uuid, di.name, di.delivery_address, di.delivery_date, 
-    di.status, di.created_at
-  ORDER BY di.created_at DESC;
-END;
-$function$;
-
--- Function to get warehouse inventory items by delivery
-CREATE OR REPLACE FUNCTION public.get_warehouse_items_by_delivery(
-  p_delivery_uuid uuid,
-  p_company_uuid uuid DEFAULT NULL
-)
-RETURNS TABLE(
-  uuid uuid,
-  warehouse_uuid uuid,
-  inventory_uuid uuid,
-  group_id text,
-  item_code text,
-  unit text,
-  unit_value text,
-  packaging_unit text,
-  cost numeric,
-  location jsonb,
-  status text,
-  warehouse_name text,
-  inventory_name text,
-  created_at timestamp with time zone,
-  updated_at timestamp with time zone
-)
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $function$
-BEGIN
-  RETURN QUERY
-  SELECT 
-    wii.uuid,
-    wii.warehouse_uuid,
-    wii.inventory_uuid,
-    wii.group_id,
-    wii.item_code,
-    wii.unit,
-    wii.unit_value,
-    wii.packaging_unit,
-    wii.cost,
-    wii.location,
-    wii.status,
-    w.name as warehouse_name,
-    inv.name as inventory_name,
-    wii.created_at,
-    wii.updated_at
-  FROM warehouse_inventory_items wii
-  LEFT JOIN warehouses w ON wii.warehouse_uuid = w.uuid
-  LEFT JOIN inventory inv ON wii.inventory_uuid = inv.uuid
-  WHERE wii.delivery_uuid = p_delivery_uuid
-    AND (p_company_uuid IS NULL OR wii.company_uuid = p_company_uuid)
-  ORDER BY wii.created_at DESC;
-END;
-$function$;
-
--- Fix the warehouse inventory creation function to work with individual item UUIDs
-CREATE OR REPLACE FUNCTION public.create_warehouse_inventory_from_delivery(
-  p_warehouse_uuid uuid,
-  p_delivery_uuid uuid,
-  p_item_uuids uuid[],
-  p_inventory_items jsonb
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $function$
-DECLARE
-  v_inventory_item RECORD;
-  v_location jsonb;
-  v_timestamp text;
-  v_item_record jsonb;
-  v_item_key text;
-  v_inventory_uuid uuid;
-  v_warehouse_inventory_uuid uuid;
-  v_company_uuid uuid;
-BEGIN
-  -- Generate timestamp
-  v_timestamp := to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
-  
-  -- Get company UUID from the first inventory item
-  SELECT company_uuid INTO v_company_uuid
-  FROM inventory_items 
-  WHERE uuid = ANY(p_item_uuids)
-  LIMIT 1;
-  
-  IF v_company_uuid IS NULL THEN
-    RETURN jsonb_build_object(
-      'success', false,
-      'error', 'Could not determine company UUID from inventory items'
-    );
-  END IF;
-  
-  -- Create warehouse inventory items for each delivered item
-  FOR v_inventory_item IN 
-    SELECT * FROM inventory_items 
-    WHERE uuid = ANY(p_item_uuids)
-  LOOP
-    -- Find the location for this specific item from inventory_items structure
-    FOR v_item_key IN SELECT jsonb_object_keys(p_inventory_items)
-    LOOP
-      -- Check if this record matches our item UUID
-      IF v_item_key = v_inventory_item.uuid::text THEN
-        v_item_record := p_inventory_items->v_item_key;
-        v_location := v_item_record->'location';
-        v_inventory_uuid := (v_item_record->>'inventory_uuid')::uuid;
-        EXIT; -- Found the matching record
-      END IF;
-    END LOOP;
-    
-    -- Check if warehouse_inventory exists for this warehouse + inventory combination
-    SELECT uuid INTO v_warehouse_inventory_uuid
+  -- Determine which warehouse inventory to update based on the operation
+  IF TG_OP = 'DELETE' THEN
+    -- For DELETE, use OLD values
+    SELECT uuid INTO target_warehouse_inventory_uuid
     FROM warehouse_inventory
-    WHERE warehouse_uuid = p_warehouse_uuid
-      AND inventory_uuid = v_inventory_uuid;
-    
-    -- If warehouse_inventory doesn't exist, create it
-    IF v_warehouse_inventory_uuid IS NULL THEN
-      -- Get inventory details to create warehouse_inventory
-      INSERT INTO warehouse_inventory (
-        company_uuid,
-        admin_uuid,
-        warehouse_uuid,
-        inventory_uuid,
-        name,
-        description,
-        measurement_unit,
-        standard_unit,
-        status
-      )
-      SELECT 
-        v_company_uuid,
-        inv.admin_uuid,
-        p_warehouse_uuid,
-        inv.uuid,
-        inv.name,
-        inv.description,
-        inv.measurement_unit,
-        inv.standard_unit,
-        'AVAILABLE'
-      FROM inventory inv
-      WHERE inv.uuid = v_inventory_uuid
-      RETURNING uuid INTO v_warehouse_inventory_uuid;
-    END IF;
-    
-    -- Create warehouse inventory item with the found location
-    INSERT INTO warehouse_inventory_items (
-      company_uuid,
-      warehouse_uuid,
-      inventory_uuid,
-      inventory_item_uuid,
-      delivery_uuid,
-      item_code,
-      unit,
-      unit_value,
-      packaging_unit,
-      cost,
-      properties,
-      location,
-      group_id,
-      status,
-      status_history
-    ) VALUES (
-      v_company_uuid,
-      p_warehouse_uuid,
-      v_inventory_uuid,
-      v_inventory_item.uuid,
-      p_delivery_uuid,
-      v_inventory_item.item_code,
-      v_inventory_item.unit,
-      v_inventory_item.unit_value,
-      v_inventory_item.packaging_unit,
-      v_inventory_item.cost,
-      v_inventory_item.properties,
-      COALESCE(v_location, '{}'::jsonb),
-      v_inventory_item.group_id,
-      'AVAILABLE',
-      jsonb_build_object(v_timestamp, 'Created from delivery ' || p_delivery_uuid::text)
-    );
-  END LOOP;
-
-  RETURN jsonb_build_object(
-    'success', true,
-    'message', 'Warehouse inventory items created successfully'
-  );
-
-EXCEPTION
-  WHEN OTHERS THEN
-    RETURN jsonb_build_object(
-      'success', false,
-      'error', SQLERRM
-    );
-END;
-$function$;
-
-
-
--- Function to mark specific number of warehouse items as used
-CREATE OR REPLACE FUNCTION public.mark_warehouse_items_bulk_used(
-  p_warehouse_inventory_uuid uuid,
-  p_count integer
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $function$
-DECLARE
-  v_timestamp text;
-  v_affected_count integer;
-  v_warehouse_inventory_uuid uuid;
-BEGIN
-  v_timestamp := to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
-  
-  -- Update the specified number of available warehouse inventory items
-  WITH items_to_update AS (
-    SELECT wii.uuid
-    FROM warehouse_inventory_items wii
-    JOIN warehouse_inventory wi ON wi.warehouse_uuid = wii.warehouse_uuid 
-      AND wi.inventory_uuid = wii.inventory_uuid
-    WHERE wi.uuid = p_warehouse_inventory_uuid
-      AND wii.status = 'AVAILABLE'
-    ORDER BY wii.created_at ASC
-    LIMIT p_count
-  )
-  UPDATE warehouse_inventory_items 
-  SET 
-    status = 'USED',
-    status_history = COALESCE(status_history, '{}'::jsonb) || jsonb_build_object(v_timestamp, 'USED'),
-    updated_at = now()
-  WHERE uuid IN (SELECT uuid FROM items_to_update);
-  
-  GET DIAGNOSTICS v_affected_count = ROW_COUNT;
-  
-  IF v_affected_count = 0 THEN
-    RETURN jsonb_build_object(
-      'success', false,
-      'error', 'No available warehouse inventory items found'
-    );
+    WHERE warehouse_uuid = OLD.warehouse_uuid 
+      AND inventory_uuid = OLD.inventory_uuid
+    LIMIT 1;
+  ELSE
+    -- For INSERT/UPDATE, use NEW values
+    SELECT uuid INTO target_warehouse_inventory_uuid
+    FROM warehouse_inventory
+    WHERE warehouse_uuid = NEW.warehouse_uuid 
+      AND inventory_uuid = NEW.inventory_uuid
+    LIMIT 1;
   END IF;
-
-  -- Update warehouse inventory aggregations
-  PERFORM update_warehouse_inventory_aggregations(p_warehouse_inventory_uuid);
-
-  RETURN jsonb_build_object(
-    'success', true,
-    'message', format('Successfully marked %s item(s) as used', v_affected_count),
-    'affected_count', v_affected_count
-  );
-
-EXCEPTION
-  WHEN OTHERS THEN
-    RETURN jsonb_build_object(
-      'success', false,
-      'error', SQLERRM
-    );
-END;
-$function$;
-
--- Function to mark specific number of warehouse group items as used
-CREATE OR REPLACE FUNCTION public.mark_warehouse_group_bulk_used(
-  p_group_id text,
-  p_count integer
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $function$
-DECLARE
-  v_timestamp text;
-  v_affected_count integer;
-  v_warehouse_inventory_uuids uuid[];
-  v_warehouse_inventory_uuid uuid;
-BEGIN
-  v_timestamp := to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
   
-  -- Update the specified number of available warehouse inventory items in the group
-  WITH items_to_update AS (
-    SELECT uuid
-    FROM warehouse_inventory_items
-    WHERE group_id = p_group_id
-      AND status = 'AVAILABLE'
-    ORDER BY created_at ASC
-    LIMIT p_count
-  )
-  UPDATE warehouse_inventory_items 
-  SET 
-    status = 'USED',
-    status_history = COALESCE(status_history, '{}'::jsonb) || jsonb_build_object(v_timestamp, 'USED'),
-    updated_at = now()
-  WHERE uuid IN (SELECT uuid FROM items_to_update);
+  -- Recalculate for the affected warehouse inventory if found
+  IF target_warehouse_inventory_uuid IS NOT NULL THEN
+    BEGIN
+      PERFORM public.calculate_specific_reorder_point(target_warehouse_inventory_uuid);
+    EXCEPTION WHEN OTHERS THEN
+      -- Log the error but don't fail the main operation
+      RAISE WARNING 'Failed to recalculate reorder point for warehouse inventory %: %', target_warehouse_inventory_uuid, SQLERRM;
+    END;
+  END IF;
   
-  GET DIAGNOSTICS v_affected_count = ROW_COUNT;
-  
-  IF v_affected_count = 0 THEN
-    RETURN jsonb_build_object(
-      'success', false,
-      'error', 'No available warehouse inventory items found in group'
-    );
-  END IF;
-
-  -- Get affected warehouse inventory UUIDs to update aggregations
-  SELECT array_agg(DISTINCT wi.uuid) INTO v_warehouse_inventory_uuids
-  FROM warehouse_inventory wi
-  JOIN warehouse_inventory_items wii ON wi.warehouse_uuid = wii.warehouse_uuid 
-    AND wi.inventory_uuid = wii.inventory_uuid
-  WHERE wii.group_id = p_group_id;
-
-  -- Update warehouse inventory aggregations for all affected warehouse inventories
-  IF v_warehouse_inventory_uuids IS NOT NULL THEN
-    FOREACH v_warehouse_inventory_uuid IN ARRAY v_warehouse_inventory_uuids
-    LOOP
-      PERFORM update_warehouse_inventory_aggregations(v_warehouse_inventory_uuid);
-    END LOOP;
-  END IF;
-
-  RETURN jsonb_build_object(
-    'success', true,
-    'message', format('Successfully marked %s item(s) in group as used', v_affected_count),
-    'affected_count', v_affected_count
-  );
-
-EXCEPTION
-  WHEN OTHERS THEN
-    RETURN jsonb_build_object(
-      'success', false,
-      'error', SQLERRM
-    );
-END;
-$function$;
-
-
--- Enhanced function to update warehouse inventory aggregations with better error handling
-CREATE OR REPLACE FUNCTION update_warehouse_inventory_aggregations(p_warehouse_inventory_uuid uuid)
-RETURNS VOID AS $$
-DECLARE
-  wh_inv_record RECORD;
-  total_unit_values RECORD;
-  total_counts RECORD;
-BEGIN
-  -- Skip if warehouse inventory UUID is null
-  IF p_warehouse_inventory_uuid IS NULL THEN
-    RETURN;
-  END IF;
-
-  -- Get warehouse inventory record to access standard_unit
-  SELECT standard_unit, warehouse_uuid, inventory_uuid 
-  INTO wh_inv_record 
-  FROM warehouse_inventory 
-  WHERE uuid = p_warehouse_inventory_uuid;
-  
-  IF wh_inv_record IS NULL THEN
-    RETURN;
-  END IF;
-
-  -- Calculate aggregated unit values (converted to standard unit)
-  SELECT 
-    COALESCE(SUM(CASE 
-      WHEN wii.status = 'AVAILABLE' 
-      THEN public.convert_unit(wii.unit_value::numeric, wii.unit, wh_inv_record.standard_unit) 
-      ELSE 0 
-    END), 0) as available,
-    COALESCE(SUM(CASE 
-      WHEN wii.status = 'USED' 
-      THEN public.convert_unit(wii.unit_value::numeric, wii.unit, wh_inv_record.standard_unit) 
-      ELSE 0 
-    END), 0) as used,
-    COALESCE(SUM(CASE 
-      WHEN wii.status = 'TRANSFERRED' 
-      THEN public.convert_unit(wii.unit_value::numeric, wii.unit, wh_inv_record.standard_unit) 
-      ELSE 0 
-    END), 0) as transferred,
-    COALESCE(SUM(public.convert_unit(wii.unit_value::numeric, wii.unit, wh_inv_record.standard_unit)), 0) as total
-  INTO total_unit_values
-  FROM warehouse_inventory_items wii
-  WHERE wii.warehouse_uuid = wh_inv_record.warehouse_uuid
-    AND wii.inventory_uuid = wh_inv_record.inventory_uuid;
-
-  -- Calculate aggregated counts
-  SELECT 
-    COALESCE(COUNT(CASE WHEN wii.status = 'AVAILABLE' THEN 1 END), 0) as available,
-    COALESCE(COUNT(CASE WHEN wii.status = 'USED' THEN 1 END), 0) as used,
-    COALESCE(COUNT(CASE WHEN wii.status = 'TRANSFERRED' THEN 1 END), 0) as transferred,
-    COALESCE(COUNT(*), 0) as total
-  INTO total_counts
-  FROM warehouse_inventory_items wii
-  WHERE wii.warehouse_uuid = wh_inv_record.warehouse_uuid
-    AND wii.inventory_uuid = wh_inv_record.inventory_uuid;
-
-  -- Update the warehouse inventory table with aggregated values
-  UPDATE warehouse_inventory 
-  SET 
-    unit_values = jsonb_build_object(
-      'available', total_unit_values.available,
-      'used', total_unit_values.used,
-      'transferred', total_unit_values.transferred,
-      'total', total_unit_values.total
-    ),
-    count = jsonb_build_object(
-      'available', total_counts.available,
-      'used', total_counts.used,
-      'transferred', total_counts.transferred,
-      'total', total_counts.total
-    ),
-    updated_at = NOW()
-  WHERE uuid = p_warehouse_inventory_uuid;
-
-  -- Log the update for debugging
-  RAISE NOTICE 'Updated warehouse_inventory UUID: %, Available: %, Used: %, Total: %', 
-    p_warehouse_inventory_uuid, total_unit_values.available, total_unit_values.used, total_unit_values.total;
-
-EXCEPTION
-  WHEN OTHERS THEN
-    -- Log error but don't fail the transaction
-    RAISE WARNING 'Error updating warehouse inventory aggregations for UUID %: %', p_warehouse_inventory_uuid, SQLERRM;
-END;
-$$ LANGUAGE plpgsql;
-
--- Enhanced trigger function for warehouse inventory items with better change tracking
-CREATE OR REPLACE FUNCTION update_warehouse_inventory_aggregations_trigger()
-RETURNS TRIGGER AS $$
-DECLARE
-    target_warehouse_inventory_uuid UUID;
-    old_warehouse_inventory_uuid UUID;
-    should_update_old BOOLEAN := FALSE;
-    should_update_new BOOLEAN := FALSE;
-BEGIN
-    -- Determine which warehouse inventory UUIDs need updating based on operation type
-    IF TG_OP = 'DELETE' THEN
-        -- Find the warehouse inventory UUID for the deleted item
-        SELECT uuid INTO target_warehouse_inventory_uuid
-        FROM warehouse_inventory
-        WHERE warehouse_uuid = OLD.warehouse_uuid AND inventory_uuid = OLD.inventory_uuid;
-        
-        should_update_old := TRUE;
-        
-    ELSIF TG_OP = 'INSERT' THEN
-        -- Find the warehouse inventory UUID for the new item
-        SELECT uuid INTO target_warehouse_inventory_uuid
-        FROM warehouse_inventory
-        WHERE warehouse_uuid = NEW.warehouse_uuid AND inventory_uuid = NEW.inventory_uuid;
-        
-        should_update_new := TRUE;
-        
-    ELSIF TG_OP = 'UPDATE' THEN
-        -- Check if any of the tracked fields changed
-        IF (OLD.status IS DISTINCT FROM NEW.status) OR
-           (OLD.unit_value IS DISTINCT FROM NEW.unit_value) OR
-           (OLD.unit IS DISTINCT FROM NEW.unit) OR
-           (OLD.warehouse_uuid IS DISTINCT FROM NEW.warehouse_uuid) OR
-           (OLD.inventory_uuid IS DISTINCT FROM NEW.inventory_uuid) THEN
-            
-            -- If warehouse or inventory changed, update both old and new warehouse inventories
-            IF (OLD.warehouse_uuid IS DISTINCT FROM NEW.warehouse_uuid) OR 
-               (OLD.inventory_uuid IS DISTINCT FROM NEW.inventory_uuid) THEN
-                
-                -- Get old warehouse inventory UUID
-                SELECT uuid INTO old_warehouse_inventory_uuid
-                FROM warehouse_inventory
-                WHERE warehouse_uuid = OLD.warehouse_uuid AND inventory_uuid = OLD.inventory_uuid;
-                
-                -- Get new warehouse inventory UUID
-                SELECT uuid INTO target_warehouse_inventory_uuid
-                FROM warehouse_inventory
-                WHERE warehouse_uuid = NEW.warehouse_uuid AND inventory_uuid = NEW.inventory_uuid;
-                
-                should_update_old := TRUE;
-                should_update_new := TRUE;
-            ELSE
-                -- Same warehouse and inventory, just update the current one
-                SELECT uuid INTO target_warehouse_inventory_uuid
-                FROM warehouse_inventory
-                WHERE warehouse_uuid = NEW.warehouse_uuid AND inventory_uuid = NEW.inventory_uuid;
-                
-                should_update_new := TRUE;
-            END IF;
-        ELSE
-            -- No relevant changes, skip aggregation update
-            RETURN NEW;
-        END IF;
-    END IF;
-
-    -- Update aggregations for the target warehouse inventory
-    IF should_update_new AND target_warehouse_inventory_uuid IS NOT NULL THEN
-        PERFORM update_warehouse_inventory_aggregations(target_warehouse_inventory_uuid);
-    END IF;
-    
-    -- Update aggregations for the old warehouse inventory (if different)
-    IF should_update_old AND old_warehouse_inventory_uuid IS NOT NULL AND 
-       old_warehouse_inventory_uuid IS DISTINCT FROM target_warehouse_inventory_uuid THEN
-        PERFORM update_warehouse_inventory_aggregations(old_warehouse_inventory_uuid);
-    END IF;
-
-    RETURN COALESCE(NEW, OLD);
-    
-EXCEPTION
-    WHEN OTHERS THEN
-        -- Log error but don't fail the transaction
-        RAISE WARNING 'Error in warehouse inventory aggregation trigger: %', SQLERRM;
-        RETURN COALESCE(NEW, OLD);
-END;
-$$ LANGUAGE plpgsql;
-
--- Drop and recreate the trigger to ensure it uses the updated function
-DROP TRIGGER IF EXISTS trg_warehouse_inventory_items_aggregation ON warehouse_inventory_items;
-CREATE TRIGGER trg_warehouse_inventory_items_aggregation
-    AFTER INSERT OR UPDATE OR DELETE ON warehouse_inventory_items
-    FOR EACH ROW
-    EXECUTE FUNCTION update_warehouse_inventory_aggregations_trigger();
-
-
--- Function to recalculate all warehouse inventory aggregations (useful for maintenance)
-CREATE OR REPLACE FUNCTION recalculate_all_warehouse_inventory_aggregations()
-RETURNS INTEGER AS $$
-DECLARE
-    warehouse_inventory_record RECORD;
-    updated_count INTEGER := 0;
-BEGIN
-    -- Loop through all warehouse inventories and recalculate their aggregations
-    FOR warehouse_inventory_record IN 
-        SELECT uuid FROM warehouse_inventory 
-    LOOP
-        PERFORM update_warehouse_inventory_aggregations(warehouse_inventory_record.uuid);
-        updated_count := updated_count + 1;
-    END LOOP;
-    
-    RAISE NOTICE 'Recalculated aggregations for % warehouse inventories', updated_count;
-    RETURN updated_count;
-END;
-$$ LANGUAGE plpgsql;
-
--- Add a function to update warehouse inventory status based on stock levels
-CREATE OR REPLACE FUNCTION update_warehouse_inventory_status()
-RETURNS TRIGGER AS $$
-DECLARE
-    v_available_count INTEGER;
-    v_new_status TEXT;
-BEGIN
-    -- Get available count from the updated warehouse inventory
-    v_available_count := COALESCE((NEW.count->>'available')::INTEGER, 0);
-    
-    -- Determine new status based on available count
-    IF v_available_count = 0 THEN
-        v_new_status := 'USED';
-    ELSIF v_available_count <= 5 THEN -- Threshold for critical
-        v_new_status := 'CRITICAL';
-    ELSIF v_available_count <= 10 THEN -- Threshold for warning
-        v_new_status := 'WARNING';
-    ELSE
-        v_new_status := 'AVAILABLE';
-    END IF;
-    
-    -- Update status if it changed
-    IF OLD.status IS DISTINCT FROM v_new_status THEN
-        NEW.status := v_new_status;
-        RAISE NOTICE 'Warehouse inventory % status updated to % (available count: %)', 
-            NEW.uuid, v_new_status, v_available_count;
-    END IF;
-    
+  -- Return appropriate record based on operation
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  ELSE
     RETURN NEW;
+  END IF;
 END;
 $$ LANGUAGE plpgsql;
 
--- Add trigger to automatically update warehouse inventory status
-DROP TRIGGER IF EXISTS trg_warehouse_inventory_status_update ON warehouse_inventory;
-CREATE TRIGGER trg_warehouse_inventory_status_update
-    BEFORE UPDATE ON warehouse_inventory
-    FOR EACH ROW
-    WHEN (OLD.count IS DISTINCT FROM NEW.count)
-    EXECUTE FUNCTION update_warehouse_inventory_status();
+-- Create warehouse inventory status update trigger function
+CREATE OR REPLACE FUNCTION public.update_warehouse_inventory_status()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Update status_history with timestamp and new status
+  NEW.status_history = COALESCE(OLD.status_history, '{}'::jsonb) || 
+    jsonb_build_object(to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), NEW.status);
+  
+  NEW.updated_at = now();
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
--- Grant execute permissions on the new functions
-GRANT EXECUTE ON FUNCTION public.update_warehouse_inventory_aggregations TO authenticated;
-GRANT EXECUTE ON FUNCTION public.update_warehouse_inventory_aggregations_trigger TO authenticated;
-GRANT EXECUTE ON FUNCTION public.recalculate_all_warehouse_inventory_aggregations TO authenticated;
+-- Create warehouse inventory items status update trigger function  
+CREATE OR REPLACE FUNCTION public.update_warehouse_inventory_items_status()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Update status_history with timestamp and new status
+  NEW.status_history = COALESCE(OLD.status_history, '{}'::jsonb) || 
+    jsonb_build_object(to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), NEW.status);
+  
+  NEW.updated_at = now();
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Drop existing triggers first
+DROP TRIGGER IF EXISTS trg_reorder_point_recalc ON warehouse_inventory_items;
+DROP TRIGGER IF EXISTS trg_warehouse_inventory_status ON warehouse_inventory;
+DROP TRIGGER IF EXISTS trg_warehouse_inventory_items_status ON warehouse_inventory_items;
+
+-- Create trigger on warehouse_inventory_items to auto-recalculate reorder points
+CREATE TRIGGER trg_reorder_point_recalc
+  AFTER INSERT OR UPDATE OR DELETE ON warehouse_inventory_items
+  FOR EACH ROW
+  EXECUTE FUNCTION public.trigger_reorder_point_recalculation();
+
+-- Create triggers for status history updates
+CREATE TRIGGER trg_warehouse_inventory_status
+  BEFORE UPDATE ON warehouse_inventory
+  FOR EACH ROW
+  WHEN (OLD.status IS DISTINCT FROM NEW.status)
+  EXECUTE FUNCTION public.update_warehouse_inventory_status();
+
+CREATE TRIGGER trg_warehouse_inventory_items_status
+  BEFORE UPDATE ON warehouse_inventory_items
+  FOR EACH ROW
+  WHEN (OLD.status IS DISTINCT FROM NEW.status)
+  EXECUTE FUNCTION public.update_warehouse_inventory_items_status();
+
+-- Grant permissions
+GRANT EXECUTE ON FUNCTION public.calculate_reorder_points TO authenticated;
+GRANT EXECUTE ON FUNCTION public.calculate_specific_reorder_point TO authenticated;
+GRANT EXECUTE ON FUNCTION public.update_custom_safety_stock TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_reorder_point_logs_filtered TO authenticated;
+GRANT EXECUTE ON FUNCTION public.trigger_reorder_point_recalculation TO authenticated;
 GRANT EXECUTE ON FUNCTION public.update_warehouse_inventory_status TO authenticated;
+GRANT EXECUTE ON FUNCTION public.update_warehouse_inventory_items_status TO authenticated;
 
--- Add indexes for better performance on the tracked fields
+-- Create indexes for better performance
+CREATE INDEX IF NOT EXISTS idx_reorder_point_logs_company_warehouse ON reorder_point_logs(company_uuid, warehouse_uuid);
+CREATE INDEX IF NOT EXISTS idx_reorder_point_logs_status ON reorder_point_logs(status);
+CREATE INDEX IF NOT EXISTS idx_reorder_point_logs_updated_at ON reorder_point_logs(updated_at);
+CREATE INDEX IF NOT EXISTS idx_reorder_point_logs_warehouse_inventory ON reorder_point_logs(warehouse_inventory_uuid);
 CREATE INDEX IF NOT EXISTS idx_warehouse_inventory_items_status ON warehouse_inventory_items(status);
-CREATE INDEX IF NOT EXISTS idx_warehouse_inventory_items_unit_value ON warehouse_inventory_items(unit_value);
-CREATE INDEX IF NOT EXISTS idx_warehouse_inventory_items_unit ON warehouse_inventory_items(unit);
-CREATE INDEX IF NOT EXISTS idx_warehouse_inventory_items_warehouse_inventory ON warehouse_inventory_items(warehouse_uuid, inventory_uuid);
-CREATE INDEX IF NOT EXISTS idx_warehouse_inventory_items_updated_at ON warehouse_inventory_items(updated_at);
-CREATE INDEX IF NOT EXISTS idx_warehouse_inventory_status ON warehouse_inventory(status);
-CREATE INDEX IF NOT EXISTS idx_warehouse_inventory_count ON warehouse_inventory USING GIN(count);
+CREATE INDEX IF NOT EXISTS idx_warehouse_inventory_items_usage ON warehouse_inventory_items(warehouse_uuid, inventory_uuid, status, updated_at);
 CREATE INDEX IF NOT EXISTS idx_warehouse_inventory_unit_values ON warehouse_inventory USING GIN(unit_values);
