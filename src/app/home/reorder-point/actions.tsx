@@ -64,7 +64,10 @@ export async function getReorderPointLogs(
       }
     );
 
-    if (error) throw error;
+    if (error) {
+      console.error("Database error in getReorderPointLogs:", error);
+      throw error;
+    }
 
     // Extract total count from first record
     const totalCount = data && data.length > 0 ? data[0].total_count : 0;
@@ -115,11 +118,14 @@ export async function updateCustomSafetyStock(
       }
     );
 
-    if (error) throw error;
+    if (error) {
+      console.error("Database error in updateCustomSafetyStock:", error);
+      throw error;
+    }
 
     return {
       success: true,
-      data: data as ReorderPointLog
+      data: data as ReorderPointLog[]
     };
   } catch (error: any) {
     console.error("Error updating custom safety stock:", error);
@@ -131,25 +137,34 @@ export async function updateCustomSafetyStock(
 }
 
 /**
- * Manually triggers reorder point calculation
+ * Manually triggers reorder point calculation with better error handling
  */
 export async function triggerReorderPointCalculation() {
   const supabase = await createClient();
 
   try {
+    console.log("Starting reorder point calculation...");
+    
     const { data, error } = await supabase.rpc('calculate_reorder_points');
 
-    if (error) throw error;
+    if (error) {
+      console.error("Database error in triggerReorderPointCalculation:", error);
+      throw error;
+    }
+
+    console.log("Reorder point calculation completed successfully");
 
     return {
       success: true,
-      data: data as ReorderPointLog[]
+      data: data as ReorderPointLog[],
+      message: `Successfully calculated reorder points for ${data?.length || 0} items`
     };
   } catch (error: any) {
     console.error("Error calculating reorder points:", error);
     return {
       success: false,
-      error: error.message || "Failed to calculate reorder points"
+      error: error.message || "Failed to calculate reorder points",
+      data: [] as ReorderPointLog[]
     };
   }
 }
@@ -165,17 +180,25 @@ export async function triggerSpecificReorderPointCalculation(
   const supabase = await createClient();
 
   try {
+    console.log(`Calculating reorder point for specific item: ${inventoryUuid} in warehouse: ${warehouseUuid}`);
+    
     const { data, error } = await supabase.rpc('calculate_specific_reorder_point', {
       p_inventory_uuid: inventoryUuid,
       p_warehouse_uuid: warehouseUuid,
       p_company_uuid: companyUuid
     });
 
-    if (error) throw error;
+    if (error) {
+      console.error("Database error in triggerSpecificReorderPointCalculation:", error);
+      throw error;
+    }
+
+    console.log("Specific reorder point calculation completed successfully");
 
     return {
       success: true,
-      data: data as ReorderPointLog
+      data: data && data.length > 0 ? data[0] : null,
+      message: "Successfully calculated reorder point for the specific item"
     };
   } catch (error: any) {
     console.error("Error calculating specific reorder point:", error);
@@ -206,7 +229,10 @@ export async function getOperators(operatorUuids: string[]) {
       .select('uuid, full_name, email')
       .in('uuid', operatorUuids);
 
-    if (error) throw error;
+    if (error) {
+      console.error("Database error in getOperators:", error);
+      throw error;
+    }
 
     return {
       success: true,
@@ -228,7 +254,10 @@ export async function getFilteredItems(supabaseFunction: string, params: Record<
   try {
     const { data, error } = await supabase.rpc(supabaseFunction, params);
 
-    if (error) throw error;
+    if (error) {
+      console.error(`Database error in ${supabaseFunction}:`, error);
+      throw error;
+    }
 
     return {
       success: true,

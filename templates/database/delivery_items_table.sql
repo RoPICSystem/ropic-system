@@ -24,6 +24,8 @@ CREATE or REPLACE TRIGGER trg_update_status_history_delivery_items
 BEFORE UPDATE ON public.delivery_items
 FOR EACH ROW
 EXECUTE FUNCTION update_status_history();
+
+
 -- Updated function to create delivery with group_id structure (handles items without groups)
 CREATE OR REPLACE FUNCTION public.create_delivery_with_items(
   p_admin_uuid uuid,
@@ -431,11 +433,13 @@ EXCEPTION
 END;
 $function$;
 
--- Updated function to create warehouse inventory from delivery with inventory item UUIDs
+
+
+-- Fix the warehouse inventory creation function to work with individual item UUIDs
 CREATE OR REPLACE FUNCTION public.create_warehouse_inventory_from_delivery(
   p_warehouse_uuid uuid,
   p_delivery_uuid uuid,
-  p_inventory_item_uuids uuid[],
+  p_item_uuids uuid[],
   p_inventory_items jsonb
 )
 RETURNS jsonb
@@ -448,25 +452,77 @@ DECLARE
   v_location jsonb;
   v_timestamp text;
   v_item_record jsonb;
+  v_item_key text;
   v_inventory_uuid uuid;
+  v_warehouse_inventory_uuid uuid;
+  v_company_uuid uuid;
 BEGIN
   -- Generate timestamp
   v_timestamp := to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
   
+  -- Get company UUID from the first inventory item
+  SELECT company_uuid INTO v_company_uuid
+  FROM inventory_items 
+  WHERE uuid = ANY(p_item_uuids)
+  LIMIT 1;
+  
+  IF v_company_uuid IS NULL THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'Could not determine company UUID from inventory items'
+    );
+  END IF;
+  
   -- Create warehouse inventory items for each delivered item
   FOR v_inventory_item IN 
-    SELECT * FROM inventory_items 
-    WHERE uuid = ANY(p_inventory_item_uuids)
+    SELECT ii.* FROM inventory_items ii
+    WHERE ii.uuid = ANY(p_item_uuids)
   LOOP
-    -- Find the location and inventory_uuid for this item from inventory_items structure
-    v_item_record := p_inventory_items->v_inventory_item.uuid::text;
+    -- Find the location for this specific item from inventory_items structure
+    FOR v_item_key IN SELECT jsonb_object_keys(p_inventory_items)
+    LOOP
+      -- Check if this record matches our item UUID
+      IF v_item_key = v_inventory_item.uuid::text THEN
+        v_item_record := p_inventory_items->v_item_key;
+        v_location := v_item_record->'location';
+        v_inventory_uuid := (v_item_record->>'inventory_uuid')::uuid;
+        EXIT; -- Found the matching record
+      END IF;
+    END LOOP;
     
-    IF v_item_record IS NOT NULL THEN
-      v_location := v_item_record->'location';
-      v_inventory_uuid := (v_item_record->>'inventory_uuid')::uuid;
-    ELSE
-      v_location := '{}'::jsonb;
-      v_inventory_uuid := v_inventory_item.inventory_uuid;
+    -- Check if warehouse_inventory exists for this warehouse + inventory combination
+    SELECT uuid INTO v_warehouse_inventory_uuid
+    FROM warehouse_inventory
+    WHERE warehouse_uuid = p_warehouse_uuid
+      AND inventory_uuid = v_inventory_uuid;
+    
+    -- If warehouse_inventory doesn't exist, create it
+    IF v_warehouse_inventory_uuid IS NULL THEN
+      -- Get inventory details to create warehouse_inventory
+      INSERT INTO warehouse_inventory (
+        company_uuid,
+        admin_uuid,
+        warehouse_uuid,
+        inventory_uuid,
+        name,
+        description,
+        measurement_unit,
+        standard_unit,
+        status
+      )
+      SELECT 
+        v_company_uuid,
+        inv.admin_uuid,
+        p_warehouse_uuid,
+        inv.uuid,
+        inv.name,
+        inv.description,
+        inv.measurement_unit,
+        inv.standard_unit,
+        'AVAILABLE'
+      FROM inventory inv
+      WHERE inv.uuid = v_inventory_uuid
+      RETURNING uuid INTO v_warehouse_inventory_uuid;
     END IF;
     
     -- Create warehouse inventory item with the found location
@@ -487,7 +543,7 @@ BEGIN
       status,
       status_history
     ) VALUES (
-      v_inventory_item.company_uuid,
+      v_company_uuid,
       p_warehouse_uuid,
       v_inventory_uuid,
       v_inventory_item.uuid,
@@ -503,6 +559,11 @@ BEGIN
       'AVAILABLE',
       jsonb_build_object(v_timestamp, 'Created from delivery ' || p_delivery_uuid::text)
     );
+    
+    -- Update warehouse inventory aggregations after each item is added
+    IF v_warehouse_inventory_uuid IS NOT NULL THEN
+      PERFORM update_warehouse_inventory_aggregations(v_warehouse_inventory_uuid);
+    END IF;
   END LOOP;
 
   RETURN jsonb_build_object(
@@ -518,6 +579,7 @@ EXCEPTION
     );
 END;
 $function$;
+
 
 -- Update get_delivery_details to work with inventory item UUIDs
 CREATE OR REPLACE FUNCTION public.get_delivery_details(

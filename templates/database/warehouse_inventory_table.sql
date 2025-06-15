@@ -891,3 +891,296 @@ EXCEPTION
     );
 END;
 $function$;
+
+
+-- Enhanced function to update warehouse inventory aggregations with better error handling
+CREATE OR REPLACE FUNCTION update_warehouse_inventory_aggregations(p_warehouse_inventory_uuid uuid)
+RETURNS VOID AS $$
+DECLARE
+  wh_inv_record RECORD;
+  total_unit_values RECORD;
+  total_counts RECORD;
+BEGIN
+  -- Skip if warehouse inventory UUID is null
+  IF p_warehouse_inventory_uuid IS NULL THEN
+    RETURN;
+  END IF;
+
+  -- Get warehouse inventory record to access standard_unit
+  SELECT standard_unit, warehouse_uuid, inventory_uuid 
+  INTO wh_inv_record 
+  FROM warehouse_inventory 
+  WHERE uuid = p_warehouse_inventory_uuid;
+  
+  IF wh_inv_record IS NULL THEN
+    RETURN;
+  END IF;
+
+  -- Calculate aggregated unit values (converted to standard unit)
+  SELECT 
+    COALESCE(SUM(CASE 
+      WHEN wii.status = 'AVAILABLE' 
+      THEN public.convert_unit(wii.unit_value::numeric, wii.unit, wh_inv_record.standard_unit) 
+      ELSE 0 
+    END), 0) as available,
+    COALESCE(SUM(CASE 
+      WHEN wii.status = 'USED' 
+      THEN public.convert_unit(wii.unit_value::numeric, wii.unit, wh_inv_record.standard_unit) 
+      ELSE 0 
+    END), 0) as used,
+    COALESCE(SUM(CASE 
+      WHEN wii.status = 'TRANSFERRED' 
+      THEN public.convert_unit(wii.unit_value::numeric, wii.unit, wh_inv_record.standard_unit) 
+      ELSE 0 
+    END), 0) as transferred,
+    COALESCE(SUM(public.convert_unit(wii.unit_value::numeric, wii.unit, wh_inv_record.standard_unit)), 0) as total
+  INTO total_unit_values
+  FROM warehouse_inventory_items wii
+  WHERE wii.warehouse_uuid = wh_inv_record.warehouse_uuid
+    AND wii.inventory_uuid = wh_inv_record.inventory_uuid;
+
+  -- Calculate aggregated counts
+  SELECT 
+    COALESCE(COUNT(CASE WHEN wii.status = 'AVAILABLE' THEN 1 END), 0) as available,
+    COALESCE(COUNT(CASE WHEN wii.status = 'USED' THEN 1 END), 0) as used,
+    COALESCE(COUNT(CASE WHEN wii.status = 'TRANSFERRED' THEN 1 END), 0) as transferred,
+    COALESCE(COUNT(*), 0) as total
+  INTO total_counts
+  FROM warehouse_inventory_items wii
+  WHERE wii.warehouse_uuid = wh_inv_record.warehouse_uuid
+    AND wii.inventory_uuid = wh_inv_record.inventory_uuid;
+
+  -- Update the warehouse inventory table with aggregated values
+  UPDATE warehouse_inventory 
+  SET 
+    unit_values = jsonb_build_object(
+      'available', total_unit_values.available,
+      'used', total_unit_values.used,
+      'transferred', total_unit_values.transferred,
+      'total', total_unit_values.total
+    ),
+    count = jsonb_build_object(
+      'available', total_counts.available,
+      'used', total_counts.used,
+      'transferred', total_counts.transferred,
+      'total', total_counts.total
+    ),
+    updated_at = NOW()
+  WHERE uuid = p_warehouse_inventory_uuid;
+
+  -- Log the update for debugging
+  RAISE NOTICE 'Updated warehouse_inventory UUID: %, Available: %, Used: %, Total: %', 
+    p_warehouse_inventory_uuid, total_unit_values.available, total_unit_values.used, total_unit_values.total;
+
+EXCEPTION
+  WHEN OTHERS THEN
+    -- Log error but don't fail the transaction
+    RAISE WARNING 'Error updating warehouse inventory aggregations for UUID %: %', p_warehouse_inventory_uuid, SQLERRM;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Enhanced trigger function for warehouse inventory items with better change tracking
+CREATE OR REPLACE FUNCTION update_warehouse_inventory_aggregations_trigger()
+RETURNS TRIGGER AS $$
+DECLARE
+    target_warehouse_inventory_uuid UUID;
+    old_warehouse_inventory_uuid UUID;
+    should_update_old BOOLEAN := FALSE;
+    should_update_new BOOLEAN := FALSE;
+BEGIN
+    -- Determine which warehouse inventory UUIDs need updating based on operation type
+    IF TG_OP = 'DELETE' THEN
+        -- Find the warehouse inventory UUID for the deleted item
+        SELECT uuid INTO target_warehouse_inventory_uuid
+        FROM warehouse_inventory
+        WHERE warehouse_uuid = OLD.warehouse_uuid AND inventory_uuid = OLD.inventory_uuid;
+        
+        should_update_old := TRUE;
+        
+    ELSIF TG_OP = 'INSERT' THEN
+        -- Find the warehouse inventory UUID for the new item
+        SELECT uuid INTO target_warehouse_inventory_uuid
+        FROM warehouse_inventory
+        WHERE warehouse_uuid = NEW.warehouse_uuid AND inventory_uuid = NEW.inventory_uuid;
+        
+        should_update_new := TRUE;
+        
+    ELSIF TG_OP = 'UPDATE' THEN
+        -- Check if any of the tracked fields changed
+        IF (OLD.status IS DISTINCT FROM NEW.status) OR
+           (OLD.unit_value IS DISTINCT FROM NEW.unit_value) OR
+           (OLD.unit IS DISTINCT FROM NEW.unit) OR
+           (OLD.warehouse_uuid IS DISTINCT FROM NEW.warehouse_uuid) OR
+           (OLD.inventory_uuid IS DISTINCT FROM NEW.inventory_uuid) THEN
+            
+            -- If warehouse or inventory changed, update both old and new warehouse inventories
+            IF (OLD.warehouse_uuid IS DISTINCT FROM NEW.warehouse_uuid) OR 
+               (OLD.inventory_uuid IS DISTINCT FROM NEW.inventory_uuid) THEN
+                
+                -- Get old warehouse inventory UUID
+                SELECT uuid INTO old_warehouse_inventory_uuid
+                FROM warehouse_inventory
+                WHERE warehouse_uuid = OLD.warehouse_uuid AND inventory_uuid = OLD.inventory_uuid;
+                
+                -- Get new warehouse inventory UUID
+                SELECT uuid INTO target_warehouse_inventory_uuid
+                FROM warehouse_inventory
+                WHERE warehouse_uuid = NEW.warehouse_uuid AND inventory_uuid = NEW.inventory_uuid;
+                
+                should_update_old := TRUE;
+                should_update_new := TRUE;
+            ELSE
+                -- Same warehouse and inventory, just update the current one
+                SELECT uuid INTO target_warehouse_inventory_uuid
+                FROM warehouse_inventory
+                WHERE warehouse_uuid = NEW.warehouse_uuid AND inventory_uuid = NEW.inventory_uuid;
+                
+                should_update_new := TRUE;
+            END IF;
+        ELSE
+            -- No relevant changes, skip aggregation update
+            RETURN NEW;
+        END IF;
+    END IF;
+
+    -- Update aggregations for the target warehouse inventory
+    IF should_update_new AND target_warehouse_inventory_uuid IS NOT NULL THEN
+        PERFORM update_warehouse_inventory_aggregations(target_warehouse_inventory_uuid);
+    END IF;
+    
+    -- Update aggregations for the old warehouse inventory (if different)
+    IF should_update_old AND old_warehouse_inventory_uuid IS NOT NULL AND 
+       old_warehouse_inventory_uuid IS DISTINCT FROM target_warehouse_inventory_uuid THEN
+        PERFORM update_warehouse_inventory_aggregations(old_warehouse_inventory_uuid);
+    END IF;
+
+    RETURN COALESCE(NEW, OLD);
+    
+EXCEPTION
+    WHEN OTHERS THEN
+        -- Log error but don't fail the transaction
+        RAISE WARNING 'Error in warehouse inventory aggregation trigger: %', SQLERRM;
+        RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
+-- Drop and recreate the trigger to ensure it uses the updated function
+DROP TRIGGER IF EXISTS trg_warehouse_inventory_items_aggregation ON warehouse_inventory_items;
+CREATE TRIGGER trg_warehouse_inventory_items_aggregation
+    AFTER INSERT OR UPDATE OR DELETE ON warehouse_inventory_items
+    FOR EACH ROW
+    EXECUTE FUNCTION update_warehouse_inventory_aggregations_trigger();
+
+-- Add a trigger specifically for tracking status changes in warehouse inventory items
+CREATE OR REPLACE FUNCTION log_warehouse_item_status_change()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_timestamp text;
+BEGIN
+    -- Only log if status actually changed
+    IF TG_OP = 'UPDATE' AND OLD.status IS DISTINCT FROM NEW.status THEN
+        v_timestamp := to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
+        
+        -- Update the status_history
+        NEW.status_history = COALESCE(NEW.status_history, '{}'::jsonb) || 
+            jsonb_build_object(
+                v_timestamp, 
+                jsonb_build_object(
+                    'from', COALESCE(OLD.status, 'NULL'),
+                    'to', COALESCE(NEW.status, 'NULL'),
+                    'trigger', 'warehouse_item_status_change'
+                )
+            );
+        NEW.updated_at = NOW();
+        
+        -- Log the status change
+        RAISE NOTICE 'Warehouse item % status changed from % to %', NEW.uuid, OLD.status, NEW.status;
+    END IF;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Add status change logging trigger for warehouse inventory items
+DROP TRIGGER IF EXISTS trg_warehouse_item_status_change ON warehouse_inventory_items;
+CREATE TRIGGER trg_warehouse_item_status_change
+    BEFORE UPDATE ON warehouse_inventory_items
+    FOR EACH ROW
+    EXECUTE FUNCTION log_warehouse_item_status_change();
+
+-- Function to recalculate all warehouse inventory aggregations (useful for maintenance)
+CREATE OR REPLACE FUNCTION recalculate_all_warehouse_inventory_aggregations()
+RETURNS INTEGER AS $$
+DECLARE
+    warehouse_inventory_record RECORD;
+    updated_count INTEGER := 0;
+BEGIN
+    -- Loop through all warehouse inventories and recalculate their aggregations
+    FOR warehouse_inventory_record IN 
+        SELECT uuid FROM warehouse_inventory 
+    LOOP
+        PERFORM update_warehouse_inventory_aggregations(warehouse_inventory_record.uuid);
+        updated_count := updated_count + 1;
+    END LOOP;
+    
+    RAISE NOTICE 'Recalculated aggregations for % warehouse inventories', updated_count;
+    RETURN updated_count;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Add a function to update warehouse inventory status based on stock levels
+CREATE OR REPLACE FUNCTION update_warehouse_inventory_status()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_available_count INTEGER;
+    v_new_status TEXT;
+BEGIN
+    -- Get available count from the updated warehouse inventory
+    v_available_count := COALESCE((NEW.count->>'available')::INTEGER, 0);
+    
+    -- Determine new status based on available count
+    IF v_available_count = 0 THEN
+        v_new_status := 'USED';
+    ELSIF v_available_count <= 5 THEN -- Threshold for critical
+        v_new_status := 'CRITICAL';
+    ELSIF v_available_count <= 10 THEN -- Threshold for warning
+        v_new_status := 'WARNING';
+    ELSE
+        v_new_status := 'AVAILABLE';
+    END IF;
+    
+    -- Update status if it changed
+    IF OLD.status IS DISTINCT FROM v_new_status THEN
+        NEW.status := v_new_status;
+        RAISE NOTICE 'Warehouse inventory % status updated to % (available count: %)', 
+            NEW.uuid, v_new_status, v_available_count;
+    END IF;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Add trigger to automatically update warehouse inventory status
+DROP TRIGGER IF EXISTS trg_warehouse_inventory_status_update ON warehouse_inventory;
+CREATE TRIGGER trg_warehouse_inventory_status_update
+    BEFORE UPDATE ON warehouse_inventory
+    FOR EACH ROW
+    WHEN (OLD.count IS DISTINCT FROM NEW.count)
+    EXECUTE FUNCTION update_warehouse_inventory_status();
+
+-- Grant execute permissions on the new functions
+GRANT EXECUTE ON FUNCTION public.update_warehouse_inventory_aggregations TO authenticated;
+GRANT EXECUTE ON FUNCTION public.update_warehouse_inventory_aggregations_trigger TO authenticated;
+GRANT EXECUTE ON FUNCTION public.log_warehouse_item_status_change TO authenticated;
+GRANT EXECUTE ON FUNCTION public.recalculate_all_warehouse_inventory_aggregations TO authenticated;
+GRANT EXECUTE ON FUNCTION public.update_warehouse_inventory_status TO authenticated;
+
+-- Add indexes for better performance on the tracked fields
+CREATE INDEX IF NOT EXISTS idx_warehouse_inventory_items_status ON warehouse_inventory_items(status);
+CREATE INDEX IF NOT EXISTS idx_warehouse_inventory_items_unit_value ON warehouse_inventory_items(unit_value);
+CREATE INDEX IF NOT EXISTS idx_warehouse_inventory_items_unit ON warehouse_inventory_items(unit);
+CREATE INDEX IF NOT EXISTS idx_warehouse_inventory_items_warehouse_inventory ON warehouse_inventory_items(warehouse_uuid, inventory_uuid);
+CREATE INDEX IF NOT EXISTS idx_warehouse_inventory_items_updated_at ON warehouse_inventory_items(updated_at);
+CREATE INDEX IF NOT EXISTS idx_warehouse_inventory_status ON warehouse_inventory(status);
+CREATE INDEX IF NOT EXISTS idx_warehouse_inventory_count ON warehouse_inventory USING GIN(count);
+CREATE INDEX IF NOT EXISTS idx_warehouse_inventory_unit_values ON warehouse_inventory USING GIN(unit_values);

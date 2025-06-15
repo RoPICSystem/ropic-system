@@ -14,26 +14,15 @@ import {
   useDisclosure,
   Autocomplete,
   AutocompleteItem,
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-  DateRangePicker,
-  Tab,
-  Tabs,
-  Spinner,
-  Pagination,
-  ScrollShadow,
   Skeleton,
   Alert,
-  Select,
-  SelectItem,
   CalendarDate
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import CardList from "@/components/card-list";
 import { AnimatePresence, motion } from "framer-motion";
 import { format } from "date-fns";
-import { motionTransition, motionTransitionScale, popoverTransition } from "@/utils/anim";
+import { motionTransition } from "@/utils/anim";
 import { getReorderPointLogs, updateCustomSafetyStock, triggerReorderPointCalculation, InventoryStatus, ReorderPointLog, getOperators, triggerSpecificReorderPointCalculation } from "./actions";
 import { getWarehouses } from "../warehouses/actions";
 import { getInventoryItems } from "../inventory/actions";
@@ -45,18 +34,16 @@ import { getDeliveryHistory } from '../delivery/actions';
 import { getCompanyData } from "../company/actions";
 import { getUserFromCookies } from "@/utils/supabase/server/user";
 import LoadingAnimation from "@/components/loading-animation";
-import ListLoadingAnimation from "@/components/list-loading-animation";
 import { getUserCompanyDetails } from "@/utils/supabase/server/companies";
-import CustomScrollbar from "@/components/custom-scrollbar";
 import { ReorderPointExportPopover } from "./reorder-point-export";
 import { createClient } from "@/utils/supabase/client";
+import { FilterOption, SearchListPanel } from '@/components/search-list-panel/search-list-panel';
 
 export default function ReorderPointPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [user, setUser] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingItems, setIsLoadingItems] = useState(true);
   const [isLoadingWarehouses, setIsLoadingWarehouses] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
@@ -67,31 +54,13 @@ export default function ReorderPointPage() {
   // Reorder point logs state
   const [reorderPointLogs, setReorderPointLogs] = useState<ReorderPointLog[]>([]);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedWarehouse, setSelectedWarehouse] = useState<string | null>(null);
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [inventoryItems, setInventoryItems] = useState<any[]>([]);
-  const [statusFilter, setStatusFilter] = useState<InventoryStatus | null>(null);
 
   // Form state
   const [formData, setFormData] = useState<Partial<ReorderPointLog>>({});
   const [customSafetyStock, setCustomSafetyStock] = useState<number | null>(null);
   const [safetyStockNotes, setSafetyStockNotes] = useState("");
-
-  const [isSearchFilterOpen, setIsSearchFilterOpen] = useState(false);
-  const [page, setPage] = useState(1);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [totalItems, setTotalItems] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
-
-  // Add date filter states
-  const [dateFrom, setDateFrom] = useState<any>(null);
-  const [dateTo, setDateTo] = useState<any>(null);
-  const [yearFilter, setYearFilter] = useState<number | null>(null);
-  const [monthFilter, setMonthFilter] = useState<number | null>(null);
-  const [weekFilter, setWeekFilter] = useState<number | null>(null);
-  const [dayFilter, setDayFilter] = useState<number | null>(null);
-  const [dateTabKey, setDateTabKey] = useState<string>("range");
 
   // PDF export state
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
@@ -106,14 +75,44 @@ export default function ReorderPointPage() {
     inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
   };
 
-  // Clear date filters function
-  const clearDateFilters = () => {
-    setDateFrom(null);
-    setDateTo(null);
-    setYearFilter(null);
-    setMonthFilter(null);
-    setWeekFilter(null);
-    setDayFilter(null);
+  // Filter options for SearchListPanel
+  const reorderPointFilters: Record<string, FilterOption> = {
+    warehouse_filter: {
+      name: "Warehouse",
+      valueName: "warehouse_uuid",
+      color: "danger",
+      filters: warehouses.reduce(
+        (acc, warehouse) => ({
+          ...acc,
+          [warehouse.uuid]: warehouse.name
+        }),
+        { "": "All Warehouses" }
+      )
+    },
+    status_filter: {
+      name: "Status",
+      valueName: "status",
+      color: "primary",
+      filters: {
+        "": "All Statuses",
+        IN_STOCK: "In Stock",
+        WARNING: "Warning",
+        CRITICAL: "Critical",
+        OUT_OF_STOCK: "Out of Stock"
+      }
+    },
+    inventory_filter: {
+      name: "Inventory",
+      valueName: "inventory_uuid",
+      color: "success",
+      filters: inventoryItems.reduce(
+        (acc, item) => ({
+          ...acc,
+          [item.uuid]: item.name
+        }),
+        { "": "All Items" }
+      )
+    }
   };
 
   // Helper function to get status chip color
@@ -124,173 +123,6 @@ export default function ReorderPointPage() {
       case "CRITICAL": return "danger";
       case "OUT_OF_STOCK": return "danger";
       default: return "default";
-    }
-  };
-
-  // Update handleSearch function to use pagination
-  const handleSearch = async (query: string, currentPage: number = page) => {
-    setSearchQuery(query);
-    try {
-      setIsLoadingItems(true);
-      const result = await getReorderPointLogs(
-        user?.company_uuid || "",
-        selectedWarehouse || undefined,
-        statusFilter || undefined,
-        query,
-        dateFrom || undefined,
-        dateTo || undefined,
-        yearFilter || undefined,
-        monthFilter || undefined,
-        weekFilter || undefined,
-        dayFilter || undefined,
-        rowsPerPage, // limit
-        (currentPage - 1) * rowsPerPage // offset
-      );
-
-      setReorderPointLogs(result.data || []);
-      setTotalPages(result.totalPages || 1);
-      setTotalItems(result.totalCount || 0);
-
-      // Reset to page 1 when search changes
-      if (currentPage !== 1) {
-        setPage(1);
-      }
-    } catch (error) {
-      console.error("Error searching reorder point logs:", error);
-    } finally {
-      setIsLoadingItems(false);
-    }
-  };
-
-  // Update handleWarehouseChange to include pagination
-  const handleWarehouseChange = async (warehouseId: string | null) => {
-    setSelectedWarehouse(warehouseId);
-
-    if (!warehouseId || warehouseId === "null") {
-      setSelectedWarehouse(null);
-      setIsLoadingItems(false);
-      return;
-    };
-
-    try {
-      setIsLoadingItems(true);
-      const result = await getReorderPointLogs(
-        user?.company_uuid || "",
-        warehouseId || undefined,
-        statusFilter || undefined,
-        searchQuery,
-        dateFrom || undefined,
-        dateTo || undefined,
-        yearFilter || undefined,
-        monthFilter || undefined,
-        weekFilter || undefined,
-        dayFilter || undefined,
-        rowsPerPage, // limit
-        0 // offset (reset to first page)
-      );
-      setReorderPointLogs(result.data || []);
-      setTotalPages(result.totalPages || 1);
-      setTotalItems(result.totalCount || 0);
-      setPage(1); // Reset to first page on filter change
-    } catch (error) {
-      console.error("Error filtering by warehouse:", error);
-    } finally {
-      setIsLoadingItems(false);
-    }
-  };
-
-  // Update handleStatusFilterChange to include pagination
-  const handleStatusFilterChange = async (status: InventoryStatus | null) => {
-    setStatusFilter(status);
-    try {
-      setIsLoadingItems(true);
-      const result = await getReorderPointLogs(
-        user?.company_uuid || "",
-        selectedWarehouse || undefined,
-        status || undefined,
-        searchQuery,
-        dateFrom || undefined,
-        dateTo || undefined,
-        yearFilter || undefined,
-        monthFilter || undefined,
-        weekFilter || undefined,
-        dayFilter || undefined,
-        rowsPerPage, // limit
-        0 // offset (reset to first page)
-      );
-      setReorderPointLogs(result.data || []);
-      setTotalPages(result.totalPages || 1);
-      setTotalItems(result.totalCount || 0);
-      setPage(1); // Reset to first page on filter change
-    } catch (error) {
-      console.error("Error filtering by status:", error);
-    } finally {
-      setIsLoadingItems(false);
-    }
-  };
-
-  // Helper function to apply date filters
-  const applyDateFilters = async (
-    dateFromParam: string,
-    dateToParam: string,
-    yearParam: number | null,
-    monthParam: number | null,
-    weekParam: number | null,
-    dayParam: number | null
-  ) => {
-    try {
-      setIsLoadingItems(true);
-      const result = await getReorderPointLogs(
-        user?.company_uuid || "",
-        selectedWarehouse || undefined,
-        statusFilter || undefined,
-        searchQuery,
-        dateFromParam || undefined,
-        dateToParam || undefined,
-        yearParam || undefined,
-        monthParam || undefined,
-        weekParam || undefined,
-        dayParam || undefined,
-        rowsPerPage,
-        0 // reset to first page
-      );
-      setReorderPointLogs(result.data || []);
-      setTotalPages(result.totalPages || 1);
-      setTotalItems(result.totalCount || 0);
-      setPage(1);
-    } catch (error) {
-      console.error("Error applying date filters:", error);
-    } finally {
-      setIsLoadingItems(false);
-    }
-  };
-
-  // Handle page change
-  const handlePageChange = async (newPage: number) => {
-    setPage(newPage);
-    try {
-      setIsLoadingItems(true);
-      const result = await getReorderPointLogs(
-        user?.company_uuid || "",
-        selectedWarehouse || undefined,
-        statusFilter || undefined,
-        searchQuery,
-        dateFrom || undefined,
-        dateTo || undefined,
-        yearFilter || undefined,
-        monthFilter || undefined,
-        weekFilter || undefined,
-        dayFilter || undefined,
-        rowsPerPage,
-        (newPage - 1) * rowsPerPage
-      );
-      setReorderPointLogs(result.data || []);
-      setTotalPages(result.totalPages || 1);
-      setTotalItems(result.totalCount || 0);
-    } catch (error) {
-      console.error("Error changing page:", error);
-    } finally {
-      setIsLoadingItems(false);
     }
   };
 
@@ -419,14 +251,6 @@ export default function ReorderPointPage() {
           safety_stock: customSafetyStock,
           notes: safetyStockNotes
         }));
-
-        // Refresh the reorder point logs
-        const refreshedLogs = await getReorderPointLogs(
-          user?.company_uuid || "",
-          selectedWarehouse || undefined,
-          statusFilter || undefined
-        );
-        setReorderPointLogs(refreshedLogs.data || []);
       }
     } catch (error) {
       console.error("Error updating custom safety stock:", error);
@@ -455,25 +279,6 @@ export default function ReorderPointPage() {
       }
 
       if (result.success) {
-        // Refresh the reorder point logs
-        const refreshedLogs = await getReorderPointLogs(
-          user?.company_uuid || "",
-          selectedWarehouse || undefined,
-          statusFilter || undefined,
-          searchQuery,
-          dateFrom || undefined,
-          dateTo || undefined,
-          yearFilter || undefined,
-          monthFilter || undefined,
-          weekFilter || undefined,
-          dayFilter || undefined,
-          rowsPerPage,
-          (page - 1) * rowsPerPage
-        );
-        setReorderPointLogs(refreshedLogs.data || []);
-        setTotalPages(refreshedLogs.totalPages || 1);
-        setTotalItems(refreshedLogs.totalCount || 0);
-
         // If we have a selected item and did specific calculation, refresh its details
         if (isSpecific && selectedItemId && result.data) {
           const updatedLog = Array.isArray(result.data) ? result.data[0] : result.data;
@@ -481,14 +286,6 @@ export default function ReorderPointPage() {
             setFormData(updatedLog);
             setCustomSafetyStock(updatedLog.custom_safety_stock !== null ? updatedLog.custom_safety_stock ?? 0 : updatedLog.safety_stock ?? 0);
             setSafetyStockNotes(updatedLog.notes || "");
-          }
-        } else if (selectedItemId) {
-          // For general recalculation, find the updated log
-          const selectedLog = refreshedLogs.data?.find(log => log.uuid === selectedItemId);
-          if (selectedLog) {
-            setFormData(selectedLog);
-            setCustomSafetyStock(selectedLog.custom_safety_stock !== null ? selectedLog.custom_safety_stock ?? 0 : selectedLog.safety_stock ?? 0);
-            setSafetyStockNotes(selectedLog.notes || "");
           }
         }
       }
@@ -522,7 +319,7 @@ export default function ReorderPointPage() {
 
   // Effect to handle URL params (logId)
   useEffect(() => {
-    if (!user?.company_uuid || isLoadingItems) return;
+    if (!user?.company_uuid) return;
 
     const logId = searchParams.get("logId");
     if (logId) {
@@ -543,13 +340,12 @@ export default function ReorderPointPage() {
     }
 
     setIsLoading(false);
-  }, [searchParams, user?.company_uuid, isLoadingItems, reorderPointLogs]);
+  }, [searchParams, user?.company_uuid, reorderPointLogs]);
 
   // Update the initPage function to fetch with pagination
   useEffect(() => {
     const initPage = async () => {
       try {
-        setIsLoadingItems(true);
         setIsLoadingWarehouses(true);
 
         const userData = await getUserFromCookies();
@@ -561,41 +357,18 @@ export default function ReorderPointPage() {
         setUser(userData);
 
         // Fetch warehouses for filtering
-        (async () => {
-          const warehousesResult = await getWarehouses(userData.company_uuid);
-          setWarehouses(warehousesResult.data || []);
-          setIsLoadingWarehouses(false);
-        })();
+        const warehousesResult = await getWarehouses(userData.company_uuid);
+        setWarehouses(warehousesResult.data || []);
+        setIsLoadingWarehouses(false);
 
-        // Fetch inventory items for name lookup and reorder point logs with pagination
-        (async () => {
-          const inventoryResult = await getInventoryItems(userData.company_uuid);
-          const logsResult = await getReorderPointLogs(
-            userData.company_uuid,
-            undefined, // warehouseUuid
-            undefined, // statusFilter
-            "", // searchQuery
-            undefined, // dateFrom
-            undefined, // dateTo
-            undefined, // year
-            undefined, // month
-            undefined, // week
-            undefined, // day
-            rowsPerPage, // limit
-            0 // offset
-          );
-
-          setReorderPointLogs(logsResult.data || []);
-          setTotalPages(logsResult.totalPages || 1);
-          setTotalItems(logsResult.totalCount || 0);
-          setInventoryItems(inventoryResult.data || []);
-          setIsLoadingItems(false);
-        })();
+        // Fetch inventory items for name lookup
+        const inventoryResult = await getInventoryItems(userData.company_uuid);
+        setInventoryItems(inventoryResult.data || []);
 
       } catch (error) {
         console.error("Error initializing page:", error);
         setError("Failed to load data. Please try again later.");
-        setIsLoadingItems(false);
+        setIsLoadingWarehouses(false);
       }
     };
 
@@ -620,28 +393,15 @@ export default function ReorderPointPage() {
           filter: `company_uuid=eq.${user.company_uuid}`
         },
         async (payload) => {
-          // Refresh reorder point logs with pagination and date filters
-          const refreshedLogs = await getReorderPointLogs(
-            user.company_uuid,
-            selectedWarehouse || undefined,
-            statusFilter || undefined,
-            searchQuery,
-            dateFrom || undefined,
-            dateTo || undefined,
-            yearFilter || undefined,
-            monthFilter || undefined,
-            weekFilter || undefined,
-            dayFilter || undefined,
-            rowsPerPage, // limit
-            (page - 1) * rowsPerPage // offset
-          );
-
-          setReorderPointLogs(refreshedLogs.data || []);
-          setTotalPages(refreshedLogs.totalPages || 1);
-          setTotalItems(refreshedLogs.totalCount || 0);
-
           // If we have a selected item, refresh its details
           if (selectedItemId) {
+            // Find updated log and refresh form data
+            const refreshedLogs = await getReorderPointLogs(
+              user.company_uuid,
+              undefined,
+              undefined
+            );
+
             const selectedLog = refreshedLogs.data?.find(log => log.uuid === selectedItemId);
             if (selectedLog) {
               setFormData(selectedLog);
@@ -657,7 +417,7 @@ export default function ReorderPointPage() {
     return () => {
       supabase.removeChannel(reorderLogsChannel);
     };
-  }, [user?.company_uuid, searchQuery, selectedWarehouse, selectedItemId, statusFilter, page, rowsPerPage, dateFrom, dateTo, yearFilter, monthFilter, weekFilter, dayFilter]);
+  }, [user?.company_uuid, selectedItemId]);
 
   // error handling for loading states
   useEffect(() => {
@@ -685,14 +445,7 @@ export default function ReorderPointPage() {
         <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
           <div className="flex flex-col w-full xl:text-left text-center">
             <h1 className="text-2xl font-bold">Reorder Point Management</h1>
-            {(isLoading || isLoadingItems) ? (
-              <div className="text-default-500 flex xl:justify-start justify-center items-center">
-                <p className='my-auto mr-1'>Loading reorder point data</p>
-                <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
-              </div>
-            ) : (
-              <p className="text-default-500">Monitor stock levels and set reorder points for your inventory.</p>
-            )}
+            <p className="text-default-500">Monitor stock levels and set reorder points for your inventory.</p>
           </div>
           <div className="flex gap-4 xl:mt-0 mt-4 text-center">
             <Button
@@ -716,565 +469,131 @@ export default function ReorderPointPage() {
           </div>
         </div>
         <div className="flex flex-col xl:flex-row gap-4">
-          {/* Left side: Reorder Point Logs List */}
-          <div className={`xl:w-1/3 shadow-xl shadow-primary/10
-          xl:min-h-[calc(100vh-6.5rem)] 2xl:min-h-[calc(100vh-9rem)] min-h-[42rem] 
-          xl:min-w-[350px] w-full rounded-2xl overflow-hidden bg-background border 
-          border-default-200 backdrop-blur-lg xl:sticky top-0 self-start max-h-[calc(100vh-2rem)]`}
-          >
-            <div className="flex flex-col h-full">
-              <div className="p-4 sticky top-0 z-20 bg-background/80 border-b border-default-200 backdrop-blur-lg shadow-sm">
-                <LoadingAnimation
-                  condition={!user || isLoadingWarehouses}
-                  skeleton={
-                    <>
-                      {/* Heading skeleton */}
-                      <Skeleton className="h-[1.75rem] w-48 mx-auto mb-4 rounded-full" />
+          {/* Left side: Reorder Point Logs List using SearchListPanel */}
+          <SearchListPanel
+            title="Reorder Point Logs"
+            tableName="reorder_point_logs"
+            searchPlaceholder="Search logs..."
+            searchLimit={10}
+            dateFilters={["dateRange", "weekFilter", "specificDate"]}
+            companyUuid={user?.company_uuid}
+            filters={reorderPointFilters}
+            renderItem={(log) => (
+              <Button
+                key={log.uuid}
+                onPress={() => handleSelectItem(log.uuid)}
+                variant="shadow"
+                className={`w-full !transition-all duration-300 rounded-2xl p-0 group overflow-hidden min-h-[7.5rem]
+                            ${selectedItemId === log.uuid ?
+                    '!bg-gradient-to-br from-primary-500 to-primary-600 hover:from-primary-400 hover:to-primary-500 !shadow-xl hover:!shadow-2xl !shadow-primary-300/50 border-2 border-primary-300/30' :
+                    '!bg-gradient-to-br from-background to-default-50 hover:from-default-50 hover:to-default-100 !shadow-lg hover:!shadow-xl !shadow-default-300/30 border-2 border-default-200/50 hover:border-default-300/50'}`}
+              >
+                <div className="w-full flex flex-col h-full relative">
+                  {/* Background pattern */}
+                  <div className={`absolute inset-0 opacity-5 ${selectedItemId === log.uuid ? 'bg-white' : 'bg-primary-500'}`}>
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_80%,_var(--tw-gradient-stops))] from-current via-transparent to-transparent"></div>
+                  </div>
 
-                      <div className="space-y-4">
-                        {/* Search input skeleton */}
-                        <Skeleton className="h-10 w-full rounded-xl" />
-
-                        {/* Filter controls skeleton */}
-                        <div className="flex items-center gap-2 mt-2">
-                          <ScrollShadow orientation="horizontal" className="flex-1" hideScrollBar>
-                            <div className="flex flex-row gap-2 items-center">
-                              {/* Filter button skeleton */}
-                              <Skeleton className="h-10 w-24 rounded-xl flex-none" />
-
-                              {/* Filter chips area skeleton */}
-                              <Skeleton className="h-8 w-32 rounded-full flex-none" />
-                              <Skeleton className="h-8 w-36 rounded-full flex-none" />
-                              <Skeleton className="h-8 w-24 rounded-full flex-none" />
-                            </div>
-                          </ScrollShadow>
+                  {/* Log details */}
+                  <div className="flex-grow flex flex-col justify-center px-4 relative z-10">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0 text-left">
+                        <span className={`font-bold text-lg leading-tight block truncate text-left
+                                          ${selectedItemId === log.uuid ? 'text-primary-50' : 'text-default-800'}`}>
+                          {getInventoryItemName(log.inventory_uuid)}
+                        </span>
+                        <div className={`w-full mt-1 text-sm leading-relaxed text-left
+                                        ${selectedItemId === log.uuid ? 'text-primary-100' : 'text-default-600'}`}>
+                          {getWarehouseName(log.warehouse_uuid)}
                         </div>
                       </div>
-                    </>
-                  }>
-                  <h2 className="text-xl font-semibold mb-4 w-full text-center">Reorder Point Logs</h2>
-                  <div className="space-y-4">
-                    <Input
-                      placeholder="Search logs..."
-                      value={searchQuery}
-                      onChange={(e) => handleSearch(e.target.value)}
-                      isClearable
-                      onClear={() => handleSearch("")}
-                      startContent={<Icon icon="mdi:magnify" className="text-default-500" />}
-                    />
-
-                    {/* Replace the single Autocomplete with this new filter UI */}
-                    <div className="flex items-center gap-2 mt-2">
-                      <ScrollShadow orientation="horizontal" className="flex-1 overflow-x-auto" hideScrollBar>
-                        <div className="inline-flex items-center gap-2">
-                          <Popover
-                            isOpen={isSearchFilterOpen}
-                            onOpenChange={setIsSearchFilterOpen}
-                            classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
-                            motionProps={popoverTransition()}
-                            offset={10}
-                            placement="bottom-start">
-                            <PopoverTrigger>
-                              <Button
-                                variant="flat"
-                                color="default"
-                                className="w-24 h-10 rounded-lg !outline-none rounded-xl"
-                                startContent={<Icon icon="mdi:filter-variant" className="text-default-500" />}
-                              >
-                                Filters
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-96 p-0 overflow-hidden">
-                              <div>
-                                <div className="space-y-4 p-4">
-                                  <h3 className="text-lg font-semibold items-center w-full text-center">
-                                    Filter Options
-                                  </h3>
-
-                                  {/* Warehouse filter */}
-                                  <Autocomplete
-                                    name="warehouse_uuid"
-                                    label="Filter by Warehouse"
-                                    placeholder="All Warehouses"
-                                    selectedKey={selectedWarehouse || ""}
-                                    onSelectionChange={(e) => handleWarehouseChange(`${e}` || null)}
-                                    startContent={<Icon icon="mdi:warehouse" className="text-default-500 mb-[0.2rem]" />}
-                                    inputProps={autoCompleteStyle}
-                                  >
-                                    {[
-                                      (<AutocompleteItem key="">All Warehouses</AutocompleteItem>),
-                                      ...warehouses.map((warehouse) => (
-                                        <AutocompleteItem key={warehouse.uuid}>
-                                          {warehouse.name}
-                                        </AutocompleteItem>
-                                      ))]}
-                                  </Autocomplete>
-
-                                  <Autocomplete
-                                    name="status_filter"
-                                    label="Filter by Status"
-                                    placeholder="All Statuses"
-                                    selectedKey={statusFilter || ""}
-                                    onSelectionChange={(key) => handleStatusFilterChange(key as InventoryStatus || null)}
-                                    startContent={<Icon icon="mdi:filter-variant" className="text-default-500 mb-[0.2rem]" />}
-                                    inputProps={autoCompleteStyle}
-                                  >
-                                    <AutocompleteItem key="">All Statuses</AutocompleteItem>
-                                    <AutocompleteItem key="IN_STOCK">In Stock</AutocompleteItem>
-                                    <AutocompleteItem key="WARNING">Warning</AutocompleteItem>
-                                    <AutocompleteItem key="CRITICAL">Critical</AutocompleteItem>
-                                    <AutocompleteItem key="OUT_OF_STOCK">Out of Stock</AutocompleteItem>
-                                  </Autocomplete>
-
-                                  {/* Date Filters */}
-                                  <div className="space-y-3 border-2 border-default-200 rounded-xl p-4 bg-default-100/25">
-                                    <div className="flex items-center gap-2">
-                                      <Icon icon="mdi:calendar-range" className="text-default-500" />
-                                      <span className="text-sm font-medium">Date Filters</span>
-                                    </div>
-
-                                    <Tabs
-                                      selectedKey={dateTabKey}
-                                      onSelectionChange={(key) => {
-                                        const tabKey = key as string;
-                                        setDateTabKey(tabKey);
-                                        // Reset all date filters when switching tabs
-                                        setDateFrom(null);
-                                        setDateTo(null);
-                                        setYearFilter(null);
-                                        setMonthFilter(null);
-                                        setWeekFilter(null);
-                                        setDayFilter(null);
-                                        applyDateFilters("", "", null, null, null, null);
-                                      }}
-                                      variant="solid"
-                                      color="primary"
-                                      fullWidth
-                                      size="md"
-                                      classNames={{
-                                        panel: "p-0",
-                                        tabList: "border-2 border-default-200",
-                                        tabContent: "text-default-700",
-                                      }}
-                                      className="w-full"
-                                    >
-                                      <Tab key="range" title="Date Range">
-                                        <DateRangePicker
-                                          label="Select Date Range"
-                                          className="w-full"
-                                          value={dateFrom && dateTo ? {
-                                            start: dateFrom,
-                                            end: dateTo
-                                          } : null}
-                                          onChange={(range) => {
-                                            if (range) {
-                                              setDateFrom(range.start);
-                                              setDateTo(range.end);
-                                              const dateFromString = new Date(range.start.year, range.start.month - 1, range.start.day).toISOString().split('T')[0];
-                                              const dateToString = new Date(range.end.year, range.end.month - 1, range.end.day).toISOString().split('T')[0];
-                                              applyDateFilters(dateFromString, dateToString, null, null, null, null);
-                                            } else {
-                                              setDateFrom(null);
-                                              setDateTo(null);
-                                              applyDateFilters("", "", null, null, null, null);
-                                            }
-                                          }}
-                                          classNames={inputStyle}
-                                        />
-                                      </Tab>
-
-                                      <Tab key="week" title="By Week">
-                                        <div className="space-y-3">
-                                          <div className="flex gap-2">
-                                            <Input
-                                              type="number"
-                                              label="Year"
-                                              placeholder="2024"
-                                              value={yearFilter?.toString() || ""}
-                                              onChange={(e) => {
-                                                const year = e.target.value ? parseInt(e.target.value) : null;
-                                                setYearFilter(year);
-                                                applyDateFilters("", "", year, null, weekFilter, null);
-                                              }}
-                                              className="flex-1"
-                                              classNames={inputStyle}
-                                              min="2000"
-                                              max="2100"
-                                            />
-                                            <Input
-                                              type="number"
-                                              label="Week"
-                                              placeholder="1-53"
-                                              value={weekFilter?.toString() || ""}
-                                              onChange={(e) => {
-                                                const week = e.target.value ? parseInt(e.target.value) : null;
-                                                setWeekFilter(week);
-                                                applyDateFilters("", "", yearFilter || new Date().getFullYear(), null, week, null);
-                                              }}
-                                              className="flex-1"
-                                              classNames={inputStyle}
-                                              min="1"
-                                              max="53"
-                                            />
-                                          </div>
-                                          {(yearFilter || weekFilter) && (
-                                            <Button
-                                              size="sm"
-                                              variant="flat"
-                                              color="warning"
-                                              onPress={() => {
-                                                setYearFilter(null);
-                                                setWeekFilter(null);
-                                                applyDateFilters("", "", null, null, null, null);
-                                              }}
-                                              className="w-full"
-                                              startContent={<Icon icon="mdi:close" />}
-                                            >
-                                              Clear Week Filter
-                                            </Button>
-                                          )}
-                                        </div>
-                                      </Tab>
-
-                                      <Tab key="specific" title="Specific Date">
-                                        <div className="space-y-3">
-                                          <div className="grid grid-cols-3 gap-2">
-                                            <Input
-                                              type="number"
-                                              label="Year"
-                                              placeholder="2024"
-                                              value={yearFilter?.toString() || ""}
-                                              onChange={(e) => {
-                                                const year = e.target.value ? parseInt(e.target.value) : null;
-                                                setYearFilter(year);
-                                                applyDateFilters("", "", year, monthFilter, null, dayFilter);
-                                              }}
-                                              classNames={inputStyle}
-                                              min="2000"
-                                              max="2100"
-                                            />
-                                            <Input
-                                              type="number"
-                                              label="Month"
-                                              placeholder="1-12"
-                                              value={monthFilter?.toString() || ""}
-                                              onChange={(e) => {
-                                                const month = e.target.value ? parseInt(e.target.value) : null;
-                                                setMonthFilter(month);
-                                                applyDateFilters("", "", yearFilter, month, null, dayFilter);
-                                              }}
-                                              classNames={inputStyle}
-                                              min="1"
-                                              max="12"
-                                            />
-                                            <Input
-                                              type="number"
-                                              label="Day"
-                                              placeholder="1-31"
-                                              value={dayFilter?.toString() || ""}
-                                              onChange={(e) => {
-                                                const day = e.target.value ? parseInt(e.target.value) : null;
-                                                setDayFilter(day);
-                                                applyDateFilters("", "", yearFilter, monthFilter, null, day);
-                                              }}
-                                              classNames={inputStyle}
-                                              min="1"
-                                              max="31"
-                                            />
-                                          </div>
-                                          {(yearFilter || monthFilter || dayFilter) && (
-                                            <Button
-                                              size="sm"
-                                              variant="flat"
-                                              color="warning"
-                                              onPress={() => {
-                                                setYearFilter(null);
-                                                setMonthFilter(null);
-                                                setDayFilter(null);
-                                                applyDateFilters("", "", null, null, null, null);
-                                              }}
-                                              className="w-full"
-                                              startContent={<Icon icon="mdi:close" />}
-                                            >
-                                              Clear Specific Date Filter
-                                            </Button>
-                                          )}
-                                        </div>
-                                      </Tab>
-                                    </Tabs>
-                                  </div>
-
-                                </div>
-
-                                <div className="p-4 border-t border-default-200 flex justify-end gap-2 bg-default-100/50">
-                                  {/* Clear All Filters Button */}
-                                  {(selectedWarehouse || statusFilter || dateFrom || dateTo || yearFilter || monthFilter || weekFilter || dayFilter) && (
-                                    <Button
-                                      variant="flat"
-                                      color="danger"
-                                      size="sm"
-                                      onPress={() => {
-                                        handleWarehouseChange(null);
-                                        handleStatusFilterChange(null);
-                                        clearDateFilters();
-                                        setDateTabKey("range");
-                                      }}
-                                      startContent={<Icon icon="mdi:filter-remove" />}
-                                    >
-                                      Clear All Filters
-                                    </Button>
-                                  )}
-                                  <Button
-                                    size="sm"
-                                    variant="flat"
-                                    onPress={() => setIsSearchFilterOpen(false)}
-                                  >
-                                    Close
-                                  </Button>
-                                </div>
-                              </div>
-                            </PopoverContent>
-
-                          </Popover>
-
-                          {selectedWarehouse && (
-                            <Chip
-                              variant="flat"
-                              color="primary"
-                              onClose={() => handleWarehouseChange(null)}
-                              size="sm"
-                              className="h-8 p-2"
-                            >
-                              <div className="flex items-center gap-1">
-                                <Icon icon="mdi:warehouse" className="text-xs" />
-                                {warehouses.find(w => w.uuid === selectedWarehouse)?.name || 'Unknown Warehouse'}
-                              </div>
-                            </Chip>
-                          )}
-
-                          {statusFilter && (
-                            <Chip
-                              variant="flat"
-                              color={getStatusColor(statusFilter)}
-                              onClose={() => handleStatusFilterChange(null)}
-                              size="sm"
-                              className="h-8 p-2"
-                            >
-                              <div className="flex items-center gap-1">
-                                <Icon icon="mdi:filter-variant" className="text-xs" />
-                                {statusFilter.replaceAll('_', ' ')}
-                              </div>
-                            </Chip>
-                          )}
-
-                          {(dateFrom || dateTo) && (
-                            <Chip
-                              variant="flat"
-                              color="secondary"
-                              onClose={() => {
-                                setDateFrom(null);
-                                setDateTo(null);
-                                applyDateFilters("", "", null, null, null, null);
-                              }}
-                              size="sm"
-                              className="h-8 p-2"
-                            >
-                              <div className="flex items-center gap-1">
-                                <Icon icon="mdi:calendar-range" className="text-xs" />
-                                {dateFrom && dateTo ? `${format(new Date(dateFrom.year, dateFrom.month - 1, dateFrom.day), 'MMM d')} - ${format(new Date(dateTo.year, dateTo.month - 1, dateTo.day), 'MMM d')}` : 'Date Range'}
-                              </div>
-                            </Chip>
-                          )}
-
-                          {weekFilter && (
-                            <Chip
-                              variant="flat"
-                              color="secondary"
-                              onClose={() => {
-                                setWeekFilter(null);
-                                setYearFilter(null);
-                                applyDateFilters("", "", null, null, null, null);
-                              }}
-                              size="sm"
-                              className="h-8 p-2"
-                            >
-                              <div className="flex items-center gap-1">
-                                <Icon icon="mdi:calendar-week" className="text-xs" />
-                                Week {weekFilter}/{yearFilter || new Date().getFullYear()}
-                              </div>
-                            </Chip>
-                          )}
-
-                          {(yearFilter || monthFilter || dayFilter) && !weekFilter && (
-                            <Chip
-                              variant="flat"
-                              color="secondary"
-                              onClose={() => {
-                                setYearFilter(null);
-                                setMonthFilter(null);
-                                setDayFilter(null);
-                                applyDateFilters("", "", null, null, null, null);
-                              }}
-                              size="sm"
-                              className="h-8 p-2"
-                            >
-                              <div className="flex items-center gap-1">
-                                <Icon icon="mdi:calendar" className="text-xs" />
-                                {yearFilter && monthFilter && dayFilter
-                                  ? `${dayFilter}/${monthFilter}/${yearFilter}`
-                                  : `Custom Date`}
-                              </div>
-                            </Chip>
-                          )}
-
-                          {(selectedWarehouse || statusFilter || dateFrom || dateTo || yearFilter || monthFilter || weekFilter || dayFilter) && (
-                            <Button
-                              size="sm"
-                              variant="light"
-                              className="rounded-lg"
-                              onPress={() => {
-                                handleWarehouseChange(null);
-                                handleStatusFilterChange(null);
-                                clearDateFilters();
-                                setDateTabKey("range");
-                              }}
-                            >
-                              Clear all
-                            </Button>
-                          )}
-                        </div>
-                      </ScrollShadow>
+                      <div className="flex-shrink-0 self-start">
+                        <Chip
+                          color={selectedItemId === log.uuid ? "default" : getStatusColor(log.status)}
+                          variant="shadow"
+                          size="sm"
+                          className={`font-semibold ${selectedItemId === log.uuid ? 'bg-primary-50 text-primary-600' : ''}`}
+                        >
+                          {log.status.replaceAll('_', ' ')}
+                        </Chip>
+                      </div>
                     </div>
                   </div>
-                </LoadingAnimation>
-              </div>
 
-              <div className="h-full absolute w-full">
-                <CustomScrollbar
-                  scrollShadow
-                  scrollShadowTop={false}
-                  scrollbarMarginTop="10.75rem"
-                  scrollbarMarginBottom="0.5rem"
-                  disabled={!user || isLoadingItems}
-                  className="space-y-4 p-4 mt-1 pt-[11.5rem] h-full relative">
-                  <ListLoadingAnimation
-                    condition={!user || isLoadingItems}
-                    containerClassName="space-y-4"
-                    skeleton={[...Array(10)].map((_, i) => (
-                      <Skeleton key={i} className="w-full min-h-[7.5rem] rounded-xl" />
-                    ))}
-                  >
-                    {reorderPointLogs.map((log) => (
-                      <Button
-                        key={log.uuid}
-                        onPress={() => handleSelectItem(log.uuid)}
-                        variant="shadow"
-                        className={`w-full min-h-[7.5rem] !transition-all duration-200 rounded-xl p-0 ${selectedItemId === log.uuid ?
-                          '!bg-primary hover:!bg-primary-400 !shadow-lg hover:!shadow-md hover:!shadow-primary-200 !shadow-primary-200' :
-                          '!bg-default-100/50 shadow-none hover:!bg-default-200 !shadow-2xs hover:!shadow-md hover:!shadow-default-200 !shadow-default-200'}`}
-                      >
-                        <div className="w-full flex flex-col h-full">
-                          {/* Header - icon and title */}
-                          <div className="flex-grow flex flex-col justify-center px-3">
-                            <div className="flex items-center justify-between">
-                              <span className="font-semibold">
-                                {getInventoryItemName(log.inventory_uuid)}
-                              </span>
-                              <Chip color={getStatusColor(log.status)} variant={selectedItemId === log.uuid ? "shadow" : "flat"} size="sm">
-                                {log.status.replaceAll('_', ' ')}
-                              </Chip>
-                            </div>
-                            <div className={`w-full mt-1 text-sm ${selectedItemId === log.uuid ? 'text-default-800 ' : 'text-default-600'} text-start text-ellipsis overflow-hidden whitespace-nowrap`}>
-                              {getWarehouseName(log.warehouse_uuid)}
-                            </div>
-                          </div>
-
-                          {/* Footer - always at the bottom */}
-                          <div className={`flex items-center gap-2 border-t ${selectedItemId === log.uuid ? 'border-primary-300' : 'border-default-100'} p-3`}>
-                            <Chip
-                              color={selectedItemId === log.uuid ? "default" : "primary"}
-                              variant={selectedItemId === log.uuid ? "shadow" : "flat"}
-                              size="sm">
-                              {formatDate(log.updated_at)}
-                            </Chip>
-                            <Chip color="default" variant={selectedItemId === log.uuid ? "shadow" : "flat"} size="sm">
-                              {log.current_stock} {log.unit}
-                            </Chip>
-                            <Chip color="default" variant={selectedItemId === log.uuid ? "shadow" : "flat"} size="sm">
-                              RP: {Math.ceil(log.reorder_point)} {log.unit}
-                            </Chip>
-                          </div>
-                        </div>
-                      </Button>
-                    ))}
-                  </ListLoadingAnimation>
-
-                  {reorderPointLogs.length > 0 && (
-                    <div className="flex flex-col items-center pt-2 pb-4 px-2">
-                      <div className="text-sm text-default-500 mb-2">
-                        Showing {(page - 1) * rowsPerPage + 1} to {Math.min(page * rowsPerPage, totalItems)} of {totalItems} {totalItems === 1 ? 'item' : 'items'}
+                  {/* Log metadata */}
+                  <div className={`flex items-center gap-2 backdrop-blur-sm rounded-b-2xl border-t relative z-10 justify-start
+        ${selectedItemId === log.uuid ?
+                      'border-primary-300/30 bg-primary-700/20' :
+                      'border-default-200/50 bg-default-100/50'} p-4`}>
+                    <Chip
+                      color={selectedItemId === log.uuid ? "default" : "secondary"}
+                      variant="flat"
+                      size="sm"
+                      className={`font-medium ${selectedItemId === log.uuid ? 'bg-secondary-100/80 text-primary-700 border-primary-200/60' : 'bg-secondary-100/80'}`}
+                    >
+                      <div className="flex items-center gap-1">
+                        <Icon icon="mdi:calendar" width={12} height={12} />
+                        {formatDate(log.updated_at)}
                       </div>
-                      <Pagination
-                        total={totalPages}
-                        initialPage={1}
-                        page={page}
-                        onChange={handlePageChange}
-                        color="primary"
-                        size="sm"
-                        showControls
-                      />
-                    </div>
-                  )}
+                    </Chip>
 
-                  {/* Empty state and loading animations */}
-                  <AnimatePresence>
-                    {(!user || isLoadingItems) && (
-                      <motion.div
-                        className="absolute inset-0 flex items-center justify-center"
-                        initial={{ opacity: 0, filter: "blur(8px)" }}
-                        animate={{ opacity: 1, filter: "blur(0px)" }}
-                        exit={{ opacity: 0, filter: "blur(8px)" }}
-                        transition={{ duration: 0.3, delay: 0.3 }}
-                      >
-                        <div className="absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-background to-transparent pointer-events-none" />
-                        <div className="py-4 flex absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
-                          <Spinner />
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                    <Chip
+                      color={selectedItemId === log.uuid ? "default" : "warning"}
+                      variant="flat"
+                      size="sm"
+                      className={`font-medium ${selectedItemId === log.uuid ? 'bg-warning-100/80 text-warning-700 border-warning-200/60' : 'bg-warning-100/80'}`}
+                    >
+                      <div className="flex items-center gap-1">
+                        <Icon icon="mdi:package-variant" width={12} height={12} />
+                        {log.current_stock} {log.unit}
+                      </div>
+                    </Chip>
 
-                  {/* No items found state */}
-                  <AnimatePresence>
-                    {user && !isLoadingItems && reorderPointLogs.length === 0 && (
-                      <motion.div
-                        className="absolute inset-0 flex items-center justify-center"
-                        initial={{ opacity: 0, filter: "blur(8px)" }}
-                        animate={{ opacity: 1, filter: "blur(0px)" }}
-                        exit={{ opacity: 0, filter: "blur(8px)" }}
-                        transition={{ duration: 0.3 }}
-                      >
-                        <div className="py-4 flex flex-col items-center justify-center absolute mt-16 ">
-                          <Icon icon="fluent:box-dismiss-20-filled" className="text-5xl text-default-300" />
-                          <p className="text-default-500 mt-2">No reorder point logs found.</p>
-                          <Button
-                            color="primary"
-                            variant="light"
-                            size="sm"
-                            className="mt-4"
-                            onPress={() => { handleRecalculateReorderPoints() }}
-                          >
-                            Calculate Reorder Points
-                          </Button>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                    <Chip
+                      color={selectedItemId === log.uuid ? "default" : "success"}
+                      variant="flat"
+                      size="sm"
+                      className={`font-medium ${selectedItemId === log.uuid ? 'bg-success-100/80 text-success-700 border-success-200/60' : 'bg-success-100/80'}`}
+                    >
+                      <div className="flex items-center gap-1">
+                        <Icon icon="mdi:alert-circle" width={12} height={12} />
+                        RP: {Math.ceil(log.reorder_point)} {log.unit}
+                      </div>
+                    </Chip>
+                  </div>
 
-                </CustomScrollbar>
-              </div>
-            </div>
-          </div>
+                  {/* Hover effect overlay */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 transform -skew-x-12 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700"></div>
+                </div>
+              </Button>
+            )}
+            renderSkeletonItem={(i) => (
+              <Skeleton key={i} className="w-full min-h-[7.5rem] rounded-xl" />
+            )}
+            renderEmptyCard={(
+              <>
+                <Icon icon="mdi:chart-bell-curve" className="text-5xl text-default-300" />
+                <p className="text-default-500 mt-2 mx-8 text-center">
+                  No reorder point logs found
+                </p>
+                <Button
+                  color="primary"
+                  variant="flat"
+                  size="sm"
+                  className="mt-4"
+                  onPress={() => handleRecalculateReorderPoints()}
+                  startContent={<Icon icon="mdi:refresh" className="text-default-500" />}>
+                  Calculate Reorder Points
+                </Button>
+              </>
+            )}
+            onItemSelect={handleSelectItem}
+            supabaseFunction="get_reorder_point_logs_filtered"
+            className={`xl:w-1/3 shadow-xl shadow-primary/10 
+            xl:min-h-[calc(100vh-6.5rem)] 2xl:min-h-[calc(100vh-9rem)] min-h-[42rem] 
+            xl:min-w-[350px] w-full rounded-2xl overflow-hidden bg-background border 
+            border-default-200 backdrop-blur-lg xl:sticky top-0 self-start max-h-[calc(100vh-2rem)]`}
+          />
 
           {/* Right side: Reorder Point Details */}
           <div className="xl:w-2/3 overflow-hidden">
@@ -1598,7 +917,7 @@ export default function ReorderPointPage() {
             ) : (
               <div className="items-center justify-center p-12 border border-dashed border-default-300 rounded-2xl bg-background">
                 <LoadingAnimation
-                  condition={!user || isLoadingItems}
+                  condition={!user || isLoadingWarehouses}
                   skeleton={
                     <div className="flex flex-col items-center justify-center">
                       <Skeleton className="w-16 h-16 rounded-full mb-4" />
@@ -1617,25 +936,10 @@ export default function ReorderPointPage() {
                       color="primary"
                       variant="shadow"
                       className="mb-4"
-                      onPress={() => {
-                        if (reorderPointLogs.length > 0) {
-                          handleSelectItem(reorderPointLogs[0].uuid);
-                        } else {
-                          handleRecalculateReorderPoints();
-                        }
-                      }}
+                      onPress={() => handleRecalculateReorderPoints()}
                     >
-                      {reorderPointLogs.length > 0 ? (
-                        <>
-                          <Icon icon="mdi:eye" className="mr-2" />
-                          View First Item
-                        </>
-                      ) : (
-                        <>
-                          <Icon icon="mdi:refresh" className="mr-2" />
-                          Calculate Reorder Points
-                        </>
-                      )}
+                      <Icon icon="mdi:refresh" className="mr-2" />
+                      Calculate Reorder Points
                     </Button>
                   </div>
                 </LoadingAnimation>

@@ -316,10 +316,14 @@ export default function DeliveryPage() {
     return inventoryItems.filter(item => item.inventory_uuid === inventoryUuid);
   };
 
+
   const getDisplayInventoryItemsListForInventory = (inventoryUuid: string) => {
     let items = getInventoryItemsForInventory(inventoryUuid);
 
-    if (formData.status !== 'DELIVERED' && formData.status !== 'CANCELLED') {
+    // UPDATED: For delivered/cancelled status, don't filter out IN_WAREHOUSE/USED items
+    // since they might be part of the delivery we're viewing
+    if (formData.status !== 'DELIVERED' && formData.status !== 'CANCELLED' &&
+      formData.status !== 'PROCESSING' && formData.status !== 'IN_TRANSIT') {
       items = items.filter(item =>
         item.status !== 'IN_WAREHOUSE' &&
         item.status !== 'USED'
@@ -521,7 +525,6 @@ export default function DeliveryPage() {
             setSelectedGroup(firstLoc.group ?? null);
           }
 
-          // Load inventory items with the updated formData
           for (const inventoryUuid of inventoryUuids) {
             try {
               await loadInventoryItemsWithCurrentData(inventoryUuid, true, deliveryData, deliveryId);
@@ -565,6 +568,7 @@ export default function DeliveryPage() {
 
     setIsLoadingInventoryItems(true);
     try {
+
       const result = await getInventoryItem(
         inventoryUuid,
         (currentFormData || formData).status === "DELIVERED" || (currentFormData || formData).status === "CANCELLED",
@@ -591,7 +595,6 @@ export default function DeliveryPage() {
         });
 
         setLoadedInventoryUuids(prev => new Set([...prev, inventoryUuid]));
-
         setNextItemId(prev => Math.max(prev, inventoryItemsWithIds.length + 1));
 
         return Promise.resolve();
