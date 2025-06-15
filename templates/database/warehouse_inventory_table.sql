@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS public.warehouse_inventory (
   company_uuid UUID NOT NULL REFERENCES public.companies(uuid) ON DELETE CASCADE,
   admin_uuid UUID NOT NULL REFERENCES public.profiles(uuid) ON DELETE SET NULL,
   warehouse_uuid UUID not null REFERENCES public.warehouses (uuid) on DELETE CASCADE,
-  inventory_uuid UUID not null REFERENCES public.inventory (uuid) ON DELETE SET NULL,
+  inventory_uuid UUID  REFERENCES public.inventory (uuid) ON DELETE SET NULL,
   name TEXT NOT NULL,
   description TEXT,
   measurement_unit TEXT NOT NULL,
@@ -1071,42 +1071,6 @@ CREATE TRIGGER trg_warehouse_inventory_items_aggregation
     FOR EACH ROW
     EXECUTE FUNCTION update_warehouse_inventory_aggregations_trigger();
 
--- Add a trigger specifically for tracking status changes in warehouse inventory items
-CREATE OR REPLACE FUNCTION log_warehouse_item_status_change()
-RETURNS TRIGGER AS $$
-DECLARE
-    v_timestamp text;
-BEGIN
-    -- Only log if status actually changed
-    IF TG_OP = 'UPDATE' AND OLD.status IS DISTINCT FROM NEW.status THEN
-        v_timestamp := to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
-        
-        -- Update the status_history
-        NEW.status_history = COALESCE(NEW.status_history, '{}'::jsonb) || 
-            jsonb_build_object(
-                v_timestamp, 
-                jsonb_build_object(
-                    'from', COALESCE(OLD.status, 'NULL'),
-                    'to', COALESCE(NEW.status, 'NULL'),
-                    'trigger', 'warehouse_item_status_change'
-                )
-            );
-        NEW.updated_at = NOW();
-        
-        -- Log the status change
-        RAISE NOTICE 'Warehouse item % status changed from % to %', NEW.uuid, OLD.status, NEW.status;
-    END IF;
-    
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Add status change logging trigger for warehouse inventory items
-DROP TRIGGER IF EXISTS trg_warehouse_item_status_change ON warehouse_inventory_items;
-CREATE TRIGGER trg_warehouse_item_status_change
-    BEFORE UPDATE ON warehouse_inventory_items
-    FOR EACH ROW
-    EXECUTE FUNCTION log_warehouse_item_status_change();
 
 -- Function to recalculate all warehouse inventory aggregations (useful for maintenance)
 CREATE OR REPLACE FUNCTION recalculate_all_warehouse_inventory_aggregations()
@@ -1171,7 +1135,6 @@ CREATE TRIGGER trg_warehouse_inventory_status_update
 -- Grant execute permissions on the new functions
 GRANT EXECUTE ON FUNCTION public.update_warehouse_inventory_aggregations TO authenticated;
 GRANT EXECUTE ON FUNCTION public.update_warehouse_inventory_aggregations_trigger TO authenticated;
-GRANT EXECUTE ON FUNCTION public.log_warehouse_item_status_change TO authenticated;
 GRANT EXECUTE ON FUNCTION public.recalculate_all_warehouse_inventory_aggregations TO authenticated;
 GRANT EXECUTE ON FUNCTION public.update_warehouse_inventory_status TO authenticated;
 

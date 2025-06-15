@@ -168,36 +168,6 @@ CREATE TRIGGER trg_inventory_items_aggregation
     FOR EACH ROW
     EXECUTE FUNCTION update_inventory_aggregations();
 
--- Add a trigger specifically for tracking status changes with detailed logging
-CREATE OR REPLACE FUNCTION log_inventory_item_status_change()
-RETURNS TRIGGER AS $$
-BEGIN
-    -- Only log if status actually changed
-    IF TG_OP = 'UPDATE' AND OLD.status IS DISTINCT FROM NEW.status THEN
-        -- Update the status_history
-        NEW.status_history = COALESCE(NEW.status_history, '{}'::jsonb) || 
-            jsonb_build_object(
-                NOW()::text, 
-                jsonb_build_object(
-                    'from', COALESCE(OLD.status, 'NULL'),
-                    'to', COALESCE(NEW.status, 'NULL'),
-                    'trigger', 'inventory_item_status_change'
-                )
-            );
-        NEW.updated_at = NOW();
-    END IF;
-    
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Add status change logging trigger
-DROP TRIGGER IF EXISTS trg_inventory_item_status_change ON inventory_items;
-CREATE TRIGGER trg_inventory_item_status_change
-    BEFORE UPDATE ON inventory_items
-    FOR EACH ROW
-    EXECUTE FUNCTION log_inventory_item_status_change();
-
 -- Add a function to recalculate all inventory aggregations (useful for maintenance)
 CREATE OR REPLACE FUNCTION recalculate_all_inventory_aggregations()
 RETURNS INTEGER AS $$
@@ -571,8 +541,7 @@ BEGIN
       packaging_unit,
       cost,
       group_id,
-      properties,
-      status_history
+      properties
     )
     SELECT 
       (elem->>'company_uuid')::UUID,
@@ -583,8 +552,7 @@ BEGIN
       (elem->>'packaging_unit')::TEXT,
       (elem->>'cost')::NUMERIC,
       (elem->>'group_id')::TEXT,
-      (elem->'properties')::JSONB,
-      jsonb_build_object(to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), 'AVAILABLE')
+      (elem->'properties')::JSONB
     FROM jsonb_array_elements(p_new_inventory_item) as elem;
   END IF;
 

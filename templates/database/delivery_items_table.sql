@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS public.delivery_items (
   notes TEXT,
   
   status TEXT DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'IN_TRANSIT', 'DELIVERED', 'CONFIRMED', 'CANCELLED')),
-  status_history JSONB DEFAULT '{}'::jsonb,
+  status_history JSONB DEFAULT (jsonb_build_object(to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), 'PENDING')),
   created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
 );
@@ -124,9 +124,7 @@ BEGIN
   IF v_inventory_item_uuids IS NOT NULL AND array_length(v_inventory_item_uuids, 1) > 0 THEN
     UPDATE inventory_items 
     SET 
-      status = 'ON_DELIVERY',
-      status_history = COALESCE(status_history, '{}'::jsonb) || jsonb_build_object(v_timestamp, 'ON_DELIVERY'),
-      updated_at = now()
+      status = 'ON_DELIVERY'
     WHERE uuid = ANY(v_inventory_item_uuids)
       AND company_uuid = p_company_uuid;
   END IF;
@@ -179,9 +177,6 @@ DECLARE
   v_item_record jsonb;
   v_item_key text;
 BEGIN
-  -- Generate timestamp for status history
-  v_timestamp := to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
-  
   -- Get the delivery record
   SELECT * INTO v_delivery_record
   FROM delivery_items
@@ -285,9 +280,7 @@ BEGIN
   IF array_length(v_items_to_add, 1) > 0 THEN
     UPDATE inventory_items 
     SET 
-      status = 'ON_DELIVERY',
-      status_history = COALESCE(status_history, '{}'::jsonb) || jsonb_build_object(v_timestamp, 'ON_DELIVERY'),
-      updated_at = now()
+      status = 'ON_DELIVERY'
     WHERE uuid = ANY(v_items_to_add)
       AND company_uuid = v_delivery_record.company_uuid;
   END IF;
@@ -296,9 +289,7 @@ BEGIN
   IF array_length(v_items_to_remove, 1) > 0 THEN
     UPDATE inventory_items 
     SET 
-      status = 'AVAILABLE',
-      status_history = COALESCE(status_history, '{}'::jsonb) || jsonb_build_object(v_timestamp, 'AVAILABLE'),
-      updated_at = now()
+      status = 'AVAILABLE'
     WHERE uuid = ANY(v_items_to_remove)
       AND company_uuid = v_delivery_record.company_uuid
       AND status = 'ON_DELIVERY'; -- Only revert if currently on delivery
@@ -379,18 +370,14 @@ BEGIN
   -- Update delivery status and status history
   UPDATE delivery_items 
   SET 
-    status = p_status,
-    status_history = COALESCE(status_history, '{}'::jsonb) || jsonb_build_object(v_timestamp, p_status),
-    updated_at = now()
+    status = p_status
   WHERE uuid = p_delivery_uuid;
 
   -- Update inventory item status for each item in the delivery
   IF v_inventory_item_uuids IS NOT NULL AND array_length(v_inventory_item_uuids, 1) > 0 THEN
     UPDATE inventory_items 
     SET 
-      status = v_inventory_status,
-      status_history = COALESCE(status_history, '{}'::jsonb) || jsonb_build_object(v_timestamp, v_inventory_status),
-      updated_at = now()
+      status = v_inventory_status
     WHERE uuid = ANY(v_inventory_item_uuids)
       AND company_uuid = v_delivery_record.company_uuid;
   END IF;

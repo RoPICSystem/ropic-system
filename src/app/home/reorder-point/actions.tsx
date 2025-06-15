@@ -8,7 +8,7 @@ export interface ReorderPointLog {
   uuid: string;
   company_uuid: string;
   warehouse_uuid: string;
-  inventory_uuid: string;
+  inventory_uuid: string | null;
   warehouse_inventory_uuid: string;
 
   current_stock: number;
@@ -24,6 +24,57 @@ export interface ReorderPointLog {
 
   created_at: string;
   updated_at: string;
+
+  // Additional fields for display
+  warehouse_name?: string;
+  inventory_name?: string;
+}
+
+/**
+ * Fetches a specific reorder point log by UUID
+ */
+export async function getReorderPointLogDetails(logUuid: string) {
+  const supabase = await createClient();
+
+  try {
+    const { data, error } = await supabase.rpc(
+      'get_reorder_point_logs_filtered',
+      {
+        p_company_uuid: null,
+        p_warehouse_uuid: null,
+        p_status: null,
+        p_search: logUuid,
+        p_date_from: null,
+        p_date_to: null,
+        p_year: null,
+        p_month: null,
+        p_week: null,
+        p_day: null,
+        p_limit: 1,
+        p_offset: 0
+      }
+    );
+
+    if (error) {
+      console.error("Database error in getReorderPointLogDetails:", error);
+      throw error;
+    }
+
+    // Return the first item if found
+    const item = data && data.length > 0 ? data[0] : null;
+    
+    return {
+      success: true,
+      data: item as ReorderPointLog | null
+    };
+  } catch (error: any) {
+    console.error("Error fetching reorder point log details:", error);
+    return {
+      success: false,
+      error: error.message || "Failed to fetch reorder point log details",
+      data: null
+    };
+  }
 }
 
 /**
@@ -47,7 +98,7 @@ export async function getReorderPointLogs(
 
   try {
     const { data, error } = await supabase.rpc(
-      'get_reorder_point_logs_paginated',
+      'get_reorder_point_logs_filtered',
       {
         p_company_uuid: companyUuid || null,
         p_warehouse_uuid: warehouseUuid || null,
@@ -100,8 +151,7 @@ export async function getReorderPointLogs(
  * Updates custom safety stock for an inventory item
  */
 export async function updateCustomSafetyStock(
-  inventoryUuid: string,
-  warehouseUuid: string,
+  warehouseInventoryUuid: string,
   customSafetyStock: number,
   notes?: string
 ) {
@@ -111,8 +161,7 @@ export async function updateCustomSafetyStock(
     const { data, error } = await supabase.rpc(
       'update_custom_safety_stock',
       {
-        p_inventory_uuid: inventoryUuid,
-        p_warehouse_uuid: warehouseUuid,
+        p_warehouse_inventory_uuid: warehouseInventoryUuid,
         p_custom_safety_stock: customSafetyStock,
         p_notes: notes || null
       }
@@ -170,22 +219,16 @@ export async function triggerReorderPointCalculation() {
 }
 
 /**
- * Triggers reorder point calculation for a specific inventory item
+ * Triggers reorder point calculation for a specific warehouse inventory item
  */
 export async function triggerSpecificReorderPointCalculation(
-  inventoryUuid: string,
-  warehouseUuid: string,
-  companyUuid: string
+  warehouseInventoryUuid: string,
 ) {
   const supabase = await createClient();
 
   try {
-    console.log(`Calculating reorder point for specific item: ${inventoryUuid} in warehouse: ${warehouseUuid}`);
-    
     const { data, error } = await supabase.rpc('calculate_specific_reorder_point', {
-      p_inventory_uuid: inventoryUuid,
-      p_warehouse_uuid: warehouseUuid,
-      p_company_uuid: companyUuid
+      p_warehouse_inventory_uuid: warehouseInventoryUuid,
     });
 
     if (error) {

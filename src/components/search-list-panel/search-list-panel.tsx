@@ -252,8 +252,13 @@ export function SearchListPanel({
         },
         async () => {
           console.log("Real-time change detected, reloading items...");
-          await handleSearch();
-          setIsLoading(false);
+          try {
+            await handleSearch();
+          } catch (error) {
+            console.error("Error handling real-time update:", error);
+          } finally {
+            setIsLoading(false);
+          }
         }
       )
       .subscribe();
@@ -389,7 +394,6 @@ export function SearchListPanel({
                                       setWeekFilter(null);
                                       setDayFilter(null);
                                       setPage(1);
-                                      handleSearch(searchQuery, 1, activeFilters);
                                     }}
                                     variant="solid"
                                     color="primary"

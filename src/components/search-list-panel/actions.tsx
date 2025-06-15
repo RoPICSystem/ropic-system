@@ -9,10 +9,27 @@ export async function getFilteredItems(
   const supabase = await createClient();
 
   try {
-    const { data, error } = await supabase.rpc(functionName, params);
+    let retryCount = 0;
+    const maxRetries = 3;
+    let data, error;
 
+    while (retryCount < maxRetries) {
+      try {
+        const result = await supabase.rpc(functionName, params);
+        data = result.data;
+        error = result.error;
+        break;
+      } catch (err: any) {
+        retryCount++;
+        if (err.message?.includes('timeout') && retryCount < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+          continue;
+        }
+        error = err;
+        break;
+      }
+    }
 
-    console.log(error);
     if (error) throw error;
 
     // Extract total count and remove from each item

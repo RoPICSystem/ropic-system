@@ -12,30 +12,27 @@ import {
   ModalBody,
   ModalFooter,
   useDisclosure,
-  Autocomplete,
-  AutocompleteItem,
   Skeleton,
-  Alert,
-  CalendarDate
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import CardList from "@/components/card-list";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import { format } from "date-fns";
 import { motionTransition } from "@/utils/anim";
-import { getReorderPointLogs, updateCustomSafetyStock, triggerReorderPointCalculation, InventoryStatus, ReorderPointLog, getOperators, triggerSpecificReorderPointCalculation } from "./actions";
+import {
+  getReorderPointLogs,
+  getReorderPointLogDetails,
+  updateCustomSafetyStock,
+  triggerReorderPointCalculation,
+  InventoryStatus,
+  ReorderPointLog,
+  getOperators,
+  triggerSpecificReorderPointCalculation
+} from "./actions";
 import { getWarehouses } from "../warehouses/actions";
-import { getInventoryItems } from "../inventory/actions";
 import { formatDate, showErrorToast } from "@/utils/tools";
-
-// Add these imports to the existing imports at the top of the file
-import { generatePdfBlob } from './pdf-document';
-import { getDeliveryHistory } from '../delivery/actions';
-import { getCompanyData } from "../company/actions";
 import { getUserFromCookies } from "@/utils/supabase/server/user";
 import LoadingAnimation from "@/components/loading-animation";
-import { getUserCompanyDetails } from "@/utils/supabase/server/companies";
-import { ReorderPointExportPopover } from "./reorder-point-export";
 import { createClient } from "@/utils/supabase/client";
 import { FilterOption, SearchListPanel } from '@/components/search-list-panel/search-list-panel';
 
@@ -55,22 +52,13 @@ export default function ReorderPointPage() {
   const [reorderPointLogs, setReorderPointLogs] = useState<ReorderPointLog[]>([]);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [warehouses, setWarehouses] = useState<any[]>([]);
-  const [inventoryItems, setInventoryItems] = useState<any[]>([]);
 
   // Form state
   const [formData, setFormData] = useState<Partial<ReorderPointLog>>({});
   const [customSafetyStock, setCustomSafetyStock] = useState<number | null>(null);
   const [safetyStockNotes, setSafetyStockNotes] = useState("");
 
-  // PDF export state
-  const [isPdfGenerating, setIsPdfGenerating] = useState(false);
-
   // Autocomplete style
-  const autoCompleteStyle = {
-    classNames: {
-      inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
-    }
-  };
   const inputStyle = {
     inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
   };
@@ -100,18 +88,6 @@ export default function ReorderPointPage() {
         CRITICAL: "Critical",
         OUT_OF_STOCK: "Out of Stock"
       }
-    },
-    inventory_filter: {
-      name: "Inventory",
-      valueName: "inventory_uuid",
-      color: "success",
-      filters: inventoryItems.reduce(
-        (acc, item) => ({
-          ...acc,
-          [item.uuid]: item.name
-        }),
-        { "": "All Items" }
-      )
     }
   };
 
@@ -126,104 +102,37 @@ export default function ReorderPointPage() {
     }
   };
 
-  // Handle PDF export using the new ExportPopover
-  const handlePdfExport = async (data: {
-    selectedItems: string[];
-    searchQuery: string;
-    filters: Record<string, any>;
-    dateFilters: Record<string, any>;
-    exportOptions: Record<string, any>;
-    allFilteredItems: any[];
-  }) => {
-    setIsPdfGenerating(true);
+  // Load specific reorder point log details
+  const loadReorderPointLogDetails = useCallback(async (logId: string) => {
+    if (!logId) return;
 
+    setIsLoading(true);
     try {
-      // Get selected logs or use all filtered items if none selected
-      const logsToExport = data.selectedItems.length > 0
-        ? data.allFilteredItems.filter(log => data.selectedItems.includes(log.uuid))
-        : data.allFilteredItems;
+      const result = await getReorderPointLogDetails(logId);
 
-      // Prepare logs with resolved names
-      const preparedLogs = logsToExport.map(log => ({
-        ...log,
-        inventoryName: inventoryItems.find(i => i.uuid === log.inventory_uuid)?.name || 'Unknown Item',
-        warehouseName: warehouses.find(w => w.uuid === log.warehouse_uuid)?.name || 'Unknown Warehouse'
-      }));
-
-      // Get delivery history and operator data
-      const allDeliveryHistory = await getDeliveryHistory(user.company_uuid);
-      const operatorData = await getOperators(user.company_uuid);
-
-      // Create operator name mapping
-      const operatorNameMap: { [key: string]: string } = {};
-      operatorData.data?.forEach((operator: any) => {
-        operatorNameMap[operator.uuid] = operator.full_name;
-      });
-
-      // Create inventory name mapping
-      const inventoryNameMap: { [key: string]: string } = {};
-      inventoryItems.forEach((item: any) => {
-        inventoryNameMap[item.uuid] = item.name;
-      });
-
-      // Map operator names to delivery history
-      const deliveryHistoryWithOperatorNames = allDeliveryHistory.data?.map((delivery: any) => ({
-        ...delivery,
-        recipient_name: delivery.operator_uuids && Array.isArray(delivery.operator_uuids)
-          ? delivery.operator_uuids
-            .map((uuid: string) => operatorNameMap[uuid] || 'Unknown Operator')
-            .join(', ')
-          : 'No Operator Assigned'
-      })) || [];
-
-      // Get company data including logo
-      const companyData = await getCompanyData(user.company_uuid);
-      const { data: companyDetails, error: companyError } = await getUserCompanyDetails(user.uuid);
-
-      let companyLogoUrl = null;
-      if (companyDetails?.logo_url && !companyDetails?.logo_url.error) {
-        companyLogoUrl = companyDetails.logo_url;
+      if (result.success && result.data) {
+        setFormData(result.data);
+        setCustomSafetyStock(
+          result.data.custom_safety_stock !== null
+            ? result.data.custom_safety_stock ?? 0
+            : result.data.safety_stock ?? 0
+        );
+        setSafetyStockNotes(result.data.notes || "");
+      } else {
+        console.error("Failed to load reorder point log details:", result.error);
+        setError("Failed to load selected item details");
       }
-
-      // Determine warehouse name for the report
-      let warehouseNameForReport = "All Warehouses";
-      if (data.filters.warehouse_uuid) {
-        warehouseNameForReport = warehouses.find(w => w.uuid === data.filters.warehouse_uuid)?.name || "Unknown Warehouse";
-      } else if (preparedLogs.length === 1) {
-        warehouseNameForReport = preparedLogs[0].warehouseName || "All Warehouses";
-      }
-
-      // Generate PDF with selected page size
-      const pdfBlob = await generatePdfBlob({
-        logs: preparedLogs,
-        deliveryHistory: deliveryHistoryWithOperatorNames,
-        warehouseName: warehouseNameForReport,
-        companyName: companyData.data?.name || "Your Company",
-        companyLogoUrl: companyLogoUrl,
-        dateGenerated: new Date().toLocaleString(),
-        inventoryNameMap,
-        pageSize: data.exportOptions.pageSize || "A4"
-      });
-
-      // Create download link with page size in filename
-      const url = URL.createObjectURL(pdfBlob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `RoPIC_Reorder_Point_Report_${data.exportOptions.pageSize || "A4"}_${(companyData.data?.name || 'Company').replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}_${new Date().toLocaleTimeString('en-US', { hour12: false }).replace(/:/g, '-')}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
     } catch (error) {
-      console.error("Error generating PDF:", error);
+      console.error("Error loading reorder point log details:", error);
+      setError("Failed to load selected item details");
     } finally {
-      setIsPdfGenerating(false);
+      setIsLoading(false);
     }
-  };
+  }, []);
+
 
   // Handle selecting a reorder point log
   const handleSelectItem = (key: string) => {
-    setSelectedItemId(key);
-    setIsLoading(true);
     // Update the URL with the selected item ID without reloading the page
     const params = new URLSearchParams(searchParams.toString());
     params.set("logId", key);
@@ -232,13 +141,12 @@ export default function ReorderPointPage() {
 
   // Handle saving custom safety stock
   const handleSaveCustomSafetyStock = async () => {
-    if (!selectedItemId || customSafetyStock === null) return;
+    if (!selectedItemId || customSafetyStock === null || !formData.warehouse_inventory_uuid) return;
 
     setIsLoading(true);
     try {
       const result = await updateCustomSafetyStock(
-        formData.inventory_uuid as string,
-        formData.warehouse_uuid as string,
+        formData.warehouse_inventory_uuid,
         customSafetyStock,
         safetyStockNotes
       );
@@ -266,12 +174,10 @@ export default function ReorderPointPage() {
     try {
       let result;
 
-      if (isSpecific && formData.inventory_uuid && formData.warehouse_uuid && user?.company_uuid) {
+      if (isSpecific && formData.warehouse_inventory_uuid) {
         // Recalculate for specific item
         result = await triggerSpecificReorderPointCalculation(
-          formData.inventory_uuid,
-          formData.warehouse_uuid,
-          user.company_uuid
+          formData.warehouse_inventory_uuid
         );
       } else {
         // Recalculate for all items
@@ -296,13 +202,6 @@ export default function ReorderPointPage() {
     }
   };
 
-  // Handle viewing inventory details
-  const handleViewInventory = () => {
-    if (formData.inventory_uuid) {
-      router.push(`/home/inventory?itemId=${formData.inventory_uuid}`);
-    }
-  };
-
   // Handle viewing warehouse details
   const handleViewWarehouse = () => {
     if (formData.warehouse_uuid) {
@@ -319,28 +218,21 @@ export default function ReorderPointPage() {
 
   // Effect to handle URL params (logId)
   useEffect(() => {
-    if (!user?.company_uuid) return;
-
     const logId = searchParams.get("logId");
-    if (logId) {
-      setSelectedItemId(logId);
 
-      // Find the log in the list
-      const log = reorderPointLogs.find(l => l.uuid === logId);
-      if (log) {
-        setFormData(log);
-        setCustomSafetyStock(log.custom_safety_stock !== null ? log.custom_safety_stock ?? 0 : log.safety_stock ?? 0);
-        setSafetyStockNotes(log.notes || "");
-      }
-    } else {
+    if (logId && logId !== selectedItemId) {
+      setSelectedItemId(logId);
+      loadReorderPointLogDetails(logId);
+    } else if (!logId && selectedItemId) {
+      // Clear selection if no logId in URL
       setSelectedItemId(null);
       setFormData({});
       setCustomSafetyStock(null);
       setSafetyStockNotes("");
+      setIsLoading(false);
     }
+  }, [searchParams, selectedItemId, loadReorderPointLogDetails]);
 
-    setIsLoading(false);
-  }, [searchParams, user?.company_uuid, reorderPointLogs]);
 
   // Update the initPage function to fetch with pagination
   useEffect(() => {
@@ -361,10 +253,6 @@ export default function ReorderPointPage() {
         setWarehouses(warehousesResult.data || []);
         setIsLoadingWarehouses(false);
 
-        // Fetch inventory items for name lookup
-        const inventoryResult = await getInventoryItems(userData.company_uuid);
-        setInventoryItems(inventoryResult.data || []);
-
       } catch (error) {
         console.error("Error initializing page:", error);
         setError("Failed to load data. Please try again later.");
@@ -374,6 +262,39 @@ export default function ReorderPointPage() {
 
     initPage();
   }, []);
+
+  useEffect(() => {
+    if (!user?.company_uuid) return;
+
+    const supabase = createClient();
+
+    // Set up real-time subscription for reorder point logs
+    const reorderLogsChannel = supabase
+      .channel('reorder-logs-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'reorder_point_logs',
+          filter: `company_uuid=eq.${user.company_uuid}`
+        },
+        async (payload) => {
+          // If we have a selected item, refresh its details
+          if (selectedItemId) {
+            // Reload the specific log details
+            await loadReorderPointLogDetails(selectedItemId);
+          }
+        }
+      )
+      .subscribe();
+
+    // Cleanup function
+    return () => {
+      supabase.removeChannel(reorderLogsChannel);
+    };
+  }, [user?.company_uuid, selectedItemId, loadReorderPointLogDetails]);
+
 
   // Set up real-time updates
   useEffect(() => {
@@ -427,12 +348,6 @@ export default function ReorderPointPage() {
     }
   }, [error]);
 
-  // Helper to get inventory item name
-  const getInventoryItemName = useCallback((inventoryId: string) => {
-    const item = inventoryItems.find(i => i.uuid === inventoryId);
-    return item ? item.name : 'Unknown Item';
-  }, [inventoryItems]);
-
   // Helper to get warehouse name
   const getWarehouseName = useCallback((warehouseId: string) => {
     const warehouse = warehouses.find(w => w.uuid === warehouseId);
@@ -457,15 +372,6 @@ export default function ReorderPointPage() {
             >
               Recalculate All
             </Button>
-
-            {/* PDF Export using new ExportPopover */}
-            <ReorderPointExportPopover
-              user={user}
-              warehouses={warehouses}
-              inventoryItems={inventoryItems}
-              isPdfGenerating={isPdfGenerating}
-              onExport={handlePdfExport}
-            />
           </div>
         </div>
         <div className="flex flex-col xl:flex-row gap-4">
@@ -483,7 +389,7 @@ export default function ReorderPointPage() {
                 key={log.uuid}
                 onPress={() => handleSelectItem(log.uuid)}
                 variant="shadow"
-                className={`w-full !transition-all duration-300 rounded-2xl p-0 group overflow-hidden min-h-[7.5rem]
+                className={`w-full !transition-all duration-300 rounded-2xl p-0 group overflow-hidden min-h-[8.5rem]
                             ${selectedItemId === log.uuid ?
                     '!bg-gradient-to-br from-primary-500 to-primary-600 hover:from-primary-400 hover:to-primary-500 !shadow-xl hover:!shadow-2xl !shadow-primary-300/50 border-2 border-primary-300/30' :
                     '!bg-gradient-to-br from-background to-default-50 hover:from-default-50 hover:to-default-100 !shadow-lg hover:!shadow-xl !shadow-default-300/30 border-2 border-default-200/50 hover:border-default-300/50'}`}
@@ -500,7 +406,7 @@ export default function ReorderPointPage() {
                       <div className="flex-1 min-w-0 text-left">
                         <span className={`font-bold text-lg leading-tight block truncate text-left
                                           ${selectedItemId === log.uuid ? 'text-primary-50' : 'text-default-800'}`}>
-                          {getInventoryItemName(log.inventory_uuid)}
+                          {log.inventory_name || 'Unknown Item'}
                         </span>
                         <div className={`w-full mt-1 text-sm leading-relaxed text-left
                                         ${selectedItemId === log.uuid ? 'text-primary-100' : 'text-default-600'}`}>
@@ -627,7 +533,7 @@ export default function ReorderPointPage() {
                         </>
                       }>
                       <div className="relative">
-                        <h2 className="text-xl font-semibold mb-4 w-full text-center">Inventory Details</h2>
+                        <h2 className="text-xl font-semibold mb-4 w-full text-center">Warehouse Inventory Details</h2>
                         <Chip
                           className="absolute right-0 bottom-0"
                           color={getStatusColor(formData.status as InventoryStatus)} size="sm">
@@ -648,7 +554,7 @@ export default function ReorderPointPage() {
                           <>
                             <Input
                               label="Item Name"
-                              value={getInventoryItemName(formData.inventory_uuid || "")}
+                              value={formData.inventory_name || "Unknown Item"}
                               isReadOnly
                               classNames={inputStyle}
                               startContent={<Icon icon="mdi:package-variant" className="text-default-500 mb-[0.1rem]" />}
@@ -839,19 +745,7 @@ export default function ReorderPointPage() {
 
                 <CardList>
 
-                  {user.is_admin &&
-                    <div className="flex items-center justify-between h-full w-full">
-                      <span>View inventory details</span>
-                      <Button
-                        variant="shadow"
-                        color="primary"
-                        onPress={handleViewInventory}
-                        isDisabled={!formData.inventory_uuid || isLoading}
-                        className="my-1">
-                        <Icon icon="mdi:chevron-right" width={16} height={16} />
-                      </Button>
-                    </div>
-                  }
+
 
                   <div className="flex items-center justify-between h-full w-full">
                     <span>View warehouse info</span>
@@ -889,7 +783,7 @@ export default function ReorderPointPage() {
                           setSafetyStockNotes(formData.notes || "");
                           customSafetyStockModal.onOpen();
                         }}
-                        isDisabled={isLoading || !formData.inventory_uuid || !formData.warehouse_uuid}
+                        isDisabled={isLoading || !formData.warehouse_inventory_uuid || !formData.warehouse_uuid}
                       >
                         <div className="flex items-center gap-2">
                           <Icon icon="mdi:shield-edit" />
@@ -903,7 +797,7 @@ export default function ReorderPointPage() {
                         className="w-full"
                         onPress={() => handleRecalculateReorderPoints(true)}
                         isLoading={isLoading}
-                        isDisabled={!formData.inventory_uuid || !formData.warehouse_uuid}
+                        isDisabled={!formData.warehouse_inventory_uuid || !formData.warehouse_uuid}
                       >
                         <div className="flex items-center gap-2">
                           {!isLoading && <Icon icon="mdi:refresh" />}

@@ -7,7 +7,7 @@ export function Popover3dNavigationHelp() {
   return (
     <Popover
       classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
-      motionProps={popoverTransition('up')}
+      motionProps={popoverTransition('down')}
       placement="bottom">
       <PopoverTrigger>
         <Button className="capitalize" color="warning" variant="flat">
