@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Chip } from "@heroui/react";
+import { Button, Chip, Skeleton } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { ExportPopover, FilterOption, ExportOption } from "@/components/export-popover/export-popover";
 import { format } from "date-fns";
@@ -136,32 +136,22 @@ export function DeliveryExportPopover({
       supabaseFunction="get_delivery_filtered"
       onExport={onExport}
       getItemId={(delivery) => delivery.uuid}
-      getItemDisplayName={(delivery) => 
-        inventoryItems.find(i => i.uuid === delivery.inventory_uuid)?.name || 'Unknown Item'
+      getItemDisplayName={(delivery) =>
+        delivery.name || 'Unknown Item'
       }
       renderItem={(delivery) => (
-        <div className="flex-1 min-w-0">
-          <div className="font-medium text-small truncate">
-            {inventoryItems.find(i => i.uuid === delivery.inventory_uuid)?.name || 'Unknown Item'}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="font-medium text-small truncate">
+              {delivery.name || 'Unknown Item'}
+            </div>
+            <div className="text-tiny text-default-400 truncate">
+              {warehouses.find(w => w.uuid === delivery.warehouse_uuid)?.name || 'Unknown Warehouse'} • {formatDate(delivery.delivery_date)}
+            </div>
           </div>
-          <div className="text-tiny text-default-400 truncate">
-            {warehouses.find(w => w.uuid === delivery.warehouse_uuid)?.name || 'Unknown Warehouse'} • {formatDate(delivery.delivery_date)}
-          </div>
-          <div className="flex items-center gap-1 mt-1">
-            <Chip color={getStatusColor(delivery.status)} size="sm" variant="flat">
-              {delivery.status.charAt(0).toUpperCase() + delivery.status.slice(1).toLowerCase().replace('_', ' ')}
-            </Chip>
-          </div>
-        </div>
-      )}
-      renderSkeletonItem={(i) => (
-        <div key={i} className="flex items-center gap-2 p-2 rounded-md">
-          <div className="w-5 h-5 bg-default-200 rounded animate-pulse" />
-          <div className="flex-1 min-w-0 space-y-1">
-            <div className="h-4 w-32 bg-default-200 rounded animate-pulse" />
-            <div className="h-3 w-48 bg-default-200 rounded animate-pulse" />
-            <div className="h-5 w-16 bg-default-200 rounded animate-pulse" />
-          </div>
+          <Chip color={getStatusColor(delivery.status)} size="sm" variant="flat">
+            {delivery.status.charAt(0).toUpperCase() + delivery.status.slice(1).toLowerCase().replace('_', ' ')}
+          </Chip>
         </div>
       )}
       isExporting={isPdfGenerating}

@@ -527,8 +527,7 @@ BEGIN
       properties,
       location,
       group_id,
-      status,
-      status_history
+      status
     ) VALUES (
       v_company_uuid,
       p_warehouse_uuid,
@@ -543,8 +542,7 @@ BEGIN
       v_inventory_item.properties,
       COALESCE(v_location, '{}'::jsonb),
       v_inventory_item.group_id,
-      'AVAILABLE',
-      jsonb_build_object(v_timestamp, 'Created from delivery ' || p_delivery_uuid::text)
+      'AVAILABLE'
     );
     
     -- Update warehouse inventory aggregations after each item is added

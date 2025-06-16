@@ -3,6 +3,7 @@
 import React from 'react';
 import { Document, Page, Text, View, StyleSheet, pdf, Image } from '@react-pdf/renderer';
 import { ReorderPointLog } from './actions';
+import { formatNumber } from '@/utils/tools';
 
 // Helper function to convert image URL to base64, with WebP to PNG conversion
 const convertImageToBase64 = async (url: string, cropToSquare: boolean = false): Promise<string | null> => {
@@ -258,15 +259,19 @@ const styles = StyleSheet.create({
     marginBottom: 3,
   },
   statusChip: {
-    fontSize: 8,
-    fontWeight: 'bold',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 3,
-    textAlign: 'center',
-    color: '#000000',
     minWidth: 60,
     flexShrink: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusChipText: {
+    fontSize: 8,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    color: '#000000',
   },
   itemDetail: {
     flexDirection: 'row',
@@ -473,10 +478,46 @@ const getStatusStyle = (status: string) => {
 
 interface ReorderPointPDFProps {
   logs: (ReorderPointLog & {
-    inventoryItemName: string;
+    warehouseInventoryItemName: string;
     warehouseName: string;
   })[];
-  deliveryHistory: any[];
+  deliveryHistory: {
+    reorder_point_log_uuid: string;
+    warehouse_uuid: string;
+    warehouse_name: string;
+    inventory_uuid: string;
+    inventory_name: string;
+    warehouse_inventory_uuid: string;
+    deliveries: {
+      delivery_date: string;
+      delivery_name: string;
+      delivery_uuid: string;
+      delivery_status: string;
+      warehouse_items: {
+        cost: number;
+        unit: string;
+        uuid: string;
+        status: string;
+        group_id: string;
+        location: {
+          row: number;
+          code: string;
+          depth: number;
+          floor: number;
+          group: number;
+          column: number;
+        };
+        item_code: string;
+        created_at: string;
+        unit_value: string;
+        updated_at: string;
+        packaging_unit: string;
+      }[];
+      delivery_address: string;
+      delivery_created_at: string;
+    }[];
+    total_count: number;
+  }[];
   warehouseName: string;
   companyName: string;
   companyLogoUrl?: string;
@@ -484,7 +525,7 @@ interface ReorderPointPDFProps {
   inventoryNameMap?: Record<string, string>;
   companyLogoBase64?: string;
   ropicLogoBase64?: string;
-  pageSize?: "A4" | "A3" | "LETTER" | "LEGAL"; // Add this line
+  pageSize?: "A4" | "A3" | "LETTER" | "LEGAL";
 }
 
 export const ReorderPointPDF = ({
@@ -497,7 +538,7 @@ export const ReorderPointPDF = ({
   inventoryNameMap,
   companyLogoBase64,
   ropicLogoBase64,
-  pageSize = "A4" // Add this line
+  pageSize = "A4"
 }: ReorderPointPDFProps) => (
   <Document>
     <Page size={pageSize} style={styles.page}>
@@ -586,11 +627,13 @@ export const ReorderPointPDF = ({
                 {/* Item name and status on same row */}
                 <View style={styles.itemTitleRow}>
                   <Text style={styles.itemName}>
-                    {log.inventoryItemName}
+                    {log.warehouseInventoryItemName}
                   </Text>
-                  <Text style={getStatusStyle(log.status)}>
-                    {formatStatus(log.status)}
-                  </Text>
+                  <View style={getStatusStyle(log.status)}>
+                    <Text style={styles.statusChipText}>
+                      {formatStatus(log.status)}
+                    </Text>
+                  </View>
                 </View>
 
                 {/* Warehouse on separate row */}
@@ -667,57 +710,105 @@ export const ReorderPointPDF = ({
         </View>
       </View>
 
-      {/* Delivery History Section */}
+      {/* Delivery History Section - Updated to handle new structure */}
       {deliveryHistory.length > 0 && (
-        <View style={styles.deliverySection}>
+        <View style={styles.deliverySection} >
           <Text style={styles.sectionHeader}>Delivery History</Text>
 
           <View style={styles.tableContainer}>
             <View style={styles.table}>
               <View style={[styles.tableRow, styles.tableHeader]}>
-                <View style={[styles.tableHeaderCell, { flex: 1.65 }]}>
+                <View style={[styles.tableHeaderCell, { flex: 1.5 }]}>
                   <Text>Item</Text>
                 </View>
-                <View style={[styles.tableHeaderCell, { flex: 0.6 }]}>
+                <View style={[styles.tableHeaderCell, { flex: 1.2 }]}>
+                  <Text>Delivery Name</Text>
+                </View>
+                <View style={[styles.tableHeaderCell, { flex: 0.8 }]}>
                   <Text>Date</Text>
                 </View>
-                <View style={[styles.tableHeaderCell, { flex: 0.85 }]}>
+                <View style={[styles.tableHeaderCell, { flex: 0.8 }]}>
                   <Text>Status</Text>
                 </View>
-                <View style={[styles.tableHeaderCell, { flex: 1.1 }]}>
-                  <Text>Location</Text>
+                <View style={[styles.tableHeaderCell, { flex: 0.8 }]}>
+                  <Text>Items Count</Text>
                 </View>
-                <View style={[styles.tableHeaderCell, { flex: 1.65 }]}>
-                  <Text>Operators</Text>
+                <View style={[styles.tableHeaderCell, { flex: 1.5 }]}>
+                  <Text>Locations</Text>
                 </View>
               </View>
 
-              {deliveryHistory.map((delivery, index) => (
-                <View key={index} style={[
-                  styles.tableRow,
-                  index % 2 === 1 ? { backgroundColor: '#F7FAFC' } : {}
-                ]} wrap={false}>
-                  <View style={[styles.tableCell, { flex: 1.65 }]}>
-                    <Text>{delivery.inventoryItemName || inventoryNameMap?.[delivery.inventory_uuid] || "Unknown Item"}</Text>
+              {deliveryHistory.map((historyItem, historyIndex) =>
+                historyItem.deliveries.map((delivery, deliveryIndex) => (
+                  <View key={`${historyIndex}-${deliveryIndex}`} style={[
+                    styles.tableRow,
+                    (historyIndex + deliveryIndex) % 2 === 1 ? { backgroundColor: '#F7FAFC' } : {}
+                  ]} wrap={false}>
+                    <View style={[styles.tableCell, { flex: 1.5 }]}>
+                      <Text>{historyItem.inventory_name}</Text>
+                    </View>
+                    <View style={[styles.tableCell, { flex: 1.2 }]}>
+                      <Text>{delivery.delivery_name}</Text>
+                    </View>
+                    <View style={[styles.tableCell, { flex: 0.8 }]}>
+                      <Text>{new Date(delivery.delivery_date).toLocaleDateString()}</Text>
+                    </View>
+                    <View style={[styles.tableCell, { flex: 0.8 }]}>
+                      <Text>{delivery.delivery_status}</Text>
+                    </View>
+                    <View style={[styles.tableCell, { flex: 0.8 }]}>
+                      <Text>{delivery.warehouse_items.length}</Text>
+                    </View>
+                    <View style={[styles.tableCell, { flex: 1.5 }]}>
+                      <Text>
+                        {delivery.warehouse_items
+                          .map(item => item.location.code)
+                          .slice(0, 3) // Show first 3 locations
+                          .join(', ')
+                        }
+                        {delivery.warehouse_items.length > 3 && ` (+${delivery.warehouse_items.length - 3} more)`}
+                      </Text>
+                    </View>
                   </View>
-                  <View style={[styles.tableCell, { flex: 0.6 }]}>
-                    <Text>{new Date(delivery.delivery_date).toLocaleDateString()}</Text>
-                  </View>
-                  <View style={[styles.tableCell, { flex: 0.85 }]}>
-                    <Text>{delivery.status}</Text>
-                  </View>
-                  <View style={[styles.tableCell, { flex: 1.1 }]}>
-                    <Text>{Array.isArray(delivery.location_codes) ? delivery.location_codes.join(", ") : delivery.location_codes || "N/A"}</Text>
-                  </View>
-                  <View style={[styles.tableCell, { flex: 1.65 }]}>
-                    <Text>
-                      {delivery.recipient_name || 'No Operators Assigned'}
-                    </Text>
-                  </View>
-                </View>
-              ))}
+                ))
+              )}
             </View>
           </View>
+
+          {/* Detailed Items Section */}
+          {deliveryHistory.some(h => h.deliveries.some(d => d.warehouse_items.length > 0)) && (
+            <View style={[styles.tableContainer, { marginTop: 15 }]}>
+              <Text style={[styles.sectionHeader, { fontSize: 14, marginBottom: 8 }]}>Delivery Items Details</Text>
+              <View style={styles.table}>
+                <View style={[styles.tableRow, styles.tableHeader]}>
+                  <Text style={[styles.tableHeaderCell, { flex: 1.5 }]}>Item Name</Text>
+                  <Text style={[styles.tableHeaderCell, { flex: 1.2 }]}>Item Code</Text>
+                  <Text style={[styles.tableHeaderCell, { flex: 1.2 }]}>Unit Value</Text>
+                  <Text style={[styles.tableHeaderCell, { flex: 0.8 }]}>Cost</Text>
+                  <Text style={[styles.tableHeaderCell, { flex: 1.2 }]}>Location</Text>
+                  <Text style={[styles.tableHeaderCell, { flex: 0.8 }]}>Status</Text>
+                </View>
+
+                {deliveryHistory.map((historyItem, historyIndex) =>
+                  historyItem.deliveries.map((delivery, deliveryIndex) =>
+                    delivery.warehouse_items.map((item, itemIndex) => (
+                      <View key={`${historyIndex}-${deliveryIndex}-${itemIndex}`} style={[
+                        styles.tableRow,
+                        (historyIndex + deliveryIndex + itemIndex) % 2 === 1 ? { backgroundColor: '#F7FAFC' } : {}
+                      ]} wrap={false}>
+                        <Text style={[styles.tableCell, { flex: 1.5 }]}>{historyItem.inventory_name}</Text>
+                        <Text style={[styles.tableCell, { flex: 1.2 }]}>{item.item_code}</Text>
+                        <Text style={[styles.tableCell, { flex: 1.2 }]}>{item.unit_value} {item.unit}</Text>
+                        <Text style={[styles.tableCell, { flex: 0.8 }]}>PHP {formatNumber(item.cost)}</Text>
+                        <Text style={[styles.tableCell, { flex: 1.2 }]}>{item.location.code}</Text>
+                        <Text style={[styles.tableCell, { flex: 0.8 }]}>{item.status}</Text>
+                      </View>
+                    ))
+                  )
+                )}
+              </View>
+            </View>
+          )}
         </View>
       )}
 

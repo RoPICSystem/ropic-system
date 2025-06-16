@@ -644,53 +644,13 @@ function processGroupsMatrix(floorMatrix: number[][], floorIndex: number) {
   return { groups, groupPositions };
 }
 
-/**
- * Fetches delivery history for specific inventories
- */
-export async function getDeliveryHistory(inventoryUuids: string[]) {
-  const supabase = await createClient();
-
-  try {
-    const { data, error } = await supabase
-      .from("delivery_items")
-      .select("uuid, inventory_items, delivery_date, status, operator_uuids")
-      .order("delivery_date", { ascending: false });
-
-    if (error) throw error;
-
-    // Filter deliveries that contain any of the specified inventory UUIDs
-    const filteredData = data?.filter(delivery => {
-      if (!delivery.inventory_items) return false;
-
-      const deliveryInventoryUuids = Object.values(delivery.inventory_items as Record<string, {
-        inventory_uuid: string;
-        group_id: string | null;
-        location: ShelfLocation;
-      }>).map(item => item.inventory_uuid);
-
-      return inventoryUuids.some(uuid => deliveryInventoryUuids.includes(uuid));
-    }) || [];
-
-    return {
-      success: true,
-      data: filteredData
-    };
-  } catch (error: any) {
-    console.error("Error fetching delivery history:", error);
-    return {
-      success: false,
-      error: error.message || "Failed to fetch delivery history",
-      data: []
-    };
-  }
-}
 
 /**
  * Fetches detailed information about inventory items
  */
 export async function getInventoryItemDetails(inventoryItemUuids: string[]) {
   const supabase = await createClient();
-  
+
   try {
     const { data: itemsData, error: itemsError } = await supabase
       .from("inventory_items")

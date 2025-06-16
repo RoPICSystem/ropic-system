@@ -54,63 +54,41 @@ export interface WarehouseInventory {
 }
 
 
-// Get warehouse inventory items with filtering
-export async function getWarehouseInventoryItems(
-  company_uuid: string,
-  warehouse_uuid?: string,
-  search?: string,
-  status?: string | null,
-  year?: number | null,
-  month?: number | null,
-  week?: number | null,
-  day?: number | null,
-  limit: number = 100,
-  offset: number = 0
-) {
-  try {
-    const supabase = await createClient();
-    
-    const { data, error } = await supabase.rpc('get_warehouse_inventory_filtered', {
-      p_company_uuid: company_uuid,
-      p_search: search || '',
-      p_warehouse_uuid: warehouse_uuid || null,
-      p_status: status,
-      p_year: year,
-      p_month: month,
-      p_week: week,
-      p_day: day,
-      p_limit: limit,
-      p_offset: offset
-    });
+/**
+ * Fetches inventory items for a specific company.
+ * 
+ * @param companyUuid - The UUID of the company to fetch inventory items for.
+ * @param getAvailableItems - Whether to filter for available items only. Defaults to true.
+ * @param selectFields - Comma-separated list of fields to select from the inventory table. Defaults to "uuid, name, standard_unit, unit_values, count, status".
+ * @returns An object containing success status and either the data or an error message.
+ *  
+ */
+export async function getWarehouseInventoryItems(companyUuid: string, getAvailableItems: boolean = true, selectFields: string = "uuid, name, standard_unit, unit_values, count, status") {
+  const supabase = await createClient();
 
-    if (error) {
-      console.error('Error fetching warehouse inventory:', error);
-      return { 
-        success: false, 
-        error: error.message,
-        data: [],
-        totalPages: 0,
-        totalCount: 0
-      };
+  try {
+    let query = supabase
+      .from("warehouse_inventory")
+      .select(selectFields)
+      .eq("company_uuid", companyUuid);
+
+    if (getAvailableItems) {
+      query = query.eq("status", "AVAILABLE");
     }
 
-    const totalCount = data?.[0]?.total_count || 0;
-    const totalPages = Math.ceil(totalCount / limit);
+    const { data, error } = await query;
 
-    return { 
-      success: true, 
-      data: data || [],
-      totalPages,
-      totalCount
+    if (error) throw error;
+
+    return {
+      success: true,
+      data: (data || []) as Partial<WarehouseInventory>[]
     };
-  } catch (error) {
-    console.error('Error in getWarehouseInventoryItems:', error);
-    return { 
-      success: false, 
-      error: 'Failed to fetch warehouse inventory items',
-      data: [],
-      totalPages: 0,
-      totalCount: 0
+  }
+  catch (error: any) {
+    return {
+      success: false,
+      error: error.message || "Unknown error occurred"
     };
   }
 }
@@ -254,28 +232,6 @@ export async function markWarehouseGroupBulkUsed(groupId: string, count: number)
   }
 }
 
-// Get warehouses for filtering
-export async function getWarehouses(company_uuid: string) {
-  try {
-    const supabase = await createClient();
-
-    const { data, error } = await supabase
-      .from('warehouses')
-      .select('uuid, name, address, layout')
-      .eq('company_uuid', company_uuid)
-      .order('name');
-
-    if (error) {
-      console.error('Error fetching warehouses:', error);
-      return { success: false, error: error.message, data: [] };
-    }
-
-    return { success: true, data: data || [] };
-  } catch (error) {
-    console.error('Error in getWarehouses:', error);
-    return { success: false, error: 'Failed to fetch warehouses', data: [] };
-  }
-}
 
 // Delete warehouse inventory item
 export async function deleteWarehouseInventoryItem(uuid: string) {
@@ -345,3 +301,4 @@ export async function updateWarehouseInventoryItem(uuid: string, data: any) {
     return { success: false, error: 'Failed to update warehouse inventory item' };
   }
 }
+

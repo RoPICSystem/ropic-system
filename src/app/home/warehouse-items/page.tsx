@@ -42,7 +42,6 @@ import { getUnitFullName } from "@/utils/measurements";
 import {
   getWarehouseInventoryItem,
   getWarehouseItemByInventory,
-  getWarehouses,
   markWarehouseGroupAsUsed,
   markWarehouseItemAsUsed,
   markWarehouseItemsBulkUsed,
@@ -53,6 +52,7 @@ import {
 import { Popover3dNavigationHelp } from "@/components/popover-3dnavigation-help";
 import { ShelfSelectorColorAssignment } from '@/components/shelf-selector-3d';
 import { getOccupiedShelfLocations } from "../delivery/actions";
+import { getWarehouses } from "../warehouses/actions";
 
 // Add the lazy import for the 3D component
 const ShelfSelector3D = lazy(() =>
@@ -293,7 +293,7 @@ export default function WarehouseItemsPage() {
 
     try {
       // Get warehouse information to load floor configs
-      const warehouses = await getWarehouses(user?.company_uuid || "");
+      const warehouses = await getWarehouses(user?.company_uuid || "", 'uuid, name, layout');
       if (warehouses.success) {
         const warehouse = warehouses.data?.find(w => w.uuid === formData.warehouse_uuid);
         if (warehouse?.layout) {
@@ -520,6 +520,21 @@ export default function WarehouseItemsPage() {
       }
       grouped[groupId].push(item);
     });
+
+    // Sort items within each group - available items first, used items last
+    Object.keys(grouped).forEach(groupId => {
+      grouped[groupId].sort((a, b) => {
+        // First sort by status: AVAILABLE items come first
+        if (a.status === 'AVAILABLE' && b.status !== 'AVAILABLE') return -1;
+        if (a.status !== 'AVAILABLE' && b.status === 'AVAILABLE') return 1;
+        if (a.status === 'USED' && b.status !== 'USED') return 1;
+        if (a.status !== 'USED' && b.status === 'USED') return -1;
+
+        // Then sort by creation date (newest first within same status)
+        return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+      });
+    });
+
     return grouped;
   };
 
@@ -527,7 +542,18 @@ export default function WarehouseItemsPage() {
     if (!formData.items) return [];
 
     if (viewMode === 'flat') {
-      return filterItems(formData.items);
+      const filteredItems = filterItems(formData.items);
+      // Sort filtered items - available items first, used items last
+      return filteredItems.sort((a, b) => {
+        // First sort by status: AVAILABLE items come first
+        if (a.status === 'AVAILABLE' && b.status !== 'AVAILABLE') return -1;
+        if (a.status !== 'AVAILABLE' && b.status === 'AVAILABLE') return 1;
+        if (a.status === 'USED' && b.status !== 'USED') return 1;
+        if (a.status !== 'USED' && b.status === 'USED') return -1;
+
+        // Then sort by creation date (newest first within same status)
+        return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+      });
     }
 
     const groupedItems = getGroupedItems();
@@ -535,13 +561,16 @@ export default function WarehouseItemsPage() {
 
     Object.entries(groupedItems).forEach(([groupId, items]) => {
       if (groupId === 'ungrouped') {
-        displayItems.push(...filterItems(items));
+        const filteredItems = filterItems(items);
+        displayItems.push(...filteredItems);
       } else {
-        // Show only the first item of each group
+        // Show only the first item of each group (which is now sorted with available items first)
         const groupItems = filterItems(items);
         if (groupItems.length > 0) {
+          // Use the first available item as representative, or first item if none available
+          const representativeItem = groupItems.find(item => item.status === 'AVAILABLE') || groupItems[0];
           displayItems.push({
-            ...groupItems[0],
+            ...representativeItem,
             _isGroupRepresentative: true,
             _groupSize: items.length,
             _groupId: groupId
@@ -550,7 +579,43 @@ export default function WarehouseItemsPage() {
       }
     });
 
-    return displayItems;
+    // Sort display items by group status - groups with available items first
+    return displayItems.sort((a, b) => {
+      if (a._isGroupRepresentative && b._isGroupRepresentative) {
+        // Both are group representatives - sort by group status
+        const aGroupItems = formData.items?.filter((item: any) => item.group_id === a._groupId) || [];
+        const bGroupItems = formData.items?.filter((item: any) => item.group_id === b._groupId) || [];
+
+        const aHasAvailable = aGroupItems.some((item: any) => item.status === 'AVAILABLE');
+        const bHasAvailable = bGroupItems.some((item: any) => item.status === 'AVAILABLE');
+
+        if (aHasAvailable && !bHasAvailable) return -1;
+        if (!aHasAvailable && bHasAvailable) return 1;
+      } else if (a._isGroupRepresentative && !b._isGroupRepresentative) {
+        // Group vs individual item
+        const aGroupItems = formData.items?.filter((item: any) => item.group_id === a._groupId) || [];
+        const aHasAvailable = aGroupItems.some((item: any) => item.status === 'AVAILABLE');
+
+        if (aHasAvailable && b.status !== 'AVAILABLE') return -1;
+        if (!aHasAvailable && b.status === 'AVAILABLE') return 1;
+      } else if (!a._isGroupRepresentative && b._isGroupRepresentative) {
+        // Individual item vs group
+        const bGroupItems = formData.items?.filter((item: any) => item.group_id === b._groupId) || [];
+        const bHasAvailable = bGroupItems.some((item: any) => item.status === 'AVAILABLE');
+
+        if (a.status === 'AVAILABLE' && !bHasAvailable) return -1;
+        if (a.status !== 'AVAILABLE' && bHasAvailable) return 1;
+      } else {
+        // Both are individual items
+        if (a.status === 'AVAILABLE' && b.status !== 'AVAILABLE') return -1;
+        if (a.status !== 'AVAILABLE' && b.status === 'AVAILABLE') return 1;
+        if (a.status === 'USED' && b.status !== 'USED') return 1;
+        if (a.status !== 'USED' && b.status === 'USED') return -1;
+      }
+
+      // Default sort by creation date
+      return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+    });
   };
 
   // Handle URL params
@@ -958,7 +1023,7 @@ export default function WarehouseItemsPage() {
                           </div>
                         )}
 
-                          {/* Bulk Mark as Used Section */}
+                        {/* Bulk Mark as Used Section */}
                         {formData.count?.available > 0 && (
                           <div className="p-4 bg-warning-50 rounded-xl border-2 border-warning-200">
                             <div className="flex items-center gap-3 mb-3 justify-between">
@@ -1576,7 +1641,7 @@ export default function WarehouseItemsPage() {
                                             </div>
                                           )}
 
-                                         {/* Group Bulk Mark as Used Section */}
+                                          {/* Group Bulk Mark as Used Section */}
                                           {(() => {
                                             const groupItems = formData.items?.filter((groupItem: any) => groupItem.group_id === groupId) || [];
                                             const availableCount = groupItems.filter((item: any) => item.status === 'AVAILABLE').length;
@@ -1674,6 +1739,16 @@ export default function WarehouseItemsPage() {
                                                   <div className="space-y-4 p-4">
                                                     {formData.items
                                                       .filter((groupItem: any) => groupItem.group_id === groupId)
+                                                      .sort((a: any, b: any) => {
+                                                        // Sort group items - available first, used last
+                                                        if (a.status === 'AVAILABLE' && b.status !== 'AVAILABLE') return -1;
+                                                        if (a.status !== 'AVAILABLE' && b.status === 'AVAILABLE') return 1;
+                                                        if (a.status === 'USED' && b.status !== 'USED') return 1;
+                                                        if (a.status !== 'USED' && b.status === 'USED') return -1;
+
+                                                        // Then sort by creation date
+                                                        return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+                                                      })
                                                       .map((groupItem: any, index: number) => (
                                                         <div
                                                           key={groupItem.uuid}

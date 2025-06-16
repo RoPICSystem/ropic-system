@@ -27,7 +27,8 @@ import {
   InventoryStatus,
   ReorderPointLog,
   getOperators,
-  triggerSpecificReorderPointCalculation
+  triggerSpecificReorderPointCalculation,
+  getWarehouseItemsByReorderPointLogs
 } from "./actions";
 import { getWarehouses } from "../warehouses/actions";
 import { formatDate, showErrorToast } from "@/utils/tools";
@@ -35,6 +36,11 @@ import { getUserFromCookies } from "@/utils/supabase/server/user";
 import LoadingAnimation from "@/components/loading-animation";
 import { createClient } from "@/utils/supabase/client";
 import { FilterOption, SearchListPanel } from '@/components/search-list-panel/search-list-panel';
+import { ReorderPointExportPopover } from "./reorder-point-export";
+import { generatePdfBlob } from "./pdf-document";
+import { getCompanyData } from "../company/actions";
+import { getUserCompanyDetails } from "@/utils/supabase/server/companies";
+import { getWarehouseInventoryItems } from "../warehouse-items/actions";
 
 export default function ReorderPointPage() {
   const router = useRouter();
@@ -52,11 +58,15 @@ export default function ReorderPointPage() {
   const [reorderPointLogs, setReorderPointLogs] = useState<ReorderPointLog[]>([]);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [warehouses, setWarehouses] = useState<any[]>([]);
+  const [warehouseInventoryItems, setWarehouseInventoryItems] = useState<any[]>([]);
 
   // Form state
   const [formData, setFormData] = useState<Partial<ReorderPointLog>>({});
   const [customSafetyStock, setCustomSafetyStock] = useState<number | null>(null);
   const [safetyStockNotes, setSafetyStockNotes] = useState("");
+
+  // PDF export state
+  const [isPdfGenerating, setIsPdfGenerating] = useState(false);
 
   // Autocomplete style
   const inputStyle = {
@@ -216,6 +226,93 @@ export default function ReorderPointPage() {
     }
   }
 
+  // Handle PDF export using the new ExportPopover
+  const handlePdfExport = async (data: {
+    selectedItems: string[];
+    searchQuery: string;
+    filters: Record<string, any>;
+    dateFilters: Record<string, any>;
+    exportOptions: Record<string, any>;
+    allFilteredItems: any[];
+  }) => {
+    setIsPdfGenerating(true);
+
+    try {
+      // Get selected logs or use all filtered items if none selected
+      const logsToExport = data.selectedItems.length > 0
+        ? data.allFilteredItems.filter(log => data.selectedItems.includes(log.uuid))
+        : data.allFilteredItems;
+
+      // Prepare logs with resolved names
+      const preparedLogs = logsToExport.map(log => ({
+        ...log,
+        warehouseInventoryItemName: warehouseInventoryItems.find(i => i.uuid === log.warehouse_inventory_uuid)?.name || 'Unknown Item',
+        warehouseName: warehouses.find(w => w.uuid === log.warehouse_uuid)?.name || 'Unknown Warehouse'
+      }));
+
+      const allDeliveryHistory = await getWarehouseItemsByReorderPointLogs(data.selectedItems.length > 0 ? data.selectedItems : [], user.company_uuid);
+
+      // Create inventory name mapping
+      const inventoryNameMap: { [key: string]: string } = {};
+      warehouseInventoryItems.forEach((item: any) => {
+        inventoryNameMap[item.uuid] = item.name;
+      });
+
+      // Get company data including logo
+      const companyData = await getCompanyData(user.company_uuid);
+      const { data: companyDetails, error: companyError } = await getUserCompanyDetails(user.uuid);
+
+      let companyLogoUrl = null;
+      if (companyDetails?.logo_url && !companyDetails?.logo_url.error) {
+        companyLogoUrl = companyDetails.logo_url;
+      }
+
+      // Determine warehouse name for the report
+      let warehouseNameForReport = "All Warehouses";
+      if (data.filters.warehouse_uuid) {
+        warehouseNameForReport = warehouses.find(w => w.uuid === data.filters.warehouse_uuid)?.name || "Unknown Warehouse";
+      } else if (preparedLogs.length === 1) {
+        warehouseNameForReport = preparedLogs[0].warehouseName || "All Warehouses";
+      }
+
+      console.log("With the following data:", {
+        selectedItems: data.selectedItems,
+        logs: preparedLogs,
+        deliveryHistory: allDeliveryHistory.data || [],
+        warehouseName: warehouseNameForReport,
+        companyName: companyData.data?.name || "Your Company",
+        companyLogoUrl: companyLogoUrl,
+        dateGenerated: new Date().toLocaleString(),
+        inventoryNameMap
+      });
+
+      // Generate PDF with selected page size
+      const pdfBlob = await generatePdfBlob({
+        logs: preparedLogs,
+        deliveryHistory: allDeliveryHistory.data || [],
+        warehouseName: warehouseNameForReport,
+        companyName: companyData.data?.name || "Your Company",
+        companyLogoUrl: companyLogoUrl,
+        dateGenerated: new Date().toLocaleString(),
+        inventoryNameMap,
+        pageSize: data.exportOptions.pageSize || "A4"
+      });
+
+      // Create download link with page size in filename
+      const url = URL.createObjectURL(pdfBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `RoPIC_Reorder_Point_Report_${data.exportOptions.pageSize || "A4"}_${(companyData.data?.name || 'Company').replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}_${new Date().toLocaleTimeString('en-US', { hour12: false }).replace(/:/g, '-')}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (error) {
+      console.error("Error generating PDF:", error);
+    } finally {
+      setIsPdfGenerating(false);
+    }
+  };
+
   // Effect to handle URL params (logId)
   useEffect(() => {
     const logId = searchParams.get("logId");
@@ -251,8 +348,11 @@ export default function ReorderPointPage() {
         // Fetch warehouses for filtering
         const warehousesResult = await getWarehouses(userData.company_uuid);
         setWarehouses(warehousesResult.data || []);
-        setIsLoadingWarehouses(false);
 
+        const warehouseInventoryResult = await getWarehouseInventoryItems(userData.company_uuid);
+        setWarehouseInventoryItems(warehouseInventoryResult.data || []);
+
+        setIsLoadingWarehouses(false);
       } catch (error) {
         console.error("Error initializing page:", error);
         setError("Failed to load data. Please try again later.");
@@ -372,6 +472,15 @@ export default function ReorderPointPage() {
             >
               Recalculate All
             </Button>
+            {/* PDF Export using new ExportPopover */}
+
+            <ReorderPointExportPopover
+              user={user}
+              warehouses={warehouses}
+              warehouseInventoryItems={warehouseInventoryItems}
+              isPdfGenerating={isPdfGenerating}
+              onExport={handlePdfExport}
+            />
           </div>
         </div>
         <div className="flex flex-col xl:flex-row gap-4">

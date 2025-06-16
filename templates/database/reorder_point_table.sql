@@ -98,19 +98,29 @@ BEGIN
     -- Get current available stock from warehouse inventory
     current_stock := COALESCE((warehouse_inv_record.unit_values->>'available')::NUMERIC, 0);
     
-    -- Calculate average daily sales based on warehouse inventory item usage
-    -- This looks at items that have been marked as 'USED' over the last 90 days
-    WITH daily_usage AS (
+    -- Calculate average daily sales based on status_history transitions to 'USED'
+    -- This extracts timestamps from status_history when items were marked as 'USED'
+    WITH usage_events AS (
       SELECT 
-        DATE_TRUNC('day', updated_at) as usage_date,
-        SUM(public.convert_unit(unit_value::numeric, unit, warehouse_inv_record.standard_unit)) as daily_total
-      FROM warehouse_inventory_items wii
+        wii.uuid,
+        wii.unit_value,
+        wii.unit,
+        -- Extract timestamp when status changed to 'USED'
+        (status_history_entry.key)::timestamp as used_timestamp,
+        status_history_entry.value as status_value
+      FROM warehouse_inventory_items wii,
+      LATERAL jsonb_each_text(wii.status_history) AS status_history_entry
       WHERE wii.warehouse_uuid = warehouse_inv_record.warehouse_uuid
         AND wii.inventory_uuid = warehouse_inv_record.inventory_uuid
-        AND wii.status = 'USED'
-        AND wii.updated_at >= NOW() - INTERVAL '90 days'
-        AND wii.updated_at >= wii.created_at -- Ensure we're looking at usage, not creation
-      GROUP BY DATE_TRUNC('day', updated_at)
+        AND status_history_entry.value = 'USED'
+        AND (status_history_entry.key)::timestamp >= NOW() - INTERVAL '90 days'
+    ),
+    daily_usage AS (
+      SELECT 
+        DATE_TRUNC('day', used_timestamp) as usage_date,
+        SUM(public.convert_unit(unit_value::numeric, unit, warehouse_inv_record.standard_unit)) as daily_total
+      FROM usage_events
+      GROUP BY DATE_TRUNC('day', used_timestamp)
     )
     SELECT 
       COALESCE(AVG(daily_total), 0)
@@ -118,18 +128,27 @@ BEGIN
     FROM daily_usage
     WHERE usage_date >= NOW() - INTERVAL '90 days';
     
-    -- Get maximum daily sales for safety stock calculation
-    WITH daily_usage AS (
+    -- Get maximum daily sales for safety stock calculation using status_history
+    WITH usage_events AS (
       SELECT 
-        DATE_TRUNC('day', updated_at) as usage_date,
-        SUM(public.convert_unit(unit_value::numeric, unit, warehouse_inv_record.standard_unit)) as daily_total
-      FROM warehouse_inventory_items wii
+        wii.uuid,
+        wii.unit_value,
+        wii.unit,
+        (status_history_entry.key)::timestamp as used_timestamp,
+        status_history_entry.value as status_value
+      FROM warehouse_inventory_items wii,
+      LATERAL jsonb_each_text(wii.status_history) AS status_history_entry
       WHERE wii.warehouse_uuid = warehouse_inv_record.warehouse_uuid
         AND wii.inventory_uuid = warehouse_inv_record.inventory_uuid
-        AND wii.status = 'USED'
-        AND wii.updated_at >= NOW() - INTERVAL '90 days'
-        AND wii.updated_at >= wii.created_at
-      GROUP BY DATE_TRUNC('day', updated_at)
+        AND status_history_entry.value = 'USED'
+        AND (status_history_entry.key)::timestamp >= NOW() - INTERVAL '90 days'
+    ),
+    daily_usage AS (
+      SELECT 
+        DATE_TRUNC('day', used_timestamp) as usage_date,
+        SUM(public.convert_unit(unit_value::numeric, unit, warehouse_inv_record.standard_unit)) as daily_total
+      FROM usage_events
+      GROUP BY DATE_TRUNC('day', used_timestamp)
     )
     SELECT 
       COALESCE(MAX(daily_total), 0)
@@ -284,36 +303,54 @@ BEGIN
   -- Get current available stock from warehouse inventory
   current_stock := COALESCE((warehouse_inv_record.unit_values->>'available')::NUMERIC, 0);
   
-  -- Calculate average daily sales based on warehouse inventory item usage
-  WITH daily_usage AS (
+  -- Calculate average daily sales based on status_history transitions to 'USED'
+  WITH usage_events AS (
     SELECT 
-      DATE_TRUNC('day', updated_at) as usage_date,
-      SUM(public.convert_unit(unit_value::numeric, unit, warehouse_inv_record.standard_unit)) as daily_total
-    FROM warehouse_inventory_items wii
+      wii.uuid,
+      wii.unit_value,
+      wii.unit,
+      (status_history_entry.key)::timestamp as used_timestamp,
+      status_history_entry.value as status_value
+    FROM warehouse_inventory_items wii,
+    LATERAL jsonb_each_text(wii.status_history) AS status_history_entry
     WHERE wii.warehouse_uuid = warehouse_inv_record.warehouse_uuid
       AND wii.inventory_uuid = warehouse_inv_record.inventory_uuid
-      AND wii.status = 'USED'
-      AND wii.updated_at >= NOW() - INTERVAL '90 days'
-      AND wii.updated_at >= wii.created_at
-    GROUP BY DATE_TRUNC('day', updated_at)
+      AND status_history_entry.value = 'USED'
+      AND (status_history_entry.key)::timestamp >= NOW() - INTERVAL '90 days'
+  ),
+  daily_usage AS (
+    SELECT 
+      DATE_TRUNC('day', used_timestamp) as usage_date,
+      SUM(public.convert_unit(unit_value::numeric, unit, warehouse_inv_record.standard_unit)) as daily_total
+    FROM usage_events
+    GROUP BY DATE_TRUNC('day', used_timestamp)
   )
   SELECT 
     COALESCE(AVG(daily_total), 0)
   INTO avg_daily_sales
   FROM daily_usage;
   
-  -- Get maximum daily sales for safety stock calculation
-  WITH daily_usage AS (
+  -- Get maximum daily sales for safety stock calculation using status_history
+  WITH usage_events AS (
     SELECT 
-      DATE_TRUNC('day', updated_at) as usage_date,
-      SUM(public.convert_unit(unit_value::numeric, unit, warehouse_inv_record.standard_unit)) as daily_total
-    FROM warehouse_inventory_items wii
+      wii.uuid,
+      wii.unit_value,
+      wii.unit,
+      (status_history_entry.key)::timestamp as used_timestamp,
+      status_history_entry.value as status_value
+    FROM warehouse_inventory_items wii,
+    LATERAL jsonb_each_text(wii.status_history) AS status_history_entry
     WHERE wii.warehouse_uuid = warehouse_inv_record.warehouse_uuid
       AND wii.inventory_uuid = warehouse_inv_record.inventory_uuid
-      AND wii.status = 'USED'
-      AND wii.updated_at >= NOW() - INTERVAL '90 days'
-      AND wii.updated_at >= wii.created_at
-    GROUP BY DATE_TRUNC('day', updated_at)
+      AND status_history_entry.value = 'USED'
+      AND (status_history_entry.key)::timestamp >= NOW() - INTERVAL '90 days'
+  ),
+  daily_usage AS (
+    SELECT 
+      DATE_TRUNC('day', used_timestamp) as usage_date,
+      SUM(public.convert_unit(unit_value::numeric, unit, warehouse_inv_record.standard_unit)) as daily_total
+    FROM usage_events
+    GROUP BY DATE_TRUNC('day', used_timestamp)
   )
   SELECT 
     COALESCE(MAX(daily_total), 0)
@@ -674,3 +711,137 @@ CREATE INDEX IF NOT EXISTS idx_reorder_point_logs_company_warehouse ON reorder_p
 CREATE INDEX IF NOT EXISTS idx_reorder_point_logs_status ON reorder_point_logs(status);
 CREATE INDEX IF NOT EXISTS idx_reorder_point_logs_updated_at ON reorder_point_logs(updated_at);
 CREATE INDEX IF NOT EXISTS idx_reorder_point_logs_warehouse_inventory ON reorder_point_logs(warehouse_inventory_uuid);
+
+
+
+-- Function to get warehouse inventory items grouped by deliveries and warehouse inventory based on reorder point logs
+CREATE OR REPLACE FUNCTION public.get_warehouse_items_by_reorder_point_logs(
+  p_reorder_point_log_uuids UUID[] DEFAULT NULL,
+  p_company_uuid UUID DEFAULT NULL,
+  p_limit INTEGER DEFAULT 100,
+  p_offset INTEGER DEFAULT 0
+)
+RETURNS TABLE(
+  reorder_point_log_uuid UUID,
+  warehouse_uuid UUID,
+  warehouse_name TEXT,
+  inventory_uuid UUID,
+  inventory_name TEXT,
+  warehouse_inventory_uuid UUID,
+  deliveries JSONB,
+  total_count BIGINT
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  total_rows BIGINT;
+BEGIN
+  -- Get total count
+  SELECT COUNT(DISTINCT rpl.uuid) INTO total_rows
+  FROM reorder_point_logs rpl
+  WHERE 
+    (p_company_uuid IS NULL OR rpl.company_uuid = p_company_uuid)
+    AND (
+      p_reorder_point_log_uuids IS NULL 
+      OR array_length(p_reorder_point_log_uuids, 1) = 0
+      OR rpl.uuid = ANY(p_reorder_point_log_uuids)
+    );
+
+  RETURN QUERY
+  WITH reorder_logs AS (
+    SELECT 
+      rpl.uuid as reorder_point_log_uuid,
+      rpl.warehouse_uuid,
+      rpl.inventory_uuid,
+      rpl.warehouse_inventory_uuid,
+      rpl.company_uuid,
+      w.name as warehouse_name,
+      COALESCE(inv.name, wi.name) as inventory_name
+    FROM reorder_point_logs rpl
+    LEFT JOIN warehouses w ON rpl.warehouse_uuid = w.uuid
+    LEFT JOIN inventory inv ON rpl.inventory_uuid = inv.uuid
+    LEFT JOIN warehouse_inventory wi ON rpl.warehouse_inventory_uuid = wi.uuid
+    WHERE 
+      (p_company_uuid IS NULL OR rpl.company_uuid = p_company_uuid)
+      AND (
+        p_reorder_point_log_uuids IS NULL 
+        OR array_length(p_reorder_point_log_uuids, 1) = 0
+        OR rpl.uuid = ANY(p_reorder_point_log_uuids)
+      )
+  ),
+  delivery_groups AS (
+    SELECT 
+      rl.reorder_point_log_uuid,
+      rl.warehouse_uuid,
+      rl.warehouse_name,
+      rl.inventory_uuid,
+      rl.inventory_name,
+      rl.warehouse_inventory_uuid,
+      di.uuid as delivery_uuid,
+      di.name as delivery_name,
+      di.delivery_address,
+      di.delivery_date,
+      di.status as delivery_status,
+      di.created_at as delivery_created_at,
+      -- Aggregate warehouse inventory items for this delivery
+      jsonb_agg(
+        jsonb_build_object(
+          'uuid', wii.uuid,
+          'item_code', wii.item_code,
+          'unit', wii.unit,
+          'unit_value', wii.unit_value,
+          'packaging_unit', wii.packaging_unit,
+          'cost', wii.cost,
+          'location', wii.location,
+          'group_id', wii.group_id,
+          'status', wii.status,
+          'created_at', wii.created_at,
+          'updated_at', wii.updated_at
+        ) ORDER BY wii.created_at DESC
+      ) as warehouse_items
+    FROM reorder_logs rl
+    LEFT JOIN warehouse_inventory_items wii ON (
+      rl.warehouse_uuid = wii.warehouse_uuid 
+      AND rl.inventory_uuid = wii.inventory_uuid
+    )
+    LEFT JOIN delivery_items di ON wii.delivery_uuid = di.uuid
+    WHERE wii.uuid IS NOT NULL
+    GROUP BY 
+      rl.reorder_point_log_uuid, rl.warehouse_uuid, rl.warehouse_name,
+      rl.inventory_uuid, rl.inventory_name, rl.warehouse_inventory_uuid,
+      di.uuid, di.name, di.delivery_address, di.delivery_date, 
+      di.status, di.created_at
+  )
+  SELECT 
+    dg.reorder_point_log_uuid,
+    dg.warehouse_uuid,
+    dg.warehouse_name,
+    dg.inventory_uuid,
+    dg.inventory_name,
+    dg.warehouse_inventory_uuid,
+    -- Group deliveries with their warehouse items
+    jsonb_agg(
+      jsonb_build_object(
+        'delivery_uuid', dg.delivery_uuid,
+        'delivery_name', dg.delivery_name,
+        'delivery_address', dg.delivery_address,
+        'delivery_date', dg.delivery_date,
+        'delivery_status', dg.delivery_status,
+        'delivery_created_at', dg.delivery_created_at,
+        'warehouse_items', dg.warehouse_items
+      ) ORDER BY dg.delivery_created_at DESC
+    ) as deliveries,
+    total_rows
+  FROM delivery_groups dg
+  GROUP BY 
+    dg.reorder_point_log_uuid, dg.warehouse_uuid, dg.warehouse_name,
+    dg.inventory_uuid, dg.inventory_name, dg.warehouse_inventory_uuid, total_rows
+  ORDER BY dg.reorder_point_log_uuid
+  LIMIT p_limit OFFSET p_offset;
+END;
+$function$;
+
+-- Grant permissions
+GRANT EXECUTE ON FUNCTION public.get_warehouse_items_by_reorder_point_logs TO authenticated;

@@ -316,3 +316,48 @@ export async function getFilteredItems(supabaseFunction: string, params: Record<
     };
   }
 }
+
+export async function getWarehouseItemsByReorderPointLogs(
+  reorderPointLogUuids: string[] = [],
+  companyUuid?: string,
+  limit: number = 100,
+  offset: number = 0
+) {
+  try {
+    const supabase = await createClient();
+    
+    const { data, error } = await supabase.rpc('get_warehouse_items_by_reorder_point_logs', {
+      p_reorder_point_log_uuids: reorderPointLogUuids.length > 0 ? reorderPointLogUuids : null,
+      p_company_uuid: companyUuid,
+      p_limit: limit,
+      p_offset: offset
+    });
+
+    if (error) {
+      console.error('Error fetching warehouse items by reorder point logs:', error);
+      return {
+        success: false,
+        error: error.message,
+        data: null,
+        total: 0
+      };
+    }
+
+    const total = data?.[0]?.total_count || 0;
+
+    return {
+      success: true,
+      data: data || [],
+      total: Number(total),
+      error: null
+    };
+  } catch (error) {
+    console.error('Error in getWarehouseItemsByReorderPointLogs:', error);
+    return {
+      success: false,
+      error: 'Failed to fetch warehouse items',
+      data: null,
+      total: 0
+    };
+  }
+}

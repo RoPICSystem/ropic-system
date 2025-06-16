@@ -1,0 +1,147 @@
+-- Drop all triggers first
+DROP TRIGGER IF EXISTS trg_reorder_point_recalculation ON warehouse_inventory CASCADE;
+DROP TRIGGER IF EXISTS trg_reorder_point_from_warehouse_items ON warehouse_inventory_items CASCADE;
+DROP TRIGGER IF EXISTS trg_reorder_point_from_delivery ON delivery_items CASCADE;
+DROP TRIGGER IF EXISTS update_reorder_point_logs_updated_at ON reorder_point_logs CASCADE;
+
+-- Drop all functions with CASCADE to handle dependencies
+DROP FUNCTION IF EXISTS public.trigger_reorder_point_recalculation() CASCADE;
+DROP FUNCTION IF EXISTS public.trigger_reorder_point_from_items() CASCADE;
+DROP FUNCTION IF EXISTS public.trigger_reorder_point_from_delivery() CASCADE;
+DROP FUNCTION IF EXISTS public.calculate_average_daily_usage(UUID, INTEGER) CASCADE;
+DROP FUNCTION IF EXISTS public.calculate_average_lead_time(UUID, INTEGER) CASCADE;
+DROP FUNCTION IF EXISTS public.calculate_safety_stock(NUMERIC, NUMERIC, NUMERIC) CASCADE;
+DROP FUNCTION IF EXISTS public.determine_stock_status(NUMERIC, NUMERIC, NUMERIC) CASCADE;
+DROP FUNCTION IF EXISTS public.calculate_specific_reorder_point(UUID) CASCADE;
+DROP FUNCTION IF EXISTS public.calculate_reorder_points() CASCADE;
+DROP FUNCTION IF EXISTS public.update_custom_safety_stock(UUID, NUMERIC, TEXT) CASCADE;
+DROP FUNCTION IF EXISTS public.get_reorder_point_logs_filtered(UUID, UUID, TEXT, TEXT, TEXT, TEXT, INTEGER, INTEGER, INTEGER, INTEGER, INTEGER, INTEGER) CASCADE;
+DROP FUNCTION IF EXISTS public.force_recalculate_reorder_points() CASCADE;
+DROP FUNCTION IF EXISTS update_updated_at_column() CASCADE;
+
+-- Drop all indexes related to reorder point system
+DROP INDEX IF EXISTS idx_reorder_point_logs_company CASCADE;
+DROP INDEX IF EXISTS idx_reorder_point_logs_warehouse CASCADE;
+DROP INDEX IF EXISTS idx_reorder_point_logs_warehouse_inventory CASCADE;
+DROP INDEX IF EXISTS idx_reorder_point_logs_status CASCADE;
+DROP INDEX IF EXISTS idx_reorder_point_logs_updated_at CASCADE;
+DROP INDEX IF EXISTS idx_warehouse_inventory_items_status_history CASCADE;
+DROP INDEX IF EXISTS idx_delivery_items_status_history CASCADE;
+DROP INDEX IF EXISTS idx_warehouse_inventory_unit_values_available CASCADE;
+
+-- Remove RLS policies for reorder_point_logs
+DROP POLICY IF EXISTS "reorder_point_logs_select_policy" ON public.reorder_point_logs CASCADE;
+DROP POLICY IF EXISTS "reorder_point_logs_insert_policy" ON public.reorder_point_logs CASCADE;
+DROP POLICY IF EXISTS "reorder_point_logs_update_policy" ON public.reorder_point_logs CASCADE;
+DROP POLICY IF EXISTS "reorder_point_logs_delete_policy" ON public.reorder_point_logs CASCADE;
+
+-- Drop the main reorder_point_logs table
+DROP TABLE IF EXISTS public.reorder_point_logs CASCADE;
+
+-- Revoke any remaining permissions (these will also be automatically cleaned up with CASCADE)
+-- But including them for completeness
+DO $$
+BEGIN
+    -- Revoke permissions from authenticated role
+    BEGIN
+        REVOKE EXECUTE ON FUNCTION public.calculate_average_daily_usage FROM authenticated;
+    EXCEPTION WHEN undefined_function THEN NULL;
+    END;
+    
+    BEGIN
+        REVOKE EXECUTE ON FUNCTION public.calculate_average_lead_time FROM authenticated;
+    EXCEPTION WHEN undefined_function THEN NULL;
+    END;
+    
+    BEGIN
+        REVOKE EXECUTE ON FUNCTION public.calculate_safety_stock FROM authenticated;
+    EXCEPTION WHEN undefined_function THEN NULL;
+    END;
+    
+    BEGIN
+        REVOKE EXECUTE ON FUNCTION public.determine_stock_status FROM authenticated;
+    EXCEPTION WHEN undefined_function THEN NULL;
+    END;
+    
+    BEGIN
+        REVOKE EXECUTE ON FUNCTION public.calculate_reorder_points FROM authenticated;
+    EXCEPTION WHEN undefined_function THEN NULL;
+    END;
+    
+    BEGIN
+        REVOKE EXECUTE ON FUNCTION public.calculate_specific_reorder_point FROM authenticated;
+    EXCEPTION WHEN undefined_function THEN NULL;
+    END;
+    
+    BEGIN
+        REVOKE EXECUTE ON FUNCTION public.update_custom_safety_stock FROM authenticated;
+    EXCEPTION WHEN undefined_function THEN NULL;
+    END;
+    
+    BEGIN
+        REVOKE EXECUTE ON FUNCTION public.get_reorder_point_logs_filtered FROM authenticated;
+    EXCEPTION WHEN undefined_function THEN NULL;
+    END;
+    
+    BEGIN
+        REVOKE EXECUTE ON FUNCTION public.force_recalculate_reorder_points FROM authenticated;
+    EXCEPTION WHEN undefined_function THEN NULL;
+    END;
+    
+    -- Revoke permissions from anon role
+    BEGIN
+        REVOKE EXECUTE ON FUNCTION public.calculate_reorder_points FROM anon;
+    EXCEPTION WHEN undefined_function THEN NULL;
+    END;
+    
+    BEGIN
+        REVOKE EXECUTE ON FUNCTION public.calculate_specific_reorder_point FROM anon;
+    EXCEPTION WHEN undefined_function THEN NULL;
+    END;
+    
+    BEGIN
+        REVOKE EXECUTE ON FUNCTION public.get_reorder_point_logs_filtered FROM anon;
+    EXCEPTION WHEN undefined_function THEN NULL;
+    END;
+    
+    BEGIN
+        REVOKE EXECUTE ON FUNCTION public.update_custom_safety_stock FROM anon;
+    EXCEPTION WHEN undefined_function THEN NULL;
+    END;
+    
+    BEGIN
+        REVOKE EXECUTE ON FUNCTION public.force_recalculate_reorder_points FROM anon;
+    EXCEPTION WHEN undefined_function THEN NULL;
+    END;
+END $$;
+
+-- Clean up any remaining objects that might reference the reorder point system
+-- This is a safety measure to ensure complete removal
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    -- Check for any remaining functions that might contain 'reorder_point' in their name
+    FOR r IN 
+        SELECT routine_name, routine_schema
+        FROM information_schema.routines
+        WHERE routine_schema = 'public' 
+        AND routine_name ILIKE '%reorder_point%'
+    LOOP
+        EXECUTE 'DROP FUNCTION IF EXISTS ' || quote_ident(r.routine_schema) || '.' || quote_ident(r.routine_name) || ' CASCADE';
+        RAISE NOTICE 'Dropped remaining function: %.%', r.routine_schema, r.routine_name;
+    END LOOP;
+    
+    -- Check for any remaining triggers that might contain 'reorder_point' in their name
+    FOR r IN 
+        SELECT trigger_name, event_object_table
+        FROM information_schema.triggers
+        WHERE trigger_schema = 'public' 
+        AND trigger_name ILIKE '%reorder_point%'
+    LOOP
+        EXECUTE 'DROP TRIGGER IF EXISTS ' || quote_ident(r.trigger_name) || ' ON ' || quote_ident(r.event_object_table) || ' CASCADE';
+        RAISE NOTICE 'Dropped remaining trigger: % on %', r.trigger_name, r.event_object_table;
+    END LOOP;
+END $$;
+
+RAISE NOTICE 'Reorder point system completely removed from database';

@@ -339,13 +339,15 @@ export function ExportPopover({
 
   // Default skeleton renderer
   const defaultSkeletonRenderer = (index: number) => (
-    <div key={index} className="flex items-center gap-2 p-2 rounded-md">
-      <Skeleton className="w-5 h-5 rounded" />
-      <div className="flex-1 min-w-0 space-y-1">
-        <Skeleton className="h-4 w-32 rounded-xl" />
-        <Skeleton className="h-3 w-48 rounded-xl" />
+    <div key={index} className="flex items-center gap-4 p-2 rounded-md">
+      <Skeleton className="w-5 h-5 bg-default-200 rounded-md animate-pulse" />
+      <div className="flex items-center justify-between gap-2 w-full">
+        <div className="flex-1 min-w-0 space-y-1">
+          <Skeleton className="h-4 w-32 bg-default-200 rounded-xl animate-pulse" />
+          <Skeleton className="h-3 w-48 bg-default-200 rounded-xl animate-pulse" />
+        </div>
+        <Skeleton className="h-5 w-16 bg-default-200 rounded-xl animate-pulse" />
       </div>
-      <Skeleton className="h-6 w-16 rounded-xl" />
     </div>
   );
 
@@ -731,8 +733,8 @@ export function ExportPopover({
                   /* Select All skeleton */
                   enableSelectAll && (
                     <div key="select-all" className="flex items-center justify-between p-2 pb-0">
-                      <div className="flex items-center gap-2">
-                        <Skeleton className="w-5 h-5 rounded" />
+                      <div className="flex items-center gap-4">
+                        <Skeleton className="w-5 h-5 rounded-md" />
                         <Skeleton className="h-4 w-20 rounded-xl" />
                       </div>
                       <Skeleton className="h-4 w-16 rounded-xl" />
