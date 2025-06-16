@@ -1063,7 +1063,7 @@ export default function InventoryPage() {
                                   isIconOnly
                                   size="sm"
                                   isDisabled={!inventoryForm.name.trim() || isLoading}
-                                  title="Generate AI description"
+                                  title="Generate description"
                                   isLoading={isGeneratingDescription}
                                 >
                                   {!isGeneratingDescription &&
@@ -1074,7 +1074,7 @@ export default function InventoryPage() {
                               <PopoverContent className="w-64 p-0">
                                 <div className="w-full">
                                   <div className="text-sm font-medium text-center p-4 pb-0">
-                                    Generate AI Description
+                                    Generate Description
                                   </div>
 
                                   <div className="space-y-2 p-4">

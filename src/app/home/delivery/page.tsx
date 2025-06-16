@@ -2598,7 +2598,7 @@ export default function DeliveryPage() {
                           value={deliveryNameValue}
                           onChange={handleInputChange}
                           isRequired={canEditAllFields()}
-                          isReadOnly={!canEditAllFields()}
+                          isReadOnly={selectedDeliveryId !== null}
                           classNames={inputStyle}
                           startContent={<Icon icon="mdi:package" className="text-default-500 mb-[0.2rem]" />}
                           placeholder={selectedDeliveryId && selectedInventoryUuids.length > 0 ? getDefaultDeliveryName() : "Enter delivery name"}
@@ -2612,7 +2612,7 @@ export default function DeliveryPage() {
                             selectedKey={formData.warehouse_uuid || ""}
                             onSelectionChange={(value) => handleAutoSelectChange("warehouse_uuid", value)}
                             isRequired={canEditAllFields()}
-                            isReadOnly={!canEditAllFields()}
+                            isReadOnly={selectedDeliveryId !== null}
                             inputProps={autoCompleteStyle}
                             isInvalid={!!errors.warehouse_uuid}
                             errorMessage={errors.warehouse_uuid}
@@ -2637,7 +2637,7 @@ export default function DeliveryPage() {
                               handleAutoSelectChange("delivery_date", dateString);
                             }}
                             isRequired={canEditAllFields()}
-                            isReadOnly={!canEditAllFields()}
+                            isReadOnly={selectedDeliveryId !== null}
                             classNames={{
                               base: "w-full",
                               inputWrapper: "border-2 border-default-200 hover:border-default-400 !transition-all duration-200 h-16",
@@ -2930,7 +2930,9 @@ export default function DeliveryPage() {
                                             <div className="text-left">
                                               <p className="font-medium">{inventory?.name || 'Unknown Inventory'}</p>
                                               <p className="text-sm text-default-500">
-                                                {selectedItemCount}/{inventory?.count?.inventory || 0} items selected
+                                                {(formData.status === "PENDING" || formData.status === "PROCESSING") && (user?.is_admin) ?
+                                                  `${selectedItemCount}/${inventory?.count?.inventory || 0} items selected` :
+                                                  `${selectedItemCount} items selected`}
                                               </p>
                                             </div>
                                           </div>

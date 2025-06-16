@@ -13,12 +13,16 @@ import {
   ModalFooter,
   useDisclosure,
   Skeleton,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Textarea,
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import CardList from "@/components/card-list";
 import { motion } from "framer-motion";
 import { format } from "date-fns";
-import { motionTransition } from "@/utils/anim";
+import { motionTransition, popoverTransition } from "@/utils/anim";
 import {
   getReorderPointLogs,
   getReorderPointLogDetails,
@@ -65,6 +69,8 @@ export default function ReorderPointPage() {
   const [formData, setFormData] = useState<Partial<ReorderPointLog>>({});
   const [customSafetyStock, setCustomSafetyStock] = useState<number | null>(null);
   const [safetyStockNotes, setSafetyStockNotes] = useState("");
+
+  const customSafetyStockPopover = useDisclosure();
 
   // PDF export state
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
@@ -530,7 +536,7 @@ export default function ReorderPointPage() {
                           size="sm"
                           className={`font-semibold 
                             bg-${getStatusColor(log.status)}${selectedItemId === log.uuid ? '-200' : ''} 
-                            ${selectedItemId === log.uuid ? `text-${getStatusColor(log.status)}-800` : ''}`}
+                            ${selectedItemId === log.uuid ? `text-${getStatusColor(log.status)}-700` : ''}`}
                         >
                           {log.status.replaceAll('_', ' ')}
                         </Chip>
@@ -802,20 +808,100 @@ export default function ReorderPointPage() {
                             startContent={<Icon icon="mdi:shield-outline" className="text-default-500 mb-[0.1rem]" />}
                             description={formData.custom_safety_stock !== null ? "Custom safety stock" : "Automatically calculated"}
                             endContent={
-                              <Button
-                                size="sm"
-                                color="primary"
-                                variant="flat"
-                                className="absolute right-3 bottom-2"
-                                isIconOnly
-                                onPress={() => {
-                                  setCustomSafetyStock(formData.custom_safety_stock !== null ? formData.custom_safety_stock ?? 0 : formData.safety_stock ?? 0);
-                                  setSafetyStockNotes(formData.notes || "");
-                                  customSafetyStockModal.onOpen();
-                                }}
+                              <Popover
+                                isOpen={customSafetyStockPopover.isOpen}
+                                onOpenChange={customSafetyStockPopover.onOpenChange}
+                                motionProps={popoverTransition('right')}
+                                placement="left"
+                                classNames={{ content: "!backdrop-blur-lg bg-background/65" }}
                               >
-                                <Icon icon="mdi:pencil" />
-                              </Button>
+                                <PopoverTrigger>
+                                  <Button
+                                    size="sm"
+                                    color="primary"
+                                    variant="flat"
+                                    className="absolute right-3 bottom-2"
+                                    isIconOnly
+                                    onPress={() => {
+                                      setCustomSafetyStock(formData.custom_safety_stock !== null ? formData.custom_safety_stock ?? 0 : formData.safety_stock ?? 0);
+                                      setSafetyStockNotes(formData.notes || "");
+                                    }}
+                                  >
+                                    <Icon icon="mdi:pencil" />
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-96 p-0 overflow-hidden">
+                                  <div className="w-full">
+                                    {/* Header */}
+                                    <div className="px-4 pt-4 text-center">
+                                      <h3 className="text-lg font-semibold">Customize Safety Stock</h3>
+                                      <p className="text-sm text-default-500">
+                                        Set a custom safety stock value for this item.
+                                      </p>
+                                    </div>
+
+                                    {/* Body */}
+                                    <div className="p-4 border-b border-default-200 space-y-3 flex flex-col">
+                                      <Input
+                                        label="Custom Safety Stock"
+                                        type="number"
+                                        min="0"
+                                        step="0.1"
+                                        className="w-full"
+                                        value={customSafetyStock?.toString() || ""}
+                                        onChange={(e) => setCustomSafetyStock(parseFloat(e.target.value))}
+                                        classNames={inputStyle}
+                                        startContent={<Icon icon="mdi:shield-edit" className="text-default-500 mb-[0.2rem]" />}
+                                      />
+
+                                      <Textarea
+                                        label="Notes"
+                                        placeholder="Reason for custom safety stock"
+                                        value={safetyStockNotes}
+                                        onChange={(e) => setSafetyStockNotes(e.target.value)}
+                                        classNames={inputStyle}
+                                        className="w-full"
+                                        startContent={<Icon icon="mdi:note-text" className="text-default-500 mb-[0.2rem]" />}
+                                      />
+                                    </div>
+
+                                    <div className="border-t border-default-200 flex justify-between items-center bg-default-100/50 flex-col w-full">
+                                      <div className="flex justify-end gap-2 w-full border-t border-default-200 p-4">
+                                        <Button
+                                          size="sm"
+                                          color="default"
+                                          onPress={customSafetyStockPopover.onClose}
+                                        >
+                                          Cancel
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          color="danger"
+                                          variant="shadow"
+                                          onPress={() => {
+                                            setCustomSafetyStock(null);
+                                            setSafetyStockNotes("");
+                                            customSafetyStockPopover.onClose();
+                                          }}
+                                          isDisabled={customSafetyStock === null}
+                                        >
+                                          Reset
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          color="primary"
+                                          variant="shadow"
+                                          onPress={handleSaveCustomSafetyStock}
+                                          isLoading={isLoading}
+                                          isDisabled={customSafetyStock === null || customSafetyStock < 0}
+                                        >
+                                          Save
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
                             }
                           />
 
@@ -976,80 +1062,6 @@ export default function ReorderPointPage() {
             )}
           </div>
         </div >
-
-        {/* Modal for Custom Safety Stock */}
-        < Modal
-          isOpen={customSafetyStockModal.isOpen}
-          onClose={customSafetyStockModal.onClose}
-          placement="auto"
-          backdrop="blur"
-          size="lg"
-          classNames={{
-            backdrop: "bg-background/50"
-          }
-          }
-        >
-          <ModalContent>
-            <ModalHeader>Customize Safety Stock</ModalHeader>
-            <ModalBody className="flex flex-col">
-              <p className="text-default-600 mb-4">
-                Set a custom safety stock value for this item. The system will use this value
-                instead of the automatically calculated one.
-              </p>
-
-              <Input
-                label="Custom Safety Stock"
-                type="number"
-                min="0"
-                step="0.1"
-                value={customSafetyStock?.toString() || ""}
-                onChange={(e) => setCustomSafetyStock(parseFloat(e.target.value))}
-                classNames={inputStyle}
-                startContent={<Icon icon="mdi:shield-edit" className="text-default-500 mb-[0.2rem]" />}
-              />
-
-              <Input
-                label="Notes"
-                placeholder="Reason for custom safety stock"
-                value={safetyStockNotes}
-                onChange={(e) => setSafetyStockNotes(e.target.value)}
-                classNames={inputStyle}
-                startContent={<Icon icon="mdi:note-text" className="text-default-500 mb-[0.2rem]" />}
-              />
-
-              <div className="p-4 bg-default-50 rounded-xl mt-4">
-                <h3 className="text-sm font-medium mb-2">Safety Stock Impact</h3>
-                <p className="text-xs text-default-600 mb-2">
-                  Current automatic safety stock: <b>{formData.safety_stock?.toFixed(2) || "0"}</b>
-                </p>
-                <p className="text-xs text-default-600 mb-2">
-                  Current reorder point: <b>{formData.reorder_point?.toFixed(2) || "0"}</b>
-                </p>
-                {customSafetyStock !== null && (
-                  <p className="text-xs text-default-600">
-                    New reorder point: <b>{((formData.average_daily_unit_sales || 0) * (formData.lead_time_days || 0) + customSafetyStock).toFixed(2)}</b>
-                  </p>
-                )}
-              </div>
-            </ModalBody>
-            <ModalFooter className="flex justify-end p-4 gap-4">
-              <Button
-                color="default"
-                onPress={customSafetyStockModal.onClose}>
-                Cancel
-              </Button>
-              <Button
-                color="primary"
-                variant="shadow"
-                onPress={handleSaveCustomSafetyStock}
-                isLoading={isLoading}
-                isDisabled={customSafetyStock === null || customSafetyStock < 0}
-              >
-                Save Custom Safety Stock
-              </Button>
-            </ModalFooter>
-          </ModalContent>
-        </Modal >
       </div >
     </motion.div >
   );
