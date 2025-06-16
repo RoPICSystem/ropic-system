@@ -41,6 +41,7 @@ import { generatePdfBlob } from "./pdf-document";
 import { getCompanyData } from "../company/actions";
 import { getUserCompanyDetails } from "@/utils/supabase/server/companies";
 import { getWarehouseInventoryItems } from "../warehouse-items/actions";
+import CustomScrollbar from "@/components/custom-scrollbar";
 
 export default function ReorderPointPage() {
   const router = useRouter();
@@ -524,10 +525,12 @@ export default function ReorderPointPage() {
                       </div>
                       <div className="flex-shrink-0 self-start">
                         <Chip
-                          color={selectedItemId === log.uuid ? "default" : getStatusColor(log.status)}
+                          color={getStatusColor(log.status)}
                           variant="shadow"
                           size="sm"
-                          className={`font-semibold ${selectedItemId === log.uuid ? 'bg-primary-50 text-primary-600' : ''}`}
+                          className={`font-semibold 
+                            bg-${getStatusColor(log.status)}${selectedItemId === log.uuid ? '-200' : ''} 
+                            ${selectedItemId === log.uuid ? `text-${getStatusColor(log.status)}-800` : ''}`}
                         >
                           {log.status.replaceAll('_', ' ')}
                         </Chip>
@@ -540,41 +543,63 @@ export default function ReorderPointPage() {
         ${selectedItemId === log.uuid ?
                       'border-primary-300/30 bg-primary-700/20' :
                       'border-default-200/50 bg-default-100/50'} p-4`}>
-                    <Chip
-                      color={selectedItemId === log.uuid ? "default" : "secondary"}
-                      variant="flat"
-                      size="sm"
-                      className={`font-medium ${selectedItemId === log.uuid ? 'bg-secondary-100/80 text-primary-700 border-primary-200/60' : 'bg-secondary-100/80'}`}
-                    >
-                      <div className="flex items-center gap-1">
-                        <Icon icon="mdi:calendar" width={12} height={12} />
-                        {formatDate(log.updated_at)}
-                      </div>
-                    </Chip>
+                    <CustomScrollbar
+                      direction="horizontal"
+                      hideScrollbars
+                      gradualOpacity
+                      className="flex items-center gap-2 ">
 
-                    <Chip
-                      color={selectedItemId === log.uuid ? "default" : "warning"}
-                      variant="flat"
-                      size="sm"
-                      className={`font-medium ${selectedItemId === log.uuid ? 'bg-warning-100/80 text-warning-700 border-warning-200/60' : 'bg-warning-100/80'}`}
-                    >
-                      <div className="flex items-center gap-1">
-                        <Icon icon="mdi:package-variant" width={12} height={12} />
-                        {log.current_stock}{log.unit}
-                      </div>
-                    </Chip>
+                      <Chip
+                        color={selectedItemId === log.uuid ? "default" : "secondary"}
+                        variant="flat"
+                        size="sm"
+                        className={`font-medium ${selectedItemId === log.uuid ? 'bg-secondary-100/80 text-primary-700 border-primary-200/60' : 'bg-secondary-100/80'}`}
+                      >
+                        <div className="flex items-center gap-1">
+                          <Icon icon="mdi:calendar" width={12} height={12} />
+                          {formatDate(log.updated_at)}
+                        </div>
+                      </Chip>
 
-                    <Chip
-                      color={selectedItemId === log.uuid ? "default" : "success"}
-                      variant="flat"
-                      size="sm"
-                      className={`font-medium ${selectedItemId === log.uuid ? 'bg-success-100/80 text-success-700 border-success-200/60' : 'bg-success-100/80'}`}
-                    >
-                      <div className="flex items-center gap-1">
-                        <Icon icon="mdi:alert-circle" width={12} height={12} />
-                        RP: {Math.ceil(log.reorder_point)}{log.unit}
-                      </div>
-                    </Chip>
+                      <Chip
+                        color={selectedItemId === log.uuid ? "default" : "warning"}
+                        variant="flat"
+                        size="sm"
+                        className={`font-medium ${selectedItemId === log.uuid ? 'bg-warning-100/80 text-warning-700 border-warning-200/60' : 'bg-warning-100/80'}`}
+                      >
+                        <div className="flex items-center gap-1">
+                          <Icon icon="mdi:package-variant" width={12} height={12} />
+                          {log.current_stock} {log.unit} stock
+                        </div>
+                      </Chip>
+
+                      <Chip
+                        color={selectedItemId === log.uuid ? "default" : "success"}
+                        variant="flat"
+                        size="sm"
+                        className={`font-medium ${selectedItemId === log.uuid ? 'bg-success-100/80 text-success-700 border-success-200/60' : 'bg-success-100/80'}`}
+                      >
+                        <div className="flex items-center gap-1">
+                          <Icon icon="mdi:alert-circle" width={12} height={12} />
+                          {Math.ceil(log.reorder_point)} {log.unit} reorder point
+                        </div>
+                      </Chip>
+
+                      {/* Safety stock */}
+                      {log.safety_stock !== undefined && (
+                        <Chip
+                          color={selectedItemId === log.uuid ? "default" : "secondary"}
+                          variant="flat"
+                          size="sm"
+                          className={`font-medium ${selectedItemId === log.uuid ? 'bg-secondary-100/80 text-secondary-700 border-secondary-200/60' : 'bg-secondary-100/80'}`}
+                        >
+                          <div className="flex items-center gap-1">
+                            <Icon icon="mdi:shield-check" width={12} height={12} />
+                            {log.safety_stock.toFixed(2)} {log.unit} safety stock
+                          </div>
+                        </Chip>
+                      )}
+                    </CustomScrollbar>
                   </div>
 
                   {/* Hover effect overlay */}
