@@ -88,23 +88,23 @@ export const herouiColorOpacity = (color: string, opacity: number, colorType: 'h
   }
 }
 
-export const getStatusColor = (status: any) => {
+export const getStatusColor = (status: any): 'success' | 'primary' | 'warning' | 'danger' | 'default' => {
   switch (status?.toUpperCase()) {
     case 'AVAILABLE': return 'success';
-    case 'IN_WAREHOUSE': return 'primary';
+    case 'IN_WAREHOUSE': return 'warning';
     case 'RESERVED': return 'warning';
     case 'CRITICAL': return 'danger';
     case 'IN_STOCK': return 'success';
     case 'WARNING': return 'warning';
     case 'OUT_OF_STOCK': return 'danger';
-
     case 'ON_DELIVERY': return 'warning';
-
     case "PENDING": return "default";
     case "PROCESSING": return "warning";
     case "IN_TRANSIT": return "primary";
     case "DELIVERED": return "success";
     case "CANCELLED": return "danger";
+    case "USED": return "warning";
     default: return 'default';
   }
+
 };

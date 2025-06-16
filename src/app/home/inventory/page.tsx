@@ -8,7 +8,7 @@ import { getStatusColor, herouiColor } from "@/utils/colors";
 import { motionTransition, popoverTransition } from "@/utils/anim";
 import { getMeasurementUnitOptions, getPackagingUnitOptions, getUnitFullName, getUnitOptions, getDefaultStandardUnit, convertUnit } from "@/utils/measurements";
 import { getUserFromCookies } from '@/utils/supabase/server/user';
-import { copyToClipboard, formatDate, formatNumber, showErrorToast } from "@/utils/tools";
+import { copyToClipboard, formatDate, formatNumber, formatStatus, showErrorToast } from "@/utils/tools";
 import {
   groupInventoryItems,
   getGroupInfo,
@@ -836,7 +836,7 @@ export default function InventoryPage() {
                         >
                           <div className="flex items-center gap-1">
                             <Icon icon="mdi:check-circle" width={12} height={12} />
-                            {formatNumber(inventory.unit_values.available)} available
+                            {formatNumber(inventory.unit_values.available)} {inventory.standard_unit} available
                           </div>
                         </Chip>
                       )}
@@ -850,7 +850,21 @@ export default function InventoryPage() {
                         >
                           <div className="flex items-center gap-1">
                             <Icon icon="mdi:warehouse" width={12} height={12} />
-                            {formatNumber(inventory.unit_values.warehouse)} in warehouse
+                            {formatNumber(inventory.unit_values.warehouse)} {inventory.standard_unit} in warehouse
+                          </div>
+                        </Chip>
+                      )}
+
+                      {inventory.count?.available > 0 && (
+                        <Chip
+                          color="primary"
+                          variant="flat"
+                          size="sm"
+                          className={`font-medium ${selectedItemId === inventory.uuid ? 'bg-primary-100/80 text-primary-700 border-primary-200/60' : 'bg-primary-100/80'}`}
+                        >
+                          <div className="flex items-center gap-1">
+                            <Icon icon="mdi:package" width={12} height={12} />
+                            {formatNumber(inventory.count.available)} {inventory.count.available === 1 ? 'item' : 'items'} available
                           </div>
                         </Chip>
                       )}
@@ -1137,36 +1151,114 @@ export default function InventoryPage() {
                       />
 
                       {/* Display aggregated values if they exist */}
-                      {inventoryForm.unit_values && (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-default-100 rounded-xl border-2 border-default-200">
-                          <div className="text-center">
-                            <div className="text-xl inline-flex items-end gap-1 font-bold text-default-600">
-                              {formatNumber(inventoryForm.unit_values.total)}
-                              <span className="text-sm">{inventoryForm.standard_unit}</span>
-                            </div>
+                      {inventoryForm.unit_values && inventoryForm.count && (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 p-2 bg-default-100/50 rounded-xl border-2 border-default-200">
+                          <div className="text-center flex flex-col items-center gap-1 bg-default-200/50 rounded-md p-4">
                             <div className="text-sm text-default-600">
                               Total
                             </div>
-                          </div>
-                          <div className="text-center">
-                            <div className="text-xl inline-flex items-end gap-1 font-bold text-success-600">
-                              {formatNumber(inventoryForm.unit_values.available)}
-                              <span className="text-sm">{inventoryForm.standard_unit}</span>
+                            <div className="text-default-600 flex flex-col items-center gap-1">
+                              <span className="inline-flex items-end gap-1">
+                                <span className="text-2xl font-bold">
+                                  {formatNumber(inventoryForm.unit_values.total)}
+                                </span>
+                                <span className="text-md text-default-600/75 font-semibold">
+                                  {inventoryForm.standard_unit}
+                                </span>
+                              </span>
+                              {(() => {
+                                const totalCost = inventoryItemsList.reduce((total, item) => total + (item.cost || 0), 0);
+
+                                return totalCost > 0 ? (
+                                  <span className="inline-flex text-default-600 items-center gap-1 bg-default-200 rounded-full px-2 py-[0.15rem] w-full justify-center">
+                                    <span className="text-sm font-semibold">
+                                      ₱ {formatNumber(totalCost)}
+                                    </span>
+                                  </span>
+                                ) : null;
+                              })()}
+                              <span className="inline-flex text-default-100 items-center gap-1 bg-default-600 rounded-full px-2 py-[0.15rem] w-full justify-center">
+                                <span className="text-sm font-bold">
+                                  {formatNumber(inventoryForm.count.total)}
+                                </span>
+                                <span className="text-xs text-default-100/75 font-semibold">
+                                  items
+                                </span>
+                              </span>
                             </div>
+                          </div>
+                          <div className="text-center flex flex-col items-center gap-1 bg-success-200/50 rounded-md p-4">
                             <div className="text-sm text-success-600">
                               Available
                             </div>
-                          </div>
-                          <div className="text-center">
-                            <div className="text-xl inline-flex items-end gap-1 font-bold text-secondary-600">
-                              {formatNumber(inventoryForm.unit_values.warehouse)}
-                              <span className="text-sm">{inventoryForm.standard_unit}</span>
+                            <div className="text-success-600 flex flex-col items-center gap-1">
+                              <span className="inline-flex items-end gap-1">
+                                <span className="text-2xl font-bold">
+                                  {formatNumber(inventoryForm.unit_values.available)}
+                                </span>
+                                <span className="text-md text-success-600/75 font-semibold">
+                                  {inventoryForm.standard_unit}
+                                </span>
+                              </span>
+                              {(() => {
+                                const availableCost = inventoryItemsList
+                                  .filter(item => !item.status || item.status === 'AVAILABLE')
+                                  .reduce((total, item) => total + (item.cost || 0), 0);
+
+                                return availableCost > 0 ? (
+                                  <span className="inline-flex text-success-600 items-center gap-1 bg-success-200 rounded-full px-2 py-[0.15rem] w-full justify-center">
+                                    <span className="text-sm font-semibold">
+                                      ₱ {formatNumber(availableCost)}
+                                    </span>
+                                  </span>
+                                ) : null;
+                              })()}
+                              <span className="inline-flex text-success-100 items-center gap-1 bg-success-600 rounded-full px-2 py-[0.15rem] w-full justify-center">
+                                <span className="text-sm font-bold">
+                                  {formatNumber(inventoryForm.count.available)}
+                                </span>
+                                <span className="text-xs text-success-100/75 font-semibold">
+                                  items
+                                </span>
+                              </span>
                             </div>
-                            <div className="text-sm text-secondary-600">
+                          </div>
+                          <div className="text-center flex flex-col items-center gap-1 bg-warning-200/50 rounded-md p-4">
+                            <div className="text-sm text-warning-600">
                               In Warehouse
                             </div>
-                          </div>
+                            <div className="text-warning-600 flex flex-col items-center gap-1">
+                              <span className="inline-flex items-end gap-1">
+                                <span className="text-2xl font-bold">
+                                  {formatNumber(inventoryForm.unit_values.warehouse)}
+                                </span>
+                                <span className="text-md text-warning-600/75 font-semibold">
+                                  {inventoryForm.standard_unit}
+                                </span>
+                              </span>
+                              {(() => {
+                                const warehouseCost = inventoryItemsList
+                                  .filter(item => item.status === 'IN_WAREHOUSE')
+                                  .reduce((total, item) => total + (item.cost || 0), 0);
 
+                                return warehouseCost > 0 ? (
+                                  <span className="inline-flex text-warning-600 items-center gap-1 bg-warning-200 rounded-full px-2 py-[0.15rem] w-full justify-center">
+                                    <span className="text-sm font-semibold">
+                                      ₱ {formatNumber(warehouseCost)}
+                                    </span>
+                                  </span>
+                                ) : null;
+                              })()}
+                              <span className="inline-flex text-warning-100 items-center gap-1 bg-warning-600 rounded-full px-2 py-[0.15rem] w-full justify-center">
+                                <span className="text-sm font-bold">
+                                  {formatNumber(inventoryForm.count.warehouse)}
+                                </span>
+                                <span className="text-xs text-warning-100/75 font-semibold">
+                                  items
+                                </span>
+                              </span>
+                            </div>
+                          </div>
                         </div>
                       )}
 
@@ -1280,19 +1372,29 @@ export default function InventoryPage() {
                     <div className="space-y-4">
                       <div className="flex justify-between items-center mb-4">
                         <div className="flex items-center gap-2 flex-wrap">
-                          {inventoryItemsList.length > 0 && (
+                          {inventoryItemsList && inventoryItemsList.length > 0 && (
                             <>
-                              <Chip color="default" variant="flat" size="sm">
-                                {inventoryItemsList.length} item{inventoryItemsList.length > 1 ? "s" : ""}
-                              </Chip>
-                              {inventoryForm.standard_unit && (
-                                <Chip color="primary" variant="flat" size="sm">
-                                  {formatNumber(getTotalStandardUnits())} {inventoryForm.standard_unit}
-                                </Chip>
-                              )}
-                              <Chip color="success" variant="flat" size="sm">
-                                ₱ {formatNumber(getTotalCost())}
-                              </Chip>
+                              {(() => {
+                                const groupedItems = getGroupedItems();
+                                const groupCount = Object.keys(groupedItems).length;
+                                const ungroupedCount = groupedItems['ungrouped']?.length || 0;
+                                const actualGroupCount = ungroupedCount > 0 ? groupCount - 1 : groupCount;
+
+                                return (
+                                  <>
+                                    {actualGroupCount > 0 && (
+                                      <Chip color="primary" variant="flat" size="sm" className="flex-shrink-0">
+                                        {actualGroupCount} group{actualGroupCount !== 1 ? 's' : ''}
+                                      </Chip>
+                                    )}
+                                    {ungroupedCount > 0 && (
+                                      <Chip color="secondary" variant="flat" size="sm" className="flex-shrink-0">
+                                        {ungroupedCount} ungrouped item{ungroupedCount !== 1 ? 's' : ''}
+                                      </Chip>
+                                    )}
+                                  </>
+                                );
+                              })()}
                             </>
                           )}
                         </div>
@@ -1368,60 +1470,175 @@ export default function InventoryPage() {
                                       className={`${displayNumber === 1 ? 'mt-4' : ''} mx-2`}
                                       title={
                                         <div className="flex justify-between items-center w-full">
+                                          {/* Group/Item Title */}
                                           <div className="flex items-center gap-2">
-                                            <span className="font-medium">
+                                            <span className="font-medium whitespace-nowrap">
                                               {viewMode === 'grouped' && groupInfo.isGroup ? `Group ${displayNumber}` : `Item ${viewMode === 'flat' ? item.id : displayNumber}`}
                                             </span>
                                           </div>
-                                          <div className="flex gap-2">
-                                            {viewMode === 'grouped' && groupInfo.isGroup && (
-                                              <Chip color="secondary" variant="flat" size="sm">
-                                                {groupInfo.groupSize} items
-                                              </Chip>
-                                            )}
-                                            {item.unit && item.unit !== "" && item.unit_value! > 0 && (
-                                              <Chip color="primary" variant="flat" size="sm">
-                                                {(() => {
-                                                  if (viewMode === 'grouped' && groupInfo.isGroup) {
-                                                    // Calculate total for the group in standard unit
-                                                    const groupItems = inventoryItemsList.filter(groupItem =>
-                                                      groupItem.group_id === groupInfo.groupId
+                                          <div className="flex gap-2 flex-wrap justify-end items-center">
+                                            {/* Available Items Chip */}
+                                            {(() => {
+                                              if (viewMode === 'grouped' && groupInfo.isGroup) {
+                                                const groupItems = inventoryItemsList.filter(groupItem =>
+                                                  groupItem.group_id === groupInfo.groupId
+                                                );
+                                                const availableItems = groupItems.filter(groupItem =>
+                                                  !groupItem.status || groupItem.status === 'AVAILABLE'
+                                                );
+
+                                                if (availableItems.length > 0) {
+                                                  const totalAvailableValue = availableItems.reduce((total, groupItem) => {
+                                                    if (groupItem.unit_value) {
+                                                      return total + groupItem.unit_value;
+                                                    }
+                                                    return total;
+                                                  }, 0);
+
+                                                  if (totalAvailableValue > 0 && item.unit) {
+                                                    const originalDisplay = `${formatNumber(totalAvailableValue)} ${item.unit}`;
+
+                                                    if (inventoryForm.standard_unit && item.unit !== inventoryForm.standard_unit) {
+                                                      const totalInStandardUnit = availableItems.reduce((total, groupItem) => {
+                                                        if (groupItem.unit && groupItem.unit_value && inventoryForm.standard_unit) {
+                                                          return total + convertUnit(groupItem.unit_value, groupItem.unit, inventoryForm.standard_unit);
+                                                        }
+                                                        return total;
+                                                      }, 0);
+                                                      return (
+                                                        <Chip color="success" variant="flat" size="sm" className="whitespace-nowrap">
+                                                          {`${originalDisplay} (${formatNumber(totalInStandardUnit)} ${inventoryForm.standard_unit}) available`}
+                                                        </Chip>
+                                                      );
+                                                    }
+
+                                                    return (
+                                                      <Chip color="success" variant="flat" size="sm" className="whitespace-nowrap">
+                                                        {`${originalDisplay} available`}
+                                                      </Chip>
                                                     );
-                                                    const totalInStandardUnit = groupItems.reduce((total, groupItem) => {
-                                                      if (groupItem.unit && groupItem.unit_value && inventoryForm.standard_unit) {
-                                                        return total + convertUnit(groupItem.unit_value, groupItem.unit, inventoryForm.standard_unit);
-                                                      }
-                                                      return total;
-                                                    }, 0);
-
-                                                    // Show both original unit total and converted total
-                                                    const totalInOriginalUnit = groupItems.reduce((total, groupItem) => {
-                                                      if (groupItem.unit === item.unit && groupItem.unit_value) {
-                                                        return total + groupItem.unit_value;
-                                                      }
-                                                      return total;
-                                                    }, 0);
-
-                                                    if (inventoryForm.standard_unit && item.unit !== inventoryForm.standard_unit) {
-                                                      return `${formatNumber(totalInOriginalUnit)} ${item.unit} (${formatNumber(totalInStandardUnit)} ${inventoryForm.standard_unit})`;
-                                                    } else {
-                                                      return `${formatNumber(totalInOriginalUnit)} ${item.unit}`;
-                                                    }
-                                                  } else {
-                                                    // Individual item - show conversion if different from standard unit
-                                                    if (inventoryForm.standard_unit && item.unit !== inventoryForm.standard_unit) {
-                                                      const convertedValue = convertUnit(item.unit_value || 0, item.unit, inventoryForm.standard_unit);
-                                                      return `${formatNumber(item.unit_value || 0)} ${item.unit} (${formatNumber(convertedValue)} ${inventoryForm.standard_unit})`;
-                                                    } else {
-                                                      return `${formatNumber(item.unit_value || 0)} ${item.unit}`;
-                                                    }
                                                   }
+                                                }
+                                              }
+                                              return null;
+                                            })()}
+
+                                            {/* In Warehouse Items Chip */}
+                                            {(() => {
+                                              if (viewMode === 'grouped' && groupInfo.isGroup) {
+                                                const groupItems = inventoryItemsList.filter(groupItem =>
+                                                  groupItem.group_id === groupInfo.groupId
+                                                );
+                                                const warehouseItems = groupItems.filter(groupItem =>
+                                                  groupItem.status === 'IN_WAREHOUSE'
+                                                );
+
+                                                if (warehouseItems.length > 0) {
+                                                  const totalWarehouseValue = warehouseItems.reduce((total, groupItem) => {
+                                                    if (groupItem.unit_value) {
+                                                      return total + groupItem.unit_value;
+                                                    }
+                                                    return total;
+                                                  }, 0);
+
+                                                  if (totalWarehouseValue > 0 && item.unit) {
+                                                    const originalDisplay = `${formatNumber(totalWarehouseValue)} ${item.unit}`;
+
+                                                    if (inventoryForm.standard_unit && item.unit !== inventoryForm.standard_unit) {
+                                                      const totalInStandardUnit = warehouseItems.reduce((total, groupItem) => {
+                                                        if (groupItem.unit && groupItem.unit_value && inventoryForm.standard_unit) {
+                                                          return total + convertUnit(groupItem.unit_value, groupItem.unit, inventoryForm.standard_unit);
+                                                        }
+                                                        return total;
+                                                      }, 0);
+                                                      return (
+                                                        <Chip color="warning" variant="flat" size="sm" className="whitespace-nowrap">
+                                                          {`${originalDisplay} (${formatNumber(totalInStandardUnit)} ${inventoryForm.standard_unit}) in warehouse`}
+                                                        </Chip>
+                                                      );
+                                                    }
+
+                                                    return (
+                                                      <Chip color="warning" variant="flat" size="sm" className="whitespace-nowrap">
+                                                        {`${originalDisplay} in warehouse`}
+                                                      </Chip>
+                                                    );
+                                                  }
+                                                }
+                                              }
+                                              return null;
+                                            })()}
+
+                                            {/* Used Items Chip */}
+                                            {(() => {
+                                              if (viewMode === 'grouped' && groupInfo.isGroup) {
+                                                const groupItems = inventoryItemsList.filter(groupItem =>
+                                                  groupItem.group_id === groupInfo.groupId
+                                                );
+                                                const usedItems = groupItems.filter(groupItem =>
+                                                  groupItem.status === 'USED'
+                                                );
+
+                                                if (usedItems.length > 0) {
+                                                  const totalUsedValue = usedItems.reduce((total, groupItem) => {
+                                                    if (groupItem.unit_value) {
+                                                      return total + groupItem.unit_value;
+                                                    }
+                                                    return total;
+                                                  }, 0);
+
+                                                  if (totalUsedValue > 0 && item.unit) {
+                                                    const originalDisplay = `${formatNumber(totalUsedValue)} ${item.unit}`;
+
+                                                    if (inventoryForm.standard_unit && item.unit !== inventoryForm.standard_unit) {
+                                                      const totalInStandardUnit = usedItems.reduce((total, groupItem) => {
+                                                        if (groupItem.unit && groupItem.unit_value && inventoryForm.standard_unit) {
+                                                          return total + convertUnit(groupItem.unit_value, groupItem.unit, inventoryForm.standard_unit);
+                                                        }
+                                                        return total;
+                                                      }, 0);
+                                                      return (
+                                                        <Chip color="danger" variant="flat" size="sm" className="whitespace-nowrap">
+                                                          {`${originalDisplay} (${formatNumber(totalInStandardUnit)} ${inventoryForm.standard_unit}) used`}
+                                                        </Chip>
+                                                      );
+                                                    }
+
+                                                    return (
+                                                      <Chip color="danger" variant="flat" size="sm" className="whitespace-nowrap">
+                                                        {`${originalDisplay} used`}
+                                                      </Chip>
+                                                    );
+                                                  }
+                                                }
+                                              }
+                                              return null;
+                                            })()}
+
+                                            {!groupInfo.isGroup && item.unit && item.unit !== "" && item.unit_value && item.unit_value > 0 && (
+                                              <Chip color="primary" variant="flat" size="sm" className="whitespace-nowrap">
+                                                {(() => {
+                                                  const unitValue = parseFloat(String(item.unit_value || 0));
+                                                  const originalDisplay = `${formatNumber(unitValue)} ${item.unit}`;
+
+                                                  // Show converted value if standard unit is different from item unit
+                                                  if (inventoryForm.standard_unit && item.unit !== inventoryForm.standard_unit) {
+                                                    const convertedValue = convertUnit(unitValue, item.unit, inventoryForm.standard_unit);
+                                                    return `${originalDisplay} (${formatNumber(convertedValue)} ${inventoryForm.standard_unit})`;
+                                                  }
+
+                                                  return originalDisplay;
                                                 })()}
                                               </Chip>
                                             )}
-                                            {item.status && item.status !== "AVAILABLE" && (
-                                              <Chip color="warning" variant="flat" size="sm">
-                                                {item.status}
+
+                                            {!groupInfo.isGroup && item.status && item.status !== "AVAILABLE" && (
+                                              <Chip
+                                                color={getStatusColor(item.status)}
+                                                variant="flat"
+                                                size="sm"
+                                                className="whitespace-nowrap">
+                                                {formatStatus(item.status)}
                                               </Chip>
                                             )}
                                           </div>
@@ -1625,10 +1842,31 @@ export default function InventoryPage() {
                                                     </span>
                                                     <div className="flex items-center gap-2">
                                                       <Chip color="primary" variant="flat" size="sm">
-                                                        {groupInfo.groupSize} items
+                                                        {groupInfo.groupSize} total items
                                                       </Chip>
-                                                      <Chip color="secondary" variant="flat" size="sm">
-                                                        View Details
+                                                      {/* Total unit value */}
+                                                      <Chip color="primary" variant="flat" size="sm">
+                                                        {(() => {
+                                                          const groupItems = inventoryItemsList.filter(groupItem => groupItem.group_id === groupInfo.groupId);
+                                                          const totalInOriginalUnit = groupItems.reduce((total: number, groupItem: any) => {
+                                                            const unitValue = parseFloat(String(groupItem.unit_value || 0));
+                                                            return total + unitValue;
+                                                          }, 0);
+
+                                                          // Show converted value if standard unit is different from item unit
+                                                          if (inventoryForm.standard_unit && item.unit && item.unit !== inventoryForm.standard_unit) {
+                                                            const totalInStandardUnit = groupItems.reduce((total: number, groupItem: any) => {
+                                                              if (groupItem.unit && groupItem.unit_value && inventoryForm.standard_unit) {
+                                                                return total + convertUnit(groupItem.unit_value, groupItem.unit, inventoryForm.standard_unit);
+                                                              }
+                                                              return total;
+                                                            }, 0);
+
+                                                            return `${formatNumber(totalInOriginalUnit)} ${item.unit} (${formatNumber(totalInStandardUnit)} ${inventoryForm.standard_unit}) in total`;
+                                                          } else {
+                                                            return `${formatNumber(totalInOriginalUnit)} ${item.unit || "units"} in total`;
+                                                          }
+                                                        })()}
                                                       </Chip>
                                                     </div>
                                                   </div>

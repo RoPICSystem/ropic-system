@@ -8,7 +8,7 @@ import { motionTransition, motionTransitionScale, motionTransitionX, popoverTran
 import { getStatusColor } from "@/utils/colors";
 import { createClient } from "@/utils/supabase/client";
 import { getUserFromCookies } from '@/utils/supabase/server/user';
-import { copyToClipboard, formatDate, formatNumber, toNormalCase, toTitleCase } from "@/utils/tools";
+import { copyToClipboard, formatDate, formatNumber, formatStatus, toNormalCase, toTitleCase } from "@/utils/tools";
 import {
   Accordion,
   AccordionItem,
@@ -38,7 +38,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { QRCodeCanvas } from "qrcode.react";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 
-import { getUnitFullName } from "@/utils/measurements";
+import { convertUnit, getUnitFullName } from "@/utils/measurements";
 import {
   getWarehouseInventoryItem,
   getWarehouseItemByInventory,
@@ -817,7 +817,7 @@ export default function WarehouseItemsPage() {
                         >
                           <div className="flex items-center gap-1">
                             <Icon icon="mdi:check-circle" width={12} height={12} />
-                            {formatNumber(warehouseItem.unit_values.available)} available
+                            {formatNumber(warehouseItem.unit_values.available)} {warehouseItem.standard_unit} available
                           </div>
                         </Chip>
                       )}
@@ -831,7 +831,7 @@ export default function WarehouseItemsPage() {
                         >
                           <div className="flex items-center gap-1">
                             <Icon icon="mdi:package-variant" width={12} height={12} />
-                            {warehouseItem.count.total} items
+                            {warehouseItem.count.total} {warehouseItem.count.total === 1 ? 'item' : 'items'}
                           </div>
                         </Chip>
                       )}
@@ -886,11 +886,99 @@ export default function WarehouseItemsPage() {
                     condition={isLoading || !formData}
                     skeleton={
                       <div>
-                        <Skeleton className="h-6 w-48 rounded-xl mb-4" />
+                        <Skeleton className="h-6 w-48 rounded-xl mb-4 mx-auto" />
                         <div className="space-y-4">
-                          <Skeleton className="h-16 w-full rounded-xl" />
-                          <Skeleton className="h-16 w-full rounded-xl" />
-                          <Skeleton className="h-24 w-full rounded-xl" />
+                          {/* Warehouse Item Identifier Skeleton */}
+                          <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl">
+                            <div className="flex items-center gap-3 flex-1">
+                              <Skeleton className="w-4 h-4 rounded-full flex-shrink-0" />
+                              <div className="flex flex-col flex-1">
+                                <Skeleton className="h-3 w-32 rounded-xl mb-1" />
+                                <Skeleton className="h-4 w-64 rounded-xl" />
+                              </div>
+                            </div>
+                            <Skeleton className="w-8 h-8 rounded-xl" />
+                          </div>
+
+                          {/* Item Name Skeleton */}
+                          <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl">
+                            <div className="flex items-center gap-3 flex-1">
+                              <Skeleton className="w-4 h-4 rounded-full flex-shrink-0" />
+                              <div className="flex flex-col flex-1">
+                                <Skeleton className="h-3 w-20 rounded-xl mb-1" />
+                                <Skeleton className="h-4 w-48 rounded-xl" />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Standard Unit and Measurement Unit Skeleton */}
+                          <div className="flex items-start justify-between gap-4 md:flex-row flex-col">
+                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl w-full">
+                              <div className="flex items-center gap-3 flex-1">
+                                <Skeleton className="w-4 h-4 rounded-full flex-shrink-0" />
+                                <div className="flex flex-col flex-1">
+                                  <Skeleton className="h-3 w-24 rounded-xl mb-1" />
+                                  <Skeleton className="h-4 w-32 rounded-xl" />
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl w-full">
+                              <div className="flex items-center gap-3 flex-1">
+                                <Skeleton className="w-4 h-4 rounded-full flex-shrink-0" />
+                                <div className="flex flex-col flex-1">
+                                  <Skeleton className="h-3 w-28 rounded-xl mb-1" />
+                                  <Skeleton className="h-4 w-20 rounded-xl" />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Description Skeleton */}
+                          <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl">
+                            <div className="flex items-center gap-3 flex-1">
+                              <Skeleton className="w-4 h-4 rounded-full flex-shrink-0" />
+                              <div className="flex flex-col flex-1">
+                                <Skeleton className="h-3 w-20 rounded-xl mb-1" />
+                                <Skeleton className="h-4 w-full rounded-xl" />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Aggregated Values Skeleton */}
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 p-2 bg-default-100/50 rounded-xl border-2 border-default-200">
+                            {[1, 2, 3].map((i) => (
+                              <div key={i} className="text-center flex flex-col items-center gap-1 bg-default-200/50 rounded-md p-4">
+                                <Skeleton className="h-4 w-16 rounded-xl mb-2" />
+                                <div className="flex flex-col items-center gap-2 w-full">
+                                  <div className="flex items-end gap-1">
+                                    <Skeleton className="h-8 w-12 rounded-xl" />
+                                    <Skeleton className="h-5 w-8 rounded-xl" />
+                                  </div>
+                                  <Skeleton className="h-6 w-20 rounded-full" />
+                                  <Skeleton className="h-6 w-16 rounded-full" />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Bulk Mark as Used Skeleton */}
+                          <div className="p-4 bg-warning-50/30 rounded-xl border-2 border-warning-200/30">
+                            <div className="flex items-center gap-3 mb-3 justify-between">
+                              <div className="flex items-center gap-2">
+                                <Skeleton className="w-4 h-4 rounded-full" />
+                                <Skeleton className="h-4 w-32 rounded-xl" />
+                              </div>
+                            </div>
+                            <div className="flex flex-col lg:flex-row items-start lg:items-center gap-3 w-full">
+                              <div className="flex flex-col gap-1 flex-1 w-full lg:w-auto">
+                                <Skeleton className="h-10 w-full rounded-xl" />
+                              </div>
+                              <div className="flex gap-2 w-full lg:w-auto lg:flex-shrink-0">
+                                <Skeleton className="h-8 w-28 rounded-xl flex-1 lg:flex-initial" />
+                                <Skeleton className="h-8 w-24 rounded-xl flex-1 lg:flex-initial" />
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     }>
@@ -992,36 +1080,114 @@ export default function WarehouseItemsPage() {
 
                         {/* Display aggregated values if they exist */}
                         {formData.unit_values && (
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-default-100 rounded-xl border-2 border-default-200">
-                            <div className="text-center">
-                              <div className="text-xl inline-flex items-end gap-1 font-bold text-default-600">
-                                {formatNumber(formData.unit_values.total)}
-                                <span className="text-sm">{formData.standard_unit}</span>
-                              </div>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 p-2 bg-default-100/50 rounded-xl border-2 border-default-200">
+                            <div className="text-center flex flex-col items-center gap-1 bg-default-200/50 rounded-md p-4">
                               <div className="text-sm text-default-600">
                                 Total
                               </div>
-                            </div>
-                            <div className="text-center">
-                              <div className="text-xl inline-flex items-end gap-1 font-bold text-success-600">
-                                {formatNumber(formData.unit_values.available)}
-                                <span className="text-sm">{formData.standard_unit}</span>
+                              <div className="text-default-600 flex flex-col items-center gap-1">
+                                <span className="inline-flex items-end gap-1">
+                                  <span className="text-2xl font-bold">
+                                    {formatNumber(formData.unit_values.total)}
+                                  </span>
+                                  <span className="text-md text-default-600/75 font-semibold">
+                                    {formData.standard_unit}
+                                  </span>
+                                </span>
+                                {(() => {
+                                  const totalCost = formData.items?.reduce((total: number, item: any) => total + (item.cost || 0), 0) || 0;
+
+                                  return totalCost > 0 ? (
+                                    <span className="inline-flex text-default-600 items-center gap-1 bg-default-200 rounded-full px-2 py-[0.15rem] w-full justify-center">
+                                      <span className="text-sm font-semibold">
+                                        ₱ {formatNumber(totalCost)}
+                                      </span>
+                                    </span>
+                                  ) : null;
+                                })()}
+                                <span className="inline-flex text-default-100 items-center gap-1 bg-default-600 rounded-full px-2 py-[0.15rem] w-full justify-center">
+                                  <span className="text-sm font-bold">
+                                    {formatNumber(formData.count.total)}
+                                  </span>
+                                  <span className="text-xs text-default-100/75 font-semibold">
+                                    items
+                                  </span>
+                                </span>
                               </div>
+                            </div>
+                            <div className="text-center flex flex-col items-center gap-1 bg-success-200/50 rounded-md p-4">
                               <div className="text-sm text-success-600">
                                 Available
                               </div>
-                            </div>
-                            <div className="text-center">
-                              <div className="text-xl inline-flex items-end gap-1 font-bold text-warning-600">
-                                {formatNumber(formData.unit_values.used)}
-                                <span className="text-sm">{formData.standard_unit}</span>
+                              <div className="text-success-600 flex flex-col items-center gap-1">
+                                <span className="inline-flex items-end gap-1">
+                                  <span className="text-2xl font-bold">
+                                    {formatNumber(formData.unit_values.available)}
+                                  </span>
+                                  <span className="text-md text-success-600/75 font-semibold">
+                                    {formData.standard_unit}
+                                  </span>
+                                </span>
+                                {(() => {
+                                  const availableCost = formData.items?.filter((item: any) => item.status === 'AVAILABLE')
+                                    .reduce((total: number, item: any) => total + (item.cost || 0), 0) || 0;
+
+                                  return availableCost > 0 ? (
+                                    <span className="inline-flex text-success-600 items-center gap-1 bg-success-200 rounded-full px-2 py-[0.15rem] w-full justify-center">
+                                      <span className="text-sm font-semibold">
+                                        ₱ {formatNumber(availableCost)}
+                                      </span>
+                                    </span>
+                                  ) : null;
+                                })()}
+                                <span className="inline-flex text-success-100 items-center gap-1 bg-success-600 rounded-full px-2 py-[0.15rem] w-full justify-center">
+                                  <span className="text-sm font-bold">
+                                    {formatNumber(formData.count.available)}
+                                  </span>
+                                  <span className="text-xs text-success-100/75 font-semibold">
+                                    items
+                                  </span>
+                                </span>
                               </div>
+                            </div>
+                            <div className="text-center flex flex-col items-center gap-1 bg-warning-200/50 rounded-md p-4">
                               <div className="text-sm text-warning-600">
                                 Used
+                              </div>
+                              <div className="text-warning-600 flex flex-col items-center gap-1">
+                                <span className="inline-flex items-end gap-1">
+                                  <span className="text-2xl font-bold">
+                                    {formatNumber(formData.unit_values.used)}
+                                  </span>
+                                  <span className="text-md text-warning-600/75 font-semibold">
+                                    {formData.standard_unit}
+                                  </span>
+                                </span>
+                                {(() => {
+                                  const usedCost = formData.items?.filter((item: any) => item.status === 'USED')
+                                    .reduce((total: number, item: any) => total + (item.cost || 0), 0) || 0;
+
+                                  return usedCost > 0 ? (
+                                    <span className="inline-flex text-warning-600 items-center gap-1 bg-warning-200 rounded-full px-2 py-[0.15rem] w-full justify-center">
+                                      <span className="text-sm font-semibold">
+                                        ₱ {formatNumber(usedCost)}
+                                      </span>
+                                    </span>
+                                  ) : null;
+                                })()}
+                                <span className="inline-flex text-warning-100 items-center gap-1 bg-warning-600  rounded-full px-2 py-[0.15rem] w-full justify-center">
+                                  <span className="text-sm font-bold">
+                                    {formatNumber(formData.count.used)}
+                                  </span>
+                                  <span className="text-xs text-warning-100/75 font-semibold">
+                                    items
+                                  </span>
+                                </span>
                               </div>
                             </div>
                           </div>
                         )}
+
 
                         {/* Bulk Mark as Used Section */}
                         {formData.count?.available > 0 && (
@@ -1033,54 +1199,49 @@ export default function WarehouseItemsPage() {
                                   Bulk Mark as Used
                                 </span>
                               </div>
-                              <Chip
-                                color="warning"
-                                variant="flat"
-                                size="sm"
-                              >
-                                Available items: {formData.count.available} | Selected: {bulkMarkCount}
-                              </Chip>
                             </div>
-                            <div className="flex items-center gap-3 w-full">
+                            <div className="flex flex-col lg:flex-row items-start lg:items-center gap-3 w-full">
                               <NumberInput
                                 label="Number of items"
                                 value={bulkMarkCount}
                                 onValueChange={setBulkMarkCount}
                                 minValue={1}
                                 maxValue={formData.count.available}
-                                className="flex-1"
+                                className="flex-1 w-full lg:w-auto"
                                 classNames={inputStyle}
                               />
-                              <Button
-                                color="warning"
-                                variant="shadow"
-                                size="sm"
-                                onPress={() => handleMarkItemsBulkAsUsed(bulkMarkCount)}
-                                startContent={
-                                  isLoadingMarkBulkAsUsed ?
-                                    <Spinner size="sm" color="warning" />
-                                    : <Icon icon="mdi:check-circle" width={16} height={16} />
-                                }
-                                isDisabled={isLoadingMarkBulkAsUsed || bulkMarkCount <= 0 || bulkMarkCount > formData.count.available}
-                                className="flex-shrink-0"
-                              >
-                                Mark as Used
-                              </Button>
-                              <Button
-                                color="warning"
-                                variant="flat"
-                                size="sm"
-                                onPress={() => handleMarkItemsBulkAsUsed(1)}
-                                startContent={
-                                  isLoadingMarkBulkAsUsed ?
-                                    <Spinner size="sm" color="warning" />
-                                    : <Icon icon="mdi:package-variant" width={16} height={16} />
-                                }
-                                isDisabled={isLoadingMarkBulkAsUsed || formData.count.available <= 0}
-                                className="flex-shrink-0"
-                              >
-                                Mark 1 Item
-                              </Button>
+                              <div className="flex gap-2 w-full lg:w-auto lg:flex-shrink-0">
+                                <Button
+                                  color="warning"
+                                  variant="shadow"
+                                  size="sm"
+                                  onPress={() => handleMarkItemsBulkAsUsed(bulkMarkCount)}
+                                  startContent={
+                                    isLoadingMarkBulkAsUsed ?
+                                      <Spinner size="sm" color="warning" />
+                                      : <Icon icon="mdi:check-circle" width={16} height={16} />
+                                  }
+                                  isDisabled={isLoadingMarkBulkAsUsed || bulkMarkCount <= 0 || bulkMarkCount > formData.count.available}
+                                  className="flex-1 lg:flex-initial"
+                                >
+                                  Mark as Used
+                                </Button>
+                                <Button
+                                  color="warning"
+                                  variant="flat"
+                                  size="sm"
+                                  onPress={() => handleMarkItemsBulkAsUsed(1)}
+                                  startContent={
+                                    isLoadingMarkBulkAsUsed ?
+                                      <Spinner size="sm" color="warning" />
+                                      : <Icon icon="mdi:package-variant" width={16} height={16} />
+                                  }
+                                  isDisabled={isLoadingMarkBulkAsUsed || formData.count.available <= 0}
+                                  className="flex-1 lg:flex-initial"
+                                >
+                                  Mark 1 Item
+                                </Button>
+                              </div>
                             </div>
                           </div>
                         )}
@@ -1109,17 +1270,15 @@ export default function WarehouseItemsPage() {
                           </div>
                           <div className="-m-4">
                             <div className="space-y-4 mx-4">
-                              {[1, 2].map((i) => (
+                              {[1, 2, 3].map((i) => (
                                 <div key={i} className="mt-4 p-0 bg-transparent rounded-xl overflow-hidden border-2 border-default-200">
-                                  <div className="p-4 bg-default-100/25">
-                                    <div className="flex justify-between items-center w-full">
-                                      <div className="flex items-center gap-2">
-                                        <Skeleton className="h-6 w-16 rounded-xl" />
-                                      </div>
-                                      <div className="flex gap-2">
-                                        <Skeleton className="h-6 w-20 rounded-full" />
-                                        <Skeleton className="h-6 w-24 rounded-full" />
-                                      </div>
+                                  <div className="p-4 bg-default-100/25 flex justify-between items-center w-full">
+                                    <div className="flex items-center gap-2">
+                                      <Skeleton className="h-6 w-16 rounded-xl" />
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <Skeleton className="h-6 w-20 rounded-full" />
+                                      <Skeleton className="h-6 w-24 rounded-full" />
                                     </div>
                                   </div>
                                 </div>
@@ -1129,7 +1288,6 @@ export default function WarehouseItemsPage() {
                         </div>
                       </div>
                     }>
-
                     <div>
                       <div className="flex lg:justify-between justify-center items-center mb-4 flex-col lg:flex-row gap-2">
                         <h2 className="text-xl font-semibold">Warehouse Items</h2>
@@ -1378,30 +1536,27 @@ export default function WarehouseItemsPage() {
                           <div className="flex items-center gap-2 flex-wrap">
                             {formData.items && formData.items.length > 0 && (
                               <>
-                                <Chip color="default" variant="flat" size="sm">
-                                  {formData.items.length} item{formData.items.length > 1 ? "s" : ""}
-                                </Chip>
-                                <Chip color="default" variant="flat" size="sm" className="flex-shrink-0">
-                                  {(() => {
-                                    const groupedItems = getGroupedItems();
-                                    const groupCount = Object.keys(groupedItems).length;
-                                    const ungroupedCount = groupedItems['ungrouped']?.length || 0;
-                                    const actualGroupCount = ungroupedCount > 0 ? groupCount - 1 : groupCount;
+                                {(() => {
+                                  const groupedItems = getGroupedItems();
+                                  const groupCount = Object.keys(groupedItems).length;
+                                  const ungroupedCount = groupedItems['ungrouped']?.length || 0;
+                                  const actualGroupCount = ungroupedCount > 0 ? groupCount - 1 : groupCount;
 
-                                    if (actualGroupCount === 0) {
-                                      return `${ungroupedCount} ungrouped item${ungroupedCount !== 1 ? 's' : ''}`;
-                                    } else if (ungroupedCount === 0) {
-                                      return `${actualGroupCount} group${actualGroupCount !== 1 ? 's' : ''}`;
-                                    } else {
-                                      return `${actualGroupCount} group${actualGroupCount !== 1 ? 's' : ''}, ${ungroupedCount} ungrouped`;
-                                    }
-                                  })()}
-                                </Chip>
-                                {formData.standard_unit && (
-                                  <Chip color="primary" variant="flat" size="sm">
-                                    {formatNumber(formData.unit_values?.total || 0)} {formData.standard_unit}
-                                  </Chip>
-                                )}
+                                  return (
+                                    <>
+                                      {actualGroupCount > 0 && (
+                                        <Chip color="primary" variant="flat" size="sm" className="flex-shrink-0">
+                                          {actualGroupCount} group{actualGroupCount !== 1 ? 's' : ''}
+                                        </Chip>
+                                      )}
+                                      {ungroupedCount > 0 && (
+                                        <Chip color="secondary" variant="flat" size="sm" className="flex-shrink-0">
+                                          {ungroupedCount} ungrouped item{ungroupedCount !== 1 ? 's' : ''}
+                                        </Chip>
+                                      )}
+                                    </>
+                                  );
+                                })()}
                               </>
                             )}
                           </div>
@@ -1455,6 +1610,11 @@ export default function WarehouseItemsPage() {
                                     const groupSize = item._groupSize;
                                     const groupId = item._groupId;
                                     const displayNumber = index + 1;
+                                    const groupItems = formData.items.filter((groupItem: any) =>
+                                      groupItem.group_id === groupId
+                                    );
+                                    const availableCount = groupItems.filter((item: any) => item.status === 'AVAILABLE').length;
+                                    const usedCount = groupItems.filter((item: any) => item.status === 'USED').length;
 
                                     return (
                                       <AccordionItem
@@ -1464,24 +1624,80 @@ export default function WarehouseItemsPage() {
                                         title={
                                           <div className="flex justify-between items-center w-full">
                                             <div className="flex items-center gap-2">
-                                              <span className="font-medium">
+                                              <span className="font-medium whitespace-nowrap">
                                                 {isGroupRepresentative ? `Group ${displayNumber}` : `Item ${displayNumber}`}
                                               </span>
                                             </div>
-                                            <div className="flex gap-2">
-                                              {isGroupRepresentative && (
-                                                <Chip color="secondary" variant="flat" size="sm">
-                                                  {groupSize} items
+                                            <div className="flex gap-2 flex-wrap items-center justify-end">
+                                              {isGroupRepresentative && availableCount > 0 && (
+                                                <Chip color="success" variant="flat" size="sm" className="whitespace-nowrap">
+                                                  {(() => {
+                                                    const availableGroupItems = groupItems.filter((item: any) => item.status === 'AVAILABLE');
+                                                    const totalAvailableValue = availableGroupItems.reduce((total: number, groupItem: any) => {
+                                                      const unitValue = parseFloat(String(groupItem.unit_value || 0));
+                                                      return total + unitValue;
+                                                    }, 0);
+
+                                                    if (totalAvailableValue > 0 && item.unit) {
+                                                      // Show original unit value and converted standard unit value
+                                                      const originalDisplay = `${formatNumber(totalAvailableValue)} ${item.unit}`;
+
+                                                      // Convert to standard unit if different from current unit
+                                                      if (formData.standard_unit && item.unit !== formData.standard_unit) {
+                                                        // Calculate total in standard unit using conversion
+                                                        const totalInStandardUnit = availableGroupItems.reduce((total: number, groupItem: { unit: string; unit_value: number; }) => {
+                                                          if (groupItem.unit && groupItem.unit_value && formData.standard_unit) {
+                                                            return total + convertUnit(groupItem.unit_value, groupItem.unit, formData.standard_unit);
+                                                          }
+                                                          return total;
+                                                        }, 0);
+                                                        const convertedDisplay = `(${formatNumber(totalInStandardUnit)} ${formData.standard_unit})`;
+                                                        return `${originalDisplay} ${convertedDisplay} available`;
+                                                      }
+
+                                                      return `${originalDisplay} available`;
+                                                    }
+                                                    return '';
+                                                  })()}
                                                 </Chip>
                                               )}
-                                              {item.unit && item.unit !== "" && item.unit_value && item.unit_value > 0 && (
-                                                <Chip color="primary" variant="flat" size="sm">
+                                              {isGroupRepresentative && usedCount > 0 && (
+                                                <Chip color="warning" variant="flat" size="sm" className="whitespace-nowrap">
+                                                  {(() => {
+                                                    const usedGroupItems = groupItems.filter((item: any) => item.status === 'USED');
+                                                    const totalUsedValue = usedGroupItems.reduce((total: number, groupItem: any) => {
+                                                      const unitValue = parseFloat(String(groupItem.unit_value || 0));
+                                                      return total + unitValue;
+                                                    }, 0);
+
+                                                    if (totalUsedValue > 0 && item.unit) {
+                                                      // Show original unit value and converted standard unit value
+                                                      const originalDisplay = `${formatNumber(totalUsedValue)} ${item.unit}`;
+
+                                                      // Convert to standard unit if different from current unit
+                                                      if (formData.standard_unit && item.unit !== formData.standard_unit) {
+                                                        // Calculate total in standard unit using conversion
+                                                        const totalInStandardUnit = usedGroupItems.reduce((total: number, groupItem: { unit: string; unit_value: number; }) => {
+                                                          if (groupItem.unit && groupItem.unit_value && formData.standard_unit) {
+                                                            return total + convertUnit(groupItem.unit_value, groupItem.unit, formData.standard_unit);
+                                                          }
+                                                          return total;
+                                                        }, 0);
+                                                        const convertedDisplay = `(${formatNumber(totalInStandardUnit)} ${formData.standard_unit})`;
+                                                        return `${originalDisplay} ${convertedDisplay} used`;
+                                                      }
+
+                                                      return `${originalDisplay} used`;
+                                                    }
+                                                    return '';
+                                                  })()}
+                                                </Chip>
+                                              )}
+                                              {!isGroupRepresentative && item.unit && item.unit !== "" && item.unit_value && item.unit_value > 0 && (
+                                                <Chip color="primary" variant="flat" size="sm" className="whitespace-nowrap">
                                                   {(() => {
                                                     if (isGroupRepresentative) {
                                                       // Calculate total for the group
-                                                      const groupItems = formData.items.filter((groupItem: any) =>
-                                                        groupItem.group_id === groupId
-                                                      );
                                                       const totalValue = groupItems.reduce((total: number, groupItem: any) => {
                                                         const unitValue = parseFloat(String(groupItem.unit_value || 0));
                                                         return total + unitValue;
@@ -1494,9 +1710,13 @@ export default function WarehouseItemsPage() {
                                                   })()}
                                                 </Chip>
                                               )}
-                                              {item.status && item.status !== "AVAILABLE" && (
-                                                <Chip color="warning" variant="flat" size="sm">
-                                                  {item.status}
+                                              {!isGroupRepresentative && item.status && item.status !== "AVAILABLE" && (
+                                                <Chip
+                                                  color={getStatusColor(item.status)}
+                                                  variant="flat"
+                                                  size="sm"
+                                                  className="whitespace-nowrap">
+                                                  {formatStatus(item.status)}
                                                 </Chip>
                                               )}
                                             </div>
@@ -1649,55 +1869,64 @@ export default function WarehouseItemsPage() {
 
                                             return availableCount > 0 ? (
                                               <div className="p-4 bg-warning-50 rounded-xl border-2 border-warning-200 mx-4 mb-4">
-                                                <div className="flex items-center gap-3 mb-3">
-                                                  <Icon icon="mdi:package-variant-closed" className="text-warning-600 w-4 h-4 flex-shrink-0" />
-                                                  <span className="text-sm text-warning-700 font-medium">
-                                                    Bulk Mark Group as Used
-                                                  </span>
+                                                <div className="flex items-center gap-3 mb-3 justify-between">
+                                                  <div className="flex items-center gap-2">
+                                                    <Icon icon="mdi:package-variant-closed" className="text-warning-600 w-4 h-4 flex-shrink-0" />
+                                                    <span className="text-sm text-warning-700 font-medium">
+                                                      Bulk Mark Group as Used
+                                                    </span>
+                                                  </div>
+                                                  <div className="flex items-center gap-2 flex-wrap justify-end">
+                                                    <div className="flex items-center rounded-full bg-warning-100 text-warning-700 text-xs p-2 py-1">
+                                                      {availableCount} available
+                                                    </div>
+                                                    <div className="flex items-center rounded-full bg-warning-100 text-warning-700 text-xs p-2 py-1">
+                                                      {groupItems.filter((item: any) => item.status === 'USED').length} used
+                                                    </div>
+                                                  </div>
                                                 </div>
-                                                <div className="flex items-center gap-3 w-full">
+                                                <div className="flex flex-col lg:flex-row items-start lg:items-center gap-3 w-full">
                                                   <NumberInput
                                                     label="Number of items"
                                                     value={groupBulkCount}
                                                     onValueChange={(value) => setGroupBulkMarkCounts(prev => ({ ...prev, [groupId]: value }))}
                                                     minValue={1}
                                                     maxValue={availableCount}
-                                                    className="flex-1"
+                                                    className="flex-1 w-full lg:w-auto"
                                                     classNames={inputStyle}
                                                   />
-                                                  <Button
-                                                    color="warning"
-                                                    variant="shadow"
-                                                    size="sm"
-                                                    onPress={() => handleMarkGroupBulkAsUsed(groupId, groupBulkCount)}
-                                                    startContent={
-                                                      isLoadingMarkGroupBulkAsUsed ?
-                                                        <Spinner size="sm" color="warning" />
-                                                        : <Icon icon="mdi:check-circle" width={16} height={16} />
-                                                    }
-                                                    isDisabled={isLoadingMarkGroupBulkAsUsed || groupBulkCount <= 0 || groupBulkCount > availableCount}
-                                                    className="flex-shrink-0"
-                                                  >
-                                                    Mark as Used
-                                                  </Button>
-                                                  <Button
-                                                    color="warning"
-                                                    variant="flat"
-                                                    size="sm"
-                                                    onPress={() => handleMarkGroupBulkAsUsed(groupId, 1)}
-                                                    startContent={
-                                                      isLoadingMarkGroupBulkAsUsed ?
-                                                        <Spinner size="sm" color="warning" />
-                                                        : <Icon icon="mdi:package-variant" width={16} height={16} />
-                                                    }
-                                                    isDisabled={isLoadingMarkGroupBulkAsUsed || availableCount <= 0}
-                                                    className="flex-shrink-0"
-                                                  >
-                                                    Mark 1 Item
-                                                  </Button>
-                                                </div>
-                                                <div className="text-xs text-warning-600 mt-2">
-                                                  Available items: {availableCount} | Selected: {groupBulkCount}
+                                                  <div className="flex gap-2 w-full lg:w-auto lg:flex-shrink-0">
+                                                    <Button
+                                                      color="warning"
+                                                      variant="shadow"
+                                                      size="sm"
+                                                      onPress={() => handleMarkGroupBulkAsUsed(groupId, groupBulkCount)}
+                                                      startContent={
+                                                        isLoadingMarkGroupBulkAsUsed ?
+                                                          <Spinner size="sm" color="warning" />
+                                                          : <Icon icon="mdi:check-circle" width={16} height={16} />
+                                                      }
+                                                      isDisabled={isLoadingMarkGroupBulkAsUsed || groupBulkCount <= 0 || groupBulkCount > availableCount}
+                                                      className="flex-1 lg:flex-initial"
+                                                    >
+                                                      Mark as Used
+                                                    </Button>
+                                                    <Button
+                                                      color="warning"
+                                                      variant="flat"
+                                                      size="sm"
+                                                      onPress={() => handleMarkGroupBulkAsUsed(groupId, 1)}
+                                                      startContent={
+                                                        isLoadingMarkGroupBulkAsUsed ?
+                                                          <Spinner size="sm" color="warning" />
+                                                          : <Icon icon="mdi:package-variant" width={16} height={16} />
+                                                      }
+                                                      isDisabled={isLoadingMarkGroupBulkAsUsed || availableCount <= 0}
+                                                      className="flex-1 lg:flex-initial"
+                                                    >
+                                                      Mark 1 Item
+                                                    </Button>
+                                                  </div>
                                                 </div>
                                               </div>
                                             ) : null;
@@ -1727,10 +1956,30 @@ export default function WarehouseItemsPage() {
                                                       </span>
                                                       <div className="flex items-center gap-2">
                                                         <Chip color="primary" variant="flat" size="sm">
-                                                          {groupSize} items
+                                                          {groupSize} total items
                                                         </Chip>
-                                                        <Chip color="secondary" variant="flat" size="sm">
-                                                          View Details
+                                                        {/* Total unit value */}
+                                                        <Chip color="primary" variant="flat" size="sm">
+                                                          {(() => {
+                                                            const totalInOriginalUnit = groupItems.reduce((total: number, groupItem: any) => {
+                                                              const unitValue = parseFloat(String(groupItem.unit_value || 0));
+                                                              return total + unitValue;
+                                                            }, 0);
+
+                                                            // Show converted value if standard unit is different from item unit
+                                                            if (formData.standard_unit && item.unit && item.unit !== formData.standard_unit) {
+                                                              const totalInStandardUnit = groupItems.reduce((total: number, groupItem: any) => {
+                                                                if (groupItem.unit && groupItem.unit_value && formData.standard_unit) {
+                                                                  return total + convertUnit(groupItem.unit_value, groupItem.unit, formData.standard_unit);
+                                                                }
+                                                                return total;
+                                                              }, 0);
+
+                                                              return `${formatNumber(totalInOriginalUnit)} ${item.unit} (${formatNumber(totalInStandardUnit)} ${formData.standard_unit}) in total`;
+                                                            } else {
+                                                              return `${formatNumber(totalInOriginalUnit)} ${item.unit || "units"} in total`;
+                                                            }
+                                                          })()}
                                                         </Chip>
                                                       </div>
                                                     </div>
@@ -1760,15 +2009,6 @@ export default function WarehouseItemsPage() {
                                                               <span className="font-semibold text-default-800">
                                                                 Item {index + 1}
                                                               </span>
-                                                              {groupItem.status && groupItem.status !== "AVAILABLE" && (
-                                                                <Chip
-                                                                  color={getStatusColor(groupItem.status)}
-                                                                  variant="flat"
-                                                                  size="sm"
-                                                                >
-                                                                  {groupItem.status}
-                                                                </Chip>
-                                                              )}
                                                             </div>
                                                             <div className="flex items-center gap-2">
                                                               <Button
