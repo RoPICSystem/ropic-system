@@ -413,6 +413,48 @@ BEGIN
       );
   END IF;
 
+  -- Search in DELIVERY_ITEMS table for warehouse_inventory_uuid in warehouse_inventory_items
+  -- Group results by delivery instead of individual warehouse inventory items
+  IF p_entity_type IS NULL OR p_entity_type = 'new_warehouse_inventory' THEN
+    INSERT INTO temp_search_results
+    SELECT DISTINCT ON (di.uuid)
+      'new_warehouse_inventory' as entity_type,
+      di.uuid as entity_uuid, -- Use delivery UUID as the main entity
+      COALESCE(di.name, 'Delivery to ' || di.delivery_address) as entity_name,
+      di.notes as entity_description,
+      di.status as entity_status,
+      'warehouse_inventory_items' as matched_property,
+      array_to_string(array_agg(DISTINCT warehouse_inv_uuid), ', ') as matched_value,
+      jsonb_build_object(
+        'delivery_uuid', di.uuid,
+        'delivery_name', di.name,
+        'delivery_address', di.delivery_address,
+        'delivery_date', di.delivery_date,
+        'delivery_status', di.status,
+        'warehouse_uuid', di.warehouse_uuid,
+        'company_uuid', di.company_uuid,
+        'matched_warehouse_inventory_uuids', array_agg(DISTINCT warehouse_inv_uuid),
+        'total_matched_items', count(DISTINCT warehouse_inv_uuid)
+      ) as entity_data,
+      di.created_at,
+      di.updated_at
+    FROM delivery_items di,
+    LATERAL (
+      SELECT key as item_key, value->>'warehouse_inventory_uuid' as warehouse_inv_uuid
+      FROM jsonb_each(di.warehouse_inventory_items)
+      WHERE value->>'warehouse_inventory_uuid' IS NOT NULL
+        AND value->>'warehouse_inventory_uuid' ILIKE v_search_pattern
+        -- Check if this warehouse_inventory_uuid doesn't exist in warehouse_inventory table
+        AND NOT EXISTS (
+          SELECT 1 FROM warehouse_inventory wi 
+          WHERE wi.uuid = (value->>'warehouse_inventory_uuid')::uuid
+        )
+    ) AS warehouse_items
+    WHERE (p_company_uuid IS NULL OR di.company_uuid = p_company_uuid)
+      AND warehouse_inv_uuid IS NOT NULL
+    GROUP BY di.uuid, di.name, di.delivery_address, di.notes, di.status, di.warehouse_uuid, di.company_uuid, di.created_at, di.updated_at;
+  END IF;
+
   -- Get total count
   SELECT COUNT(*) INTO v_total_count FROM temp_search_results;
 

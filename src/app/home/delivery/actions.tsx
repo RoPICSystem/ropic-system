@@ -1,9 +1,8 @@
 "use server";
 
 import { FloorConfig, ShelfLocation } from "@/components/shelf-selector-3d";
-import { createClient } from "@/utils/supabase/server";
-import { Inventory, InventoryItem } from "../inventory/actions";
 import { formatCode } from '@/utils/floorplan';
+import { createClient } from "@/utils/supabase/server";
 
 export interface DeliveryItem {
   uuid: string;
@@ -20,6 +19,12 @@ export interface DeliveryItem {
     inventory_uuid: string;
     group_id: string | null;
     location: ShelfLocation;
+  }>;
+  warehouse_inventory_items?: Record<string, {
+    warehouse_inventory_uuid: string;
+    inventory_uuid: string;
+    location: ShelfLocation;
+    group_id: string | null;
   }>;
   operator_uuids?: string[];
   created_at: string;
@@ -119,7 +124,7 @@ export async function updateDeliveryWithItems(
   deliveryUuid: string,
   inventoryItems: Record<string, {
     inventory_uuid: string;
-    group_id: string | null; // Made nullable
+    group_id: string | null;
     location: ShelfLocation;
   }>,
   deliveryAddress?: string,
@@ -132,6 +137,10 @@ export async function updateDeliveryWithItems(
   const supabase = await createClient();
 
   try {
+    // Debug: Log the inventory items structure
+    console.log("Updating delivery with inventory items:", inventoryItems);
+    console.log("Keys (should be inventory item UUIDs):", Object.keys(inventoryItems));
+
     const { data, error } = await supabase.rpc('update_delivery_with_items', {
       p_delivery_uuid: deliveryUuid,
       p_inventory_items: inventoryItems,
@@ -144,10 +153,12 @@ export async function updateDeliveryWithItems(
     });
 
     if (error) {
+      console.error("Supabase RPC error:", error);
       throw error;
     }
 
     if (!data.success) {
+      console.error("RPC returned failure:", data);
       throw new Error(data.error || 'Failed to update delivery');
     }
 
@@ -189,196 +200,95 @@ export async function deleteDeliveryItem(uuid: string) {
 }
 
 /**
- * Creates warehouse inventory items from delivered inventory
+ * Create warehouse inventory with specific UUID
  */
-export async function createWarehouseInventoryItems(
+export async function createWarehouseInventoryWithUuid(
+  warehouseInventoryUuid: string,
   warehouseUuid: string,
-  deliveryUuid: string,
-  inventoryItems: Record<string, {
-    inventory_uuid: string;
-    group_id: string | null;
-    location: ShelfLocation;
-  }>
+  inventoryUuid: string,
+  companyUuid: string
 ) {
   const supabase = await createClient();
 
   try {
-    // Extract inventory item UUIDs from the structure
-    const inventoryItemUuids = Object.values(inventoryItems).map(item => item.group_id);
-
-    // Get all inventory items that match the provided UUIDs
-    const { data: inventoryItemDetails, error: itemsError } = await supabase
-      .from("inventory_items")
-      .select("*")
-      .in("uuid", inventoryItemUuids);
-
-    if (itemsError) throw itemsError;
-
-    // Group items by inventory_uuid
-    const inventoryGroups: Record<string, any[]> = {};
-    inventoryItemDetails.forEach(item => {
-      if (!inventoryGroups[item.inventory_uuid]) {
-        inventoryGroups[item.inventory_uuid] = [];
-      }
-      inventoryGroups[item.inventory_uuid].push(item);
+    const { data, error } = await supabase.rpc('create_warehouse_inventory_with_uuid', {
+      p_warehouse_inventory_uuid: warehouseInventoryUuid,
+      p_warehouse_uuid: warehouseUuid,
+      p_inventory_uuid: inventoryUuid,
+      p_company_uuid: companyUuid
     });
 
-    // Process each inventory group
-    for (const [inventoryUuid, items] of Object.entries(inventoryGroups)) {
-      // Get the inventory details
-      const { data: inventoryData, error: invError } = await supabase
-        .from("inventory")
-        .select("*")
-        .eq("uuid", inventoryUuid)
-        .single();
-
-      if (invError) throw invError;
-
-      // Check if this inventory already exists in the warehouse
-      const { data: existingWarehouseInv, error: existingError } = await supabase
-        .from("warehouse_inventory_items")
-        .select("*")
-        .eq("warehouse_uuid", warehouseUuid)
-        .eq("inventory_uuid", inventoryUuid)
-        .single();
-
-      let warehouseInv;
-
-      if (existingError && existingError.code !== 'PGRST116') {
-        throw existingError;
-      }
-
-      if (existingWarehouseInv) {
-        // Prepare status update logic
-        let updatedStatus = existingWarehouseInv.status;
-        let updatedStatusHistory = existingWarehouseInv.status_history || {};
-
-        // If current status is USED, change to AVAILABLE and add to history
-        if (existingWarehouseInv.status === 'USED') {
-          updatedStatus = 'AVAILABLE';
-          updatedStatusHistory = {
-            ...updatedStatusHistory,
-            [new Date().toISOString()]: 'Changed from USED to AVAILABLE'
-          };
-        }
-
-        // Update existing warehouse inventory item
-        const { data: updatedWarehouseInv, error: updateError } = await supabase
-          .from("warehouse_inventory_items")
-          .update({
-            admin_uuid: inventoryData.admin_uuid,
-            company_uuid: inventoryData.company_uuid,
-            name: inventoryData.name,
-            description: inventoryData.description,
-            status: updatedStatus,
-            status_history: updatedStatusHistory
-          })
-          .eq("uuid", existingWarehouseInv.uuid)
-          .select()
-          .single();
-
-        if (updateError) throw updateError;
-        warehouseInv = updatedWarehouseInv;
-      } else {
-        // Create new warehouse inventory item records
-        const { data: newWarehouseInv, error: whInvError } = await supabase
-          .from("warehouse_inventory_items")
-          .insert({
-            admin_uuid: inventoryData.admin_uuid,
-            warehouse_uuid: warehouseUuid,
-            company_uuid: inventoryData.company_uuid,
-            inventory_uuid: inventoryUuid,
-            name: inventoryData.name,
-            description: inventoryData.description,
-            measurement_unit: inventoryData.measurement_unit,
-            standard_unit: inventoryData.standard_unit,
-            status: 'AVAILABLE',
-            status_history: {
-              [new Date().toISOString()]: 'Created as AVAILABLE'
-            }
-          })
-          .select()
-          .single();
-
-        if (whInvError) throw whInvError;
-        warehouseInv = newWarehouseInv;
-      }
-
-      // Create warehouse inventory items for each inventory item
-      const warehouseItemPromises = items.map(async (item) => {
-        // Find the matching location for this item
-        const inventoryItemEntry = Object.entries(inventoryItems).find(
-          ([key, _]) => key === item.uuid
-        );
-        const location = inventoryItemEntry ? inventoryItemEntry[1].location : null;
-
-        // Create warehouse item
-        const { data: warehouseItem, error: whItemError } = await supabase
-          .from("warehouse_inventory_item_details")
-          .insert({
-            company_uuid: inventoryData.company_uuid,
-            warehouse_uuid: warehouseUuid,
-            inventory_uuid: inventoryUuid,
-            inventory_item_uuid: item.uuid,
-            delivery_uuid: deliveryUuid,
-            warehouse_inventory_uuid: warehouseInv.uuid,
-            item_code: item.item_code,
-            unit: item.unit,
-            unit_value: item.unit_value,
-            packaging_unit: item.packaging_unit,
-            cost: item.cost,
-            location: location,
-            properties: item.properties,
-            group_id: item.group_id,
-            status: 'AVAILABLE',
-            status_history: {
-              [new Date().toISOString()]: 'Created as AVAILABLE'
-            }
-          })
-          .select()
-          .single();
-
-        if (whItemError) throw whItemError;
-        return warehouseItem;
-      });
-
-      const warehouseItems = await Promise.all(warehouseItemPromises);
-
-      // Update the warehouse inventory with the new item UUIDs
-      const existingItemUuids: string[] = [];
-      if (existingWarehouseInv && existingWarehouseInv.warehouse_inventory_item_uuids) {
-        existingItemUuids.push(...(Array.isArray(existingWarehouseInv.warehouse_inventory_item_uuids)
-          ? existingWarehouseInv.warehouse_inventory_item_uuids
-          : JSON.parse(existingWarehouseInv.warehouse_inventory_item_uuids)));
-      }
-
-      const newItemUuids = warehouseItems.map((item: any) => item.uuid);
-      const allItemUuids = [...existingItemUuids, ...newItemUuids];
-
-      // Update the warehouse inventory item with all item UUIDs
-      const { data: updatedWarehouseInv, error: updateError } = await supabase
-        .from("warehouse_inventory_items")
-        .update({
-          warehouse_inventory_item_uuids: allItemUuids
-        })
-        .eq("uuid", warehouseInv.uuid)
-        .select()
-        .single();
-
-      if (updateError) throw updateError;
+    if (error) {
+      throw error;
     }
 
-    return {
-      success: true,
-      data: {
-        message: 'Warehouse inventory items created successfully'
-      }
-    };
+    return data;
   } catch (error: Error | any) {
-    console.error("Error creating/updating warehouse inventory items:", error);
+    console.error("Error creating warehouse inventory with UUID:", error);
     return {
       success: false,
-      error: `Failed to create/update warehouse inventory items: ${error.message || "Unknown error"}`,
+      error: `Failed to create warehouse inventory: ${error.message || "Unknown error"}`,
+    };
+  }
+}
+
+/**
+ * Gets delivery details with warehouse inventory items structure
+ */
+export async function getDeliveryDetailsWithWarehouseItems(
+  deliveryUuid: string,
+  companyUuid?: string
+) {
+  const supabase = await createClient();
+
+  try {
+    const { data, error } = await supabase.rpc('get_delivery_details', {
+      p_delivery_uuid: deliveryUuid,
+      p_company_uuid: companyUuid
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to get delivery details');
+    }
+
+    // The delivery details now include warehouse_inventory_items
+    return { success: true, data: data.data };
+  } catch (error: Error | any) {
+    console.error("Error getting delivery details:", error);
+    return {
+      success: false,
+      error: `Failed to get delivery details: ${error.message || "Unknown error"}`,
+      data: null
+    };
+  }
+}
+
+/**
+ * Generate warehouse inventory items structure for testing/preview
+ */
+export async function generateWarehouseInventoryItemsStructure(deliveryUuid: string) {
+  const supabase = await createClient();
+
+  try {
+    const { data, error } = await supabase.rpc('generate_warehouse_inventory_items_structure', {
+      p_delivery_uuid: deliveryUuid
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    return { success: true, data };
+  } catch (error: Error | any) {
+    console.error("Error generating warehouse inventory items structure:", error);
+    return {
+      success: false,
+      error: `Failed to generate warehouse inventory items structure: ${error.message || "Unknown error"}`,
+      data: {}
     };
   }
 }

@@ -21,12 +21,10 @@ import {
   useDisclosure,
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
-import { format } from "date-fns";
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import CardList from '@/components/card-list';
 
 import LoadingAnimation from '@/components/loading-animation';
 import { getUserFromCookies, getUsersFromCompany, UserProfile } from '@/utils/supabase/server/user';
@@ -40,10 +38,10 @@ import { generatePdfBlob } from './pdf-document';
 
 import CustomScrollbar from '@/components/custom-scrollbar';
 import { getStatusColor } from '@/utils/colors';
-import { DeliveryExportPopover } from './delivery-export';
-import { DeliveryComponent } from './delivery-component';
 import jsQR from 'jsqr';
 import { getDeliveryDetails, updateDeliveryStatusWithItems } from './actions';
+import { DeliveryComponent } from './delivery-component';
+import { DeliveryExportPopover } from './delivery-export';
 
 export default function DeliveryPage() {
   const router = useRouter();

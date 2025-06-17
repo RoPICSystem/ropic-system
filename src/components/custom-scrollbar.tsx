@@ -39,6 +39,7 @@ interface CustomScrollbarProps {
   hideScrollbars?: boolean;
   hideVerticalScrollbar?: boolean;
   hideHorizontalScrollbar?: boolean;
+  onScroll?: (event: React.UIEvent<HTMLDivElement>) => void;
 }
 
 const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
@@ -77,6 +78,7 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
   hideScrollbars = false,
   hideVerticalScrollbar = false,
   hideHorizontalScrollbar = false,
+  onScroll,
 }) => {
 
   // Vertical scrollbar states
@@ -256,7 +258,7 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
 
     setScrollPercentageV(percentage);
     setThumbHeightV(calculatedThumbHeight);
-    
+
     // Only show if we have scrollable content and either not hiding by default or currently hovering/scrolling
     if (!hideByDefault || isHovering || isDragging || isScrolling) {
       setScrollOpacityV(1);
@@ -290,7 +292,7 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
 
     setScrollPercentageH(percentage);
     setThumbWidthH(calculatedThumbWidth);
-    
+
     // Only show if we have scrollable content and either not hiding by default or currently hovering/scrolling
     if (!hideByDefault || isHovering || isDragging || isScrolling) {
       setScrollOpacityH(1);
@@ -318,7 +320,7 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
 
   const scheduleHide = () => {
     if (disabled || !hideByDefault) return;
-    
+
     clearAllTimeouts();
     timeoutRef.current = setTimeout(() => {
       if (!isContentHovering && !isScrollbarHovering && !isThumbHovering && !isDragging && !isScrolling) {
@@ -501,12 +503,12 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
     let lastScrollTop = container.scrollTop;
     let lastScrollLeft = container.scrollLeft;
 
-    const handleScroll = () => {
+    const handleScroll = (e: Event) => {
       if (disabled) return;
 
       const currentScrollTop = container.scrollTop;
       const currentScrollLeft = container.scrollLeft;
-      
+
       // Determine scroll direction
       const isScrollingVertically = Math.abs(currentScrollTop - lastScrollTop) > 0;
       const isScrollingHorizontally = Math.abs(currentScrollLeft - lastScrollLeft) > 0;
@@ -526,12 +528,18 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
       lastScrollTop = currentScrollTop;
       lastScrollLeft = currentScrollLeft;
 
+      // Call the external onScroll callback if provided
+      if (onScroll) {
+        onScroll(e as unknown as React.UIEvent<HTMLDivElement>);
+      }
+
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
       scrollTimeoutRef.current = setTimeout(() => {
         setIsScrolling(false);
         scheduleHide();
       }, 150);
     };
+
 
     const handleContentMouseEnter = () => {
       if (disabled) return;
@@ -560,6 +568,8 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
       }
     };
     window.addEventListener('resize', handleResize);
+    container.addEventListener('scroll', handleScroll, { passive: true });
+
 
     return () => {
       container.removeEventListener('scroll', handleScroll);
@@ -568,7 +578,7 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
       window.removeEventListener('resize', handleResize);
       clearAllTimeouts();
     };
-  }, [hideDelay, isHovering, isDragging, isScrolling, hideByDefault, disabled, showVertical, showHorizontal]);
+  }, [hideDelay, isHovering, isDragging, isScrolling, hideByDefault, disabled, showVertical, showHorizontal, onScroll]);
 
   // Mouse events for dragging
   useEffect(() => {
@@ -612,6 +622,8 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
     }
   }, [disabled, hideByDefault, showVertical, showHorizontal]);
 
+
+
   // Helper functions for styles
   const getVerticalThumbPosition = () => {
     const scrollbar = scrollbarVRef.current;
@@ -636,10 +648,10 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
   // Dynamic styles
   const shouldShowVerticalScrollbar = !disabled && showVertical && scrollOpacityV > 0 && !shouldHideVerticalScrollbar;
   const shouldShowHorizontalScrollbar = !disabled && showHorizontal && scrollOpacityH > 0 && !shouldHideHorizontalScrollbar;
-  
+
   const isVerticalTrackHovering = isScrollbarHoveringV || isThumbHoveringV || isScrolling || isDraggingV;
   const isHorizontalTrackHovering = isScrollbarHoveringH || isThumbHoveringH || isScrolling || isDraggingH;
-  
+
   const isVerticalScrollbarPartHovering = isScrollbarHoveringV || isThumbHoveringV || isDraggingV;
   const isHorizontalScrollbarPartHovering = isScrollbarHoveringH || isThumbHoveringH || isDraggingH;
 
@@ -700,7 +712,7 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
   const shadowStyle = (side: 'top' | 'bottom' | 'left' | 'right'): React.CSSProperties => {
     const isVerticalShadow = side === 'top' || side === 'bottom';
     const isTopOrLeft = side === 'top' || side === 'left';
-    
+
     let showShadow = false;
     if (side === 'top') showShadow = showTopShadow;
     else if (side === 'bottom') showShadow = showBottomShadow;
@@ -711,10 +723,10 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
     const createGradient = () => {
       if (scrollShadowTransparent) {
         // Use mask with opacity gradient for transparency effect
-        const direction = isVerticalShadow 
+        const direction = isVerticalShadow
           ? (isTopOrLeft ? 'to bottom' : 'to top')
           : (isTopOrLeft ? 'to right' : 'to left');
-        
+
         return {
           background: scrollShadowColor,
           maskImage: `linear-gradient(${direction}, rgba(0,0,0,${scrollShadowOpacity}), transparent)`,
@@ -722,12 +734,12 @@ const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
         };
       } else {
         // Use traditional color gradient
-        const direction = isVerticalShadow 
+        const direction = isVerticalShadow
           ? (isTopOrLeft ? 'to bottom' : 'to top')
           : (isTopOrLeft ? 'to right' : 'to left');
-        
+
         const opacityHex = Math.round(scrollShadowOpacity * 255).toString(16).padStart(2, '0');
-        
+
         return {
           background: `linear-gradient(${direction}, ${scrollShadowColor}${opacityHex}, transparent)`,
         };

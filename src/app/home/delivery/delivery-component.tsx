@@ -37,12 +37,9 @@ import {
 import LoadingAnimation from '@/components/loading-animation';
 import { UserProfile } from '@/utils/supabase/server/user';
 import { copyToClipboard, formatStatus } from '@/utils/tools';
-import jsQR from "jsqr";
 import { getInventoryItem } from '../inventory/actions';
 import { Warehouse } from '../warehouses/actions';
 
-import { getUserCompanyDetails } from "@/utils/supabase/server/companies";
-import { generatePdfBlob } from './pdf-document';
 
 import { getStatusColor } from '@/utils/colors';
 import {
@@ -50,8 +47,8 @@ import {
   groupInventoryItems
 } from "@/utils/inventory-group";
 
-import { Delivery3DShelfSelector } from './delivery-3d-shelf-selector';
 import { createClient } from '@/utils/supabase/client';
+import { Delivery3DShelfSelector } from './delivery-3d-shelf-selector';
 
 
 interface DeliveryComponentProps {
@@ -490,41 +487,24 @@ export function DeliveryComponent({
         setFormData(deliveryData);
 
         if (deliveryData.inventory_items) {
-          const inventoryUuids = [...new Set(
-            Object.values(deliveryData.inventory_items).map((item: any) => item.inventory_uuid)
-          )];
-
-          setSelectedInventoryUuids(inventoryUuids);
-
+          // Extract inventory item UUIDs from the keys of inventory_items
           const inventoryItemUuids = Object.keys(deliveryData.inventory_items);
-          const locations = Object.values(deliveryData.inventory_items).map((item: any) => item.location).filter(Boolean);
-
           setSelectedInventoryItems(inventoryItemUuids);
           setPrevSelectedInventoryItems(inventoryItemUuids);
-          setLocations(locations);
 
-          if (locations.length > 0) {
-            const firstLoc = locations[0];
-            setSelectedFloor(firstLoc.floor ?? null);
-            setSelectedColumnCode(parseColumn(firstLoc.column ?? null) || "");
-            setSelectedColumn(firstLoc.column ?? null);
-            setSelectedRow(firstLoc.row ?? null);
-            setSelectedDepth(firstLoc.depth ?? null);
-            setSelectedGroup(firstLoc.group ?? null);
-          }
+          // Extract unique inventory UUIDs for loading
+          const uniqueInventoryUuids = [...new Set(
+            Object.values(deliveryData.inventory_items).map((item: any) => item.inventory_uuid)
+          )];
+          setSelectedInventoryUuids(uniqueInventoryUuids);
 
-          for (const inventoryUuid of inventoryUuids) {
-            try {
-              await loadInventoryItemsWithCurrentData(inventoryUuid, true, deliveryData, deliveryId);
-            } catch (error) {
-              console.error(`Error loading inventory items for ${inventoryUuid}:`, error);
-            }
-          }
+          console.log("Loaded delivery with inventory items:", deliveryData.inventory_items);
+          console.log("Selected inventory item UUIDs:", inventoryItemUuids);
+          console.log("Unique inventory UUIDs:", uniqueInventoryUuids);
         } else {
-          setSelectedInventoryUuids([]);
           setSelectedInventoryItems([]);
           setPrevSelectedInventoryItems([]);
-          setLocations([]);
+          setSelectedInventoryUuids([]);
         }
 
         if (deliveryData.operator_info && Array.isArray(deliveryData.operator_info)) {
@@ -886,7 +866,7 @@ export function DeliveryComponent({
       setIsAutoAssigning(false);
     }
   };
-
+  // In the handleInventoryItemSelectionToggle function, update this part:
   const handleInventoryItemSelectionToggle = async (inventoryitemUuid: string, isSelected: boolean) => {
     let inventoryItem = inventoryItems.find(item => item.uuid === inventoryitemUuid);
 
@@ -899,7 +879,10 @@ export function DeliveryComponent({
     if (!loadedInventoryUuids.has(inventoryUuid)) {
       await loadInventoryItemsWithCurrentData(inventoryUuid, false, formData, deliveryId);
       inventoryItem = inventoryItems.find(item => item.uuid === inventoryitemUuid);
-      if (!inventoryItem) return;
+      if (!inventoryItem) {
+        console.error("Inventory item still not found after loading:", inventoryitemUuid);
+        return;
+      }
     }
 
     if (!isSelected && inventoryItem.status === 'ON_DELIVERY' && deliveryId) {
@@ -908,7 +891,7 @@ export function DeliveryComponent({
         selectedInventoryItems.includes(inventoryItem.uuid);
 
       if (!isAssignedToCurrentDelivery) {
-        console.warn("Item is already assigned to another delivery");
+        console.warn("Cannot deselect item assigned to another delivery");
         return;
       }
     }
@@ -917,26 +900,29 @@ export function DeliveryComponent({
       let newSelectedItems;
 
       if (isSelected) {
-        newSelectedItems = [...prev, inventoryitemUuid].filter((uuid, index, arr) => arr.indexOf(uuid) === index);
+        newSelectedItems = [...prev, inventoryitemUuid];
       } else {
         newSelectedItems = prev.filter(uuid => uuid !== inventoryitemUuid);
       }
 
+      // Update formData.inventory_items with inventory ITEM UUIDs as keys
       const currentInventoryItems = formData.inventory_items || {};
       const newInventoryItems: Record<string, { inventory_uuid: string; group_id: string | null; location: any }> = {};
 
-      newSelectedItems.forEach(uuid => {
-        if (currentInventoryItems[uuid]) {
-          newInventoryItems[uuid] = currentInventoryItems[uuid];
-        } else {
-          const item = inventoryItems.find(inv => inv.uuid === uuid);
-          newInventoryItems[uuid] = {
-            inventory_uuid: item?.inventory_uuid || "",
-            group_id: item?.group_id || null,
-            location: null
+      // Keep existing items that are still selected
+      newSelectedItems.forEach(itemUuid => {
+        const item = inventoryItems.find(inv => inv.uuid === itemUuid);
+        if (item) {
+          newInventoryItems[itemUuid] = {
+            inventory_uuid: item.inventory_uuid,
+            group_id: item.group_id || null,
+            location: currentInventoryItems[itemUuid]?.location || null
           };
         }
       });
+
+      console.log("Updated inventory items structure:", newInventoryItems);
+      console.log("Keys (inventory item UUIDs):", Object.keys(newInventoryItems));
 
       setFormData(prev => ({
         ...prev,
@@ -953,6 +939,7 @@ export function DeliveryComponent({
     });
   };
 
+  // Update the handleGroupSelectionToggle function:
   const handleGroupSelectionToggle = async (groupId: string, inventoryUuid: string, isSelected: boolean) => {
     if (!groupId || groupId === '' || groupId === 'null') {
       const individualItems = inventoryItems.filter(item =>
@@ -968,10 +955,7 @@ export function DeliveryComponent({
       });
 
       for (const item of availableIndividualItems) {
-        const isCurrentlySelected = selectedInventoryItems.includes(item.uuid);
-        if (isSelected !== isCurrentlySelected) {
-          await handleInventoryItemSelectionToggle(item.uuid, isSelected);
-        }
+        await handleInventoryItemSelectionToggle(item.uuid, isSelected);
       }
       return;
     }
@@ -996,6 +980,7 @@ export function DeliveryComponent({
     }
   };
 
+  // Update the handleSelectAllToggle function:
   const handleSelectAllToggle = (isSelected: boolean) => {
     const displayItems = getDisplayInventoryItemsList();
 
@@ -1012,12 +997,12 @@ export function DeliveryComponent({
         const groupInfo = getGroupInfo(item, groupedItems);
 
         if (inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId) {
-          const groupItems = inventoryItems.filter(groupItem =>
-            groupItem.group_id === groupInfo.groupId &&
-            (formData.status === 'DELIVERED' || formData.status === 'CANCELLED' ||
-              (groupItem.status !== 'IN_WAREHOUSE' && groupItem.status !== 'USED'))
-          );
-          groupItems.forEach(groupItem => {
+          const groupItems = inventoryItems.filter(groupItem => groupItem.group_id === groupInfo.groupId);
+          const availableGroupItems = groupItems.filter(groupItem => {
+            const statusStyling = getInventoryItemStatusStyling(groupItem);
+            return !statusStyling.isDisabled;
+          });
+          availableGroupItems.forEach(groupItem => {
             if (!allItemsToSelect.includes(groupItem.uuid)) {
               allItemsToSelect.push(groupItem.uuid);
             }
@@ -1031,29 +1016,27 @@ export function DeliveryComponent({
 
       setSelectedInventoryItems(allItemsToSelect);
 
+      // Build inventory_items with item UUIDs as keys
+      const newInventoryItems: Record<string, { inventory_uuid: string; group_id: string | null; location: any }> = {};
       const newInventoryLocations: Record<string, ShelfLocation> = {};
-      allItemsToSelect.forEach(uuid => {
-        const existingLocation = formData.inventory_items?.[uuid]?.location || null;
-        if (existingLocation) {
-          newInventoryLocations[uuid] = existingLocation;
+
+      allItemsToSelect.forEach(itemUuid => {
+        const item = inventoryItems.find(inv => inv.uuid === itemUuid);
+        if (item) {
+          newInventoryItems[itemUuid] = {
+            inventory_uuid: item.inventory_uuid,
+            group_id: item.group_id || null,
+            location: formData.inventory_items?.[itemUuid]?.location || null
+          };
+          if (formData.inventory_items?.[itemUuid]?.location) {
+            newInventoryLocations[itemUuid] = formData.inventory_items[itemUuid].location;
+          }
         }
       });
 
       setFormData(prev => ({
         ...prev,
-        inventory_items: {
-          ...prev.inventory_items,
-          ...Object.fromEntries(allItemsToSelect.map(uuid => [
-            uuid,
-            {
-              inventory_uuid: inventoryItems.find(item => item.uuid === uuid)?.inventory_uuid || "",
-              group_id: inventoryItems.find(item => item.uuid === uuid)?.group_id || null,
-              location: newInventoryLocations[uuid] || null
-            }
-          ]))
-        },
-        inventory_item_uuids: allItemsToSelect,
-        locations: Object.values(newInventoryLocations).filter(loc => loc !== null && loc.floor !== undefined)
+        inventory_items: newInventoryItems
       }));
 
       const newLocationsArray = Object.values(newInventoryLocations).filter(loc => loc !== null && loc.floor !== undefined);
@@ -1063,13 +1046,13 @@ export function DeliveryComponent({
       setSelectedInventoryItems([]);
       setFormData(prev => ({
         ...prev,
-        inventory_item_uuids: [],
-        locations: []
+        inventory_items: {}
       }));
       setLocations([]);
     }
   };
 
+  // Update the _performInventorySelectionLogic function:
   const _performInventorySelectionLogic = (inventoryUuid: string, isSelected: boolean) => {
     const currentInventoryItems = inventoryItems;
     const inventoryItemsForThisInventory = currentInventoryItems.filter(item => item.inventory_uuid === inventoryUuid);
@@ -1083,12 +1066,16 @@ export function DeliveryComponent({
 
       const itemsToSelect: string[] = [];
       availableItems.forEach(item => {
-        const groupedItems = getGroupedInventoryItems();
+        const groupedItems = groupInventoryItems(inventoryItemsForThisInventory);
         const groupInfo = getGroupInfo(item, groupedItems);
 
         if (inventoryViewMode === 'grouped' && groupInfo.isGroup && groupInfo.groupId) {
-          const groupItems = inventoryItems.filter(groupItem => groupItem.group_id === groupInfo.groupId);
-          groupItems.forEach(groupItem => {
+          const groupItems = inventoryItemsForThisInventory.filter(groupItem => groupItem.group_id === groupInfo.groupId);
+          const availableGroupItems = groupItems.filter(groupItem => {
+            const statusStyling = getInventoryItemStatusStyling(groupItem);
+            return !statusStyling.isDisabled;
+          });
+          availableGroupItems.forEach(groupItem => {
             if (!itemsToSelect.includes(groupItem.uuid)) {
               itemsToSelect.push(groupItem.uuid);
             }
@@ -1101,35 +1088,50 @@ export function DeliveryComponent({
       });
 
       setSelectedInventoryItems(prevSelected => {
-        const newSelectedItems = Array.from(new Set([...prevSelected, ...itemsToSelect]));
-        setFormData(prevFd => {
-          const newInventoryItems = { ...prevFd.inventory_items };
-          itemsToSelect.forEach(uuid => {
-            if (!newInventoryItems[uuid]) {
-              const item = inventoryItems.find(inv => inv.uuid === uuid);
-              newInventoryItems[uuid] = {
-                inventory_uuid: item?.inventory_uuid || "",
-                group_id: item?.group_id || null,
-                location: item?.location || null
-              };
-            }
-          });
-          return { ...prevFd, inventory_items: newInventoryItems };
+        const newSelected = [...prevSelected];
+        itemsToSelect.forEach(itemUuid => {
+          if (!newSelected.includes(itemUuid)) {
+            newSelected.push(itemUuid);
+          }
         });
-        return newSelectedItems;
+
+        // Update inventory_items with item UUIDs as keys
+        const newInventoryItems = { ...formData.inventory_items };
+        itemsToSelect.forEach(itemUuid => {
+          const item = inventoryItems.find(inv => inv.uuid === itemUuid);
+          if (item) {
+            newInventoryItems[itemUuid] = {
+              inventory_uuid: item.inventory_uuid,
+              group_id: item.group_id || null,
+              location: newInventoryItems[itemUuid]?.location || null
+            };
+          }
+        });
+
+        setFormData(prev => ({
+          ...prev,
+          inventory_items: newInventoryItems
+        }));
+
+        return newSelected;
       });
     } else {
       const itemsToDeselect = inventoryItemsForThisInventory.map(item => item.uuid);
       setSelectedInventoryItems(prevSelected => {
-        const newSelectedItems = prevSelected.filter(uuid => !itemsToDeselect.includes(uuid));
-        setFormData(prevFd => {
-          const newInventoryItems = { ...prevFd.inventory_items };
-          itemsToDeselect.forEach(uuid => {
-            delete newInventoryItems[uuid];
-          });
-          return { ...prevFd, inventory_items: newInventoryItems };
+        const newSelected = prevSelected.filter(uuid => !itemsToDeselect.includes(uuid));
+
+        // Update inventory_items by removing deselected items
+        const newInventoryItems = { ...formData.inventory_items };
+        itemsToDeselect.forEach(itemUuid => {
+          delete newInventoryItems[itemUuid];
         });
-        return newSelectedItems;
+
+        setFormData(prev => ({
+          ...prev,
+          inventory_items: newInventoryItems
+        }));
+
+        return newSelected;
       });
     }
   };

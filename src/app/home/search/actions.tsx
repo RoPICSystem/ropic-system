@@ -2,7 +2,7 @@
 
 import { createClient } from "@/utils/supabase/server";
 import { getProfileImagePath } from "@/utils/supabase/server/user";
-import { StatusHistory } from "../warehouse-items/actions";
+import { DeliveryItem } from "../delivery/actions";
 
 export interface GoPageDeliveryDetails {
   uuid: string;
@@ -137,6 +137,33 @@ export interface GoPageWarehouseDetails {
   };
 }
 
+export interface GoPageNewWarehouseInventoryDetails {
+  delivery_uuid: string;
+  delivery_name?: string;
+  delivery_address: string;
+  delivery_date: string;
+  delivery_status: string;
+  warehouse_uuid: string;
+  company_uuid: string;
+  matched_warehouse_inventory_uuids: string[]; // ✅ ADD: Array of matched UUIDs
+  total_matched_items: number; // ✅ ADD: Count of matched items
+  
+  // Related data will be populated
+  delivery?: DeliveryItem;
+  warehouse?: {
+    uuid: string;
+    name: string;
+    address: any;
+  };
+  matched_inventory_items?: { // ✅ ADD: Details of matched items
+    uuid: string;
+    name: string;
+    description?: string;
+    unit: string;
+    properties: Record<string, any>;
+  }[];
+}
+
 /**
  * Get detailed delivery item information by UUID
  */
@@ -204,7 +231,7 @@ export async function getDeliveryItemDetails(uuid: string): Promise<{ success: b
       data: {
         ...deliveryData,
         inventory_item: deliveryData.inventory_items,
-        warehouse: deliveryData.warehouses,
+        warehouse: deliveryData.warehouses && deliveryData.warehouses.length > 0 ? deliveryData.warehouses[0] : undefined,
         operators,
         inventory_bulks: inventoryBulks
       }
@@ -244,13 +271,13 @@ export async function getInventoryItemDetails(uuid: string): Promise<{ success: 
     const item = inventoryData[0];
 
     // Get delivery history for this inventory item
-    const { data: deliveryHistory, error: deliveryError } = await supabase
+    // Get delivery history for this inventory item
+    const { data: deliveryHistory } = await supabase
       .from("delivery_items")
       .select("uuid, delivery_date, status, delivery_address")
       .eq("inventory_uuid", uuid)
       .order("delivery_date", { ascending: false })
       .limit(10);
-
     return {
       success: true,
       data: {
@@ -288,19 +315,19 @@ export async function getWarehouseItemDetails(uuid: string): Promise<{ success: 
     }
 
     // Get warehouse details
-    const { data: warehouseInfo, error: warehouseInfoError } = await supabase
+    // Get warehouse details
+    const { data: warehouseInfo } = await supabase
       .from("warehouses")
       .select("uuid, name, address")
       .eq("uuid", warehouseData.item.warehouse_uuid)
       .single();
 
     // Get original inventory item details
-    const { data: inventoryInfo, error: inventoryInfoError } = await supabase
+    const { data: inventoryInfo } = await supabase
       .from("inventory_items")
       .select("uuid, name, description, unit, properties")
       .eq("uuid", warehouseData.item.inventory_uuid)
       .single();
-
     // Get delivery item details if delivery_uuid exists in any bulk
     let deliveryItem = null;
     const deliveryUuids = warehouseData.bulks
@@ -396,10 +423,10 @@ export async function getBulkUnitsDetails(bulkUuid: string, isWarehouseBulk: boo
  */
 export async function getItemDetailsByUuid(uuid: string): Promise<{
   success: boolean;
-  type?: 'delivery' | 'inventory' | 'warehouse_inventory' | 'warehouse_bulk';
-  data?: GoPageDeliveryDetails | GoPageInventoryDetails | GoPageWarehouseDetails;
+  type?: 'delivery' | 'inventory' | 'warehouse_inventory' | 'warehouse_bulk' | 'new_warehouse_inventory';
+  data?: GoPageDeliveryDetails | GoPageInventoryDetails | GoPageWarehouseDetails | GoPageNewWarehouseInventoryDetails;
   error?: string;
-  warehouseBulkUuid?: string; // Add this for warehouse bulk identification
+  warehouseBulkUuid?: string;
 }> {
   const supabase = await createClient();
 
@@ -465,15 +492,78 @@ export async function getItemDetailsByUuid(uuid: string): Promise<{
       .single();
 
     if (!warehouseBulkCheckError && warehouseBulkCheck) {
-      // Get the warehouse inventory item details for this bulk
       const result = await getWarehouseItemDetails(warehouseBulkCheck.warehouse_inventory_uuid);
       return {
         success: result.success,
         type: 'warehouse_bulk',
         data: result.data,
         error: result.error,
-        warehouseBulkUuid: uuid // Store the bulk UUID for highlighting
+        warehouseBulkUuid: uuid
       };
+    }
+
+    // This handles the case where we're searching by delivery UUID for new_warehouse_inventory
+    const { data: newWarehouseCheck, error: newWarehouseCheckError } = await supabase
+      .from("delivery_items")
+      .select("uuid, warehouse_inventory_items")
+      .eq("uuid", uuid);
+
+    if (!newWarehouseCheckError && newWarehouseCheck && newWarehouseCheck.length > 0) {
+      const delivery = newWarehouseCheck[0];
+      const warehouseInventoryItems = delivery.warehouse_inventory_items || {};
+      const warehouseInventoryUuids = Object.keys(warehouseInventoryItems);
+
+      if (warehouseInventoryUuids.length > 0) {
+        // Check if any of these warehouse_inventory_uuids don't exist in warehouse_inventory table
+        const { data: existingWarehouse, error: existingError } = await supabase
+          .from("warehouse_inventory")
+          .select("uuid")
+          .in("uuid", warehouseInventoryUuids);
+
+        const existingUuids = existingWarehouse?.map(item => item.uuid) || [];
+        const newUuids = warehouseInventoryUuids.filter(uuid => !existingUuids.includes(uuid));
+
+        if (newUuids.length > 0) {
+          const result = await getNewWarehouseInventoryDetailsByDelivery(uuid, newUuids);
+          return {
+            success: result.success,
+            type: 'new_warehouse_inventory',
+            data: result.data,
+            error: result.error
+          };
+        }
+      }
+    }
+
+    // ✅ ADD: Also check if the UUID is a warehouse_inventory_uuid that doesn't exist yet
+    const { data: deliveryByWarehouseInventory, error: deliveryByWarehouseError } = await supabase
+      .from("delivery_items")
+      .select("uuid, warehouse_inventory_items")
+      .contains('warehouse_inventory_items', {
+        [uuid]: {}
+      });
+
+    if (!deliveryByWarehouseError && deliveryByWarehouseInventory && deliveryByWarehouseInventory.length > 0) {
+      // Verify this warehouse_inventory_uuid doesn't exist in warehouse_inventory table
+      const { data: existingWarehouse, error: existingError } = await supabase
+        .from("warehouse_inventory")
+        .select("uuid")
+        .eq("uuid", uuid)
+        .single();
+
+      if (existingError && existingError.code === 'PGRST116') { // Not found
+        // Use the delivery UUID but specify the matched warehouse inventory UUID
+        const result = await getNewWarehouseInventoryDetailsByDelivery(
+          deliveryByWarehouseInventory[0].uuid, 
+          [uuid] // Pass the specific warehouse inventory UUID that was matched
+        );
+        return {
+          success: result.success,
+          type: 'new_warehouse_inventory',
+          data: result.data,
+          error: result.error
+        };
+      }
     }
 
     return {
@@ -556,6 +646,135 @@ export async function getWarehouseItemsByDelivery(deliveryUuid: string): Promise
     return {
       success: false,
       error: `Failed to fetch warehouse items: ${error.message || "Unknown error"}`
+    };
+  }
+}
+
+
+
+
+
+
+/**
+ * Get detailed new warehouse inventory information by delivery UUID (grouped results)
+ */
+export async function getNewWarehouseInventoryDetailsByDelivery(deliveryUuid: string, matchedWarehouseInventoryUuids?: string[]): Promise<{ success: boolean; data?: GoPageNewWarehouseInventoryDetails; error?: string }> {
+  const supabase = await createClient();
+
+  try {
+    // Get the delivery details
+    const { data: deliveryData, error: deliveryError } = await supabase
+      .from("delivery_items")
+      .select(`
+        uuid,
+        name,
+        delivery_address,
+        delivery_date,
+        status,
+        warehouse_uuid,
+        company_uuid,
+        warehouse_inventory_items,
+        warehouses!warehouse_uuid (
+          uuid,
+          name,
+          address
+        )
+      `)
+      .eq('uuid', deliveryUuid)
+      .single();
+
+    if (deliveryError) throw deliveryError;
+
+    if (!deliveryData) {
+      return {
+        success: false,
+        error: "Delivery not found"
+      };
+    }
+
+    // Find all warehouse inventory UUIDs that don't exist in warehouse_inventory table
+    const warehouseInventoryItems = deliveryData.warehouse_inventory_items || {};
+    const allWarehouseInventoryUuids = Object.keys(warehouseInventoryItems);
+    
+    // Check which ones don't exist in warehouse_inventory table
+    const { data: existingWarehouseInventory } = await supabase
+      .from("warehouse_inventory")
+      .select("uuid")
+      .in("uuid", allWarehouseInventoryUuids);
+
+    const existingUuids = existingWarehouseInventory?.map(item => item.uuid) || [];
+    const newWarehouseInventoryUuids = allWarehouseInventoryUuids.filter(uuid => !existingUuids.includes(uuid));
+
+    // If matchedWarehouseInventoryUuids is provided, filter to only those
+    const finalMatchedUuids = matchedWarehouseInventoryUuids 
+      ? newWarehouseInventoryUuids.filter(uuid => matchedWarehouseInventoryUuids.includes(uuid))
+      : newWarehouseInventoryUuids;
+
+    // Get inventory item details for matched items
+    const matchedInventoryItems = [];
+    for (const warehouseInventoryUuid of finalMatchedUuids) {
+      const warehouseInventoryItem = warehouseInventoryItems[warehouseInventoryUuid];
+      if (warehouseInventoryItem?.inventory_uuid) {
+        const { data: inventoryData } = await supabase
+          .from("inventory_items")
+          .select(`
+            uuid,
+            inventory_uuid,
+            item_code,
+            unit,
+            unit_value,
+            packaging_unit,
+            cost,
+            properties,
+            group_id,
+            inventory!inventory_uuid (
+              uuid,
+              name,
+              description,
+              measurement_unit,
+              standard_unit
+            )
+          `)
+          .eq("uuid", warehouseInventoryItem.inventory_uuid)
+          .single();
+
+        if (inventoryData?.inventory && inventoryData.inventory.length > 0) {
+          const inventory = inventoryData.inventory[0];
+          matchedInventoryItems.push({
+            warehouse_inventory_uuid: warehouseInventoryUuid,
+            inventory_item_uuid: inventoryData.uuid,
+            uuid: inventory.uuid,
+            name: inventory.name,
+            description: inventory.description,
+            unit: inventory.measurement_unit,
+            properties: inventoryData.properties || {}
+          });
+        }
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        delivery_uuid: deliveryData.uuid,
+        delivery_name: deliveryData.name,
+        delivery_address: deliveryData.delivery_address,
+        delivery_date: deliveryData.delivery_date,
+        delivery_status: deliveryData.status,
+        warehouse_uuid: deliveryData.warehouse_uuid,
+        company_uuid: deliveryData.company_uuid,
+        matched_warehouse_inventory_uuids: finalMatchedUuids,
+        total_matched_items: finalMatchedUuids.length,
+        delivery: deliveryData as unknown as DeliveryItem,
+        warehouse: deliveryData.warehouses?.[0],
+        matched_inventory_items: matchedInventoryItems
+      }
+    };
+  } catch (error: any) {
+    console.error("Error fetching new warehouse inventory details by delivery:", error);
+    return {
+      success: false,
+      error: `Failed to fetch new warehouse inventory details: ${error.message || "Unknown error"}`,
     };
   }
 }
