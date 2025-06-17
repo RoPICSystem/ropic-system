@@ -3,8 +3,8 @@
 import { format } from "date-fns";
 import { useTheme } from "next-themes";
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { getDashboardData, getUserDashboardData, getNotificationCount } from "./actions";
+import { JSXElementConstructor, Key, ReactElement, ReactNode, ReactPortal, useEffect, useState } from "react";
+import { getDashboardData } from "./actions";
 
 import {
   Badge,
@@ -50,23 +50,25 @@ import { motionTransition, motionTransitionScale } from "@/utils/anim";
 import LoadingAnimation from "@/components/loading-animation";
 import { herouiColorOpacity, herouiColor } from "@/utils/colors";
 
-// StatsCard component for displaying simple metrics - using inline definition
+// StatsCard component for displaying simple metrics
 interface StatsCardProps {
   title: string;
   value: number;
-  subtitle?: string;
+  subtitle?: string; // Added subtitle prop
   icon: string;
   icon2?: string;
   color?: "default" | "primary" | "secondary" | "success" | "warning" | "danger";
 }
 
+
 const StatsCard = ({ title, value, subtitle, icon, icon2, color = "primary" }: StatsCardProps) => (
-  <Card className={`bg-${color}-50 border border-${color}-100 shadow-xl`}>
+  <Card
+    className={`bg-${color}-50 border border-${color}-100 shadow-xl`}>
     <CardBody className="p-3 overflow-hidden relative">
       <div className="flex items-center justify-between">
         <div>
           <p className={`text-sm text-${color}-600`}>{title}</p>
-          <p className={`text-4xl font-bold text-${color}-800`}>{value}</p>
+          <p className={`text-4xl font-bold text-${color}-800`}>{(value)}</p>
           {subtitle && <p className="text-small text-default-400">{subtitle}</p>}
         </div>
         <Icon icon={icon}
@@ -88,34 +90,15 @@ const StatsCard = ({ title, value, subtitle, icon, icon2, color = "primary" }: S
       </div>
     </CardBody>
   </Card>
-);
-
-interface DashboardData {
-  deliveryCounts?: any;
-  inventoryStats?: any;
-  deliveryPerformance?: any;
-  monthlyRevenue?: any;
-  notifications?: any;
-  reorderPointItems?: any;
-  warehouseStats?: any;
-  company?: any;
-}
-
-interface User {
-  uuid: string;
-  email: string;
-  full_name: string;
-  is_admin: boolean;
-  company_uuid: string;
-}
+)
 
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
-  const [user, setUser] = useState<User | null>(null);
-  const [notificationCount, setNotificationCount] = useState(0);
+  const [dashboardData, setDashboardData] = useState<any>(null);
+  const [user, setUser] = useState<any>(null);
   const { theme } = useTheme();
+
 
   useEffect(() => {
     const fetchSubscriptionData = async () => {
@@ -135,21 +118,25 @@ export default function DashboardPage() {
     return theme === "dark";
   }
 
+
   const renderInventoryStats = () => {
     if (!dashboardData?.inventoryStats) return null;
 
     const {
       total_items,
-      active_groups,
-      active_items,
-      available_groups,
-      available_items,
-      reserved_groups,
-      reserved_items,
-      in_warehouse_groups,
-      in_warehouse_items,
+      total_bulks,
+      total_units,
+      active_units,
+      active_bulks,
+      available_units,
+      available_bulks,
+      reserved_units,
+      reserved_bulks,
+      in_warehouse_units,
+      in_warehouse_bulks,
       top_items
     } = dashboardData.inventoryStats;
+
 
     return <Card className="col-span-12 bg-background mt-4">
       <LoadingAnimation
@@ -185,17 +172,17 @@ export default function DashboardPage() {
 
               {/* Skeleton for top items table */}
               <div>
-                <h3 className="text-lg font-medium mb-2">Top Inventory Groups</h3>
+                <h3 className="text-lg font-medium mb-2">Top Inventory Items</h3>
                 <Table
                   classNames={{
                     wrapper: "bg-default-100",
                     th: "bg-primary-100 text-primary-600",
                   }}
-                  aria-label="Top inventory groups loading">
+                  aria-label="Top inventory items loading">
                   <TableHeader>
-                    <TableColumn>GROUP NAME</TableColumn>
-                    <TableColumn>GROUPS</TableColumn>
-                    <TableColumn>ITEMS</TableColumn>
+                    <TableColumn>ITEM NAME</TableColumn>
+                    <TableColumn>BULKS</TableColumn>
+                    <TableColumn>UNITS</TableColumn>
                     <TableColumn>UNIT VALUE</TableColumn>
                     <TableColumn>STATUS</TableColumn>
                   </TableHeader>
@@ -209,6 +196,7 @@ export default function DashboardPage() {
                         <TableCell>
                           <div className="flex gap-1">
                             <Skeleton className="h-5 w-16 rounded-md" />
+                            <Skeleton className="h-5 w-16 rounded-md" />
                           </div>
                         </TableCell>
                       </TableRow>
@@ -217,6 +205,7 @@ export default function DashboardPage() {
                 </Table>
               </div>
             </CardBody>
+
           </>
         }>
 
@@ -224,7 +213,7 @@ export default function DashboardPage() {
           <div className="flex gap-2 items-center">
             <div>
               <h2 className="text-lg font-semibold">Inventory Overview</h2>
-              <p className="text-xs text-default-500">Groups, items and units statistics</p>
+              <p className="text-xs text-default-500">Items, bulks and units statistics</p>
             </div>
           </div>
         </CardHeader>
@@ -234,7 +223,7 @@ export default function DashboardPage() {
           <div className="grid gap-4 mb-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3">
             <StatsCard
               title="Total Items"
-              value={total_items || 0}
+              value={total_items}
               icon="fluent-emoji:clipboard"
               color="default"
             />
@@ -242,48 +231,53 @@ export default function DashboardPage() {
             {user?.is_admin && (
               <>
                 <StatsCard
-                  title="Inventory Groups"
-                  value={active_groups || 0}
-                  icon="fluent-emoji:package"
+                  title="Inventory Units"
+                  value={active_units}
+                  icon="fluent-emoji:label"
                   color="primary"
                 />
                 <StatsCard
-                  title="Inventory Items"
-                  value={active_items || 0}
-                  icon="fluent-emoji:label"
+                  title="Inventory Bulks"
+                  value={active_bulks}
+                  icon="fluent-emoji:package"
                   color="secondary"
                 />
                 <StatsCard
-                  title="Available Groups"
-                  value={available_groups || 0}
-                  icon="fluent-emoji:package"
-                  icon2="fluent-color:checkmark-circle-16"
-                  color="success"
-                />
-                <StatsCard
-                  title="Available Items"
-                  value={available_items || 0}
+                  title="Available Inventory Units"
+                  value={available_units}
                   icon="fluent-emoji:label"
                   icon2="fluent-color:checkmark-circle-16"
                   color="success"
                 />
                 <StatsCard
-                  title="Reserved Items"
-                  value={reserved_items || 0}
+                  title="Reserved Inventory Units"
+                  value={reserved_units}
                   icon="fluent-emoji:label"
                   icon2="fluent-color:clock-16"
                   color="warning"
                 />
+              </>
+            )}
+            <StatsCard
+              title="In Warehouse Units"
+              value={in_warehouse_units}
+              icon="fluent-emoji:label"
+              {...(user?.is_admin ? { icon2: "fluent-emoji:office-building" } : {})}
+              color={user?.is_admin ? "danger" : "secondary"}
+            />
+
+            {user?.is_admin && (
+              <>
                 <StatsCard
-                  title="Available Groups"
-                  value={available_groups || 0}
+                  title="Available Inventory Bulks"
+                  value={available_bulks}
                   icon="fluent-emoji:package"
                   icon2="fluent-color:checkmark-circle-16"
                   color="success"
                 />
                 <StatsCard
-                  title="Reserved Groups"
-                  value={reserved_groups || 0}
+                  title="Reserved Inventory Bulks"
+                  value={reserved_bulks}
                   icon="fluent-emoji:package"
                   icon2="fluent-color:clock-16"
                   color="warning"
@@ -292,35 +286,27 @@ export default function DashboardPage() {
             )}
 
             <StatsCard
-              title="In Warehouse Items"
-              value={in_warehouse_items || 0}
-              icon="fluent-emoji:label"
-              {...(user?.is_admin ? { icon2: "fluent-emoji:office-building" } : {})}
-              color={user?.is_admin ? "danger" : "warning"}
-            />
-
-            <StatsCard
-              title="In Warehouse Groups"
-              value={in_warehouse_groups || 0}
+              title="In Warehouse Bulks"
+              value={in_warehouse_bulks}
               icon="fluent-emoji:package"
               {...(user?.is_admin ? { icon2: "fluent-emoji:office-building" } : {})}
-              color={user?.is_admin ? "danger" : "secondary"}
+              color={user?.is_admin ? "danger" : "warning"}
             />
           </div>
 
           {/* Top items table */}
           <div>
-            <h3 className="text-lg font-medium mb-2">Top Inventory Groups</h3>
+            <h3 className="text-lg font-medium mb-2">Top Inventory Items</h3>
             <Table
               classNames={{
                 wrapper: "bg-default-100",
                 th: "bg-primary-100 text-primary-600",
               }}
-              aria-label="Top inventory groups">
+              aria-label="Top inventory items">
               <TableHeader>
-                <TableColumn>GROUP NAME</TableColumn>
-                <TableColumn>GROUPS</TableColumn>
-                <TableColumn>ITEMS</TableColumn>
+                <TableColumn>ITEM NAME</TableColumn>
+                <TableColumn>BULKS</TableColumn>
+                <TableColumn>UNITS</TableColumn>
                 <TableColumn>UNIT VALUE</TableColumn>
                 <TableColumn>STATUS</TableColumn>
               </TableHeader>
@@ -329,25 +315,28 @@ export default function DashboardPage() {
                   uuid: string;
                   name: string;
                   unit: string;
-                  group_count: number;
-                  total_group_value: number;
-                  available_count: number;
-                  item_statuses: string;
+                  bulk_count: number;
+                  total_bulk_value: number;
+                  units_count: number;
+                  bulk_statuses: string;
                 }) => (
                   <TableRow key={item.uuid}>
                     <TableCell>{item.name}</TableCell>
-                    <TableCell>1</TableCell>
-                    <TableCell>{item.group_count}</TableCell>
-                    <TableCell>{formatNumber(item.total_group_value)} {item.unit}</TableCell>
+                    <TableCell>{item.bulk_count}</TableCell>
+                    <TableCell>{item.units_count}</TableCell>
+                    <TableCell>{formatNumber(item.total_bulk_value)} {item.unit}</TableCell>
                     <TableCell>
-                      <Chip
-                        size="sm"
-                        variant="flat"
-                        color={getStatusColor(item.item_statuses)}
-                        className="mr-1"
-                      >
-                        {item.item_statuses}
-                      </Chip>
+                      {item.bulk_statuses && item.bulk_statuses.split(', ').filter(Boolean).map((status) => (
+                        <Chip
+                          key={status}
+                          size="sm"
+                          variant="flat"
+                          color={getStatusColor(status)}
+                          className="mr-1"
+                        >
+                          {status}
+                        </Chip>
+                      ))}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -367,7 +356,7 @@ export default function DashboardPage() {
       case "IN_TRANSIT": return "secondary";
       case "DELIVERED": return "success";
       case "CANCELLED": return "danger";
-
+      
       case 'IN_WAREHOUSE': return 'primary';
       case 'AVAILABLE': return 'success';
       case 'IN_STOCK': return 'success';
@@ -375,29 +364,22 @@ export default function DashboardPage() {
       case 'WARNING': return 'warning';
       case "IN_USE": return "warning";
       case 'RESERVED': return 'warning';
+      case 'WARNING': return 'warning';
       case "USED": return "danger";
       case 'CRITICAL': return 'danger';
       case 'OUT_OF_STOCK': return 'danger';
-      case 'LOW_STOCK': return 'warning';
       default: return 'default';
     }
   };
+
 
   // Extract loadDashboardData outside of useEffect so it can be reused
   const loadDashboardData = async () => {
     try {
       setLoading(true);
-      const userData = await getUserFromCookies();
-      if (!userData) {
-        setError("User not found");
-        return;
-      }
-      setUser(userData);
+      setUser(window.userData || null);
 
-      // Get dashboard data based on user role
-      const { data, error } = userData.is_admin
-        ? await getDashboardData()
-        : await getUserDashboardData(userData.uuid, userData.is_admin);
+      const { data, error } = await getDashboardData();
 
       if (error) {
         setError(error);
@@ -405,18 +387,8 @@ export default function DashboardPage() {
       }
 
       console.log("Dashboard data loaded:", data);
+
       setDashboardData(data);
-
-      // Get notification count
-      const { count, error: notifError } = await getNotificationCount(
-        userData.uuid,
-        userData.is_admin
-      );
-
-      if (!notifError) {
-        setNotificationCount(count);
-      }
-
     } catch (err) {
       console.error("Failed to load dashboard data:", err);
       setError("An error occurred while loading dashboard data");
@@ -431,27 +403,28 @@ export default function DashboardPage() {
 
   // Prepare chart data
   const deliveryStatusData = !loading && dashboardData ? [
-    { name: "Pending", value: dashboardData.deliveryCounts?.pending_deliveries || 0, color: "#f59e0b" },
-    { name: "Processing", value: 0, color: "#3b82f6" }, // No processing status in new schema
-    { name: "In Transit", value: dashboardData.deliveryCounts?.in_transit_deliveries || 0, color: "#8b5cf6" },
-    { name: "Delivered", value: dashboardData.deliveryCounts?.delivered_deliveries || 0, color: "#10b981" },
-    { name: "Cancelled", value: 0, color: "#ef4444" }, // No cancelled status returned by function
+    { name: "Pending", value: dashboardData.deliveryCounts.PENDING, color: "#f59e0b" },
+    { name: "Processing", value: dashboardData.deliveryCounts.PROCESSING, color: "#3b82f6" },
+    { name: "In Transit", value: dashboardData.deliveryCounts.IN_TRANSIT, color: "#8b5cf6" },
+    { name: "Delivered", value: dashboardData.deliveryCounts.DELIVERED, color: "#10b981" },
+    { name: "Cancelled", value: dashboardData.deliveryCounts.CANCELLED, color: "#ef4444" },
   ] : [];
 
   const performanceData = !loading && dashboardData ? [
-    { name: "Daily", value: dashboardData.deliveryPerformance?.daily || 0, color: "#10b981" },
-    { name: "Weekly", value: dashboardData.deliveryPerformance?.weekly || 0, color: "#3b82f6" },
-    { name: "Monthly", value: dashboardData.deliveryPerformance?.monthly || 0, color: "#8b5cf6" },
+    { name: "Daily", value: dashboardData.deliveryPerformance.daily, color: "#10b981" },
+    { name: "Weekly", value: dashboardData.deliveryPerformance.weekly, color: "#3b82f6" },
+    { name: "Monthly", value: dashboardData.deliveryPerformance.monthly, color: "#8b5cf6" },
   ] : [];
 
   // Prepare monthly revenue trend data
   const monthlyRevenueData = !loading && dashboardData ? [
-    { name: "Previous", value: dashboardData?.monthlyRevenue?.previous_month_revenue || 0 },
-    { name: "Current", value: dashboardData?.monthlyRevenue?.current_month_revenue || 0 }
+    { name: "Previous", value: dashboardData?.monthlyRevenue?.previous_month || 0 },
+    { name: "Current", value: dashboardData?.monthlyRevenue?.current_month || 0 }
   ] : [];
 
   // Prepare reorder point data - items that need reordering
-  const lowStockItems = !loading && dashboardData?.reorderPointItems?.items || [];
+  const lowStockItems = !loading && dashboardData?.reorderPointItems;
+
 
   return (
     <motion.div {...motionTransition}>
@@ -470,6 +443,7 @@ export default function DashboardPage() {
             )}
           </div>
           <div className="flex gap-4 xl:mt-0 mt-4 text-center items-center" >
+
             <div className="flex flex-0 items-center gap-2 text-default-500 w-32">
               <Icon icon="fluent:calendar-20-filled" width={20} height={20} />
               {format(new Date(), 'MMMM d, yyyy')}
@@ -518,7 +492,6 @@ export default function DashboardPage() {
                     <Table aria-label="Items that need reordering">
                       <TableHeader>
                         <TableColumn>ITEM</TableColumn>
-                        <TableColumn>WAREHOUSE</TableColumn>
                         <TableColumn>CURRENT STOCK</TableColumn>
                         <TableColumn>REORDER POINT</TableColumn>
                         <TableColumn>STATUS</TableColumn>
@@ -526,10 +499,9 @@ export default function DashboardPage() {
                       <TableBody>
                         {lowStockItems.slice(0, 3).map((item: any) => (
                           <TableRow key={item.uuid}>
-                            <TableCell>{item.inventory_name}</TableCell>
-                            <TableCell>{item.warehouse_name}</TableCell>
-                            <TableCell>{item.current_stock} {item.unit}</TableCell>
-                            <TableCell>{item.reorder_point} {item.unit}</TableCell>
+                            <TableCell>{item.name}</TableCell>
+                            <TableCell>{item.current_stock}</TableCell>
+                            <TableCell>{item.reorder_point}</TableCell>
                             <TableCell>
                               <Chip
                                 color={getStatusColor(item.status)}
@@ -551,7 +523,7 @@ export default function DashboardPage() {
 
                     <Button
                       as={Link}
-                      href="/home/reorder-points"
+                      href="/home/reorder-point"
                       color="warning"
                       variant="flat"
                       className="w-full mt-4"
@@ -629,7 +601,7 @@ export default function DashboardPage() {
                         {user?.is_admin ? "Manage Inventory" : "View Warehouse"}
                       </p>
                       <p className="text-xs opacity-70">
-                        {user?.is_admin ? "Create new inventory group" : "Show items in warehouse"}
+                        {user?.is_admin ? "Create new inventory" : "Show items in warehouse"}
                       </p>
                     </div>
                   </Button>
@@ -671,7 +643,7 @@ export default function DashboardPage() {
                     className="h-16 text-left justify-start"
                     startContent={<Icon icon="fluent:gauge-24-filled" width={20} height={20} className="mr-2" />}
                     as={Link}
-                    href="/home/reorder-points"
+                    href="/home/reorder-point"
                   >
                     <div>
                       <p>Reorder Point</p>
@@ -725,7 +697,7 @@ export default function DashboardPage() {
                       <p className="text-xs text-default-500">Breakdown of current delivery statuses</p>
                     </div>
                     <Badge color="primary" variant="flat">
-                      {dashboardData?.deliveryCounts?.total_deliveries || 0} Total
+                      {dashboardData?.deliveryCounts?.total || 0} Total
                     </Badge>
                   </CardHeader>
                   <Divider />
@@ -880,9 +852,9 @@ export default function DashboardPage() {
                   </CardHeader>
                   <Divider />
                   <div className="p-4">
-                    {dashboardData?.notifications?.recent_notifications?.length > 0 ? (
+                    {dashboardData?.notifications?.length > 0 ? (
                       <div className="space-y-3 overflow-hidden max-h-[330px]">
-                        {dashboardData?.notifications?.recent_notifications?.map((notification: any) => (
+                        {dashboardData.notifications.map((notification: any) => (
                           <Card
                             key={notification.id}
                             className={`${notification.read ? 'bg-default-50' : 'bg-default-100'} border-none shadow-sm`}
@@ -925,7 +897,10 @@ export default function DashboardPage() {
               </Card>
             </div>
 
+
             {/* Warehouse Items Distribution Card */}
+
+
             <Card className="mt-4 bg-background">
               <LoadingAnimation
                 condition={loading}
@@ -965,7 +940,7 @@ export default function DashboardPage() {
                 </CardHeader>
                 <Divider />
                 <CardBody className="p-4">
-                  {(dashboardData) && dashboardData?.warehouseStats?.by_warehouse?.length > 0 ? (
+                  {dashboardData?.warehouseStats?.by_warehouse?.length > 0 ? (
                     <div className="space-y-4">
                       {dashboardData.warehouseStats.by_warehouse.map((warehouse: any) => (
                         <div key={warehouse.warehouse_uuid} className="space-y-1">
@@ -1007,6 +982,7 @@ export default function DashboardPage() {
                 </CardBody>
               </LoadingAnimation>
             </Card>
+
 
             {/* Delivery Performance Chart */}
             <Card className="mt-4 bg-background">
@@ -1213,14 +1189,14 @@ export default function DashboardPage() {
                     <div className="space-y-6">
                       <div>
                         <div className="flex justify-between items-center mb-2">
-                          <p className="text-sm font-medium">On-time Delivery</p>
-                          <Badge color="success">
-                            {dashboardData?.deliveryPerformance?.on_time_percentage || 0}%
+                          <p className="text-sm font-medium">Daily Performance</p>
+                          <Badge color={dashboardData?.deliveryPerformance?.daily >= 90 ? "success" : "warning"}>
+                            {dashboardData?.deliveryPerformance?.daily_completed || 0} / {dashboardData?.deliveryPerformance?.daily_total || 0}
                           </Badge>
                         </div>
                         <Progress
-                          value={dashboardData?.deliveryPerformance?.on_time_percentage || 0}
-                          color="success"
+                          value={dashboardData?.deliveryPerformance?.daily || 0}
+                          color={dashboardData?.deliveryPerformance?.daily >= 90 ? "success" : "warning"}
                           showValueLabel={true}
                           size="lg"
                         />
@@ -1228,30 +1204,30 @@ export default function DashboardPage() {
 
                       <div className="mb-6">
                         <div className="flex justify-between items-center mb-2">
-                          <p className="text-sm font-medium">Average Delivery Time</p>
-                          <Badge color="primary">
-                            {dashboardData?.deliveryPerformance?.average_delivery_time_days || 0} days
+                          <p className="text-sm font-medium">Weekly Performance</p>
+                          <Badge color={dashboardData?.deliveryPerformance?.weekly >= 90 ? "success" : "warning"}>
+                            {dashboardData?.deliveryPerformance?.weekly_completed || 0} / {dashboardData?.deliveryPerformance?.weekly_total || 0}
                           </Badge>
                         </div>
                         <Progress
-                          value={Math.min((dashboardData?.deliveryPerformance?.average_delivery_time_days || 0) / 7 * 100, 100)}
-                          color="primary"
-                          showValueLabel={false}
+                          value={dashboardData?.deliveryPerformance?.weekly || 0}
+                          color={dashboardData?.deliveryPerformance?.weekly >= 90 ? "success" : "warning"}
+                          showValueLabel={true}
                           size="lg"
                         />
                       </div>
 
                       <div>
                         <div className="flex justify-between items-center mb-2">
-                          <p className="text-sm font-medium">This Month Delivered</p>
-                          <Badge color="secondary">
-                            {dashboardData?.deliveryPerformance?.total_delivered_this_month || 0} items
+                          <p className="text-sm font-medium">Monthly Performance</p>
+                          <Badge color={dashboardData?.deliveryPerformance?.monthly >= 90 ? "success" : "warning"}>
+                            {dashboardData?.deliveryPerformance?.monthly_completed || 0} / {dashboardData?.deliveryPerformance?.monthly_total || 0}
                           </Badge>
                         </div>
                         <Progress
-                          value={Math.min((dashboardData?.deliveryPerformance?.total_delivered_this_month || 0) / 10 * 100, 100)}
-                          color="secondary"
-                          showValueLabel={false}
+                          value={dashboardData?.deliveryPerformance?.monthly || 0}
+                          color={dashboardData?.deliveryPerformance?.monthly >= 90 ? "success" : "warning"}
+                          showValueLabel={true}
                           size="lg"
                         />
                       </div>
@@ -1346,14 +1322,14 @@ export default function DashboardPage() {
                       <Card className="bg-default-50 mb-4">
                         <CardBody>
                           <p className="text-sm text-default-500">Current Month</p>
-                          <p className="text-2xl font-bold">₱{parseFloat(dashboardData?.monthlyRevenue?.current_month_revenue || 0).toLocaleString()}</p>
+                          <p className="text-2xl font-bold">₱{parseFloat(dashboardData?.monthlyRevenue?.current_month || 0).toLocaleString()}</p>
                         </CardBody>
                       </Card>
 
                       <Card className="bg-default-50">
                         <CardBody>
                           <p className="text-sm text-default-500">Previous Month</p>
-                          <p className="text-2xl font-bold">₱{parseFloat(dashboardData?.monthlyRevenue?.previous_month_revenue || 0).toLocaleString()}</p>
+                          <p className="text-2xl font-bold">₱{parseFloat(dashboardData?.monthlyRevenue?.previous_month || 0).toLocaleString()}</p>
                         </CardBody>
                       </Card>
                     </div>
@@ -1362,6 +1338,8 @@ export default function DashboardPage() {
               </LoadingAnimation>
             </Card>
           </div>
+
+
         </div>
       </div>
     </motion.div>
@@ -1371,16 +1349,13 @@ export default function DashboardPage() {
 // Helper functions for notifications
 const getNotificationIcon = (type: string, action: string) => {
   switch (type) {
-    case 'delivery_items':
-      return action === 'create' ? 'fluent:box-multiple-20-filled' : 'fluent:vehicle-truck-20-filled';
+    case 'delivery':
+      return action === 'created' ? 'fluent:box-multiple-20-filled' : 'fluent:vehicle-truck-20-filled';
     case 'inventory':
-    case 'inventory_items':
       return 'fluent:box-20-filled';
-    case 'warehouses':
-    case 'warehouse_inventory':
-    case 'warehouse_inventory_items':
+    case 'warehouse':
       return 'fluent:building-shop-20-filled';
-    case 'reorder_point_logs':
+    case 'reorder':
       return 'fluent:warning-20-filled';
     default:
       return 'fluent:alert-20-filled';
@@ -1389,16 +1364,13 @@ const getNotificationIcon = (type: string, action: string) => {
 
 const getNotificationIconBg = (type: string) => {
   switch (type) {
-    case 'delivery_items':
+    case 'delivery':
       return 'bg-secondary-100 text-secondary-500';
     case 'inventory':
-    case 'inventory_items':
       return 'bg-success-100 text-success-500';
-    case 'warehouses':
-    case 'warehouse_inventory':
-    case 'warehouse_inventory_items':
+    case 'warehouse':
       return 'bg-danger-100 text-danger-500';
-    case 'reorder_point_logs':
+    case 'reorder':
       return 'bg-warning-100 text-warning-500';
     default:
       return 'bg-default-100 text-default-500';
@@ -1407,14 +1379,13 @@ const getNotificationIconBg = (type: string) => {
 
 const formatNotificationAction = (action: string) => {
   switch (action) {
-    case 'create': return 'Created';
-    case 'update': return 'Updated';
-    case 'delete': return 'Deleted';
-    case 'status_change': return 'Status changed for';
+    case 'created': return 'Created';
+    case 'updated': return 'Updated';
+    case 'deleted': return 'Deleted';
+    case 'warning': return 'Warning:';
     default: return action;
   }
 };
-
 
 const formatNotificationTime = (dateString: string) => {
   const date = new Date(dateString);

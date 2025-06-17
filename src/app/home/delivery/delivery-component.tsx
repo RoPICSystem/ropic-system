@@ -165,6 +165,17 @@ export function DeliveryComponent({
   const [acceptDeliveryError, setAcceptDeliveryError] = useState<string | null>(null);
   const [acceptDeliverySuccess, setAcceptDeliverySuccess] = useState(false);
 
+  // Add new QR Code states for inventory item targeting and loading
+  const [selectedInventoryItemForQR, setSelectedInventoryItemForQR] = useState<{
+    uuid: string;
+    isGroup: boolean;
+  } | null>(null);
+
+  // Add new states for QR modal inventory loading
+  const [isLoadingQRInventoryItems, setIsLoadingQRInventoryItems] = useState(false);
+  const [qrInventoryItems, setQrInventoryItems] = useState<any[]>([]);
+
+
   // Operator states
   const [selectedOperators, setSelectedOperators] = useState<Array<Partial<UserProfile> & { uuid: string }>>([]);
 
@@ -503,6 +514,30 @@ export function DeliveryComponent({
           )];
           setSelectedInventoryUuids(uniqueInventoryUuids);
 
+          // Extract locations from inventory_items
+          const locations = Object.values(deliveryData.inventory_items).map((item: any) => item.location).filter(Boolean);
+          setLocations(locations);
+
+          // Set the first location for the 3D selector
+          if (locations.length > 0) {
+            const firstLoc = locations[0];
+            setSelectedFloor(firstLoc.floor ?? null);
+            setSelectedColumnCode(parseColumn(firstLoc.column ?? null) || "");
+            setSelectedColumn(firstLoc.column ?? null);
+            setSelectedRow(firstLoc.row ?? null);
+            setSelectedDepth(firstLoc.depth ?? null);
+            setSelectedGroup(firstLoc.group ?? null);
+          }
+
+          // Load inventory items for each unique inventory UUID
+          for (const inventoryUuid of uniqueInventoryUuids) {
+            try {
+              await loadInventoryItemsWithCurrentData(inventoryUuid, true, deliveryData, deliveryId);
+            } catch (error) {
+              console.error(`Error loading inventory items for ${inventoryUuid}:`, error);
+            }
+          }
+
           console.log("Loaded delivery with inventory items:", deliveryData.inventory_items);
           console.log("Selected inventory item UUIDs:", inventoryItemUuids);
           console.log("Unique inventory UUIDs:", uniqueInventoryUuids);
@@ -510,6 +545,7 @@ export function DeliveryComponent({
           setSelectedInventoryItems([]);
           setPrevSelectedInventoryItems([]);
           setSelectedInventoryUuids([]);
+          setLocations([]);
         }
 
         if (deliveryData.operator_info && Array.isArray(deliveryData.operator_info)) {
@@ -1501,7 +1537,7 @@ export function DeliveryComponent({
   };
 
   // QR Code functions
-  const generateDeliveryUrl = (deliveryId?: string, autoAccept: boolean = false, showOptions: boolean = true) => {
+  const generateDeliveryUrl = (deliveryId?: string, autoAccept: boolean = false, showOptions: boolean = true, inventoryItemUuid?: string, isGroup?: boolean) => {
     const targetDeliveryId = deliveryId || deliveryId;
     if (!targetDeliveryId || !formData) return "https://ropic.vercel.app/home/search";
 
@@ -1509,21 +1545,96 @@ export function DeliveryComponent({
     const params = new URLSearchParams({
       q: targetDeliveryId,
       ...(autoAccept && { deliveryAutoAccept: "true" }),
-      ...(showOptions && { showOptions: "true" })
+      ...(showOptions && { showOptions: "true" }),
+      ...(inventoryItemUuid && isGroup && { group: inventoryItemUuid }),
+      ...(inventoryItemUuid && !isGroup && { item: inventoryItemUuid })
     });
 
     return `${baseUrl}?${params.toString()}`;
   };
 
-  const updateQrCodeUrl = (autoAccept: boolean, showOptions?: boolean) => {
+  const updateQrCodeUrl = (autoAccept: boolean, showOptions?: boolean, inventoryItemUuid?: string, isGroup?: boolean) => {
     const currentShowOptions = showOptions !== undefined ? showOptions : qrCodeData.showOptions;
     setQrCodeData(prev => ({
       ...prev,
       autoAccept,
       ...(showOptions !== undefined && { showOptions }),
-      url: generateDeliveryUrl(prev.deliveryId, autoAccept, currentShowOptions),
+      url: generateDeliveryUrl(prev.deliveryId, autoAccept, currentShowOptions, inventoryItemUuid, isGroup),
       description: `Scan this code to view delivery details for ${prev.deliveryName}${autoAccept ? '. This will automatically accept the delivery when scanned.' : '.'}`
     }));
+  };
+
+  // Updated function to load all delivery inventory items for QR modal
+  const loadAllDeliveryInventoryItems = async () => {
+    if (!selectedInventoryItems.length) return;
+
+    setIsLoadingQRInventoryItems(true);
+    try {
+      // Get unique inventory UUIDs from selected items
+      const uniqueInventoryUuids = [...new Set(
+        selectedInventoryItems.map(itemUuid => {
+          const item = inventoryItems.find(inv => inv.uuid === itemUuid);
+          return item?.inventory_uuid;
+        }).filter(Boolean)
+      )];
+
+      // Load any missing inventory data
+      const loadPromises = uniqueInventoryUuids.map(async (inventoryUuid) => {
+        if (!loadedInventoryUuids.has(inventoryUuid)) {
+          await loadInventoryItemsWithCurrentData(inventoryUuid, true, formData, deliveryId);
+        }
+      });
+
+      await Promise.all(loadPromises);
+
+      // Get all items for QR modal (only selected items)
+      const allQrItems = selectedInventoryItems.map(itemUuid => {
+        return inventoryItems.find(inv => inv.uuid === itemUuid);
+      }).filter(Boolean);
+
+      setQrInventoryItems(allQrItems);
+    } catch (error) {
+      console.error("Error loading inventory items for QR modal:", error);
+    } finally {
+      setIsLoadingQRInventoryItems(false);
+    }
+  };
+
+  // Get unique options for QR code targeting (no duplicate group IDs)
+  const getQRTargetOptions = () => {
+    if (!qrInventoryItems.length) return [];
+
+    const seenGroups = new Set<string>();
+    const options: Array<{
+      uuid: string;
+      label: string;
+      isGroup: boolean;
+      groupId?: string;
+    }> = [];
+
+    qrInventoryItems.forEach(item => {
+      if (item.group_id && item.group_id !== '' && item.group_id !== null) {
+        // Handle grouped items - only add unique group IDs
+        if (!seenGroups.has(item.group_id)) {
+          seenGroups.add(item.group_id);
+          options.push({
+            uuid: item.uuid, // Use any item UUID from the group as reference
+            label: `Group: ${item.group_id}`,
+            isGroup: true,
+            groupId: item.group_id
+          });
+        }
+      } else {
+        // Handle individual items (no group or empty group)
+        options.push({
+          uuid: item.uuid,
+          label: `Item: ${item.uuid}`,
+          isGroup: false
+        });
+      }
+    });
+
+    return options;
   };
 
   const updateShowOptions = (showOptions: boolean) => {
@@ -1534,11 +1645,11 @@ export function DeliveryComponent({
     }));
   };
 
-  const handleShowDeliveryQR = () => {
+  const handleShowDeliveryQR = async () => {
     if (!deliveryId || !formData) return;
 
     const inventoryNames = selectedInventoryUuids
-      .map(uuid => inventoryItems.find(item => item.uuid === uuid)?.name)
+      .map(uuid => inventories.find(item => item.uuid === uuid)?.name)
       .filter(Boolean);
     const deliveryName = inventoryNames.length > 0
       ? `Delivery of ${inventoryNames.join(', ')}`
@@ -1553,8 +1664,252 @@ export function DeliveryComponent({
       autoAccept: false,
       showOptions: true
     });
+
     setShowQrCode(true);
+
+    // Load all delivery inventory items when QR modal is shown
+    await loadAllDeliveryInventoryItems();
   };
+
+  // Update QR Code Modal content to include inventory item selection with loaded items
+  const renderQRCodeModal = () => (
+    <Modal
+      isOpen={showQrCode}
+      onClose={() => {
+        setShowQrCode(false);
+        setSelectedInventoryItemForQR(null);
+        setQrInventoryItems([]); // Clear loaded items when modal closes
+      }}
+      placement="auto"
+      backdrop="blur"
+      size="lg"
+      classNames={{ backdrop: "bg-background/50" }}
+    >
+      <ModalContent>
+        <ModalHeader>{qrCodeData.title}</ModalHeader>
+        <ModalBody className="flex flex-col items-center">
+          <div className="bg-white rounded-xl overflow-hidden">
+            <QRCodeCanvas
+              id="delivery-qrcode"
+              value={qrCodeData.url}
+              size={320}
+              marginSize={4}
+              level="L"
+            />
+          </div>
+
+          <p className="text-center mt-4 text-default-600">
+            {qrCodeData.description}
+          </p>
+
+          <div className="w-full overflow-hidden mt-4 space-y-4">
+            <div className="p-4 bg-default-50 rounded-xl border-2 border-default-200">
+              <div className="flex items-center justify-between">
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium text-default-700">Show Options</span>
+                  <span className="text-xs text-default-500">
+                    Display additional options when the QR code is scanned
+                  </span>
+                </div>
+                <Switch
+                  isSelected={qrCodeData.showOptions}
+                  onValueChange={(checked) => {
+                    updateShowOptions(checked);
+                    if (checked && selectedInventoryItemForQR) {
+                      updateQrCodeUrl(qrCodeData.autoAccept, checked, selectedInventoryItemForQR.uuid, selectedInventoryItemForQR.isGroup);
+                    }
+                  }}
+                  color="secondary"
+                  size="sm"
+                />
+              </div>
+            </div>
+
+            {/* Inventory Item Selection for QR Code */}
+            {qrCodeData.showOptions && formData.status === 'DELIVERED' && (
+              <div className="p-4 bg-warning-50 rounded-xl border-2 border-warning-200">
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium text-warning-700">Target Specific Item</span>
+                    <span className="text-xs text-warning-600">
+                      Generate QR code to mark a specific inventory item as used from warehouse
+                    </span>
+                  </div>
+
+                  <LoadingAnimation
+                    condition={isLoadingQRInventoryItems}
+                    skeleton={
+                      <Skeleton className="h-10 w-full rounded-xl" />
+                    }
+                  >
+                    <div className="flex gap-2 flex-col">
+                      <Autocomplete
+                        placeholder="Select inventory item (optional)"
+                        size="sm"
+                        selectedKey={selectedInventoryItemForQR?.uuid || ""}
+                        onSelectionChange={(selectedKey) => {
+                          if (selectedKey) {
+                            const targetOptions = getQRTargetOptions();
+                            const selectedOption = targetOptions.find(option => option.uuid === selectedKey);
+
+                            if (selectedOption) {
+                              setSelectedInventoryItemForQR({
+                                uuid: selectedOption.isGroup ? selectedOption.groupId! : selectedKey as string,
+                                isGroup: selectedOption.isGroup
+                              });
+                              updateQrCodeUrl(
+                                qrCodeData.autoAccept,
+                                qrCodeData.showOptions,
+                                selectedOption.isGroup ? selectedOption.groupId! : selectedKey as string,
+                                selectedOption.isGroup
+                              );
+                            }
+                          } else {
+                            setSelectedInventoryItemForQR(null);
+                            updateQrCodeUrl(qrCodeData.autoAccept, qrCodeData.showOptions);
+                          }
+                        }}
+                        isDisabled={isLoadingQRInventoryItems}
+                      >
+                        {getQRTargetOptions().map(option => (
+                          <AutocompleteItem key={option.uuid}>
+                            {option.label}
+                          </AutocompleteItem>
+                        ))}
+                      </Autocomplete>
+                      {selectedInventoryItemForQR && (
+                        <div className="text-xs text-warning-800 bg-warning-100 p-2 rounded">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              QR will target: {selectedInventoryItemForQR.isGroup ? 'Group' : 'Item'} {selectedInventoryItemForQR.uuid}
+                              {selectedInventoryItemForQR.isGroup && (
+                                <div className="mt-1 text-warning-600">
+                                  This will mark one item from the group as used
+                                </div>
+                              )}
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="flat"
+                              color="danger"
+                              isIconOnly
+                              onPress={() => {
+                                setSelectedInventoryItemForQR(null);
+                                updateQrCodeUrl(qrCodeData.autoAccept, qrCodeData.showOptions);
+                              }}
+                            >
+                              <Icon icon="mdi:close" />
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {!isLoadingQRInventoryItems && qrInventoryItems.length === 0 && (
+                        <div className="text-xs text-warning-600 bg-warning-100 p-2 rounded">
+                          No inventory items loaded. Please ensure the delivery has selected items.
+                        </div>
+                      )}
+
+                      {!isLoadingQRInventoryItems && qrInventoryItems.length > 0 && (
+                        <div className="text-xs text-default-600 bg-default-50 p-2 rounded">
+                          Loaded {qrInventoryItems.length} inventory items • {getQRTargetOptions().length} unique options available
+                        </div>
+                      )}
+                    </div>
+                  </LoadingAnimation>
+                </div>
+              </div>
+            )}
+
+            <div className="p-4 bg-default-50 rounded-xl border-2 border-default-200">
+              <div className="flex items-center justify-between">
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium text-default-700">Auto Accept Delivery</span>
+                  <span className="text-xs text-default-500">
+                    When enabled, scanning this QR code will automatically accept the delivery
+                  </span>
+                </div>
+                <Switch
+                  isSelected={qrCodeData.autoAccept}
+                  onValueChange={(checked) => {
+                    updateQrCodeUrl(checked, qrCodeData.showOptions, selectedInventoryItemForQR?.uuid, selectedInventoryItemForQR?.isGroup);
+                  }}
+                  color="warning"
+                  size="sm"
+                />
+              </div>
+
+              <AnimatePresence>
+                {qrCodeData.autoAccept && (
+                  <motion.div {...motionTransition}>
+                    <div className="mt-3 p-2 bg-warning-50 border border-warning-200 rounded-lg">
+                      <div className="flex items-start gap-2">
+                        <Icon icon="mdi:alert" className="text-warning-600 mt-0.5 flex-shrink-0" width={16} />
+                        <div>
+                          <p className="text-xs font-medium text-warning-700">Warning</p>
+                          <p className="text-xs text-warning-600">
+                            This action cannot be undone. The delivery will be automatically accepted when scanned by an authorized operator.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+
+          <div className="w-full bg-default-50 overflow-auto max-h-64 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-medium text-default-700">QR Code URL:</p>
+              <Button
+                size="sm"
+                variant="flat"
+                color="default"
+                isIconOnly
+                onPress={() => copyToClipboard(qrCodeData.url)}
+              >
+                <Icon icon="mdi:content-copy" className="text-default-500 text-sm" />
+              </Button>
+            </div>
+            <code className="text-xs text-default-600 break-all">
+              {qrCodeData.url}
+            </code>
+          </div>
+        </ModalBody>
+        <ModalFooter className="flex justify-end p-4 gap-4">
+          <Button color="default" onPress={() => {
+            setShowQrCode(false);
+            setSelectedInventoryItemForQR(null);
+            setQrInventoryItems([]);
+          }}>
+            Close
+          </Button>
+          <Button
+            color="primary"
+            variant="shadow"
+            onPress={() => {
+              const canvas = document.getElementById('delivery-qrcode') as HTMLCanvasElement;
+              const pngUrl = canvas.toDataURL('image/png');
+              const downloadLink = document.createElement('a');
+              downloadLink.href = pngUrl;
+              downloadLink.download = `delivery-${user.full_name?.replace(/\s+/g, '-') || 'item'}-${new Date().toISOString().split('T')[0]}.png`;
+              document.body.appendChild(downloadLink);
+              downloadLink.click();
+              document.body.removeChild(downloadLink);
+              setShowQrCode(false);
+              setSelectedInventoryItemForQR(null);
+              setQrInventoryItems([]);
+            }}
+          >
+            <Icon icon="mdi:download" className="mr-1" />
+            Download QR
+          </Button>
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
+  );
+
 
   // === EFFECTS ===
 
@@ -1669,7 +2024,7 @@ export function DeliveryComponent({
   useEffect(() => {
     const loadDelivery = async () => {
       handleAccordionSelectionChange([]);
-      
+
       if (!deliveryId || !user?.company_uuid) {
         // Show brief loading animation when transitioning to new delivery
         if (deliveryId === null) {
@@ -2965,128 +3320,7 @@ export function DeliveryComponent({
       </Form>
 
       {/* QR Code Modal */}
-      <Modal
-        isOpen={showQrCode}
-        onClose={() => setShowQrCode(false)}
-        placement="auto"
-        backdrop="blur"
-        size="lg"
-        classNames={{ backdrop: "bg-background/50" }}
-      >
-        <ModalContent>
-          <ModalHeader>{qrCodeData.title}</ModalHeader>
-          <ModalBody className="flex flex-col items-center">
-            <div className="bg-white rounded-xl overflow-hidden">
-              <QRCodeCanvas
-                id="delivery-qrcode"
-                value={qrCodeData.url}
-                size={320}
-                marginSize={4}
-                level="L"
-              />
-            </div>
-
-            <p className="text-center mt-4 text-default-600">
-              {qrCodeData.description}
-            </p>
-
-            <div className="w-full overflow-hidden mt-4 space-y-4">
-              <div className="p-4 bg-default-50 rounded-xl border-2 border-default-200">
-                <div className="flex items-center justify-between">
-                  <div className="flex flex-col">
-                    <span className="text-sm font-medium text-default-700">Show Options</span>
-                    <span className="text-xs text-default-500">
-                      Display additional options when the QR code is scanned
-                    </span>
-                  </div>
-                  <Switch
-                    isSelected={qrCodeData.showOptions}
-                    onValueChange={updateShowOptions}
-                    color="secondary"
-                    size="sm"
-                  />
-                </div>
-              </div>
-
-              <div className="p-4 bg-default-50 rounded-xl border-2 border-default-200">
-                <div className="flex items-center justify-between">
-                  <div className="flex flex-col">
-                    <span className="text-sm font-medium text-default-700">Auto Accept Delivery</span>
-                    <span className="text-xs text-default-500">
-                      When enabled, scanning this QR code will automatically accept the delivery
-                    </span>
-                  </div>
-                  <Switch
-                    isSelected={qrCodeData.autoAccept}
-                    onValueChange={(checked) => updateQrCodeUrl(checked)}
-                    color="warning"
-                    size="sm"
-                  />
-                </div>
-
-                <AnimatePresence>
-                  {qrCodeData.autoAccept && (
-                    <motion.div {...motionTransition}>
-                      <div className="mt-3 p-2 bg-warning-50 border border-warning-200 rounded-lg">
-                        <div className="flex items-start gap-2">
-                          <Icon icon="mdi:alert" className="text-warning-600 mt-0.5 flex-shrink-0" width={16} />
-                          <div>
-                            <p className="text-xs font-medium text-warning-700">Warning</p>
-                            <p className="text-xs text-warning-600">
-                              This action cannot be undone. The delivery will be automatically accepted when scanned by an authorized operator.
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            </div>
-
-            <div className="w-full bg-default-50 overflow-auto max-h-64 rounded-xl p-4">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-sm font-medium text-default-700">QR Code URL:</p>
-                <Button
-                  size="sm"
-                  variant="flat"
-                  color="default"
-                  isIconOnly
-                  onPress={() => copyToClipboard(qrCodeData.url)}
-                >
-                  <Icon icon="mdi:content-copy" className="text-default-500 text-sm" />
-                </Button>
-              </div>
-              <code className="text-xs text-default-600 break-all">
-                {qrCodeData.url}
-              </code>
-            </div>
-          </ModalBody>
-          <ModalFooter className="flex justify-end p-4 gap-4">
-            <Button color="default" onPress={() => setShowQrCode(false)}>
-              Close
-            </Button>
-            <Button
-              color="primary"
-              variant="shadow"
-              onPress={() => {
-                const canvas = document.getElementById('delivery-qrcode') as HTMLCanvasElement;
-                const pngUrl = canvas.toDataURL('image/png');
-                const downloadLink = document.createElement('a');
-                downloadLink.href = pngUrl;
-                downloadLink.download = `delivery-${user.full_name?.replace(/\s+/g, '-') || 'item'}-${new Date().toISOString().split('T')[0]}.png`;
-                document.body.appendChild(downloadLink);
-                downloadLink.click();
-                document.body.removeChild(downloadLink);
-                setShowQrCode(false);
-              }}
-            >
-              <Icon icon="mdi:download" className="mr-1" />
-              Download QR
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
+      {renderQRCodeModal()}
 
       {/* 3D Shelf Selector */}
       <Delivery3DShelfSelector

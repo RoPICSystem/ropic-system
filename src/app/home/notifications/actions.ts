@@ -4,108 +4,91 @@ import { createClient } from "@/utils/supabase/server";
 
 interface NotificationOptions {
   companyUuid?: string;
-  page?: number;
-  pageSize?: number;
-  type?: string;
   userUuid?: string;
   isAdmin?: boolean;
+  type?: 'reorder_point_logs' | 'warehouses' | 'warehouse_inventory_items' | 'warehouse_inventory' | 'profiles' | 'inventory_items' | 'inventory' | 'delivery_items' | 'companies';
+  action?: 'create' | 'update' | 'delete' | 'status_change';
+  read?: boolean;
+  limit?: number;
+  offset?: number;
+  search?: string;
+  dateFrom?: string;
+  dateTo?: string;
 }
 
 /**
  * Fetches notifications with filtering and pagination options
  */
-export async function getNotifications(options: NotificationOptions) {
-  const { companyUuid, page = 1, pageSize = 10, type, userUuid, isAdmin = false } = options;
+export async function getNotifications(options: NotificationOptions = {}) {
   const supabase = await createClient();
-
+  
   try {
-    // Calculate pagination values
-    const from = (page - 1) * pageSize;
-    const to = from + pageSize - 1;
-
-    // Start building the query - use a regular select without joins
     let query = supabase
       .from("notifications")
-      .select("*")
-      .order("created_at", { ascending: false });
+      .select(`
+        *,
+        user_profile:profiles!notifications_user_uuid_fkey(
+          full_name,
+          email,
+          name
+        )
+      `)
+      .order('created_at', { ascending: false });
 
     // Apply filters
-    if (companyUuid) {
-      query = query.eq("company_uuid", companyUuid);
+    if (options.companyUuid) {
+      query = query.eq('company_uuid', options.companyUuid);
     }
 
-    if (type && type !== "all") {
-      query = query.eq("type", type);
+    if (options.userUuid) {
+      query = query.eq('user_uuid', options.userUuid);
     }
 
-    // Filter for admin-only notifications if the user is not an admin
-    if (!isAdmin) {
-      query = query.eq("is_admin_only", false);
+    if (options.type) {
+      query = query.eq('type', options.type);
+    }
+
+    if (options.action) {
+      query = query.eq('action', options.action);
+    }
+
+    if (typeof options.read === 'boolean') {
+      query = query.eq('read', options.read);
+    }
+
+    if (options.search) {
+      query = query.or(`entity_name.ilike.%${options.search}%,user_name.ilike.%${options.search}%,details::text.ilike.%${options.search}%`);
+    }
+
+    if (options.dateFrom) {
+      query = query.gte('created_at', options.dateFrom);
+    }
+
+    if (options.dateTo) {
+      query = query.lte('created_at', options.dateTo);
     }
 
     // Apply pagination
-    query = query.range(from, to);
+    if (options.limit) {
+      query = query.limit(options.limit);
+    }
 
-    // Execute the query
-    const { data: notifications, error } = await query;
+    if (options.offset) {
+      query = query.range(options.offset, (options.offset + (options.limit || 50)) - 1);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       throw error;
     }
 
-    if (!notifications || notifications.length === 0) {
-      return {
-        success: true,
-        data: [],
-        total: 0
-      };
-    }
-
-    // Get read status for each notification for the current user
-    const { data: readData, error: readError } = await supabase
-      .from("notification_reads")
-      .select("notification_id")
-      .eq("user_uuid", userUuid || "")
-      .in("notification_id", notifications.map(n => n.id));
-
-    if (readError) {
-      throw readError;
-    }
-
-    // Create a set of read notification IDs for efficient lookup
-    const readNotificationIds = new Set((readData || []).map(item => item.notification_id));
-
-    // Process notifications with read status
-    const data = notifications.map(notification => ({
-      ...notification,
-      read: readNotificationIds.has(notification.id)
-    }));
-
-    // Get total count in a separate query
-    const countQuery = supabase
-      .from("notifications")
-      .select("*", { count: "exact", head: true })
-      .eq("company_uuid", companyUuid || "");
-    
-    // Add admin-only filter if user is not admin
-    if (!isAdmin) {
-      countQuery.eq("is_admin_only", false);
-    }
-    
-    const { count: totalCount } = await countQuery;
-
-    return {
-      success: true,
-      data: data || [],
-      total: totalCount || 0
-    };
+    return { data, error: null };
   } catch (error) {
     console.error("Error fetching notifications:", error);
     return {
-      success: false,
-      data: [],
-      error: error instanceof Error ? error.message : "Unknown error occurred",
-      total: 0
+      data: null,
+      error: error instanceof Error ? error.message : "Unknown error occurred"
     };
   }
 }
@@ -115,24 +98,17 @@ export async function getNotifications(options: NotificationOptions) {
  */
 export async function markNotificationAsRead(notificationId: string, userUuid: string) {
   const supabase = await createClient();
-
+  
   try {
-    // Insert into notification_reads, ignore if already exists
     const { error } = await supabase
-      .from("notification_reads")
-      .upsert(
-        { 
-          notification_id: notificationId, 
-          user_uuid: userUuid,
-          read_at: new Date().toISOString()
-        },
-        { onConflict: 'notification_id,user_uuid' }
-      );
-
+      .from("notifications")
+      .update({ read: true })
+      .eq("id", notificationId);
+      
     if (error) {
       throw error;
     }
-
+    
     return { success: true };
   } catch (error) {
     console.error("Error marking notification as read:", error);
@@ -148,39 +124,19 @@ export async function markNotificationAsRead(notificationId: string, userUuid: s
  */
 export async function markAllNotificationsAsRead(companyUuid: string, userUuid: string, notificationIds: string[]) {
   const supabase = await createClient();
-
+  
   try {
-    // Get notifications for this company that aren't already read by this user
-    const { data: unreadNotifications, error: fetchError } = await supabase
+    const { error } = await supabase
       .from("notifications")
-      .select("id")
+      .update({ read: true })
       .eq("company_uuid", companyUuid)
       .in("id", notificationIds);
-
-    if (fetchError) {
-      throw fetchError;
-    }
-
-    if (!unreadNotifications || unreadNotifications.length === 0) {
-      return { success: true, count: 0 };
-    }
-
-    // Create read entries for all unread notifications
-    const readEntries = unreadNotifications.map(notif => ({
-      notification_id: notif.id,
-      user_uuid: userUuid,
-      read_at: new Date().toISOString()
-    }));
-
-    const { error } = await supabase
-      .from("notification_reads")
-      .upsert(readEntries, { onConflict: 'notification_id,user_uuid' });
-
+      
     if (error) {
       throw error;
     }
-
-    return { success: true, count: readEntries.length };
+    
+    return { success: true };
   } catch (error) {
     console.error("Error marking all notifications as read:", error);
     return {
@@ -195,51 +151,31 @@ export async function markAllNotificationsAsRead(companyUuid: string, userUuid: 
  */
 export async function countUnreadNotifications(companyUuid: string, userUuid: string, isAdmin: boolean = false) {
   const supabase = await createClient();
-
+  
   try {
-    // First get all notifications for this company
     let query = supabase
       .from("notifications")
-      .select("id")
-      .eq("company_uuid", companyUuid);
-    
-    // If not admin, filter out admin-only notifications
+      .select("*", { count: 'exact', head: true })
+      .eq("company_uuid", companyUuid)
+      .eq("read", false);
+
+    // Filter admin-only notifications based on user role
     if (!isAdmin) {
       query = query.eq("is_admin_only", false);
     }
+
+    const { count, error } = await query;
     
-    const { data: allNotifications, error: notifError } = await query;
-
-    if (notifError) {
-      throw notifError;
+    if (error) {
+      throw error;
     }
-
-    if (!allNotifications || allNotifications.length === 0) {
-      return { success: true, count: 0 };
-    }
-
-    // Now get all read notifications for this user
-    const { data: readNotifications, error: readError } = await supabase
-      .from("notification_reads")
-      .select("notification_id")
-      .eq("user_uuid", userUuid)
-      .in("notification_id", allNotifications.map(n => n.id));
-
-    if (readError) {
-      throw readError;
-    }
-
-    // Calculate unread count
-    const readSet = new Set((readNotifications || []).map(r => r.notification_id));
-    const unreadCount = allNotifications.filter(n => !readSet.has(n.id)).length;
-
-    return { success: true, count: unreadCount };
+    
+    return { count: count || 0, error: null };
   } catch (error) {
     console.error("Error counting unread notifications:", error);
     return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error occurred",
-      count: 0
+      count: 0,
+      error: error instanceof Error ? error.message : "Unknown error occurred"
     };
   }
 }
@@ -267,6 +203,254 @@ export async function createAdminNotification(data: any) {
     console.error("Error creating admin notification:", error);
     return {
       success: false,
+      error: error instanceof Error ? error.message : "Unknown error occurred"
+    };
+  }
+}
+
+/**
+ * Gets notification statistics by type
+ */
+export async function getNotificationStats(companyUuid: string, isAdmin: boolean = false) {
+  const supabase = await createClient();
+  
+  try {
+    let query = supabase
+      .from("notifications")
+      .select("type, action, read")
+      .eq("company_uuid", companyUuid);
+
+    // Filter admin-only notifications based on user role
+    if (!isAdmin) {
+      query = query.eq("is_admin_only", false);
+    }
+
+    const { data, error } = await query;
+    
+    if (error) {
+      throw error;
+    }
+
+    // Process the data to create statistics
+    const stats = data?.reduce((acc, notification) => {
+      const { type, action, read } = notification;
+      
+      if (!acc[type]) {
+        acc[type] = {
+          total: 0,
+          unread: 0,
+          actions: {}
+        };
+      }
+      
+      acc[type].total++;
+      if (!read) {
+        acc[type].unread++;
+      }
+      
+      if (!acc[type].actions[action]) {
+        acc[type].actions[action] = { total: 0, unread: 0 };
+      }
+      
+      acc[type].actions[action].total++;
+      if (!read) {
+        acc[type].actions[action].unread++;
+      }
+      
+      return acc;
+    }, {} as Record<string, any>) || {};
+    
+    return { data: stats, error: null };
+  } catch (error) {
+    console.error("Error getting notification stats:", error);
+    return {
+      data: null,
+      error: error instanceof Error ? error.message : "Unknown error occurred"
+    };
+  }
+}
+
+/**
+ * Deletes old notifications (cleanup function)
+ */
+export async function deleteOldNotifications(companyUuid: string, daysOld: number = 30) {
+  const supabase = await createClient();
+  
+  try {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysOld);
+    
+    const { error } = await supabase
+      .from("notifications")
+      .delete()
+      .eq("company_uuid", companyUuid)
+      .eq("read", true)
+      .lt("created_at", cutoffDate.toISOString());
+      
+    if (error) {
+      throw error;
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error("Error deleting old notifications:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error occurred"
+    };
+  }
+}
+
+/**
+ * Gets notification details with related entity information
+ */
+export async function getNotificationDetails(notificationId: string) {
+  const supabase = await createClient();
+  
+  try {
+    const { data: notification, error } = await supabase
+      .from("notifications")
+      .select(`
+        *,
+        user_profile:profiles!notifications_user_uuid_fkey(
+          full_name,
+          email,
+          name,
+          profile_image
+        )
+      `)
+      .eq("id", notificationId)
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    // Fetch additional related entity data based on type
+    let entityData = null;
+    if (notification.type && notification.entity_id) {
+      try {
+        switch (notification.type) {
+          case 'inventory':
+            const { data: inventoryData } = await supabase
+              .from("inventory")
+              .select("*")
+              .eq("uuid", notification.entity_id)
+              .single();
+            entityData = inventoryData;
+            break;
+            
+          case 'inventory_items':
+            const { data: inventoryItemData } = await supabase
+              .from("inventory_items")
+              .select(`
+                *,
+                inventory:inventory(name, description)
+              `)
+              .eq("uuid", notification.entity_id)
+              .single();
+            entityData = inventoryItemData;
+            break;
+            
+          case 'warehouse_inventory':
+            const { data: warehouseInventoryData } = await supabase
+              .from("warehouse_inventory")
+              .select(`
+                *,
+                warehouse:warehouses(name, address),
+                inventory:inventory(name, description)
+              `)
+              .eq("uuid", notification.entity_id)
+              .single();
+            entityData = warehouseInventoryData;
+            break;
+            
+          case 'warehouse_inventory_items':
+            const { data: warehouseItemData } = await supabase
+              .from("warehouse_inventory_items")
+              .select(`
+                *,
+                warehouse:warehouses(name, address),
+                inventory:inventory(name, description)
+              `)
+              .eq("uuid", notification.entity_id)
+              .single();
+            entityData = warehouseItemData;
+            break;
+            
+          case 'delivery_items':
+            const { data: deliveryData } = await supabase
+              .from("delivery_items")
+              .select(`
+                *,
+                warehouse:warehouses(name, address)
+              `)
+              .eq("uuid", notification.entity_id)
+              .single();
+            entityData = deliveryData;
+            break;
+            
+          case 'reorder_point_logs':
+            const { data: reorderData } = await supabase
+              .from("reorder_point_logs")
+              .select(`
+                *,
+                warehouse:warehouses(name, address),
+                inventory:inventory(name, description),
+                warehouse_inventory:warehouse_inventory(name)
+              `)
+              .eq("uuid", notification.entity_id)
+              .single();
+            entityData = reorderData;
+            break;
+            
+          case 'warehouses':
+            const { data: warehouseData } = await supabase
+              .from("warehouses")
+              .select("*")
+              .eq("uuid", notification.entity_id)
+              .single();
+            entityData = warehouseData;
+            break;
+            
+          case 'profiles':
+            const { data: profileData } = await supabase
+              .from("profiles")
+              .select(`
+                *,
+                company:companies(name)
+              `)
+              .eq("uuid", notification.entity_id)
+              .single();
+            entityData = profileData;
+            break;
+            
+          case 'companies':
+            const { data: companyData } = await supabase
+              .from("companies")
+              .select("*")
+              .eq("uuid", notification.entity_id)
+              .single();
+            entityData = companyData;
+            break;
+        }
+      } catch (entityError) {
+        console.warn("Error fetching entity data:", entityError);
+        // Continue without entity data
+      }
+    }
+
+    return { 
+      data: { 
+        ...notification, 
+        entity_data: entityData 
+      }, 
+      error: null 
+    };
+  } catch (error) {
+    console.error("Error getting notification details:", error);
+    return {
+      data: null,
       error: error instanceof Error ? error.message : "Unknown error occurred"
     };
   }

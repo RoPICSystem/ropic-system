@@ -202,7 +202,7 @@ const styles = StyleSheet.create({
   metadataLabel: {
     fontSize: 11,
     color: '#4A5568',
-    width: 80,
+    width: 100,
     fontWeight: 'bold',
     flexShrink: 0,
   },
@@ -277,9 +277,16 @@ const styles = StyleSheet.create({
     paddingRight: 8,
   },
   deliveryId: {
-    fontSize: 9,
+    fontSize: 7, // Made smaller - was 9
     color: '#718096',
     marginBottom: 0,
+    fontStyle: 'italic', // Added italic for distinction
+  },
+  deliveryUuid: {
+    fontSize: 6, // Very small for UUID
+    color: '#A0AEC0',
+    fontFamily: 'Courier', // Monospace for UUIDs
+    marginTop: 2,
   },
   qrCodeContainer: {
     alignItems: 'center',
@@ -308,14 +315,34 @@ const styles = StyleSheet.create({
   deliveryDetailLabel: {
     fontSize: 9,
     color: '#4A5568',
-    width: 60,
+    width: 55, // Reduced from 60 to fit better
     fontWeight: 'bold',
     flexShrink: 0,
+  },
+  inventoryTypeLabel: {
+    fontSize: 7,
+    color: '#2D3748',
+    backgroundColor: '#EDF2F7',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 2,
+    marginBottom: 4,
+    textAlign: 'center',
+    fontWeight: 'bold',
+  },
+  groupTypeLabel: {
+    backgroundColor: '#E6FFFA',
+    color: '#2D3748',
+  },
+  itemTypeLabel: {
+    backgroundColor: '#FFF5F5',
+    color: '#2D3748',
   },
   deliveryDetailValue: {
     fontSize: 9,
     color: '#1A202C',
     flex: 1,
+    lineHeight: 1.2, // Better line spacing
   },
   urlText: {
     fontSize: 7,
@@ -323,7 +350,33 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
     maxWidth: '100%',
-    lineHeight: 1.3
+    lineHeight: 1.3,
+    wordBreak: 'break-all', // Force breaking of long words
+    overflowWrap: 'break-word', // Modern CSS property for word breaking
+  },
+  statusAvailable: {
+    backgroundColor: '#9ad0a9', // success.500
+    color: '#000000',
+  },
+  statusOnDelivery: {
+    backgroundColor: '#8ac7be', // secondary.500
+    color: '#000000',
+  },
+  statusInWarehouse: {
+    backgroundColor: '#c7b098', // default.500
+    color: '#000000',
+  },
+  statusUsed: {
+    backgroundColor: '#f89e8f', // danger.500
+    color: '#000000',
+  },
+  statusMixed: {
+    backgroundColor: '#ffdf60', // warning.500
+    color: '#000000',
+  },
+  statusUnknown: {
+    backgroundColor: '#e5e7eb', // gray.200
+    color: '#000000',
   },
   footer: {
     position: 'absolute',
@@ -414,9 +467,35 @@ const styles = StyleSheet.create({
   },
 });
 
-const getStatusStyle = (status: string) => {
+// Update the getStatusStyle function to handle inventory item statuses
+const getStatusStyle = (status: string, isInventoryItem: boolean = false) => {
   const normalizedStatus = status?.toLowerCase() || '';
 
+  if (isInventoryItem) {
+    // Handle inventory item statuses
+    switch (normalizedStatus) {
+      case 'available':
+        return [styles.deliveryStatus, styles.statusAvailable];
+      case 'on_delivery':
+      case 'on-delivery':
+        return [styles.deliveryStatus, styles.statusOnDelivery];
+      case 'in_warehouse':
+      case 'in-warehouse':
+        return [styles.deliveryStatus, styles.statusInWarehouse];
+      case 'used':
+        return [styles.deliveryStatus, styles.statusUsed];
+      case 'mixed':
+      case 'mixed_available':
+      case 'mixed_on_delivery':
+      case 'mixed_in_warehouse':
+      case 'mixed_used':
+        return [styles.deliveryStatus, styles.statusMixed];
+      default:
+        return [styles.deliveryStatus, styles.statusUnknown];
+    }
+  }
+
+  // Handle delivery statuses (existing logic)
   switch (normalizedStatus) {
     case 'pending':
     case 'awaiting':
@@ -458,6 +537,25 @@ const getPriorityStyle = (priority: string) => {
   }
 };
 
+const formatStatusText = (status: string, isInventoryItem: boolean = false) => {
+  if (!status) return 'UNKNOWN';
+  
+  if (isInventoryItem) {
+    // Handle mixed statuses for groups
+    if (status.startsWith('MIXED_')) {
+      const baseStatus = status.replace('MIXED_', '');
+      return `MIXED (${baseStatus.replace('_', ' ')})`;
+    }
+    
+    // Format individual item statuses
+    return status.replace('_', ' ').toUpperCase();
+  }
+  
+  // Format delivery statuses
+  return status.replace('_', ' ').toUpperCase();
+};
+
+
 interface DeliveryQRPDFProps {
   deliveries: any[];
   companyName: string;
@@ -467,6 +565,7 @@ interface DeliveryQRPDFProps {
   ropicLogoBase64?: string;
   pageSize?: "A4" | "A3" | "LETTER" | "LEGAL";
   qrCodeDataUrls?: { [key: string]: string };
+  inventoryInclusionType?: string; // Updated prop name and type
 }
 
 // PDF Document Component
@@ -478,194 +577,334 @@ export const DeliveryQRPDF = ({
   companyLogoBase64,
   ropicLogoBase64,
   pageSize = "A4",
-  qrCodeDataUrls = {}
-}: DeliveryQRPDFProps) => (
-  <Document>
-    <Page size={pageSize} style={styles.page}>
-      {/* Header Section */}
-      <View style={styles.headerContainer}>
-        <View style={styles.leftHeaderSection}>
-          {/* RoPIC Logo */}
-          <View style={styles.logoContainer}>
-            {ropicLogoBase64 ? (
-              <Image
-                style={styles.companyLogo}
-                src={ropicLogoBase64}
-                cache={false}
-              />
-            ) : (
-              <View style={styles.logoPlaceholder}>
-                <Text style={styles.logoPlaceholderText}>RoPIC</Text>
-              </View>
-            )}
-          </View>
+  qrCodeDataUrls = {},
+  inventoryInclusionType = "delivery_only" // Updated prop with default value
+}: DeliveryQRPDFProps) => {
+  // Calculate total items for metadata
+  const totalDeliveries = deliveries.length;
+  const totalInventoryItems = inventoryInclusionType !== 'delivery_only'
+    ? deliveries.reduce((sum, delivery) => sum + (delivery.inventoryItemsForExport?.length || 0), 0)
+    : 0;
+  const grandTotal = totalDeliveries + totalInventoryItems;
 
-          <View style={styles.headerContent}>
-            <Text style={styles.title}>Delivery QR Code Report</Text>
-            <Text style={styles.subtitle}>Reorder Point Inventory Control Management System</Text>
+  // Get inclusion type description
+  const getInclusionTypeDescription = (type: string) => {
+    switch (type) {
+      case 'delivery_only': return 'Delivery QR Codes Only';
+      case 'all_items': return 'with All Individual Items';
+      case 'all_groups': return 'with All Groups Only';
+      case 'items_and_groups': return 'with All Items + All Groups';
+      case 'grouped_items': return 'with Grouped Items';
+      default: return '';
+    }
+  };
+
+  return (
+    <Document>
+      <Page size={pageSize} style={styles.page}>
+        {/* Header Section */}
+        <View style={styles.headerContainer}>
+          <View style={styles.leftHeaderSection}>
+            {/* RoPIC Logo */}
+            <View style={styles.logoContainer}>
+              {ropicLogoBase64 ? (
+                <Image
+                  style={styles.companyLogo}
+                  src={ropicLogoBase64}
+                  cache={false}
+                />
+              ) : (
+                <View style={styles.logoPlaceholder}>
+                  <Text style={styles.logoPlaceholderText}>RoPIC</Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.headerContent}>
+              <Text style={styles.title}>
+                Delivery QR Code Report
+              </Text>
+              <Text style={styles.subtitle}>
+                {getInclusionTypeDescription(inventoryInclusionType)} • Reorder Point Inventory Control Management System
+              </Text>
+            </View>
           </View>
         </View>
-      </View>
 
-      {/* Metadata Section with Company Logo */}
-      <View style={styles.metadataContainer}>
-        <View style={styles.metadataHeader}>
-          <View style={styles.metadataContent}>
-            <View style={styles.metadataRow}>
-              <Text style={styles.metadataLabel}>Company:</Text>
-              <Text style={styles.metadataValue}>{companyName || 'Unknown Company'}</Text>
-            </View>
-            <View style={styles.metadataRow}>
-              <Text style={styles.metadataLabel}>Total Items:</Text>
-              <Text style={styles.metadataValue}>{deliveries.length}</Text>
-            </View>
-            <View style={styles.metadataRow}>
-              <Text style={styles.metadataLabel}>Generated:</Text>
-              <Text style={styles.metadataValue}>{dateGenerated}</Text>
-            </View>
-            <View style={styles.metadataRow}>
-              <Text style={styles.metadataLabel}>Page Size:</Text>
-              <Text style={styles.metadataValue}>{pageSize}</Text>
-            </View>
-          </View>
-
-          {/* Company Logo in Metadata Section */}
-          <View style={styles.metadataLogoContainer}>
-            {companyLogoBase64 ? (
-              <Image
-                style={styles.metadataLogo}
-                src={companyLogoBase64}
-                cache={false}
-              />
-            ) : (
-              <View style={styles.companyLogoPlaceholder}>
-                <Text style={styles.companyLogoPlaceholderText}>Company{'\n'}Logo</Text>
+        {/* Metadata Section with Company Logo */}
+        <View style={styles.metadataContainer}>
+          <View style={styles.metadataHeader}>
+            <View style={styles.metadataContent}>
+              <View style={styles.metadataRow}>
+                <Text style={styles.metadataLabel}>Company:</Text>
+                <Text style={styles.metadataValue}>{companyName || 'Unknown Company'}</Text>
               </View>
-            )}
+              <View style={styles.metadataRow}>
+                <Text style={styles.metadataLabel}>Deliveries:</Text>
+                <Text style={styles.metadataValue}>{totalDeliveries}</Text>
+              </View>
+              {inventoryInclusionType !== 'delivery_only' && (
+                <View style={styles.metadataRow}>
+                  <Text style={styles.metadataLabel}>Inventory Items:</Text>
+                  <Text style={styles.metadataValue}>{totalInventoryItems}</Text>
+                </View>
+              )}
+              <View style={styles.metadataRow}>
+                <Text style={styles.metadataLabel}>Total QR Codes:</Text>
+                <Text style={styles.metadataValue}>{grandTotal}</Text>
+              </View>
+              <View style={styles.metadataRow}>
+                <Text style={styles.metadataLabel}>Inclusion Type:</Text>
+                <Text style={styles.metadataValue}>{getInclusionTypeDescription(inventoryInclusionType)}</Text>
+              </View>
+              <View style={styles.metadataRow}>
+                <Text style={styles.metadataLabel}>Generated:</Text>
+                <Text style={styles.metadataValue}>{dateGenerated}</Text>
+              </View>
+              <View style={styles.metadataRow}>
+                <Text style={styles.metadataLabel}>Page Size:</Text>
+                <Text style={styles.metadataValue}>{pageSize}</Text>
+              </View>
+            </View>
+
+            {/* Company Logo in Metadata Section */}
+            <View style={styles.metadataLogoContainer}>
+              {companyLogoBase64 ? (
+                <Image
+                  style={styles.metadataLogo}
+                  src={companyLogoBase64}
+                  cache={false}
+                />
+              ) : (
+                <View style={styles.companyLogoPlaceholder}>
+                  <Text style={styles.companyLogoPlaceholderText}>Company{'\n'}Logo</Text>
+                </View>
+              )}
+            </View>
           </View>
         </View>
-      </View>
 
-      {/* Deliveries Section */}
-      <View style={styles.deliveriesContainer}>
-        <Text style={styles.sectionHeader}>Delivery QR Codes ({deliveries.length} items)</Text>
+        {/* Deliveries Section - Fixed */}
+        <View style={styles.deliveriesContainer}>
+          <Text style={styles.sectionHeader}>
+            QR Codes ({grandTotal} total{inventoryInclusionType !== 'delivery_only' ? ` - ${totalDeliveries} deliveries + ${totalInventoryItems} items` : ` deliveries`})
+          </Text>
 
-        <View style={styles.deliveryGrid}>
-          {deliveries.map((delivery, index) => {
-            const deliveryId = delivery.uuid || `DEL-${index + 1}`;
-            const qrCodeDataUrl = qrCodeDataUrls[deliveryId] || '';
+          <View style={styles.deliveryGrid}>
+            {deliveries.map((delivery, deliveryIndex) => {
+              const deliveryId = delivery.uuid || `DEL-${deliveryIndex + 1}`;
+              const qrCodeDataUrl = qrCodeDataUrls[deliveryId] || '';
 
-            return (
-              <View key={deliveryId} style={styles.deliveryCard} wrap={false}>
-                <View style={styles.deliveryHeader}>
-                  {/* Delivery name and status on same row */}
-                  <View style={styles.deliveryTitleRow}>
-                    <Text style={styles.deliveryName}>
-                      {delivery.itemName || delivery.name || "Delivery Item"}
-                    </Text>
-                    <Text style={getStatusStyle(delivery.status || delivery.delivery_status)}>
-                      {(delivery.status || delivery.delivery_status || 'Unknown').toUpperCase()}
-                    </Text>
-                  </View>
+              // Create an array to hold all QR codes for this delivery
+              const allQRCodes = [];
 
-                  {/* ID on separate row */}
-                  <Text style={styles.deliveryId}>
-                    ID: {deliveryId}
-                  </Text>
-                </View>
+              // Add the main delivery QR code
+              allQRCodes.push({
+                id: deliveryId,
+                type: 'delivery',
+                title: delivery.itemName || delivery.name || "Delivery Item",
+                subtitle: `Delivery: ${delivery.itemName || delivery.name || "Unknown"}`,
+                uuid: deliveryId,
+                qrUrl: delivery.qrUrl,
+                qrCodeDataUrl,
+                delivery,
+                status: delivery.status || delivery.delivery_status
+              });
 
-                {/* Priority (if available) - moved below header */}
-                {(delivery.priority || delivery.delivery_priority) && (
-                  <Text style={getPriorityStyle(delivery.priority || delivery.delivery_priority)}>
-                    Priority: {(delivery.priority || delivery.delivery_priority).toUpperCase()}
-                  </Text>
-                )}
+              // Add inventory item/group QR codes based on inclusion type
+              if (inventoryInclusionType !== 'delivery_only' && delivery.inventoryItemsForExport && Array.isArray(delivery.inventoryItemsForExport)) {
+                delivery.inventoryItemsForExport.forEach((item: any, itemIndex: number) => {
+                  // Safety checks for undefined items
+                  if (!item || !item.id || !item.qrUrl) {
+                    console.warn(`Skipping invalid inventory item at index ${itemIndex}:`, item);
+                    return;
+                  }
 
-                {/* Delivery Details */}
-                <View style={styles.deliveryDetail}>
-                  <Text style={styles.deliveryDetailLabel}>Date:</Text>
-                  <Text style={styles.deliveryDetailValue}>
-                    {delivery.deliveryDate || delivery.delivery_date
-                      ? new Date(delivery.deliveryDate || delivery.delivery_date).toLocaleDateString()
-                      : 'N/A'}
-                  </Text>
-                </View>
+                  const itemQrCodeDataUrl = qrCodeDataUrls[`${deliveryId}_${item.type}_${item.id}`] || '';
 
-                <View style={styles.deliveryDetail}>
-                  <Text style={styles.deliveryDetailLabel}>Warehouse:</Text>
-                  <Text style={styles.deliveryDetailValue}>
-                    {delivery.warehouse_name || delivery.delivery_address || 'N/A'}
-                  </Text>
-                </View>
+                  allQRCodes.push({
+                    id: `${deliveryId}_${item.type}_${item.id}`,
+                    type: item.type || 'item',
+                    title: item.name || item.itemCode || `${item.type === 'group' ? 'Group' : 'Item'} ${item.id}`,
+                    subtitle: `${item.type === 'group' ? 'Inventory Group' : 'Inventory Item'} from ${delivery.itemName || delivery.name || "Unknown"}`,
+                    uuid: item.id,
+                    qrUrl: item.qrUrl,
+                    qrCodeDataUrl: itemQrCodeDataUrl,
+                    delivery,
+                    status: item.status || 'UNKNOWN', // UPDATED: Use actual item/group status
+                    inventoryItem: {
+                      ...item,
+                      itemCount: item.itemCount || (item.items ? item.items.length : undefined),
+                      groupId: item.groupId || item.group_id,
+                      unitValue: item.unitValue || item.unit_value,
+                      unit: item.unit || '',
+                      itemCode: item.itemCode || item.item_code || 'N/A',
+                      status: item.status || 'UNKNOWN'
+                    }
+                  });
+                });
+              }
 
-                {/* Add Expected Delivery Time if available */}
-                {(delivery.expectedDelivery || delivery.expected_delivery) && (
-                  <View style={styles.deliveryDetail}>
-                    <Text style={styles.deliveryDetailLabel}>Expected:</Text>
-                    <Text style={styles.deliveryDetailValue}>
-                      {new Date(delivery.expectedDelivery || delivery.expected_delivery).toLocaleDateString()}
-                    </Text>
-                  </View>
-                )}
+              // Render all QR codes for this delivery
+              return allQRCodes.map((qrCode: any, qrIndex) => (
+                <View key={qrCode.id} style={styles.deliveryCard} wrap={false}>
+                  <View style={styles.deliveryHeader}>
+                    {/* Inventory Type Label for non-delivery items */}
+                    {qrCode.type !== 'delivery' && (
+                      <Text style={[
+                        styles.inventoryTypeLabel,
+                        qrCode.type === 'group' ? styles.groupTypeLabel : styles.itemTypeLabel
+                      ]}>
+                        {qrCode.type === 'group' ? 'INVENTORY GROUP' : 'INVENTORY ITEM'}
+                      </Text>
+                    )}
 
-                {/* Add Tracking Number if available */}
-                {(delivery.trackingNumber || delivery.tracking_number) && (
-                  <View style={styles.deliveryDetail}>
-                    <Text style={styles.deliveryDetailLabel}>Tracking:</Text>
-                    <Text style={styles.deliveryDetailValue}>
-                      {delivery.trackingNumber || delivery.tracking_number}
-                    </Text>
-                  </View>
-                )}
-
-                {/* Add Quantity if available */}
-                {(delivery.quantity || delivery.qty) && (
-                  <View style={styles.deliveryDetail}>
-                    <Text style={styles.deliveryDetailLabel}>Quantity:</Text>
-                    <Text style={styles.deliveryDetailValue}>
-                      {delivery.quantity || delivery.qty}
-                    </Text>
-                  </View>
-                )}
-
-                {/* QR Code Section */}
-                <View style={styles.qrCodeContainer}>
-                  <Text style={styles.qrCodeLabel}>Scan to Accept Delivery</Text>
-                  {qrCodeDataUrl ? (
-                    <Image
-                      style={styles.qrCodeImage}
-                      src={qrCodeDataUrl}
-                      cache={false}
-                    />
-                  ) : (
-                    <View style={[styles.qrCodeImage, { backgroundColor: '#f0f0f0', alignItems: 'center', justifyContent: 'center' }]}>
-                      <Text style={{ fontSize: 8, color: '#666' }}>QR Code{'\n'}Not Available</Text>
+                    {/* Title and status on same row */}
+                    <View style={styles.deliveryTitleRow}>
+                      <Text style={styles.deliveryName}>
+                        {qrCode.title}
+                      </Text>
+                      <Text style={getStatusStyle(
+                        qrCode.type === 'delivery' 
+                          ? (delivery.status || delivery.delivery_status || 'Unknown')
+                          : qrCode.status,
+                        qrCode.type !== 'delivery' // isInventoryItem flag
+                      )}>
+                        {qrCode.type === 'delivery'
+                          ? formatStatusText(delivery.status || delivery.delivery_status || 'Unknown', false)
+                          : formatStatusText(qrCode.status, true) // UPDATED: Use actual status with proper formatting
+                        }
+                      </Text>
                     </View>
+
+                    {/* Subtitle */}
+                    <Text style={styles.deliveryId}>
+                      {qrCode.subtitle}
+                    </Text>
+
+                    {/* UUID - Made smaller and less prominent */}
+                    <Text style={styles.deliveryUuid}>
+                      {qrCode.type === 'delivery' ? 'Delivery' : qrCode.type === 'group' ? 'Group' : 'Item'} ID: {qrCode.uuid}
+                    </Text>
+                  </View>
+
+                  {/* Additional Item Details */}
+                  {qrCode.type === 'item' && qrCode.inventoryItem && (
+                    <>
+                      {qrCode.inventoryItem.itemCode && qrCode.inventoryItem.itemCode !== 'N/A' && (
+                        <View style={styles.deliveryDetail}>
+                          <Text style={styles.deliveryDetailLabel}>Code:</Text>
+                          <Text style={styles.deliveryDetailValue}>
+                            {qrCode.inventoryItem.itemCode}
+                          </Text>
+                        </View>
+                      )}
+
+                      {qrCode.inventoryItem.unitValue && qrCode.inventoryItem.unit && (
+                        <View style={styles.deliveryDetail}>
+                          <Text style={styles.deliveryDetailLabel}>Amount:</Text>
+                          <Text style={styles.deliveryDetailValue}>
+                            {qrCode.inventoryItem.unitValue} {qrCode.inventoryItem.unit}
+                          </Text>
+                        </View>
+                      )}
+
+                      {qrCode.inventoryItem.groupId && (
+                        <View style={styles.deliveryDetail}>
+                          <Text style={styles.deliveryDetailLabel}>Group:</Text>
+                          <Text style={styles.deliveryDetailValue}>
+                            Group {qrCode.inventoryItem.groupId}
+                          </Text>
+                        </View>
+                      )}
+                    </>
                   )}
-                  <Text style={styles.urlText}>
-                    {(delivery.qrUrl || 'No URL available').replace('search?', 'search?\n')}
-                  </Text>
+
+                  {/* Group Details */}
+                  {qrCode.type === 'group' && qrCode.inventoryItem && (
+                    <>
+                      {qrCode.inventoryItem.itemCount && (
+                        <View style={styles.deliveryDetail}>
+                          <Text style={styles.deliveryDetailLabel}>Items:</Text>
+                          <Text style={styles.deliveryDetailValue}>
+                            {qrCode.inventoryItem.itemCount} items in group
+                          </Text>
+                        </View>
+                      )}
+                    </>
+                  )}
+
+                  {/* Common Delivery Details */}
+                  <View style={styles.deliveryDetail}>
+                    <Text style={styles.deliveryDetailLabel}>Date:</Text>
+                    <Text style={styles.deliveryDetailValue}>
+                      {delivery.deliveryDate || delivery.delivery_date
+                        ? new Date(delivery.deliveryDate || delivery.delivery_date).toLocaleDateString()
+                        : 'N/A'}
+                    </Text>
+                  </View>
+
+                  <View style={styles.deliveryDetail}>
+                    <Text style={styles.deliveryDetailLabel}>Location:</Text>
+                    <Text style={styles.deliveryDetailValue}>
+                      {delivery.warehouse_name || delivery.delivery_address || 'N/A'}
+                    </Text>
+                  </View>
+
+                   {/* QR Code Section with improved URL wrapping */}
+                  <View style={styles.qrCodeContainer}>
+                    <Text style={styles.qrCodeLabel}>
+                      {qrCode.type === 'delivery'
+                        ? 'Scan to Accept Delivery'
+                        : qrCode.type === 'group'
+                          ? 'Scan to Mark Group as Used'
+                          : 'Scan to Mark Item as Used'
+                      }
+                    </Text>
+                    {qrCode.qrCodeDataUrl ? (
+                      <Image
+                        style={styles.qrCodeImage}
+                        src={qrCode.qrCodeDataUrl}
+                        cache={false}
+                      />
+                    ) : (
+                      <View style={[styles.qrCodeImage, { backgroundColor: '#f0f0f0', alignItems: 'center', justifyContent: 'center' }]}>
+                        <Text style={{ fontSize: 8, color: '#666' }}>QR Code{'\n'}Not Available</Text>
+                      </View>
+                    )}
+                    {/* UPDATED: Improved URL text wrapping */}
+                    <Text style={styles.urlText}>
+                      {/* Break the URL at logical points and add line breaks */}
+                      {(qrCode.qrUrl || 'No URL available')
+                        .replace(/([?&])/g, '$1\n') // Add line breaks after ? and &
+                        .replace(/(.{30})/g, '$1\n') // Break every 30 characters as fallback
+                        .replace(/\n+/g, '\n') // Remove multiple consecutive line breaks
+                        .trim()
+                      }
+                    </Text>
+                  </View>
                 </View>
-              </View>
-            );
-          })}
+              ));
+            })}
+          </View>
         </View>
-      </View>
 
-      {/* Footer */}
-      <Text style={styles.footer}>
-        Generated on {dateGenerated} • RoPIC Delivery Management System • Page Size: {pageSize}
-      </Text>
+        {/* Footer */}
+        <Text style={styles.footer}>
+          Generated on {dateGenerated} • RoPIC Delivery Management System • Page Size: {pageSize}
+          {inventoryInclusionType !== 'delivery_only' ? ` • ${getInclusionTypeDescription(inventoryInclusionType)}` : ''}
+        </Text>
 
-      {/* Page Number */}
-      <Text
-        style={styles.pageNumber}
-        render={({ pageNumber, totalPages }) => `Page ${pageNumber} of ${totalPages}`}
-        fixed
-      />
-    </Page>
-  </Document>
-);
+        {/* Page Number */}
+        <Text
+          style={styles.pageNumber}
+          render={({ pageNumber, totalPages }) => `Page ${pageNumber} of ${totalPages}`}
+          fixed
+        />
+      </Page>
+    </Document>
+  );
+};
 
 // Helper function to create a blob for download
 export const generatePdfBlob = async (props: DeliveryQRPDFProps) => {
@@ -695,13 +934,14 @@ export const generatePdfBlob = async (props: DeliveryQRPDFProps) => {
       }
     }
 
-    // Generate QR codes for all deliveries
+    // Generate QR codes for all deliveries and their inventory items
     const qrCodeDataUrls: { [key: string]: string } = {};
-    
+
     for (const delivery of props.deliveries) {
       const deliveryId = delivery.uuid || `DEL-${props.deliveries.indexOf(delivery) + 1}`;
+
+      // Generate main delivery QR code
       const qrUrl = delivery.qrUrl || '';
-      
       if (qrUrl) {
         try {
           const qrCodeDataUrl = await generateQRCodeDataURL(qrUrl);
@@ -709,6 +949,26 @@ export const generatePdfBlob = async (props: DeliveryQRPDFProps) => {
           console.log(`Generated QR code for delivery ${deliveryId}`);
         } catch (error) {
           console.error(`Failed to generate QR code for delivery ${deliveryId}:`, error);
+        }
+      }
+
+      // Generate QR codes for inventory items if inclusion type is not delivery_only
+      if (props.inventoryInclusionType !== 'delivery_only' && delivery.inventoryItemsForExport && Array.isArray(delivery.inventoryItemsForExport)) {
+        for (const item of delivery.inventoryItemsForExport) {
+          // Safety check for item validity
+          if (!item || !item.id || !item.qrUrl) {
+            console.warn('Skipping invalid item for QR generation:', item);
+            continue;
+          }
+
+          const itemKey = `${deliveryId}_${item.type}_${item.id}`;
+          try {
+            const itemQrCodeDataUrl = await generateQRCodeDataURL(item.qrUrl);
+            qrCodeDataUrls[itemKey] = itemQrCodeDataUrl;
+            console.log(`Generated QR code for ${item.type} ${item.id} in delivery ${deliveryId}`);
+          } catch (error) {
+            console.error(`Failed to generate QR code for ${item.type} ${item.id} in delivery ${deliveryId}:`, error);
+          }
         }
       }
     }

@@ -33,15 +33,8 @@ import {
 import { Icon } from "@iconify/react";
 
 import {
-  getItemDetailsByUuid,
-  GoPageDeliveryDetails,
-  GoPageInventoryDetails,
-  GoPageWarehouseDetails,
-  GoPageNewWarehouseInventoryDetails,
-  getBulkUnitsDetails,
-  getWarehouseItemsByDelivery,
-  markWarehouseItemsAsUsed,
-  handleAcceptNewWarehouseInventory
+  handleAcceptNewWarehouseInventory,
+  markWarehouseInventoryItemAsUsed
 } from './actions';
 
 // Components
@@ -54,6 +47,7 @@ import { InventoryComponent as WarehouseInventoryComponent } from "@/app/home/wa
 import CardList from '@/components/card-list';
 import { motionTransition, motionTransitionScale } from '@/utils/anim';
 import { getUserFromCookies } from '@/utils/supabase/server/user';
+import { markWarehouseGroupAsUsed, markWarehouseItemAsUsed, markWarehouseItemsBulkUsed } from '../warehouse-items/actions';
 
 // Search function
 async function generalSearch(
@@ -118,6 +112,12 @@ export default function SearchPage() {
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [operators, setOperators] = useState<any[]>([]);
   const [inventories, setInventories] = useState<any[]>([]);
+
+  // Add new states for marking items as used
+  const [isMarkingItemAsUsed, setIsMarkingItemAsUsed] = useState(false);
+  const [markItemAsUsedError, setMarkItemAsUsedError] = useState<string | null>(null);
+  const [markItemAsUsedSuccess, setMarkItemAsUsedSuccess] = useState(false);
+  const [pendingMarkItemAsUsed, setPendingMarkItemAsUsed] = useState<any>(null);
 
   // New warehouse inventory acceptance states
   const [isAcceptingNewWarehouseInventory, setIsAcceptingNewWarehouseInventory] = useState(false);
@@ -275,25 +275,39 @@ export default function SearchPage() {
       if (result.success) {
         setSearchResults(result.data);
 
-        // Auto-select based on conditions:
-        // 1. If autoView=true (from URL param view=true)
-        // 2. If there's exactly one result
+        // Auto-select based on conditions
         if (autoView || result.data.length === 1) {
           setSelectedResult(result.data[0]);
 
-          // Handle auto-accept for new_warehouse_inventory ONLY - UPDATED to exclude admins
-          // UPDATED: Store the auto-accept intent but don't start timer yet
+          // Handle auto-accept for new_warehouse_inventory ONLY - exclude admins
           if ((autoAccept || showOptions) &&
             result.data[0]?.entity_type === 'new_warehouse_inventory' &&
             userToUse && !userToUse.is_admin) {
             const autoAcceptKey = `${result.data[0]?.entity_type}-${query}-autoAccept`;
             if (!processedAutoActions.current.has(autoAcceptKey)) {
               processedAutoActions.current.add(autoAcceptKey);
-              // Store the intent to auto-accept, but wait for component to load
               setPendingAutoAcceptIntent({
                 resultItem: result.data[0],
                 userToUse,
                 shouldStartTimer: true
+              });
+            }
+          }
+
+          // NEW: Handle mark item as used for existing warehouse inventory
+          if (showOptions && result.data[0]?.entity_type === 'warehouse_inventory' && userToUse && !userToUse.is_admin) {
+            const itemParam = searchParams.get("item");
+            const groupParam = searchParams.get("group");
+
+            const markUsedKey = `${result.data[0]?.entity_type}-${query}-markUsed`;
+            if (!processedAutoActions.current.has(markUsedKey)) {
+              processedAutoActions.current.add(markUsedKey);
+              setPendingMarkItemAsUsedIntent({
+                resultItem: result.data[0],
+                userToUse,
+                shouldStartTimer: true,
+                inventoryItemUuid: itemParam || groupParam || null,
+                isGroup: !!groupParam
               });
             }
           }
@@ -315,6 +329,177 @@ export default function SearchPage() {
     }
   };
 
+  // Add state to track pending mark item as used intent
+  const [pendingMarkItemAsUsedIntent, setPendingMarkItemAsUsedIntent] = useState<{
+    resultItem: any;
+    userToUse: any;
+    shouldStartTimer: boolean;
+    inventoryItemUuid: string | null;
+    isGroup: boolean;
+  } | null>(null);
+
+  // Add effect to handle mark item as used when component loading is complete
+  useEffect(() => {
+    if (pendingMarkItemAsUsedIntent &&
+      pendingMarkItemAsUsedIntent.shouldStartTimer &&
+      !isDeliveryComponentLoading &&
+      !isSearching &&
+      selectedResult?.entity_uuid === pendingMarkItemAsUsedIntent.resultItem.entity_uuid) {
+
+      console.log("Starting mark item as used timer now that component is loaded");
+      startMarkItemAsUsedTimer(
+        pendingMarkItemAsUsedIntent.resultItem,
+        pendingMarkItemAsUsedIntent.userToUse,
+        pendingMarkItemAsUsedIntent.inventoryItemUuid,
+        pendingMarkItemAsUsedIntent.isGroup
+      );
+
+      // Clear the intent
+      setPendingMarkItemAsUsedIntent(null);
+    }
+  }, [pendingMarkItemAsUsedIntent, isDeliveryComponentLoading, isSearching, selectedResult]);
+
+
+  // Start mark item as used timer
+  const startMarkItemAsUsedTimer = (resultItem: any, userToUse: any, inventoryItemUuid: string | null, isGroup: boolean, timerDuration: number = 10000) => {
+    // Only start timer for warehouse_inventory entity type
+    if (resultItem.entity_type !== 'warehouse_inventory') return;
+
+    setPendingMarkItemAsUsed({
+      resultItem,
+      userToUse,
+      inventoryItemUuid,
+      isGroup
+    });
+    setAutoAcceptProgress(0);
+    setAutoAcceptTimeRemaining(timerDuration / 1000);
+
+    // Clear any existing timers
+    if (autoAcceptTimerRef.current) {
+      clearTimeout(autoAcceptTimerRef.current);
+    }
+    if (autoAcceptIntervalRef.current) {
+      clearInterval(autoAcceptIntervalRef.current);
+    }
+
+    // Progress interval (update every 100ms for smooth animation)
+    autoAcceptIntervalRef.current = setInterval(() => {
+      setAutoAcceptProgress(prev => {
+        const newProgress = prev + (100 / timerDuration) * 100; // 100ms steps
+        if (newProgress >= 100) {
+          setAutoAcceptTimeRemaining(0);
+          return 100;
+        }
+        setAutoAcceptTimeRemaining(Math.ceil((timerDuration - (newProgress / 100 * timerDuration)) / 1000));
+        return newProgress;
+      });
+    }, 100);
+
+    // Auto-mark timer
+    autoAcceptTimerRef.current = setTimeout(() => {
+      if (autoAcceptIntervalRef.current) {
+        clearInterval(autoAcceptIntervalRef.current);
+      }
+      handleMarkItemAsUsedAction(resultItem, userToUse, inventoryItemUuid, isGroup);
+    }, timerDuration);
+  };
+
+  // Cancel mark item as used timer
+  const cancelMarkItemAsUsed = () => {
+    if (autoAcceptTimerRef.current) {
+      clearTimeout(autoAcceptTimerRef.current);
+    }
+    if (autoAcceptIntervalRef.current) {
+      clearInterval(autoAcceptIntervalRef.current);
+    }
+    setPendingMarkItemAsUsed(null);
+    setAutoAcceptProgress(0);
+    setAutoAcceptTimeRemaining(5);
+  };
+
+
+  // Handle mark item as used action
+  const handleMarkItemAsUsedAction = async (resultItem: any, customUser?: any, inventoryItemUuid?: string | null, isGroup?: boolean) => {
+    // Only handle warehouse_inventory entity type
+    if (!resultItem || resultItem.entity_type !== 'warehouse_inventory') return;
+
+    const warehouseInventoryUuid = resultItem.entity_uuid;
+
+    console.log("Marking item as used:", warehouseInventoryUuid, "inventory item:", inventoryItemUuid, "isGroup:", isGroup);
+
+    // Clear timer states when starting marking
+    setPendingMarkItemAsUsed(null);
+    setAutoAcceptProgress(0);
+    setAutoAcceptTimeRemaining(5);
+
+    setIsMarkingItemAsUsed(true);
+    setMarkItemAsUsedError(null);
+    setMarkItemAsUsedSuccess(false);
+
+    try {
+      const userDetails = customUser || user;
+      let result;
+
+      // Determine which action to use based on the parameters
+      if (inventoryItemUuid) {
+        if (isGroup) {
+          // Mark entire group as used
+          console.log("Marking group as used:", inventoryItemUuid);
+          result = await markWarehouseGroupAsUsed(inventoryItemUuid);
+        } else {
+          // Mark specific item as used
+          console.log("Marking specific item as used:", inventoryItemUuid);
+          result = await markWarehouseItemAsUsed(inventoryItemUuid);
+        }
+      } else {
+        // Mark one item from the warehouse inventory as used (bulk with count 1)
+        console.log("Marking one item from warehouse inventory as used:", warehouseInventoryUuid);
+        result = await markWarehouseItemsBulkUsed(warehouseInventoryUuid, 1);
+      }
+
+      if (result.success) {
+        setMarkItemAsUsedSuccess(true);
+        setMarkItemAsUsedError(null);
+
+        // Remove showOptions from URL after successful marking
+        const currentParams = new URLSearchParams(searchParams.toString());
+        currentParams.delete('showOptions');
+        currentParams.delete('item');
+        currentParams.delete('group');
+
+        // Build new URL with cleaned parameters
+        const currentQuery = searchParams.get("q");
+        const viewMode = searchParams.get("view");
+        let newUrl = '/home/search';
+
+        if (currentQuery) {
+          newUrl += `?q=${encodeURIComponent(currentQuery)}`;
+          if (viewMode === "true") {
+            newUrl += '&view=true';
+          }
+        }
+
+        // Update URL without showOptions
+        router.push(newUrl);
+
+        // Refresh the search to show updated status after a short delay
+        setTimeout(() => {
+          if (lastSearchQuery) {
+            performSearch(lastSearchQuery, user, true);
+          }
+        }, 2000);
+      } else {
+        setMarkItemAsUsedError(result.error || "Failed to mark item as used");
+      }
+
+    } catch (error) {
+      console.error("Error marking item as used:", error);
+      setMarkItemAsUsedError(`Failed to mark item as used: ${(error as Error).message}`);
+    } finally {
+      setIsMarkingItemAsUsed(false);
+    }
+  };
+
   // Add state to track pending auto-accept intent
   const [pendingAutoAcceptIntent, setPendingAutoAcceptIntent] = useState<{
     resultItem: any;
@@ -324,15 +509,15 @@ export default function SearchPage() {
 
   // Add effect to handle auto-accept when component loading is complete
   useEffect(() => {
-    if (pendingAutoAcceptIntent && 
-        pendingAutoAcceptIntent.shouldStartTimer && 
-        !isDeliveryComponentLoading && 
-        !isSearching &&
-        selectedResult?.entity_uuid === pendingAutoAcceptIntent.resultItem.entity_uuid) {
-      
+    if (pendingAutoAcceptIntent &&
+      pendingAutoAcceptIntent.shouldStartTimer &&
+      !isDeliveryComponentLoading &&
+      !isSearching &&
+      selectedResult?.entity_uuid === pendingAutoAcceptIntent.resultItem.entity_uuid) {
+
       console.log("Starting auto-accept timer now that component is loaded");
       startAutoAcceptTimer(pendingAutoAcceptIntent.resultItem, pendingAutoAcceptIntent.userToUse);
-      
+
       // Clear the intent
       setPendingAutoAcceptIntent(null);
     }
@@ -634,6 +819,8 @@ export default function SearchPage() {
     );
   };
 
+
+  // Update the renderSelectedComponent function
   const renderSelectedComponent = () => {
     if (!selectedResult) return null;
 
@@ -641,19 +828,35 @@ export default function SearchPage() {
     const isCurrentNewWarehouseInventoryAccepting = pendingNewWarehouseInventoryAccept?.resultItem?.entity_uuid === entity_uuid;
     const isCurrentNewWarehouseInventoryProcessing = isAcceptingNewWarehouseInventory && selectedResult?.entity_uuid === entity_uuid;
 
+    // NEW: Check for mark item as used states
+    const isCurrentMarkItemAsUsedPending = pendingMarkItemAsUsed?.resultItem?.entity_uuid === entity_uuid;
+    const isCurrentMarkItemAsUsedProcessing = isMarkingItemAsUsed && selectedResult?.entity_uuid === entity_uuid;
+
     // Only disable for non-admin users who are in accepting/processing states
-    const isDisabled = !user?.is_admin && (isCurrentNewWarehouseInventoryAccepting || isCurrentNewWarehouseInventoryProcessing);
+    const isDisabled = !user?.is_admin && (
+      isCurrentNewWarehouseInventoryAccepting ||
+      isCurrentNewWarehouseInventoryProcessing ||
+      isCurrentMarkItemAsUsedPending ||
+      isCurrentMarkItemAsUsedProcessing
+    );
 
     // Check for showOptions URL parameter
     const showOptions = searchParams.get("showOptions") === "true";
+    const itemParam = searchParams.get("item");
+    const groupParam = searchParams.get("group");
 
-    // Only show accept button for new_warehouse_inventory for non-admin users
+    // Show accept button for new_warehouse_inventory
     const shouldShowAcceptButton = entity_type === 'new_warehouse_inventory' &&
       selectedResult.entity_status === 'IN_TRANSIT' &&
       user && !user.is_admin &&
       (showOptions || isCurrentNewWarehouseInventoryAccepting || isCurrentNewWarehouseInventoryProcessing || acceptNewWarehouseInventorySuccess || acceptNewWarehouseInventoryError);
 
-    // Enhanced new warehouse inventory accept button with timer/loading/success/error states
+    // NEW: Show mark as used button for existing warehouse_inventory
+    const shouldShowMarkAsUsedButton = entity_type === 'warehouse_inventory' &&
+      user && !user.is_admin &&
+      (showOptions || isCurrentMarkItemAsUsedPending || isCurrentMarkItemAsUsedProcessing || markItemAsUsedSuccess || markItemAsUsedError);
+
+    // Enhanced new warehouse inventory accept button (existing code)
     const newWarehouseInventoryAcceptButton = shouldShowAcceptButton ? (
       <div className="mb-4 sticky top-20 z-10">
         <Card className={`border shadow-2xl shadow-default-300 dark:shadow-background
@@ -835,132 +1038,206 @@ export default function SearchPage() {
       </div>
     ) : null;
 
-    switch (entity_type) {
-      case 'delivery':
-        return (
-          <motion.div key="delivery-component" {...motionTransition}>
-            <div className={`${isDisabled ? 'opacity-50 pointer-events-none blur-sm scale-95 origin-top' : ''} transition-all duration-200`}>
-              <DeliveryComponent
-                deliveryId={entity_uuid}
-                user={user}
-                warehouses={warehouses}
-                operators={operators}
-                inventories={inventories}
-                readOnlyMode={true}
-                onLoadingChange={handleDeliveryComponentLoadingChange}
-              />
-            </div>
-          </motion.div>
-        );
+    // NEW: Enhanced mark item as used button
+    const markItemAsUsedButton = shouldShowMarkAsUsedButton ? (
+      <div className="mb-4 sticky top-20 z-10">
+        <Card className={`border shadow-2xl shadow-default-300 dark:shadow-background
+        ${markItemAsUsedSuccess ? 'bg-success-50 border-success-200' :
+            markItemAsUsedError ? 'bg-danger-50 border-danger-200' :
+              isCurrentMarkItemAsUsedPending ? 'bg-warning-50 border-warning-200' :
+                isCurrentMarkItemAsUsedProcessing ? 'bg-primary-50 border-primary-200' :
+                  'bg-warning-50 border-warning-200'
+          }`}>
+          <CardBody className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Icon
+                  icon={
+                    markItemAsUsedSuccess ? "mdi:check-circle" :
+                      markItemAsUsedError ? "mdi:alert-circle" :
+                        isCurrentMarkItemAsUsedProcessing ? "mdi:loading" :
+                          isCurrentMarkItemAsUsedPending ? "mdi:timer" :
+                            "mdi:package-minus"
+                  }
+                  className={`w-6 h-6 ${markItemAsUsedSuccess ? 'text-success' :
+                    markItemAsUsedError ? 'text-danger' :
+                      isCurrentMarkItemAsUsedProcessing ? 'text-primary animate-spin' :
+                        isCurrentMarkItemAsUsedPending ? 'text-warning' :
+                          'text-warning'
+                    }`}
+                />
+                <div>
+                  <h4 className={`font-semibold ${markItemAsUsedSuccess ? 'text-success-900' :
+                    markItemAsUsedError ? 'text-danger-900' :
+                      isCurrentMarkItemAsUsedProcessing ? 'text-primary-900' :
+                        isCurrentMarkItemAsUsedPending ? 'text-warning-900' :
+                          'text-warning-900'
+                    }`}>
+                    {markItemAsUsedSuccess ? 'Item Successfully Marked as Used' :
+                      markItemAsUsedError ? 'Mark Item as Used Error' :
+                        isCurrentMarkItemAsUsedProcessing ? 'Processing Mark as Used' :
+                          isCurrentMarkItemAsUsedPending ? 'Auto-Mark Timer' :
+                            'Quick Actions'}
+                  </h4>
+                  <p className={`text-sm ${markItemAsUsedSuccess ? 'text-success-700' :
+                    markItemAsUsedError ? 'text-danger-700' :
+                      isCurrentMarkItemAsUsedProcessing ? 'text-primary-700' :
+                        isCurrentMarkItemAsUsedPending ? 'text-warning-700' :
+                          'text-warning-700'
+                    }`}>
+                    {markItemAsUsedSuccess ? 'The inventory item has been marked as used and the warehouse inventory has been updated.' :
+                      markItemAsUsedError ? markItemAsUsedError :
+                        isCurrentMarkItemAsUsedProcessing ? 'Please wait while we mark the item as used...' :
+                          isCurrentMarkItemAsUsedPending ? `Auto-marking in ${autoAcceptTimeRemaining} seconds` :
+                            `Mark ${itemParam ? 'specific item' : groupParam ? 'item from group' : 'an item'} as used from warehouse inventory`
+                    }
+                  </p>
 
-      case 'new_warehouse_inventory':
-        return (
-          <motion.div key="new-warehouse-inventory-component" {...motionTransition}>
-            {newWarehouseInventoryAcceptButton}
-            <div className={`${isDisabled ? 'opacity-50 pointer-events-none blur-sm scale-95 origin-top' : ''} transition-all duration-200`}>
-              <div className="space-y-4">
-                <Card className="bg-warning-50 border border-warning-200">
-                  <CardBody className="p-4">
-                    <div className="flex items-center gap-3 mb-3">
-                      <Icon icon="mdi:warehouse-plus" className="text-warning w-6 h-6" />
-                      <div className="flex-1">
-                        <h4 className="font-semibold text-warning-900">
-                          New Warehouse Inventory Items ({selectedResult.entity_data?.total_matched_items || 1})
-                        </h4>
-                        <p className="text-sm text-warning-700">
-                          {selectedResult.entity_data?.total_matched_items > 1
-                            ? `These ${selectedResult.entity_data.total_matched_items} warehouse inventory items will be created when the delivery is accepted.`
-                            : 'This warehouse inventory item will be created when the delivery is accepted.'
-                          }
-                        </p>
-                      </div>
+
+                  {/* Show what will be marked */}
+                  {!markItemAsUsedSuccess && !markItemAsUsedError && (itemParam || groupParam) && (
+                    <p className="text-xs text-default-500 mt-1">
+                      Target: {itemParam ? `Item ${itemParam}` : `Group ${groupParam}`}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                {/* Success Actions */}
+                {markItemAsUsedSuccess && (
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center justify-center w-12 h-12 bg-success-100 rounded-full">
+                      <Icon icon="mdi:check" className="text-success w-6 h-6" />
                     </div>
+                    <Button
+                      color="success"
+                      variant="flat"
+                      startContent={<Icon icon="mdi:refresh" />}
+                      onPress={() => {
+                        setMarkItemAsUsedSuccess(false);
+                        setMarkItemAsUsedError(null);
+                        if (lastSearchQuery) {
+                          performSearch(lastSearchQuery, user, true);
+                        }
+                      }}
+                      size="sm"
+                    >
+                      Refresh
+                    </Button>
+                  </div>
+                )}
 
-                    {/* Show matched warehouse inventory UUIDs */}
-                    {selectedResult.entity_data?.matched_warehouse_inventory_uuids && (
-                      <div className="space-y-2">
-                        <p className="text-xs font-medium text-warning-800">Warehouse Inventory UUIDs:</p>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                          {selectedResult.entity_data.matched_warehouse_inventory_uuids.map((uuid: string, index: number) => (
-                            <div key={uuid} className="flex items-center gap-2 p-2 bg-warning-100/50 rounded">
-                              <span className="text-xs text-warning-600">#{index + 1}</span>
-                              <code className="text-xs bg-warning-200 px-1 rounded font-mono flex-1 truncate">
-                                {uuid}
-                              </code>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                {/* Error Actions */}
+                {markItemAsUsedError && !isCurrentMarkItemAsUsedProcessing && (
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center justify-center w-12 h-12 bg-danger-100 rounded-full">
+                      <Icon icon="mdi:close" className="text-danger w-6 h-6" />
+                    </div>
+                    <Button
+                      color="danger"
+                      variant="flat"
+                      startContent={<Icon icon="mdi:close" />}
+                      onPress={() => {
+                        setMarkItemAsUsedError(null);
+                        setMarkItemAsUsedSuccess(false);
+                      }}
+                      size="sm"
+                    >
+                      Dismiss
+                    </Button>
+                  </div>
+                )}
 
-                    {/* Show matched inventory items details if available */}
-                    {selectedResult.entity_data?.matched_inventory_items && selectedResult.entity_data.matched_inventory_items.length > 0 && (
-                      <div className="mt-3 space-y-2">
-                        <p className="text-xs font-medium text-warning-800">Related Inventory Items:</p>
-                        <div className="space-y-1">
-                          {selectedResult.entity_data.matched_inventory_items.map((item: any, index: number) => (
-                            <div key={item.warehouse_inventory_uuid} className="flex items-center gap-2 p-2 bg-warning-100/30 rounded text-xs">
-                              <Icon icon="mdi:package-variant" className="text-warning-600 w-4 h-4" />
-                              <span className="font-medium text-warning-800">{item.name}</span>
-                              <span className="text-warning-600">({item.unit})</span>
-                              {item.description && (
-                                <span className="text-warning-500 truncate">{item.description}</span>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </CardBody>
-                </Card>
+                {/* Timer Progress Indicator */}
+                {isCurrentMarkItemAsUsedPending && (
+                  <div className="flex items-center gap-3 flex-wrap justify-end">
+                    <Button
+                      color="danger"
+                      variant="shadow"
+                      startContent={<Icon icon="mdi:close" />}
+                      onPress={cancelMarkItemAsUsed}
+                      size="sm"
+                    >
+                      Cancel
+                    </Button>
 
-                {/* Show the delivery component */}
-                {selectedResult.entity_uuid && (
-                  <DeliveryComponent
-                    deliveryId={selectedResult.entity_uuid}
-                    user={user}
-                    warehouses={warehouses}
-                    operators={operators}
-                    inventories={inventories}
-                    readOnlyMode={true}
-                    onLoadingChange={handleDeliveryComponentLoadingChange}
-                  />
+                    <Button
+                      color="warning"
+                      variant="shadow"
+                      startContent={<Icon icon="mdi:check" />}
+                      onPress={() => {
+                        cancelMarkItemAsUsed();
+                        if (pendingMarkItemAsUsed) {
+                          handleMarkItemAsUsedAction(
+                            pendingMarkItemAsUsed.resultItem,
+                            pendingMarkItemAsUsed.userToUse,
+                            pendingMarkItemAsUsed.inventoryItemUuid,
+                            pendingMarkItemAsUsed.isGroup
+                          );
+                        }
+                      }}
+                      size="sm"
+                    >
+                      Mark Now
+                    </Button>
+                  </div>
+                )}
+
+                {/* Processing Spinner */}
+                {isCurrentMarkItemAsUsedProcessing && (
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center justify-center w-12 h-12 bg-primary-100 rounded-full">
+                      <Spinner size="md" color="primary" />
+                    </div>
+                    <span className="text-sm text-primary-700">Processing...</span>
+                  </div>
+                )}
+
+                {/* Normal Mark as Used Button */}
+                {!isCurrentMarkItemAsUsedPending && !isCurrentMarkItemAsUsedProcessing && !markItemAsUsedSuccess && !markItemAsUsedError && (
+                  <Button
+                    color="warning"
+                    variant="shadow"
+                    startContent={<Icon icon="mdi:package-minus" />}
+                    onPress={() => handleMarkItemAsUsedAction(selectedResult, undefined, itemParam || groupParam || null, !!groupParam)}
+                  >
+                    {itemParam ? 'Mark Item as Used' : groupParam ? 'Mark Group as Used' : 'Mark as Used'}
+                  </Button>
                 )}
               </div>
             </div>
-          </motion.div>
-        );
-      case 'inventory':
-        if (user && !user.is_admin) {
-          return (
-            <motion.div key="inventory-access-denied" {...motionTransition}>
-              <Alert
-                color="warning"
-                variant="flat"
-                icon={<Icon icon="mdi:shield-alert" />}
-              >
-                Access denied: Only administrators can view inventory item details
-              </Alert>
-            </motion.div>
-          );
-        }
-        return (
-          <motion.div key="inventory-component" {...motionTransition}>
-            <div className={isDisabled ? 'opacity-50 pointer-events-none' : ''}>
-              <InventoryItemComponent
-                inventoryId={entity_uuid}
-                user={user}
-                readOnlyMode={true}
-              />
-            </div>
-          </motion.div>
-        );
 
+            {/* Enhanced Progress Bar for Timer */}
+            {isCurrentMarkItemAsUsedPending && (
+              <div className="mt-4 space-y-2">
+                <div className="relative w-full bg-warning-200 rounded-full h-3 overflow-hidden shadow-inner">
+                  <div
+                    className="bg-gradient-to-r from-warning-400 to-warning-600 h-3 rounded-full transition-all duration-100 ease-linear shadow-sm"
+                    style={{ width: `${autoAcceptProgress}%` }}
+                  />
+                  <div
+                    className="absolute top-0 h-3 w-8 bg-gradient-to-r from-transparent via-white/30 to-transparent rounded-full transition-all duration-100 ease-linear"
+                    style={{
+                      left: `${Math.max(0, autoAcceptProgress - 8)}%`,
+                      opacity: autoAcceptProgress > 0 && autoAcceptProgress < 100 ? 1 : 0
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </CardBody>
+        </Card>
+      </div>
+    ) : null;
+
+    switch (entity_type) {
       case 'warehouse_inventory':
       case 'warehouse_inventory_item':
         return (
           <motion.div key="warehouse-inventory-component" {...motionTransition}>
-            <div className={isDisabled ? 'opacity-50 pointer-events-none' : ''}>
+            {markItemAsUsedButton}
+            <div className={`${isDisabled ? 'opacity-50 pointer-events-none blur-sm scale-95 origin-top' : ''} transition-all duration-200`}>
               <WarehouseInventoryComponent
                 inventoryId={entity_uuid}
                 user={user}

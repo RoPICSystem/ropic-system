@@ -83,7 +83,7 @@ export function DeliveryExportPopover({
     }
   };
 
-  // Define export options - same as in the original DeliveryPage
+  // Define export options with the new comprehensive inventory inclusion options
   const exportOptions: ExportOption[] = [
     {
       key: "pageSize",
@@ -110,9 +110,22 @@ export function DeliveryExportPopover({
       description: "Display additional options when QR code is scanned",
       type: "switch",
       defaultValue: true
+    },
+    {
+      key: "inventoryInclusionType",
+      label: "Inventory QR Codes",
+      description: "What inventory items to include in addition to delivery QR codes",
+      type: "select",
+      defaultValue: "delivery_only",
+      options: [
+        { key: "delivery_only", label: "Delivery QR Only" },
+        { key: "all_items", label: "All Individual Items" },
+        { key: "all_groups", label: "All Groups Only (no individual items)" },
+        { key: "items_and_groups", label: "All Items + All Groups" },
+        { key: "grouped_items", label: "Grouped Items (groups + ungrouped items)" }
+      ]
     }
   ];
-
 
   // Format date helper function
   const formatDate = (dateString: string) => {
@@ -137,13 +150,13 @@ export function DeliveryExportPopover({
       onExport={onExport}
       getItemId={(delivery) => delivery.uuid}
       getItemDisplayName={(delivery) =>
-        delivery.name || 'Unknown Item'
+        delivery.itemName || delivery.name || delivery.item_name || 'Unknown Item'
       }
       renderItem={(delivery) => (
         <div className="flex items-center justify-between gap-2">
           <div className="flex-1 min-w-0">
             <div className="font-medium text-small truncate">
-              {delivery.name || 'Unknown Item'}
+              {delivery.itemName || delivery.name || delivery.item_name || 'Unknown Item'}
             </div>
             <div className="text-tiny text-default-400 truncate">
               {warehouses.find(w => w.uuid === delivery.warehouse_uuid)?.name || 'Unknown Warehouse'} • {formatDate(delivery.delivery_date)}
