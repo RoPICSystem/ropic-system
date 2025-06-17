@@ -51,6 +51,7 @@ import {
 } from "@/utils/inventory-group";
 
 import { Delivery3DShelfSelector } from './delivery-3d-shelf-selector';
+import { createClient } from '@/utils/supabase/client';
 
 
 interface DeliveryComponentProps {
@@ -1168,7 +1169,7 @@ export function DeliveryComponent({
       setPrevSelectedInventoryItems([]);
       resetWarehouseLocation();
       return;
-    } 
+    }
 
     console.log("Accordion keys changed:", keys);
 
@@ -1860,6 +1861,50 @@ export function DeliveryComponent({
       onErrors(errors);
     }
   }, [errors, onErrors]);
+
+
+  // Set up real-time updates
+  useEffect(() => {
+    if (!user?.company_uuid) return;
+
+    const supabase = createClient();
+
+    const deliveryInventoryChannel = supabase
+      .channel('delivery_inventory')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'delivery_inventory',
+          filter: `company_uuid=eq.${user.company_uuid}`
+        },
+        async (payload) => {
+          console.log('Real-time update received for delivery inventory:', payload);
+
+          // Handle insert, update, delete events
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const updatedDeliveryId = payload.new.delivery_id;
+            if (updatedDeliveryId === deliveryId && deliveryId) {
+              // Reload the delivery details to reflect changes
+              await loadDeliveryDetails(deliveryId);
+            }
+          } else if (payload.eventType === 'DELETE') {
+            const deletedDeliveryId = payload.old.delivery_id;
+            if (deletedDeliveryId === deliveryId) {
+              // Reset form if the current delivery was deleted
+              setFormData(initialFormData);
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      console.log('Cleaning up real-time subscriptions for delivery inventory');
+      supabase.removeChannel(deliveryInventoryChannel);
+    };
+  }, [user?.company_uuid]);
 
   return (
     <div>

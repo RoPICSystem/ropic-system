@@ -41,7 +41,7 @@ import { generatePdfBlob } from './pdf-document';
 import CustomScrollbar from '@/components/custom-scrollbar';
 import { getStatusColor } from '@/utils/colors';
 import { DeliveryExportPopover } from './delivery-export';
-import { DeliveryComponent } from './delivery-form';
+import { DeliveryComponent } from './delivery-component';
 import jsQR from 'jsqr';
 import { getDeliveryDetails, updateDeliveryStatusWithItems } from './actions';
 
