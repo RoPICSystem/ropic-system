@@ -808,6 +808,20 @@ export default function WarehouseItemsPage() {
                         </div>
                       </Chip>
 
+                      {warehouseItem.warehouse_name && (
+                        <Chip
+                          color="warning"
+                          variant="flat"
+                          size="sm"
+                          className={`font-medium ${selectedItemId === warehouseItem.uuid ? 'bg-warning-100/80 text-warning-700 border-warning-200/60' : 'bg-warning-100/80'}`}
+                        >
+                          <div className="flex items-center gap-1">
+                            <Icon icon="mdi:warehouse" width={12} height={12} />
+                            {warehouseItem.warehouse_name}
+                          </div>
+                        </Chip>
+                      )}
+
                       {warehouseItem.unit_values?.available > 0 && (
                         <Chip
                           color="success"
@@ -832,20 +846,6 @@ export default function WarehouseItemsPage() {
                           <div className="flex items-center gap-1">
                             <Icon icon="mdi:package-variant" width={12} height={12} />
                             {warehouseItem.count.total} {warehouseItem.count.total === 1 ? 'item' : 'items'}
-                          </div>
-                        </Chip>
-                      )}
-
-                      {warehouseItem.warehouse_name && (
-                        <Chip
-                          color="warning"
-                          variant="flat"
-                          size="sm"
-                          className={`font-medium ${selectedItemId === warehouseItem.uuid ? 'bg-warning-100/80 text-warning-700 border-warning-200/60' : 'bg-warning-100/80'}`}
-                        >
-                          <div className="flex items-center gap-1">
-                            <Icon icon="mdi:warehouse" width={12} height={12} />
-                            {warehouseItem.warehouse_name}
                           </div>
                         </Chip>
                       )}

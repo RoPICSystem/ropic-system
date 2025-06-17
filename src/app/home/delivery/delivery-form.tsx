@@ -345,6 +345,93 @@ export function DeliveryComponent({
     }
   };
 
+
+  // Add new function to get group status styling
+  const getGroupStatusStyling = (groupId: string, inventoryUuid: string) => {
+    let groupItems;
+
+    if (!groupId || groupId === '' || groupId === 'null') {
+      groupItems = inventoryItems.filter(item =>
+        item.inventory_uuid === inventoryUuid &&
+        (!item.group_id || item.group_id === '' || item.group_id === null)
+      );
+    } else {
+      groupItems = inventoryItems.filter(item =>
+        item.group_id === groupId &&
+        item.inventory_uuid === inventoryUuid
+      );
+    }
+
+    if (groupItems.length === 0) {
+      return {
+        isDisabled: true,
+        disabledReason: 'No items in group'
+      };
+    }
+
+    // Check if ALL items are on delivery (and not part of current delivery)
+    const allOnDelivery = groupItems.every(item => item.status === 'ON_DELIVERY');
+    const allPartOfCurrentDelivery = groupItems.every(item =>
+      formData.inventory_items?.[item.uuid] ||
+      prevSelectedInventoryItems.includes(item.uuid)
+    );
+
+    if (allOnDelivery && !allPartOfCurrentDelivery) {
+      return {
+        isDisabled: true,
+        disabledReason: 'All items in this group are assigned to another delivery'
+      };
+    }
+
+    // Check if all items are in warehouse
+    const allInWarehouse = groupItems.every(item => item.status === 'IN_WAREHOUSE');
+    if (allInWarehouse && formData.status !== 'DELIVERED' && formData.status !== 'CANCELLED') {
+      return {
+        isDisabled: true,
+        disabledReason: 'All items in this group are already in warehouse'
+      };
+    }
+
+    // Check if all items are used
+    const allUsed = groupItems.every(item => item.status === 'USED');
+    if (allUsed && formData.status !== 'DELIVERED' && formData.status !== 'CANCELLED') {
+      return {
+        isDisabled: true,
+        disabledReason: 'All items in this group have been used'
+      };
+    }
+
+    // If there are available items, group is not disabled
+    const hasAvailableItems = groupItems.some(item => {
+      const itemStatusStyling = getInventoryItemStatusStyling(item);
+      return !itemStatusStyling.isDisabled;
+    });
+
+    return {
+      isDisabled: !hasAvailableItems,
+      disabledReason: hasAvailableItems ? null : 'No available items in this group'
+    };
+  };
+
+  // Add function to sort group items with ON_DELIVERY items at the bottom
+  const sortGroupItems = (items: any[]) => {
+    return [...items].sort((a, b) => {
+      // Put ON_DELIVERY items at the bottom
+      if (a.status === 'ON_DELIVERY' && b.status !== 'ON_DELIVERY') return 1;
+      if (b.status === 'ON_DELIVERY' && a.status !== 'ON_DELIVERY') return -1;
+
+      // For other statuses, maintain original order or sort by status priority
+      const statusPriority: Record<string, number> = {
+        'AVAILABLE': 0,
+        'IN_WAREHOUSE': 1,
+        'USED': 2,
+        'ON_DELIVERY': 3
+      };
+
+      return (statusPriority[a.status] || 99) - (statusPriority[b.status] || 99);
+    });
+  };
+
   const getDefaultDeliveryName = () => {
     if (!selectedInventoryItems.length) return "";
 
@@ -1073,6 +1160,18 @@ export function DeliveryComponent({
   };
 
   const handleAccordionSelectionChange = useCallback(async (keys: any) => {
+    // if no keys are selected, reset expanded inventories
+    if (!keys || keys.length === 0) {
+      setExpandedInventories(new Set());
+      setSelectedInventoryUuids([]);
+      setSelectedInventoryItems([]);
+      setPrevSelectedInventoryItems([]);
+      resetWarehouseLocation();
+      return;
+    } 
+
+    console.log("Accordion keys changed:", keys);
+
     const newExpandedKeys = keys as Set<string>;
     setExpandedInventories(newExpandedKeys);
 
@@ -1134,9 +1233,12 @@ export function DeliveryComponent({
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  // Continue with remaining functions...
+
   const renderInventoryItemWithStatus = (item: any, isSelected: boolean, showAsGroup: boolean = false, groupId?: string, inventoryUuid?: string) => {
-    const statusStyling = getInventoryItemStatusStyling(item);
+    // Use group status styling if it's a group, otherwise use individual item styling
+    const statusStyling = showAsGroup && groupId && inventoryUuid
+      ? getGroupStatusStyling(groupId, inventoryUuid)
+      : getInventoryItemStatusStyling(item);
 
     const groupedItems = getGroupedInventoryItems();
     const groupInfo = getGroupInfo(item, groupedItems);
@@ -1182,6 +1284,24 @@ export function DeliveryComponent({
     const shouldShowCheckbox = () => {
       if (formData.status !== 'PENDING') {
         return false;
+      }
+
+      if (showAsGroup && groupId && inventoryUuid) {
+        // For groups, check if any item in the group can be selected
+        const groupItems = inventoryItems.filter(groupItem =>
+          groupItem.group_id === groupId &&
+          groupItem.inventory_uuid === inventoryUuid
+        );
+
+        return groupItems.some(groupItem => {
+          if (['ON_DELIVERY', 'IN_WAREHOUSE', 'USED'].includes(groupItem.status)) {
+            const isPartOfCurrentDelivery = formData.inventory_items?.[groupItem.uuid] ||
+              prevSelectedInventoryItems.includes(groupItem.uuid) ||
+              selectedInventoryItems.includes(groupItem.uuid);
+            return isPartOfCurrentDelivery || formData.status === 'PENDING';
+          }
+          return true;
+        });
       }
 
       if (['ON_DELIVERY', 'IN_WAREHOUSE', 'USED'].includes(item.status)) {
@@ -1236,7 +1356,7 @@ export function DeliveryComponent({
                 {item.unit_value} {item.unit}
                 {groupStats && (
                   <span className="ml-2 text-xs">
-                    ({groupStats.selected}/{groupStats.total} selected)
+                    ({groupStats.selected}/{groupStats.available} selected)
                   </span>
                 )}
               </p>
@@ -1537,17 +1657,8 @@ export function DeliveryComponent({
   // Load delivery when deliveryId changes
   useEffect(() => {
     const loadDelivery = async () => {
-      // Reset all states
-      setSelectedInventoryUuids([]);
-      setSelectedInventoryItems([]);
-      setPrevSelectedInventoryItems([]);
-      setLocations([]);
-      setSelectedOperators([]);
-      setLoadedInventoryUuids(new Set());
-      setInventoryItems([]);
-      setExpandedInventories(new Set());
-      resetWarehouseLocation();
-      setIsLoading(false);
+      handleAccordionSelectionChange([]);
+      setIsLoading(true);
 
       if (!deliveryId || !user?.company_uuid) {
         // Show brief loading animation when transitioning to new delivery
@@ -1574,10 +1685,10 @@ export function DeliveryComponent({
           name: "",
           ...initialFormData
         });
+
+        setIsLoading(false);
         return;
       }
-
-      setIsLoading(true);
 
       try {
         // Load delivery details
@@ -1592,7 +1703,7 @@ export function DeliveryComponent({
         setIsLoading(false);
       }
     };
-    
+
     loadDelivery();
   }, [deliveryId, user?.company_uuid]);
 
@@ -2266,6 +2377,9 @@ export function DeliveryComponent({
                                                           selectedInventoryItems.includes(inventoryItem.uuid)
                                                         );
                                                       }
+
+                                                      // Sort items with ON_DELIVERY items at the bottom
+                                                      itemsToShow = sortGroupItems(itemsToShow);
 
                                                       return (
                                                         <div className="space-y-4">
