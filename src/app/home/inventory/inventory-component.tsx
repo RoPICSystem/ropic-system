@@ -48,6 +48,7 @@ interface InventoryComponentProps {
   // Callbacks for external actions
   onInventoryUpdate?: (inventoryId: string) => void;
   onErrors?: (errors: Record<string, string>) => void;
+  onLoadingChange?: (isLoading: boolean) => void;
 
   // Optional overrides for specific behaviors
   allowStatusUpdates?: boolean;
@@ -62,6 +63,7 @@ export function InventoryComponent({
   user,
   onInventoryUpdate,
   onErrors,
+  onLoadingChange,
   allowStatusUpdates = true,
   readOnlyMode = false,
   initialFormData = {}
@@ -691,6 +693,10 @@ export function InventoryComponent({
     }
   }, [errors, onErrors]);
 
+  useEffect(() => {
+    onLoadingChange?.(isLoading);
+  }, [isLoading, onLoadingChange]);
+
   // Set up real-time updates
   useEffect(() => {
     if (!user?.company_uuid || !inventoryId) return;
@@ -709,7 +715,7 @@ export function InventoryComponent({
         },
         async (payload) => {
           console.log('Real-time update received:', payload);
-          
+
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
             const updatedItem = payload.new;
             setInventoryItemsList(prev => {
@@ -719,11 +725,11 @@ export function InventoryComponent({
                 updatedItems[existingIndex] = { ...updatedItems[existingIndex], ...updatedItem };
                 return updatedItems;
               } else {
-                return [...prev, { 
-                  ...updatedItem, 
+                return [...prev, {
+                  ...updatedItem,
                   id: Math.max(...prev.map(item => item.id), 0) + 1,
                   company_uuid: updatedItem.company_uuid,
-                  is_new: false 
+                  is_new: false
                 }];
               }
             });
@@ -766,7 +772,7 @@ export function InventoryComponent({
                   {/* Description Skeleton */}
                   <Skeleton className="h-24 w-full rounded-xl" />
                   {/* Unit Values Grid Skeleton - only when editing */}
-                  
+
                   {inventoryId && (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-2 p-2 bg-default-100/50 rounded-xl border-2 border-default-200">
                       <div className="text-center flex flex-col items-center gap-1 bg-default-200/50 rounded-md p-4">

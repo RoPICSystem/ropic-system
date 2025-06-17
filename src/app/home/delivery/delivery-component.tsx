@@ -68,6 +68,7 @@ interface DeliveryComponentProps {
   onStatusChange?: (status: string) => void;
   onGoToWarehouse?: (warehouseUuid: string) => void;
   onErrors?: (errors: Record<string, string>) => void;
+  onLoadingChange?: (isLoading: boolean) => void;
 
   // Optional overrides for specific behaviors
   allowStatusUpdates?: boolean;
@@ -88,6 +89,7 @@ export function DeliveryComponent({
   onStatusChange,
   onGoToWarehouse,
   onErrors,
+  onLoadingChange,
   allowStatusUpdates = true,
   showQRGeneration = true,
   readOnlyMode = false,
@@ -97,8 +99,11 @@ export function DeliveryComponent({
   // ===== STATE MANAGEMENT =====
   // Loading states
   const [isLoading, setIsLoading] = useState(false);
+
+  // Individual loading states for specific operations
   const [isLoadingInventoryItems, setIsLoadingInventoryItems] = useState(false);
-  const [isTransitioningToNew, setIsTransitioningToNew] = useState(false); // Add this new state
+  const [isTransitioningToNew, setIsTransitioningToNew] = useState(false);
+
 
   // Modal states
   const { isOpen, onOpen, onClose } = useDisclosure();
@@ -479,8 +484,8 @@ export function DeliveryComponent({
   // ===== CORE FUNCTIONS =====
   const loadDeliveryDetails = async (deliveryId: string) => {
     try {
+      setIsLoading(true);
       const result = await getDeliveryDetails(deliveryId, user?.company_uuid);
-      setIsLoading(false);
 
       if (result.success && result.data) {
         const deliveryData = result.data;
@@ -521,6 +526,8 @@ export function DeliveryComponent({
     } catch (error) {
       console.error("Error loading delivery details:", error);
       return null;
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -866,6 +873,7 @@ export function DeliveryComponent({
       setIsAutoAssigning(false);
     }
   };
+
   // In the handleInventoryItemSelectionToggle function, update this part:
   const handleInventoryItemSelectionToggle = async (inventoryitemUuid: string, isSelected: boolean) => {
     let inventoryItem = inventoryItems.find(item => item.uuid === inventoryitemUuid);
@@ -1661,8 +1669,7 @@ export function DeliveryComponent({
   useEffect(() => {
     const loadDelivery = async () => {
       handleAccordionSelectionChange([]);
-      setIsLoading(true);
-
+      
       if (!deliveryId || !user?.company_uuid) {
         // Show brief loading animation when transitioning to new delivery
         if (deliveryId === null) {
@@ -1689,12 +1696,11 @@ export function DeliveryComponent({
           ...initialFormData
         });
 
-        setIsLoading(false);
         return;
       }
 
       try {
-        // Load delivery details
+        // Load delivery details (this will set isLoading internally)
         const deliveryData = await loadDeliveryDetails(deliveryId);
 
         if (deliveryData && deliveryData.warehouse_uuid) {
@@ -1702,7 +1708,6 @@ export function DeliveryComponent({
         }
       } catch (error) {
         console.error("Error loading delivery:", error);
-      } finally {
         setIsLoading(false);
       }
     };
@@ -1864,6 +1869,14 @@ export function DeliveryComponent({
     }
   }, [errors, onErrors]);
 
+  useEffect(() => {
+    onLoadingChange?.(isLoading);
+  }, [isLoading, onLoadingChange]);
+
+  const updateMainLoadingState = useCallback(() => {
+    const isAnyLoading = isLoadingInventoryItems || isTransitioningToNew || isAutoAssigning || isAcceptingDelivery;
+    setIsLoading(isAnyLoading);
+  }, [isLoadingInventoryItems, isTransitioningToNew, isAutoAssigning, isAcceptingDelivery]);
 
   // Set up real-time updates
   useEffect(() => {

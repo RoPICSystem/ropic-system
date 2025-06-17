@@ -59,6 +59,7 @@ interface InventoryComponentProps {
   // Callbacks for actions
   handleViewWarehouse: ((e: PressEvent) => void) | null;
   handleViewInventory: ((e: PressEvent) => void) | null;
+  onLoadingChange?: (isLoading: boolean) => void;
 
   // Optional overrides for specific behaviors
   readOnlyMode?: boolean;
@@ -74,6 +75,7 @@ export function InventoryComponent({
   inventories,
   handleViewWarehouse = (e: PressEvent) => { },
   handleViewInventory = (e: PressEvent) => { },
+  onLoadingChange,
   readOnlyMode = false,
   initialFormData = {}
 }: InventoryComponentProps) {
@@ -670,6 +672,12 @@ export function InventoryComponent({
       supabase.removeChannel(warehouseInventoryChannel);
     };
   }, [user?.company_uuid, inventoryId]);
+
+
+  
+    useEffect(() => {
+      onLoadingChange?.(isLoading);
+    }, [isLoading, onLoadingChange]);
 
   return (
     <div className="flex flex-col gap-2">

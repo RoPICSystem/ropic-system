@@ -40,7 +40,8 @@ import {
   GoPageNewWarehouseInventoryDetails,
   getBulkUnitsDetails,
   getWarehouseItemsByDelivery,
-  markWarehouseItemsAsUsed
+  markWarehouseItemsAsUsed,
+  handleAcceptNewWarehouseInventory
 } from './actions';
 
 // Components
@@ -102,6 +103,7 @@ export default function SearchPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSearching, setIsSearching] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false); // Track initialization
+  const [isDeliveryComponentLoading, setIsDeliveryComponentLoading] = useState(false);
   const hasInitialized = useRef(false); // Prevent duplicate initialization
 
   // Search state
@@ -117,20 +119,19 @@ export default function SearchPage() {
   const [operators, setOperators] = useState<any[]>([]);
   const [inventories, setInventories] = useState<any[]>([]);
 
-  // Delivery acceptance states
-  const [isAcceptingDelivery, setIsAcceptingDelivery] = useState(false);
-  const [acceptDeliveryError, setAcceptDeliveryError] = useState<string | null>(null);
-  const [acceptDeliverySuccess, setAcceptDeliverySuccess] = useState(false);
-  const [isOperatorAssigned, setIsOperatorAssigned] = useState<boolean>(false);
+  // New warehouse inventory acceptance states
+  const [isAcceptingNewWarehouseInventory, setIsAcceptingNewWarehouseInventory] = useState(false);
+  const [acceptNewWarehouseInventoryError, setAcceptNewWarehouseInventoryError] = useState<string | null>(null);
+  const [acceptNewWarehouseInventorySuccess, setAcceptNewWarehouseInventorySuccess] = useState(false);
 
   // Modal states
   const [showAcceptStatusModal, setShowAcceptStatusModal] = useState(false);
   const [showAcceptDeliveryLoadingModal, setShowAcceptDeliveryLoadingModal] = useState(false);
 
-  // Auto-accept timer states (remove showAutoAcceptModal)
+  // Auto-accept timer states (now for new_warehouse_inventory)
   const [autoAcceptProgress, setAutoAcceptProgress] = useState(0);
   const [autoAcceptTimeRemaining, setAutoAcceptTimeRemaining] = useState(5);
-  const [pendingDeliveryAccept, setPendingDeliveryAccept] = useState<any>(null);
+  const [pendingNewWarehouseInventoryAccept, setPendingNewWarehouseInventoryAccept] = useState<any>(null);
   const autoAcceptTimerRef = useRef<NodeJS.Timeout | null>(null);
   const autoAcceptIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -280,14 +281,20 @@ export default function SearchPage() {
         if (autoView || result.data.length === 1) {
           setSelectedResult(result.data[0]);
 
-          // Handle auto-accept for delivery with timer
-          // Auto-accept if: autoAccept=true OR showOptions=true AND it's a delivery or new_warehouse_inventory
+          // Handle auto-accept for new_warehouse_inventory ONLY - UPDATED to exclude admins
+          // UPDATED: Store the auto-accept intent but don't start timer yet
           if ((autoAccept || showOptions) &&
-            (result.data[0]?.entity_type === 'delivery' || result.data[0]?.entity_type === 'new_warehouse_inventory')) {
+            result.data[0]?.entity_type === 'new_warehouse_inventory' &&
+            userToUse && !userToUse.is_admin) {
             const autoAcceptKey = `${result.data[0]?.entity_type}-${query}-autoAccept`;
             if (!processedAutoActions.current.has(autoAcceptKey)) {
               processedAutoActions.current.add(autoAcceptKey);
-              startAutoAcceptTimer(result.data[0], userToUse);
+              // Store the intent to auto-accept, but wait for component to load
+              setPendingAutoAcceptIntent({
+                resultItem: result.data[0],
+                userToUse,
+                shouldStartTimer: true
+              });
             }
           }
         } else {
@@ -308,9 +315,40 @@ export default function SearchPage() {
     }
   };
 
-  // Start auto-accept timer (remove modal)
-  const startAutoAcceptTimer = (resultItem: any, userToUse: any, timerDuration: number = 500000) => {
-    setPendingDeliveryAccept({ resultItem, userToUse });
+  // Add state to track pending auto-accept intent
+  const [pendingAutoAcceptIntent, setPendingAutoAcceptIntent] = useState<{
+    resultItem: any;
+    userToUse: any;
+    shouldStartTimer: boolean;
+  } | null>(null);
+
+  // Add effect to handle auto-accept when component loading is complete
+  useEffect(() => {
+    if (pendingAutoAcceptIntent && 
+        pendingAutoAcceptIntent.shouldStartTimer && 
+        !isDeliveryComponentLoading && 
+        !isSearching &&
+        selectedResult?.entity_uuid === pendingAutoAcceptIntent.resultItem.entity_uuid) {
+      
+      console.log("Starting auto-accept timer now that component is loaded");
+      startAutoAcceptTimer(pendingAutoAcceptIntent.resultItem, pendingAutoAcceptIntent.userToUse);
+      
+      // Clear the intent
+      setPendingAutoAcceptIntent(null);
+    }
+  }, [pendingAutoAcceptIntent, isDeliveryComponentLoading, isSearching, selectedResult]);
+
+  // Add callback for delivery component loading state
+  const handleDeliveryComponentLoadingChange = (isLoading: boolean) => {
+    setIsDeliveryComponentLoading(isLoading);
+  };
+
+  // Start auto-accept timer (now for new_warehouse_inventory)
+  const startAutoAcceptTimer = (resultItem: any, userToUse: any, timerDuration: number = 10000) => {
+    // Only start timer for new_warehouse_inventory entity type
+    if (resultItem.entity_type !== 'new_warehouse_inventory') return;
+
+    setPendingNewWarehouseInventoryAccept({ resultItem, userToUse });
     setAutoAcceptProgress(0);
     setAutoAcceptTimeRemaining(timerDuration / 1000);
 
@@ -340,7 +378,7 @@ export default function SearchPage() {
       if (autoAcceptIntervalRef.current) {
         clearInterval(autoAcceptIntervalRef.current);
       }
-      handleAcceptDelivery(resultItem, userToUse);
+      handleAcceptNewWarehouseInventoryAction(resultItem, userToUse);
     }, timerDuration);
   };
 
@@ -352,103 +390,42 @@ export default function SearchPage() {
     if (autoAcceptIntervalRef.current) {
       clearInterval(autoAcceptIntervalRef.current);
     }
-    setPendingDeliveryAccept(null);
+    setPendingNewWarehouseInventoryAccept(null);
     setAutoAcceptProgress(0);
     setAutoAcceptTimeRemaining(5);
   };
 
-  const handleAcceptDelivery = async (resultItem: any, customUser?: any) => {
-    if (!resultItem || (resultItem.entity_type !== 'delivery' && resultItem.entity_type !== 'new_warehouse_inventory')) return;
+  // Handle new warehouse inventory acceptance
+  const handleAcceptNewWarehouseInventoryAction = async (resultItem: any, customUser?: any) => {
+    // Only handle new_warehouse_inventory entity type
+    if (!resultItem || resultItem.entity_type !== 'new_warehouse_inventory') return;
 
-    // Get the delivery UUID based on entity type
-    const deliveryUuid = resultItem.entity_type === 'new_warehouse_inventory'
-      ? resultItem.entity_uuid // For grouped results, entity_uuid is now the delivery UUID
-      : resultItem.entity_uuid;
+    const deliveryUuid = resultItem.entity_uuid;
+    const warehouseInventoryUuids = resultItem.entity_data?.matched_warehouse_inventory_uuids || [];
 
-    console.log("Accepting delivery:", deliveryUuid, "from entity type:", resultItem.entity_type);
+    console.log("Accepting new warehouse inventory:", deliveryUuid, "UUIDs:", warehouseInventoryUuids);
 
     // Clear timer states when starting acceptance
-    setPendingDeliveryAccept(null);
+    setPendingNewWarehouseInventoryAccept(null);
     setAutoAcceptProgress(0);
     setAutoAcceptTimeRemaining(5);
 
-
-    setIsAcceptingDelivery(true);
-    setAcceptDeliveryError(null);
-    setAcceptDeliverySuccess(false);
+    setIsAcceptingNewWarehouseInventory(true);
+    setAcceptNewWarehouseInventoryError(null);
+    setAcceptNewWarehouseInventorySuccess(false);
 
     try {
       const userDetails = customUser || user;
 
-      // Check if the user is an operator
-      if (!userDetails || !userDetails.uuid || userDetails.is_admin) {
-        setAcceptDeliveryError("You are not authorized to accept this delivery");
-        setIsAcceptingDelivery(false);
-        return;
-      }
-
-      // Import the delivery action
-      const { getDeliveryDetails } = await import("../delivery/actions");
-
-      const deliveryResult = await getDeliveryDetails(deliveryUuid, userDetails.company_uuid);
-
-      if (!deliveryResult.success || !deliveryResult.data) {
-        setAcceptDeliveryError("Failed to load delivery details");
-        setIsAcceptingDelivery(false);
-        return;
-      }
-
-      const deliveryData = deliveryResult.data;
-
-      // Check if the delivery status is IN_TRANSIT
-      if (deliveryData.status !== "IN_TRANSIT") {
-        if (deliveryData.status === "DELIVERED") {
-          setAcceptDeliveryError("This delivery has already been delivered");
-        } else {
-          setAcceptDeliveryError("This delivery cannot be accepted because it is not in transit");
-        }
-        setIsAcceptingDelivery(false);
-        return;
-      }
-
-      // Check if the operator is assigned to this delivery
-      const operatorUuids = deliveryData.operator_uuids || [];
-      const isAssigned = operatorUuids.includes(userDetails.uuid) || operatorUuids.length === 0;
-
-      if (!isAssigned) {
-        setAcceptDeliveryError("You are not assigned to this delivery");
-        setIsAcceptingDelivery(false);
-        return;
-      }
-
-      // Check if all inventory items have assigned locations
-      if (deliveryData.inventory_items) {
-        const inventoryItemUuids = Object.keys(deliveryData.inventory_items);
-        const missingLocations = inventoryItemUuids.filter(uuid =>
-          !deliveryData.inventory_items[uuid]?.location ||
-          deliveryData.inventory_items[uuid].location.floor === undefined ||
-          deliveryData.inventory_items[uuid].location.floor === null
-        );
-
-        if (missingLocations.length > 0) {
-          setAcceptDeliveryError(`Cannot accept delivery: ${missingLocations.length} item(s) are missing warehouse locations. Please contact an administrator.`);
-          setIsAcceptingDelivery(false);
-          return;
-        }
-      }
-
-      // Use the new RPC function to update delivery status to DELIVERED
-      const { updateDeliveryStatusWithItems } = await import("../delivery/actions");
-
-      const result = await updateDeliveryStatusWithItems(
-        deliveryData.uuid,
-        "DELIVERED",
-        userDetails.company_uuid
+      const result = await handleAcceptNewWarehouseInventory(
+        deliveryUuid,
+        warehouseInventoryUuids,
+        userDetails
       );
 
       if (result.success) {
-        setAcceptDeliverySuccess(true);
-        setAcceptDeliveryError(null);
+        setAcceptNewWarehouseInventorySuccess(true);
+        setAcceptNewWarehouseInventoryError(null);
 
         // Remove showOptions from URL after successful acceptance
         const currentParams = new URLSearchParams(searchParams.toString());
@@ -477,14 +454,14 @@ export default function SearchPage() {
           }
         }, 2000);
       } else {
-        setAcceptDeliveryError(result.error || "Failed to update delivery status");
+        setAcceptNewWarehouseInventoryError(result.error || "Failed to accept new warehouse inventory");
       }
 
     } catch (error) {
-      console.error("Error accepting delivery:", error);
-      setAcceptDeliveryError(`Failed to accept delivery: ${(error as Error).message}`);
+      console.error("Error accepting new warehouse inventory:", error);
+      setAcceptNewWarehouseInventoryError(`Failed to accept new warehouse inventory: ${(error as Error).message}`);
     } finally {
-      setIsAcceptingDelivery(false);
+      setIsAcceptingNewWarehouseInventory(false);
     }
   };
 
@@ -520,11 +497,6 @@ export default function SearchPage() {
 
   const handleResultSelect = (result: any) => {
     setSelectedResult(result);
-
-    // Check if user is operator and this is a delivery
-    if (result.entity_type === 'delivery' && user && !user.is_admin) {
-      setIsOperatorAssigned(true); // For now, assume operator can accept
-    }
 
     // Update URL to include view=true when selecting a result
     const currentQuery = searchParams.get("q");
@@ -628,8 +600,8 @@ export default function SearchPage() {
                           {result.entity_status}
                         </Chip>
                       )}
-                      {/* Quick Accept Button for Deliveries and New Warehouse Inventory */}
-                      {(result.entity_type === 'delivery' || result.entity_type === 'new_warehouse_inventory') &&
+                      {/* Quick Accept Button - ONLY for new_warehouse_inventory now */}
+                      {result.entity_type === 'new_warehouse_inventory' &&
                         result.entity_status === 'IN_TRANSIT' &&
                         user && !user.is_admin && (
                           <Button
@@ -638,9 +610,9 @@ export default function SearchPage() {
                             variant="flat"
                             startContent={<Icon icon="mdi:check" />}
                             onPress={(e) => {
-                              handleAcceptDelivery(result);
+                              handleAcceptNewWarehouseInventoryAction(result);
                             }}
-                            isLoading={isAcceptingDelivery}
+                            isLoading={isAcceptingNewWarehouseInventory}
                           >
                             Accept
                           </Button>
@@ -666,24 +638,29 @@ export default function SearchPage() {
     if (!selectedResult) return null;
 
     const { entity_type, entity_uuid } = selectedResult;
-    const isCurrentDeliveryAccepting = pendingDeliveryAccept?.resultItem?.entity_uuid === entity_uuid;
-    const isCurrentDeliveryProcessing = isAcceptingDelivery && selectedResult?.entity_uuid === entity_uuid;
+    const isCurrentNewWarehouseInventoryAccepting = pendingNewWarehouseInventoryAccept?.resultItem?.entity_uuid === entity_uuid;
+    const isCurrentNewWarehouseInventoryProcessing = isAcceptingNewWarehouseInventory && selectedResult?.entity_uuid === entity_uuid;
 
-    // Disable the entire component section when accepting or auto-accepting
-    const isDisabled = isCurrentDeliveryAccepting || isCurrentDeliveryProcessing;
+    // Only disable for non-admin users who are in accepting/processing states
+    const isDisabled = !user?.is_admin && (isCurrentNewWarehouseInventoryAccepting || isCurrentNewWarehouseInventoryProcessing);
 
-    const shouldShowAcceptButton = (entity_type === 'delivery' || entity_type === 'new_warehouse_inventory') &&
+    // Check for showOptions URL parameter
+    const showOptions = searchParams.get("showOptions") === "true";
+
+    // Only show accept button for new_warehouse_inventory for non-admin users
+    const shouldShowAcceptButton = entity_type === 'new_warehouse_inventory' &&
       selectedResult.entity_status === 'IN_TRANSIT' &&
-      user && !user.is_admin;
+      user && !user.is_admin &&
+      (showOptions || isCurrentNewWarehouseInventoryAccepting || isCurrentNewWarehouseInventoryProcessing || acceptNewWarehouseInventorySuccess || acceptNewWarehouseInventoryError);
 
-    // Enhanced delivery accept button with timer/loading/success/error states
-    const deliveryAcceptButton = shouldShowAcceptButton ? (
+    // Enhanced new warehouse inventory accept button with timer/loading/success/error states
+    const newWarehouseInventoryAcceptButton = shouldShowAcceptButton ? (
       <div className="mb-4 sticky top-20 z-10">
         <Card className={`border shadow-2xl shadow-default-300 dark:shadow-background
-        ${acceptDeliverySuccess ? 'bg-success-50 border-success-200' :
-            acceptDeliveryError ? 'bg-danger-50 border-danger-200' :
-              isCurrentDeliveryAccepting ? 'bg-warning-50 border-warning-200' :
-                isCurrentDeliveryProcessing ? 'bg-primary-50 border-primary-200' :
+        ${acceptNewWarehouseInventorySuccess ? 'bg-success-50 border-success-200' :
+            acceptNewWarehouseInventoryError ? 'bg-danger-50 border-danger-200' :
+              isCurrentNewWarehouseInventoryAccepting ? 'bg-warning-50 border-warning-200' :
+                isCurrentNewWarehouseInventoryProcessing ? 'bg-primary-50 border-primary-200' :
                   'bg-success-50 border-success-200'
           }`}>
           <CardBody className="p-4">
@@ -691,54 +668,51 @@ export default function SearchPage() {
               <div className="flex items-center gap-3">
                 <Icon
                   icon={
-                    acceptDeliverySuccess ? "mdi:check-circle" :
-                      acceptDeliveryError ? "mdi:alert-circle" :
-                        isCurrentDeliveryProcessing ? "mdi:loading" :
-                          isCurrentDeliveryAccepting ? "mdi:timer" :
-                            entity_type === 'new_warehouse_inventory' ? "mdi:warehouse" :
-                              "mdi:truck-delivery"
+                    acceptNewWarehouseInventorySuccess ? "mdi:check-circle" :
+                      acceptNewWarehouseInventoryError ? "mdi:alert-circle" :
+                        isCurrentNewWarehouseInventoryProcessing ? "mdi:loading" :
+                          isCurrentNewWarehouseInventoryAccepting ? "mdi:timer" :
+                            "mdi:warehouse-plus"
                   }
-                  className={`w-6 h-6 ${acceptDeliverySuccess ? 'text-success' :
-                    acceptDeliveryError ? 'text-danger' :
-                      isCurrentDeliveryProcessing ? 'text-primary animate-spin' :
-                        isCurrentDeliveryAccepting ? 'text-warning' :
+                  className={`w-6 h-6 ${acceptNewWarehouseInventorySuccess ? 'text-success' :
+                    acceptNewWarehouseInventoryError ? 'text-danger' :
+                      isCurrentNewWarehouseInventoryProcessing ? 'text-primary animate-spin' :
+                        isCurrentNewWarehouseInventoryAccepting ? 'text-warning' :
                           'text-success'
                     }`}
                 />
                 <div>
-                  <h4 className={`font-semibold ${acceptDeliverySuccess ? 'text-success-900' :
-                    acceptDeliveryError ? 'text-danger-900' :
-                      isCurrentDeliveryProcessing ? 'text-primary-900' :
-                        isCurrentDeliveryAccepting ? 'text-warning-900' :
+                  <h4 className={`font-semibold ${acceptNewWarehouseInventorySuccess ? 'text-success-900' :
+                    acceptNewWarehouseInventoryError ? 'text-danger-900' :
+                      isCurrentNewWarehouseInventoryProcessing ? 'text-primary-900' :
+                        isCurrentNewWarehouseInventoryAccepting ? 'text-warning-900' :
                           'text-success-900'
                     }`}>
-                    {acceptDeliverySuccess ? 'Delivery Successfully Accepted' :
-                      acceptDeliveryError ? 'Delivery Error' :
-                        isCurrentDeliveryProcessing ? 'Processing Delivery' :
-                          isCurrentDeliveryAccepting ? 'Auto-Accept Timer' :
-                            entity_type === 'new_warehouse_inventory' ? 'Accept Delivery for New Warehouse Item' :
-                              'Quick Actions'}
+                    {acceptNewWarehouseInventorySuccess ? 'New Warehouse Inventory Successfully Accepted' :
+                      acceptNewWarehouseInventoryError ? 'New Warehouse Inventory Error' :
+                        isCurrentNewWarehouseInventoryProcessing ? 'Processing New Warehouse Inventory' :
+                          isCurrentNewWarehouseInventoryAccepting ? 'Auto-Accept Timer' :
+                            'Quick Actions'}
                   </h4>
-                  <p className={`text-sm ${acceptDeliverySuccess ? 'text-success-700' :
-                    acceptDeliveryError ? 'text-danger-700' :
-                      isCurrentDeliveryProcessing ? 'text-primary-700' :
-                        isCurrentDeliveryAccepting ? 'text-warning-700' :
+                  <p className={`text-sm ${acceptNewWarehouseInventorySuccess ? 'text-success-700' :
+                    acceptNewWarehouseInventoryError ? 'text-danger-700' :
+                      isCurrentNewWarehouseInventoryProcessing ? 'text-primary-700' :
+                        isCurrentNewWarehouseInventoryAccepting ? 'text-warning-700' :
                           'text-success-700'
                     }`}>
-                    {acceptDeliverySuccess ? 'The delivery has been marked as delivered and inventory has been updated.' :
-                      acceptDeliveryError ? acceptDeliveryError :
-                        isCurrentDeliveryProcessing ? 'Please wait while we process the delivery acceptance and update warehouse inventory...' :
-                          isCurrentDeliveryAccepting ? `Auto-accepting in ${autoAcceptTimeRemaining} seconds` :
-                            entity_type === 'new_warehouse_inventory' ?
-                              'This warehouse inventory item will be created when you accept the delivery' :
-                              'Accept this delivery to mark it as delivered'}
+                    {acceptNewWarehouseInventorySuccess ? 'The new warehouse inventory items have been accepted and warehouse inventory has been updated.' :
+                      acceptNewWarehouseInventoryError ? acceptNewWarehouseInventoryError :
+                        isCurrentNewWarehouseInventoryProcessing ? 'Please wait while we process the new warehouse inventory acceptance and update warehouse inventory...' :
+                          isCurrentNewWarehouseInventoryAccepting ? `Auto-accepting in ${autoAcceptTimeRemaining} seconds` :
+                            `Accept these ${selectedResult.entity_data?.total_matched_items || 1} new warehouse inventory item${(selectedResult.entity_data?.total_matched_items || 1) > 1 ? 's' : ''}`
+                    }
                   </p>
                 </div>
               </div>
 
               <div className="flex items-center gap-3">
                 {/* Success Actions */}
-                {acceptDeliverySuccess && (
+                {acceptNewWarehouseInventorySuccess && (
                   <div className="flex items-center gap-3">
                     <div className="flex items-center justify-center w-12 h-12 bg-success-100 rounded-full">
                       <Icon icon="mdi:check" className="text-success w-6 h-6" />
@@ -748,8 +722,8 @@ export default function SearchPage() {
                       variant="flat"
                       startContent={<Icon icon="mdi:refresh" />}
                       onPress={() => {
-                        setAcceptDeliverySuccess(false);
-                        setAcceptDeliveryError(null);
+                        setAcceptNewWarehouseInventorySuccess(false);
+                        setAcceptNewWarehouseInventoryError(null);
                         if (lastSearchQuery) {
                           performSearch(lastSearchQuery, user, true);
                         }
@@ -762,7 +736,7 @@ export default function SearchPage() {
                 )}
 
                 {/* Error Actions */}
-                {acceptDeliveryError && !isCurrentDeliveryProcessing && (
+                {acceptNewWarehouseInventoryError && !isCurrentNewWarehouseInventoryProcessing && (
                   <div className="flex items-center gap-3">
                     <div className="flex items-center justify-center w-12 h-12 bg-danger-100 rounded-full">
                       <Icon icon="mdi:close" className="text-danger w-6 h-6" />
@@ -772,8 +746,8 @@ export default function SearchPage() {
                       variant="flat"
                       startContent={<Icon icon="mdi:close" />}
                       onPress={() => {
-                        setAcceptDeliveryError(null);
-                        setAcceptDeliverySuccess(false);
+                        setAcceptNewWarehouseInventoryError(null);
+                        setAcceptNewWarehouseInventorySuccess(false);
                       }}
                       size="sm"
                     >
@@ -783,7 +757,7 @@ export default function SearchPage() {
                 )}
 
                 {/* Timer Progress Indicator */}
-                {isCurrentDeliveryAccepting && (
+                {isCurrentNewWarehouseInventoryAccepting && (
                   <div className="flex items-center gap-3 flex-wrap justify-end">
                     {/* Cancel button */}
                     <Button
@@ -803,8 +777,8 @@ export default function SearchPage() {
                       startContent={<Icon icon="mdi:check" />}
                       onPress={() => {
                         cancelAutoAccept();
-                        if (pendingDeliveryAccept) {
-                          handleAcceptDelivery(pendingDeliveryAccept.resultItem, pendingDeliveryAccept.userToUse);
+                        if (pendingNewWarehouseInventoryAccept) {
+                          handleAcceptNewWarehouseInventoryAction(pendingNewWarehouseInventoryAccept.resultItem, pendingNewWarehouseInventoryAccept.userToUse);
                         }
                       }}
                       size="sm"
@@ -815,7 +789,7 @@ export default function SearchPage() {
                 )}
 
                 {/* Processing Spinner */}
-                {isCurrentDeliveryProcessing && (
+                {isCurrentNewWarehouseInventoryProcessing && (
                   <div className="flex items-center gap-3">
                     <div className="flex items-center justify-center w-12 h-12 bg-primary-100 rounded-full">
                       <Spinner size="md" color="primary" />
@@ -825,21 +799,21 @@ export default function SearchPage() {
                 )}
 
                 {/* Normal Accept Button */}
-                {!isCurrentDeliveryAccepting && !isCurrentDeliveryProcessing && !acceptDeliverySuccess && !acceptDeliveryError && (
+                {!isCurrentNewWarehouseInventoryAccepting && !isCurrentNewWarehouseInventoryProcessing && !acceptNewWarehouseInventorySuccess && !acceptNewWarehouseInventoryError && (
                   <Button
                     color="success"
                     variant="shadow"
                     startContent={<Icon icon="mdi:check" />}
-                    onPress={() => handleAcceptDelivery(selectedResult)}
+                    onPress={() => handleAcceptNewWarehouseInventoryAction(selectedResult)}
                   >
-                    {entity_type === 'new_warehouse_inventory' ? 'Accept Delivery' : 'Accept Delivery'}
+                    Accept Delivery
                   </Button>
                 )}
               </div>
             </div>
 
             {/* Enhanced Progress Bar for Timer */}
-            {isCurrentDeliveryAccepting && (
+            {isCurrentNewWarehouseInventoryAccepting && (
               <div className="mt-4 space-y-2">
                 <div className="relative w-full bg-warning-200 rounded-full h-3 overflow-hidden shadow-inner">
                   <div
@@ -861,12 +835,10 @@ export default function SearchPage() {
       </div>
     ) : null;
 
-    // ...existing code for switch statement...
     switch (entity_type) {
       case 'delivery':
         return (
           <motion.div key="delivery-component" {...motionTransition}>
-            {deliveryAcceptButton}
             <div className={`${isDisabled ? 'opacity-50 pointer-events-none blur-sm scale-95 origin-top' : ''} transition-all duration-200`}>
               <DeliveryComponent
                 deliveryId={entity_uuid}
@@ -875,16 +847,16 @@ export default function SearchPage() {
                 operators={operators}
                 inventories={inventories}
                 readOnlyMode={true}
+                onLoadingChange={handleDeliveryComponentLoadingChange}
               />
             </div>
           </motion.div>
         );
 
-      // New case for new_warehouse_inventory
       case 'new_warehouse_inventory':
         return (
           <motion.div key="new-warehouse-inventory-component" {...motionTransition}>
-            {deliveryAcceptButton}
+            {newWarehouseInventoryAcceptButton}
             <div className={`${isDisabled ? 'opacity-50 pointer-events-none blur-sm scale-95 origin-top' : ''} transition-all duration-200`}>
               <div className="space-y-4">
                 <Card className="bg-warning-50 border border-warning-200">
@@ -904,7 +876,7 @@ export default function SearchPage() {
                       </div>
                     </div>
 
-                    {/* ✅ ADD: Show matched warehouse inventory UUIDs */}
+                    {/* Show matched warehouse inventory UUIDs */}
                     {selectedResult.entity_data?.matched_warehouse_inventory_uuids && (
                       <div className="space-y-2">
                         <p className="text-xs font-medium text-warning-800">Warehouse Inventory UUIDs:</p>
@@ -921,7 +893,7 @@ export default function SearchPage() {
                       </div>
                     )}
 
-                    {/* ✅ ADD: Show matched inventory items details if available */}
+                    {/* Show matched inventory items details if available */}
                     {selectedResult.entity_data?.matched_inventory_items && selectedResult.entity_data.matched_inventory_items.length > 0 && (
                       <div className="mt-3 space-y-2">
                         <p className="text-xs font-medium text-warning-800">Related Inventory Items:</p>
@@ -945,19 +917,19 @@ export default function SearchPage() {
                 {/* Show the delivery component */}
                 {selectedResult.entity_uuid && (
                   <DeliveryComponent
-                    deliveryId={selectedResult.entity_uuid} // entity_uuid is now the delivery UUID for grouped results
+                    deliveryId={selectedResult.entity_uuid}
                     user={user}
                     warehouses={warehouses}
                     operators={operators}
                     inventories={inventories}
                     readOnlyMode={true}
+                    onLoadingChange={handleDeliveryComponentLoadingChange}
                   />
                 )}
               </div>
             </div>
           </motion.div>
         );
-
       case 'inventory':
         if (user && !user.is_admin) {
           return (

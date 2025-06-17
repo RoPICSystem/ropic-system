@@ -145,9 +145,9 @@ export interface GoPageNewWarehouseInventoryDetails {
   delivery_status: string;
   warehouse_uuid: string;
   company_uuid: string;
-  matched_warehouse_inventory_uuids: string[]; // ✅ ADD: Array of matched UUIDs
-  total_matched_items: number; // ✅ ADD: Count of matched items
-  
+  matched_warehouse_inventory_uuids: string[];
+  total_matched_items: number;
+
   // Related data will be populated
   delivery?: DeliveryItem;
   warehouse?: {
@@ -155,7 +155,7 @@ export interface GoPageNewWarehouseInventoryDetails {
     name: string;
     address: any;
   };
-  matched_inventory_items?: { // ✅ ADD: Details of matched items
+  matched_inventory_items?: {
     uuid: string;
     name: string;
     description?: string;
@@ -535,7 +535,7 @@ export async function getItemDetailsByUuid(uuid: string): Promise<{
       }
     }
 
-    // ✅ ADD: Also check if the UUID is a warehouse_inventory_uuid that doesn't exist yet
+    // Also check if the UUID is a warehouse_inventory_uuid that doesn't exist yet
     const { data: deliveryByWarehouseInventory, error: deliveryByWarehouseError } = await supabase
       .from("delivery_items")
       .select("uuid, warehouse_inventory_items")
@@ -649,11 +649,6 @@ export async function getWarehouseItemsByDelivery(deliveryUuid: string): Promise
     };
   }
 }
-
-
-
-
-
 
 /**
  * Get detailed new warehouse inventory information by delivery UUID (grouped results)
@@ -884,6 +879,101 @@ export async function markWarehouseItemsAsUsed(
     return {
       success: false,
       error: `Failed to mark items as used: ${error.message || "Unknown error"}`
+    };
+  }
+}
+
+/**
+ * Handle auto-accept for new warehouse inventory items
+ */
+export async function handleAcceptNewWarehouseInventory(
+  deliveryUuid: string,
+  warehouseInventoryUuids: string[],
+  userDetails: any
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+
+  try {
+    // Check if the user is an operator
+    if (!userDetails || !userDetails.uuid || userDetails.is_admin) {
+      return {
+        success: false,
+        error: "You are not authorized to accept new warehouse inventory items"
+      };
+    }
+
+    // Get the delivery details
+    const { data: deliveryData, error: deliveryError } = await supabase
+      .from("delivery_items")
+      .select(`
+        uuid,
+        status,
+        warehouse_uuid,
+        company_uuid,
+        warehouse_inventory_items,
+        operator_uuids
+      `)
+      .eq('uuid', deliveryUuid)
+      .single();
+
+    if (deliveryError) throw deliveryError;
+
+    if (!deliveryData) {
+      return {
+        success: false,
+        error: "Delivery not found"
+      };
+    }
+
+    // Check if the delivery status is IN_TRANSIT
+    if (deliveryData.status !== "IN_TRANSIT") {
+      if (deliveryData.status === "DELIVERED") {
+        return {
+          success: false,
+          error: "This delivery has already been delivered"
+        };
+      } else {
+        return {
+          success: false,
+          error: "This delivery cannot be accepted because it is not in transit"
+        };
+      }
+    }
+
+    // Check if the operator is assigned to this delivery
+    const operatorUuids = deliveryData.operator_uuids || [];
+    const isAssigned = operatorUuids.includes(userDetails.uuid) || operatorUuids.length === 0;
+
+    if (!isAssigned) {
+      return {
+        success: false,
+        error: "You are not assigned to this delivery"
+      };
+    }
+
+    // Use the new RPC function to update delivery status to DELIVERED
+    const { updateDeliveryStatusWithItems } = await import("../delivery/actions");
+
+    const result = await updateDeliveryStatusWithItems(
+      deliveryData.uuid,
+      "DELIVERED",
+      userDetails.company_uuid
+    );
+
+    if (result.success) {
+      return { success: true };
+    } else {
+      return {
+        success: false,
+        error: result.error || "Failed to update delivery status"
+      };
+    }
+
+  } catch (error: any) {
+    console.error("Error accepting new warehouse inventory:", error);
+    return {
+      success: false,
+      error: `Failed to accept new warehouse inventory: ${error.message || "Unknown error"}`
     };
   }
 }
