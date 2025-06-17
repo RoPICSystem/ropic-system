@@ -4,53 +4,107 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { addToast, Button, Chip } from '@heroui/react';
 import { createClient } from '@/utils/supabase/client';
-import { getUserProfile } from '@/utils/supabase/server/user';
+import { getUserFromCookies } from '@/utils/supabase/server/user';
 import { Icon } from '@iconify-icon/react/dist/iconify.mjs';
 import { formatDistanceToNow } from "date-fns";
 import { markNotificationAsRead } from "../app/home/notifications/actions";
 
-const getNotificationIcon = (type: string, action: string) => {
-  switch (type) {
-    case 'inventory':
-      return action === 'create' ? 'fluent:box-checkmark-24-filled' :
-        action === 'update' ? 'fluent:box-24-filled' :
-          'fluent:box-dismiss-24-filled';
-    case 'warehouse':
-      return action === 'create' ? 'material-symbols:warehouse-rounded' :
-        action === 'update' ? 'material-symbols:warehouse-rounded' :
-          'material-symbols:warehouse-rounded';
-    case 'profile':
-      return action === 'create' ? 'fluent:person-add-24-filled' :
-        action === 'update' ? 'fluent:person-24-filled' :
-          'fluent:person-delete-24-filled';
-    case 'company':
-      return action === 'create' ? 'fa6-solid:building-circle-check' :
-        action === 'update' ? 'fa6-solid:building' :
-          'fa6-solid:building-circle-xmark';
-    case 'delivery':
-      return action === 'create' ? 'mdi:truck-plus' :
-        action === 'update' ? 'mdi:truck' :
-          'mdi:truck-remove';
-    default:
-      return 'mdi:bell';
-  }
-};
-
-// Define notification types based on our database schema
+// Updated notification interface to match current schema
 interface Notification {
   id: string;
-  type: 'inventory' | 'warehouse' | 'profile' | 'company' | 'delivery';
-  action: 'create' | 'update' | 'delete';
+  type: 'reorder_point_logs' | 'warehouses' | 'warehouse_inventory_items' | 'warehouse_inventory' | 'profiles' | 'inventory_items' | 'inventory' | 'delivery_items' | 'companies';
+  action: 'create' | 'update' | 'delete' | 'status_change';
   entity_id: string;
   entity_name: string;
   details: Record<string, any>;
   read: boolean;
   created_at: string;
   company_uuid: string;
-  user_uuid: string; // The user who performed the action
+  user_uuid: string;
   user_name: string;
   is_admin_only: boolean;
+  user_profile?: {
+    full_name: string;
+    email: string;
+    name: any;
+    profile_image?: string;
+  };
+  entity_data?: any;
 }
+
+interface AdminUser {
+  uuid: string;
+  company_uuid: string;
+  is_admin: boolean;
+  email: string;
+  full_name: string;
+}
+
+const getNotificationIcon = (type: string, action: string) => {
+  switch (type) {
+    case 'inventory':
+    case 'inventory_items':
+      return action === 'create' ? 'fluent:box-checkmark-24-filled' :
+        action === 'update' ? 'fluent:box-24-filled' :
+          'fluent:box-dismiss-24-filled';
+    case 'warehouses':
+    case 'warehouse_inventory':
+    case 'warehouse_inventory_items':
+      return action === 'create' ? 'material-symbols:warehouse-rounded' :
+        action === 'update' ? 'material-symbols:warehouse-rounded' :
+          'material-symbols:warehouse-rounded';
+    case 'profiles':
+      return action === 'create' ? 'fluent:person-add-24-filled' :
+        action === 'update' ? 'fluent:person-24-filled' :
+          'fluent:person-delete-24-filled';
+    case 'companies':
+      return action === 'create' ? 'fa6-solid:building-circle-check' :
+        action === 'update' ? 'fa6-solid:building' :
+          'fa6-solid:building-circle-xmark';
+    case 'delivery_items':
+      return action === 'create' ? 'mdi:truck-plus' :
+        action === 'update' ? 'mdi:truck' :
+          'mdi:truck-remove';
+    case 'reorder_point_logs':
+      return 'mdi:alert-circle';
+    default:
+      return 'mdi:bell';
+  }
+};
+
+const getNotificationColor = (type: string, isAdminOnly: boolean) => {
+  if (isAdminOnly) return 'warning';
+
+  switch (type) {
+    case 'inventory':
+    case 'inventory_items':
+      return 'primary';
+    case 'warehouses':
+    case 'warehouse_inventory':
+    case 'warehouse_inventory_items':
+      return 'success';
+    case 'profiles':
+      return 'secondary';
+    case 'companies':
+      return 'warning';
+    case 'delivery_items':
+      return 'danger';
+    case 'reorder_point_logs':
+      return 'danger';
+    default:
+      return 'default';
+  }
+};
+
+const getActionVerb = (action: string) => {
+  switch (action) {
+    case 'create': return 'created';
+    case 'update': return 'updated';
+    case 'delete': return 'deleted';
+    case 'status_change': return 'changed status of';
+    default: return 'modified';
+  }
+};
 
 const getNotificationDetails = (notification: Notification) => {
   const { type, action, entity_name, details, user_name, is_admin_only } = notification;
@@ -67,6 +121,9 @@ const getNotificationDetails = (notification: Notification) => {
   if (details) {
     switch (type) {
       case 'inventory':
+      case 'inventory_items':
+      case 'warehouse_inventory':
+      case 'warehouse_inventory_items':
         if (details.quantity) {
           message += ` (${details.quantity} ${details.unit || 'units'})`;
         }
@@ -77,7 +134,7 @@ const getNotificationDetails = (notification: Notification) => {
           message += ` - Status: ${details.status}`;
         }
         break;
-      case 'delivery':
+      case 'delivery_items':
         if (details.status) {
           message += ` - Status: ${details.status}`;
         }
@@ -91,12 +148,12 @@ const getNotificationDetails = (notification: Notification) => {
           message += ` to ${details.recipient_name}`;
         }
         break;
-      case 'warehouse':
+      case 'warehouses':
         if (details.address?.city) {
           message += ` in ${details.address.city}`;
         }
         break;
-      case 'profile':
+      case 'profiles':
         if (details.is_admin !== undefined) {
           message += details.is_admin ? ` (Admin)` : ` (User)`;
         }
@@ -104,9 +161,14 @@ const getNotificationDetails = (notification: Notification) => {
           message += ` - ${details.email}`;
         }
         break;
-      case 'company':
+      case 'companies':
         if (details.address?.city) {
           message += ` in ${details.address.city}`;
+        }
+        break;
+      case 'reorder_point_logs':
+        if (details.current_stock && details.reorder_point) {
+          message += ` (Stock: ${details.current_stock}, Reorder at: ${details.reorder_point})`;
         }
         break;
     }
@@ -115,32 +177,9 @@ const getNotificationDetails = (notification: Notification) => {
   return message;
 };
 
-const getNotificationColor = (type: string, isAdminOnly: boolean) => {
-  if (isAdminOnly) return 'warning';
-
-  switch (type) {
-    case 'inventory': return 'primary';
-    case 'warehouse': return 'success';
-    case 'profile': return 'secondary';
-    case 'company': return 'warning';
-    case 'delivery': return 'danger';
-    default: return 'default';
-  }
-};
-
-const getActionVerb = (action: string) => {
-  switch (action) {
-    case 'create': return 'created';
-    case 'update': return 'updated';
-    case 'delete': return 'deleted';
-    default: return 'modified';
-  }
-};
-
 export default function NotificationListener() {
   const router = useRouter();
-  const [userProfile, setUserProfile] = useState<{ uuid: string, company_uuid: string, is_admin: boolean } | null>(null);
-
+  const [userProfile, setUserProfile] = useState<AdminUser | null>(null);
 
   const handleMarkAsRead = async (id: string) => {
     if (!userProfile?.uuid) return;
@@ -156,12 +195,12 @@ export default function NotificationListener() {
     // Get user profile on mount
     const fetchUserProfile = async () => {
       try {
-        const { data, error } = await getUserProfile();
-        if (error || !data) {
-          console.error("Error fetching user profile:", error);
+        const userData = await getUserFromCookies();
+        if (!userData) {
+          console.error("No user data found");
           return;
         }
-        setUserProfile(data);
+        setUserProfile(userData);
       } catch (error) {
         console.error("Error fetching user profile:", error);
       }
@@ -238,16 +277,25 @@ export default function NotificationListener() {
                       const entityId = notification.entity_id;
                       switch (notification.type) {
                         case 'inventory':
+                        case 'inventory_items':
                           router.push(`/home/inventory?itemId=${entityId}`);
                           break;
-                        case 'delivery':
+                        case 'delivery_items':
                           router.push(`/home/delivery?deliveryId=${entityId}`);
                           break;
-                        case 'warehouse':
+                        case 'warehouses':
+                        case 'warehouse_inventory':
+                        case 'warehouse_inventory_items':
                           router.push(`/home/warehouses?warehouseId=${entityId}`);
                           break;
-                        case 'company':
-                          router.push(`/home/company`);
+                        case 'profiles':
+                          router.push(`/home/users?userId=${entityId}`);
+                          break;
+                        case 'companies':
+                          router.push(`/home/companies?companyId=${entityId}`);
+                          break;
+                        case 'reorder_point_logs':
+                          router.push(`/home/inventory?itemId=${entityId}`);
                           break;
                       }
                     }}

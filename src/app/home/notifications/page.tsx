@@ -67,8 +67,6 @@ export default function NotificationsPage() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [filteredNotifications, setFilteredNotifications] = useState<Notification[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [stats, setStats] = useState<any>({});
-  const [unreadCount, setUnreadCount] = useState(0);
 
   // Filter and pagination state
   const [selectedTab, setSelectedTab] = useState<string>("all");
@@ -77,59 +75,8 @@ export default function NotificationsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [totalPages, setTotalPages] = useState(1);
   const [showAdminOnly, setShowAdminOnly] = useState(false);
-  const [showUnreadOnly, setShowUnreadOnly] = useState(false);
 
-  // Type mappings for the new schema
-  const typeIcons = {
-    reorder_point_logs: "mdi:alert-circle",
-    warehouses: "mdi:warehouse",
-    warehouse_inventory_items: "mdi:package-variant",
-    warehouse_inventory: "mdi:archive",
-    profiles: "mdi:account",
-    inventory_items: "mdi:package",
-    inventory: "mdi:archive-outline",
-    delivery_items: "mdi:truck",
-    companies: "mdi:domain"
-  };
-
-  const typeLabels = {
-    reorder_point_logs: "Reorder Alerts",
-    warehouses: "Warehouses", 
-    warehouse_inventory_items: "Warehouse Items",
-    warehouse_inventory: "Warehouse Groups",
-    profiles: "User Profiles",
-    inventory_items: "Inventory Items", 
-    inventory: "Inventory Groups",
-    delivery_items: "Deliveries",
-    companies: "Company"
-  };
-
-  const actionLabels = {
-    create: "Created",
-    update: "Updated",
-    delete: "Deleted", 
-    status_change: "Status Changed"
-  };
-
-  // Tab mapping to notification types
-  const getTabTypes = (tab: string) => {
-    switch (tab) {
-      case "inventory":
-        return ['inventory', 'inventory_items'];
-      case "warehouse":
-        return ['warehouses', 'warehouse_inventory', 'warehouse_inventory_items', 'reorder_point_logs'];
-      case "delivery":
-        return ['delivery_items'];
-      case "profile":
-        return ['profiles'];
-      case "company":
-        return ['companies'];
-      default:
-        return undefined;
-    }
-  };
-
-  // Real-time updates and initialization
+  // Real-time updates
   useEffect(() => {
     const supabase = createClient();
 
@@ -142,14 +89,24 @@ export default function NotificationsPage() {
         }
 
         setUser(userData);
-        await Promise.all([
-          fetchNotifications(userData),
-          fetchStats(userData),
-          fetchUnreadCount(userData)
-        ]);
+
+        // Fetch initial notifications
+        const result = await getNotifications({
+          companyUuid: userData.company_uuid,
+          type: selectedTab === "all" ? undefined : getTabType(selectedTab),
+          read: undefined,
+          search: undefined,
+          limit: itemsPerPage,
+          offset: (page - 1) * itemsPerPage
+        });
+
+        if (result.data) {
+          setNotifications(result.data);
+          setFilteredNotifications(result.data);
+          setTotalPages(Math.ceil(result.data.length / itemsPerPage));
+        }
       } catch (error) {
         console.error("Error initializing notifications page:", error);
-        setError("Failed to load notifications");
       } finally {
         setLoading(false);
       }
@@ -158,103 +115,97 @@ export default function NotificationsPage() {
     initPage();
 
     // Set up real-time subscription for new notifications
-    const channel = supabase
-      .channel('notifications-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public', 
-          table: 'notifications'
-        },
-        async (payload) => {
-          if (user) {
-            await Promise.all([
-              fetchNotifications(user),
-              fetchStats(user),
-              fetchUnreadCount(user)
-            ]);
+    if (user?.company_uuid) {
+      const channel = supabase
+        .channel('notifications-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'notifications',
+            filter: `company_uuid=eq.${user.company_uuid}`
+          },
+          async () => {
+            // Refresh notifications when changes occur
+            const refreshResult = await getNotifications({
+              companyUuid: user.company_uuid,
+              type: selectedTab === "all" ? undefined : getTabType(selectedTab),
+              read: undefined,
+              search: undefined,
+              limit: itemsPerPage,
+              offset: (page - 1) * itemsPerPage
+            });
+
+            if (refreshResult.data) {
+              setNotifications(refreshResult.data);
+              applyFilters(refreshResult.data);
+              setTotalPages(Math.ceil(refreshResult.data.length / itemsPerPage));
+            }
           }
-        }
-      )
-      .subscribe();
+        )
+        .subscribe();
 
-    // Cleanup function
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
-
-  // Fetch functions
-  const fetchNotifications = async (userData: AdminUser) => {
-    try {
-      const tabTypes = getTabTypes(selectedTab);
-      const result = await getNotifications({
-        companyUuid: userData.company_uuid,
-        type: tabTypes ? tabTypes[0] as any : undefined, // For now, use first type
-        read: showUnreadOnly ? false : undefined,
-        search: searchQuery || undefined,
-        limit: itemsPerPage,
-        offset: (page - 1) * itemsPerPage
-      });
-
-      if (result.error) {
-        setError(result.error);
-      } else {
-        setNotifications(result.data || []);
-        applyFilters(result.data || []);
-        // Note: You'll need to add total count to the getNotifications response
-        setTotalPages(Math.ceil((result.data?.length || 0) / itemsPerPage));
-      }
-    } catch (err) {
-      setError("Failed to fetch notifications");
-      console.error(err);
+      // Cleanup function
+      return () => {
+        supabase.removeChannel(channel);
+      };
     }
-  };
+  }, [user?.company_uuid, page, itemsPerPage, selectedTab]);
 
-  const fetchStats = async (userData: AdminUser) => {
-    try {
-      const result = await getNotificationStats(userData.company_uuid, userData.is_admin);
-      if (result.data) {
-        setStats(result.data);
-      }
-    } catch (err) {
-      console.error("Failed to fetch stats:", err);
-    }
-  };
-
-  const fetchUnreadCount = async (userData: AdminUser) => {
-    try {
-      const result = await countUnreadNotifications(
-        userData.company_uuid,
-        userData.uuid,
-        userData.is_admin
-      );
-      if (result.count !== undefined) {
-        setUnreadCount(result.count);
-      }
-    } catch (err) {
-      console.error("Failed to fetch unread count:", err);
-    }
-  };
-
-  // Reload when tab, page, or filters change
+  // Reload when tab changes
   useEffect(() => {
     if (user) {
-      setLoading(true);
-      fetchNotifications(user);
+      const fetchNotifications = async () => {
+        setLoading(true);
+        const result = await getNotifications({
+          companyUuid: user.company_uuid,
+          type: selectedTab === "all" ? undefined : getTabType(selectedTab),
+          read: undefined,
+          search: undefined,
+          limit: itemsPerPage,
+          offset: 0 // Reset to first page when changing tabs
+        });
+
+        if (result.data) {
+          setNotifications(result.data);
+          applyFilters(result.data);
+          setTotalPages(Math.ceil(result.data.length / itemsPerPage));
+          setPage(1); // Reset page number
+        }
+        setLoading(false);
+      };
+
+      fetchNotifications();
     }
-  }, [selectedTab, page, showUnreadOnly]);
+  }, [selectedTab]);
 
   // Apply filters when search changes
   useEffect(() => {
     applyFilters(notifications);
   }, [searchQuery, showAdminOnly, notifications]);
 
+  const getTabType = (tab: string) => {
+    switch (tab) {
+      case "inventory":
+        return 'inventory';
+      case "warehouse": 
+        return 'warehouses';
+      case "delivery":
+        return 'delivery_items';
+      case "profile":
+        return 'profiles';
+      case "company":
+        return 'companies';
+      default:
+        return undefined;
+    }
+  };
+
   const applyFilters = (allNotifications: Notification[]) => {
     let filtered = [...allNotifications];
 
-    // Apply search filter
+    // Apply search filter if there's a query
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(notif =>
@@ -262,23 +213,16 @@ export default function NotificationsPage() {
         notif.user_name.toLowerCase().includes(query) ||
         notif.type.toLowerCase().includes(query) ||
         notif.action.toLowerCase().includes(query) ||
-        JSON.stringify(notif.details).toLowerCase().includes(query)
+        notif.details?.status?.toLowerCase().includes(query) ||
+        notif.details?.location_code?.toLowerCase().includes(query) ||
+        notif.details?.recipient_name?.toLowerCase().includes(query) ||
+        notif.details?.item_code?.toLowerCase().includes(query)
       );
     }
 
-    // Filter admin-only notifications based on user role and toggle
+    // Filter user-only notifications if option is selected
     if (showAdminOnly && user?.is_admin) {
       filtered = filtered.filter(notif => notif.is_admin_only);
-    } else if (!user?.is_admin) {
-      filtered = filtered.filter(notif => !notif.is_admin_only);
-    }
-
-    // Filter by tab type
-    if (selectedTab !== "all") {
-      const tabTypes = getTabTypes(selectedTab);
-      if (tabTypes) {
-        filtered = filtered.filter(notif => tabTypes.includes(notif.type));
-      }
     }
 
     setFilteredNotifications(filtered);
@@ -289,18 +233,13 @@ export default function NotificationsPage() {
 
     try {
       await markNotificationAsRead(id, user.uuid);
-      
+
       // Update local state
       setNotifications(prev =>
         prev.map(notif =>
           notif.id === id ? { ...notif, read: true } : notif
         )
       );
-      
-      // Update unread count
-      if (user) {
-        fetchUnreadCount(user);
-      }
     } catch (error) {
       console.error("Error marking notification as read:", error);
     }
@@ -324,51 +263,41 @@ export default function NotificationsPage() {
           unreadIds.includes(notif.id) ? { ...notif, read: true } : notif
         )
       );
-
-      // Update unread count
-      fetchUnreadCount(user);
     } catch (error) {
       console.error("Error marking all notifications as read:", error);
     }
   };
 
-  const handleCleanupOld = async () => {
-    if (!user?.company_uuid) return;
-
-    try {
-      await deleteOldNotifications(user.company_uuid, 30);
-      if (user) {
-        await Promise.all([
-          fetchNotifications(user),
-          fetchStats(user)
-        ]);
-      }
-    } catch (error) {
-      console.error("Error cleaning up old notifications:", error);
+  const getNotificationIcon = (type: string, action: string) => {
+    switch (type) {
+      case 'inventory':
+      case 'inventory_items':
+        return action === 'create' ? 'fluent:box-checkmark-24-filled' :
+          action === 'update' ? 'fluent:box-24-filled' :
+            'fluent:box-dismiss-24-filled';
+      case 'warehouses':
+      case 'warehouse_inventory':
+      case 'warehouse_inventory_items':
+        return action === 'create' ? 'material-symbols:warehouse-rounded' :
+          action === 'update' ? 'material-symbols:warehouse-rounded' :
+            'material-symbols:warehouse-rounded';
+      case 'profiles':
+        return action === 'create' ? 'fluent:person-add-24-filled' :
+          action === 'update' ? 'fluent:person-24-filled' :
+            'fluent:person-delete-24-filled';
+      case 'companies':
+        return action === 'create' ? 'fa6-solid:building-circle-check' :
+          action === 'update' ? 'fa6-solid:building' :
+            'fa6-solid:building-circle-xmark';
+      case 'delivery_items':
+        return action === 'create' ? 'mdi:truck-plus' :
+          action === 'update' ? 'mdi:truck' :
+            'mdi:truck-remove';
+      case 'reorder_point_logs':
+        return 'mdi:alert-circle';
+      default:
+        return 'mdi:bell';
     }
-  };
-
-  const getNotificationIcon = (notification: Notification) => {
-    const iconName = typeIcons[notification.type] || "mdi:bell";
-    
-    let className = "text-lg ";
-    if (notification.action === 'status_change') {
-      if (notification.details?.status === 'CRITICAL' || notification.details?.new_status === 'CRITICAL') {
-        className += "text-danger";
-      } else if (notification.details?.status === 'WARNING' || notification.details?.new_status === 'WARNING') {
-        className += "text-warning";
-      } else {
-        className += "text-primary";
-      }
-    } else if (notification.action === 'create') {
-      className += "text-success";
-    } else if (notification.action === 'delete') {
-      className += "text-danger";
-    } else {
-      className += "text-primary";
-    }
-    
-    return <Icon icon={iconName} className={className} />;
   };
 
   const getNotificationColor = (type: string, isAdminOnly: boolean) => {
@@ -379,7 +308,7 @@ export default function NotificationsPage() {
       case 'inventory_items':
         return 'primary';
       case 'warehouses':
-      case 'warehouse_inventory': 
+      case 'warehouse_inventory':
       case 'warehouse_inventory_items':
         return 'success';
       case 'profiles':
@@ -395,63 +324,86 @@ export default function NotificationsPage() {
     }
   };
 
-  const getNotificationMessage = (notification: Notification) => {
-    const action = actionLabels[notification.action];
-    const type = typeLabels[notification.type];
-    
-    if (notification.action === 'status_change') {
-      const oldStatus = notification.details?.old_status;
-      const newStatus = notification.details?.new_status || notification.details?.status;
-      return `${notification.entity_name} status changed${oldStatus ? ` from ${oldStatus}` : ''} to ${newStatus}`;
-    }
-    
-    return `${action} ${type.toLowerCase()}: ${notification.entity_name}`;
-  };
-
-  const getAdditionalDetails = (notification: Notification) => {
-    const { details, type } = notification;
-    if (!details) return null;
-
-    switch (type) {
-      case 'reorder_point_logs':
-        return (
-          <div className="text-sm text-default-500 mt-1">
-            Current stock: {details.current_stock} | Reorder point: {details.reorder_point}
-          </div>
-        );
-      case 'inventory_items':
-      case 'warehouse_inventory_items':
-        return (
-          <div className="text-sm text-default-500 mt-1">
-            {details.unit_value && `Value: ${details.unit_value} ${details.unit}`}
-            {details.cost && ` | Cost: $${details.cost}`}
-          </div>
-        );
-      case 'delivery_items':
-        return (
-          <div className="text-sm text-default-500 mt-1">
-            {details.delivery_address && `To: ${details.delivery_address}`}
-            {details.delivery_date && ` | Date: ${new Date(details.delivery_date).toLocaleDateString()}`}
-          </div>
-        );
-      default:
-        return null;
+  const getActionVerb = (action: string) => {
+    switch (action) {
+      case 'create': return 'created';
+      case 'update': return 'updated';
+      case 'delete': return 'deleted';
+      case 'status_change': return 'changed status of';
+      default: return 'modified';
     }
   };
 
-  if (loading) {
-    return (
-      <motion.div {...motionTransition}>
-        <div className="container mx-auto p-2 max-w-5xl">
-          <div className="space-y-4">
-            {[...Array(5)].map((_, i) => (
-              <Skeleton key={i} className="w-full h-24 rounded-xl" />
-            ))}
-          </div>
-        </div>
-      </motion.div>
-    );
-  }
+  const getNotificationDetails = (notification: Notification) => {
+    const { type, action, entity_name, details, user_name, is_admin_only } = notification;
+    const actionVerb = getActionVerb(action);
+
+    // Base message
+    let message = `${user_name} ${actionVerb} ${type} "${entity_name}"`;
+
+    if (is_admin_only) {
+      message = `[ADMIN] ${message}`;
+    }
+
+    // Additional details based on type
+    if (details) {
+      switch (type) {
+        case 'inventory':
+        case 'inventory_items':
+        case 'warehouse_inventory':
+        case 'warehouse_inventory_items':
+          if (details.quantity) {
+            message += ` (${details.quantity} ${details.unit || 'units'})`;
+          }
+          if (details.location_code) {
+            message += ` at location ${details.location_code}`;
+          }
+          if (details.status) {
+            message += ` - Status: ${details.status}`;
+          }
+          break;
+        case 'delivery_items':
+          if (details.status) {
+            message += ` - Status: ${details.status}`;
+          }
+          if (details.quantity) {
+            message += ` (${details.quantity} units)`;
+          }
+          if (details.delivery_date) {
+            message += ` for ${new Date(details.delivery_date).toLocaleDateString()}`;
+          }
+          if (details.recipient_name) {
+            message += ` to ${details.recipient_name}`;
+          }
+          break;
+        case 'warehouses':
+          if (details.address?.city) {
+            message += ` in ${details.address.city}`;
+          }
+          break;
+        case 'profiles':
+          if (details.is_admin !== undefined) {
+            message += details.is_admin ? ` (Admin)` : ` (User)`;
+          }
+          if (details.email) {
+            message += ` - ${details.email}`;
+          }
+          break;
+        case 'companies':
+          if (details.address?.city) {
+            message += ` in ${details.address.city}`;
+          }
+          break;
+        case 'reorder_point_logs':
+          if (details.current_stock && details.reorder_point) {
+            message += ` (Stock: ${details.current_stock}, Reorder at: ${details.reorder_point})`;
+          }
+          break;
+      }
+    }
+
+    return message;
+  };
 
   return (
     <motion.div {...motionTransition}>
@@ -459,36 +411,49 @@ export default function NotificationsPage() {
         <div className="flex justify-between items-center mb-6 flex-col xl:flex-row w-full">
           <div className="flex flex-col w-full xl:text-left text-center">
             <h1 className="text-2xl font-bold">Notifications</h1>
-            <div className="flex items-center gap-4 text-default-500">
-              <p>Track changes across your system</p>
-              {unreadCount > 0 && (
-                <Chip color="danger" size="sm">
-                  {unreadCount} unread
-                </Chip>
-              )}
-            </div>
+            {loading ? (
+              <div className="text-default-500 flex xl:justify-start justify-center items-center">
+                <p className='my-auto mr-1'>Loading notification data</p>
+                <Spinner className="inline-block scale-75 translate-y-[0.125rem]" size="sm" variant="dots" color="default" />
+              </div>
+            ) : (
+              <p className="text-default-500">Track changes across your system</p>
+            )}
           </div>
-          
-          <div className="flex gap-4 xl:mt-0 mt-4">
+          <div className="flex gap-4 xl:mt-0 mt-4 text-center">
             {user?.is_admin && (
               <Button
-                color="secondary"
-                variant="flat"
+                color="danger"
+                variant="shadow"
                 onPress={() => setShowAdminOnly(!showAdminOnly)}
               >
-                <Icon icon={showAdminOnly ? "mdi:eye" : "mdi:shield-account"} />
-                {showAdminOnly ? "Show All" : "Admin Only"}
+                <div className="w-32">
+                  <AnimatePresence>
+                    {showAdminOnly ? (
+                      <motion.div
+                        {...motionTransition}
+                        key="show-user-only"
+                      >
+                        <div className="w-32 flex items-center gap-2 justify-center">
+                          Show all
+                          <Icon icon={showAdminOnly ? "mdi:eye" : "mdi:eye-off"} width={18} />
+                        </div>
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        {...motionTransition}
+                        key="hide-user-only"
+                      >
+                        <div className="w-32 flex items-center gap-2 justify-center">
+                          Admin only
+                          <Icon icon={showAdminOnly ? "mdi:eye" : "mdi:eye-off"} width={18} />
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               </Button>
             )}
-            
-            <Button
-              color="primary"
-              variant="flat"
-              onPress={() => setShowUnreadOnly(!showUnreadOnly)}
-            >
-              <Icon icon={showUnreadOnly ? "mdi:email-open" : "mdi:email"} />
-              {showUnreadOnly ? "Show All" : "Unread Only"}
-            </Button>
 
             <Button
               color="primary"
@@ -496,44 +461,11 @@ export default function NotificationsPage() {
               onPress={handleMarkAllAsRead}
               isDisabled={!filteredNotifications.some(n => !n.read)}
             >
-              <Icon icon="mdi:check-all" />
-              Mark All Read
+              <Icon icon="mdi:check-all" className="mr-2" />
+              Mark all as read
             </Button>
-
-            {user?.is_admin && (
-              <Button
-                color="danger"
-                variant="flat"
-                onPress={handleCleanupOld}
-              >
-                <Icon icon="mdi:delete-sweep" />
-                Cleanup Old
-              </Button>
-            )}
           </div>
         </div>
-
-        {/* Stats Overview */}
-        {Object.keys(stats).length > 0 && (
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
-            {Object.entries(stats).map(([type, data]: [string, any]) => (
-              <Card key={type} className="p-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <Icon icon={typeIcons[type as keyof typeof typeIcons] || "mdi:bell"} className="text-lg" />
-                  <span className="text-sm font-medium">
-                    {typeLabels[type as keyof typeof typeLabels]}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-lg font-bold">{data.total}</span>
-                  {data.unread > 0 && (
-                    <Chip color="danger" size="sm">{data.unread}</Chip>
-                  )}
-                </div>
-              </Card>
-            ))}
-          </div>
-        )}
 
         <CardList className="bg-background flex flex-col">
           <div>
@@ -567,28 +499,36 @@ export default function NotificationsPage() {
                   <Tab key="profile" title="Users" />
                   <Tab key="company" title="Companies" />
                 </Tabs>
+
               </div>
             </div>
 
             {/* Scrollable content */}
             <div className="flex-1 overflow-y-auto">
-              <div className="p-4">
+              <div className="p-4 overflow-hidden">
+
                 <AnimatePresence>
                   {loading && (
-                    <motion.div {...motionTransition}>
-                      <div className="space-y-4">
+                    <motion.div
+                      {...motionTransition}>
+                      <div className="space-y-4 h-full relative">
                         {[...Array(10)].map((_, i) => (
-                          <Skeleton key={i} className="w-full h-24 rounded-xl" />
+                          <Skeleton key={i} className="w-full min-h-28 rounded-xl" />
                         ))}
+                        <div className="absolute bottom-0 left-0 right-0 h-full bg-gradient-to-t from-background to-transparent pointer-events-none" />
+                        <div className="py-4 flex absolute mt-16 left-[50%] top-[50%] translate-x-[-50%] translate-y-[-50%]">
+                          <Spinner />
+                        </div>
                       </div>
                     </motion.div>
                   )}
                 </AnimatePresence>
-
                 <AnimatePresence>
                   {!loading && filteredNotifications.length === 0 && (
-                    <motion.div {...motionTransition}>
-                      <div className="flex flex-col items-center justify-center h-[300px]">
+                    <motion.div
+                      {...motionTransition}
+                    >
+                      <div className="flex flex-col items-center justify-center h-[300px] p-32">
                         <Icon icon="mdi:bell-off" className="text-5xl text-default-300" />
                         <p className="mt-4 text-default-500">No notifications found</p>
                       </div>
@@ -598,70 +538,95 @@ export default function NotificationsPage() {
 
                 <AnimatePresence>
                   {!loading && filteredNotifications.length > 0 && (
-                    <motion.div {...motionTransition}>
+                    <motion.div
+                      {...motionTransition}>
                       <div className="space-y-4">
                         {filteredNotifications.map((notification) => (
                           <Card
                             key={notification.id}
-                            className={`${notification.read ? 'bg-default-50' : 'bg-default-100'} overflow-hidden ${notification.is_admin_only ? 'border-2 border-warning' : ''}`}
+                            className={`${notification.read ? 'bg-default-50' : 'bg-default-100'} overflow-hidden ${notification.is_admin_only ? 'border border-warning' : ''}`}
                           >
                             <CardBody>
                               <div className="flex items-start gap-4">
-                                <div className={`p-3 rounded-full flex-shrink-0 bg-${getNotificationColor(notification.type, notification.is_admin_only)}-100`}>
-                                  {getNotificationIcon(notification)}
+                                <div className={`p-3 rounded-full h-12 w-12 bg-${getNotificationColor(notification.type, notification.is_admin_only)}-100 text-${getNotificationColor(notification.type, notification.is_admin_only)}-500`}>
+                                  <Icon
+                                    icon={getNotificationIcon(notification.type, notification.action)}
+                                    width={24}
+                                    height={24}
+                                  />
                                 </div>
 
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start">
-                                    <div className="flex-1">
-                                      <div className="flex items-center gap-2 mb-1">
-                                        <span className="font-medium text-lg">
-                                          {typeLabels[notification.type]}
-                                        </span>
-                                        <Chip
-                                          color={getNotificationColor(notification.type, notification.is_admin_only)}
-                                          size="sm"
-                                          variant="flat"
-                                        >
-                                          {actionLabels[notification.action]}
-                                        </Chip>
-                                        {notification.is_admin_only && (
-                                          <Chip color="warning" size="sm" variant="flat">
-                                            Admin Only
-                                          </Chip>
-                                        )}
-                                        {!notification.read && (
-                                          <Chip color="primary" size="sm" variant="dot">
-                                            New
-                                          </Chip>
-                                        )}
-                                      </div>
+                                <div className="flex-1">
+                                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center">
+                                    <div className="font-medium text-lg flex items-center gap-2">
+                                      {notification.type.charAt(0).toUpperCase() + notification.type.slice(1)} {notification.action}
 
-                                      <p className="text-default-600">
-                                        {getNotificationMessage(notification)}
-                                      </p>
-
-                                      {getAdditionalDetails(notification)}
-
-                                      <div className="flex items-center gap-4 mt-2 text-sm text-default-500">
-                                        <span>By {notification.user_name || 'System'}</span>
-                                        <span>{formatDistanceToNow(new Date(notification.created_at), { addSuffix: true })}</span>
-                                      </div>
-                                    </div>
-
-                                    <div className="flex items-center gap-2 mt-2 sm:mt-0">
-                                      {!notification.read && (
-                                        <Button
-                                          size="sm"
-                                          variant="flat"
-                                          color="primary"
-                                          onPress={() => handleMarkAsRead(notification.id)}
-                                        >
-                                          <Icon icon="mdi:check" />
-                                          Mark Read
-                                        </Button>
+                                      {notification.is_admin_only && (
+                                        <Chip color="warning" variant="flat">Admin Only</Chip>
                                       )}
                                     </div>
+
+                                    <div className="flex items-center gap-2 text-sm text-default-500">
+                                      <span>{formatDistanceToNow(new Date(notification.created_at), { addSuffix: true })}</span>
+
+                                      {!notification.read && (
+                                        <Chip
+                                          color="primary"
+                                          size="sm"
+                                          variant="flat"
+                                        >
+                                          New
+                                        </Chip>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <p className="mt-1">
+                                    {getNotificationDetails(notification)}
+                                  </p>
+
+                                  <div className="flex justify-end mt-2">
+                                    {!notification.read && (
+                                      <Button
+                                        size="sm"
+                                        variant="light"
+                                        color="primary"
+                                        onPress={() => handleMarkAsRead(notification.id)}
+                                      >
+                                        Mark as read
+                                      </Button>
+                                    )}
+
+                                    <Button
+                                      size="sm"
+                                      variant="light"
+                                      onPress={() => {
+                                        // Navigate to the relevant page based on notification type
+                                        const entityId = notification.entity_id;
+                                        switch (notification.type) {
+                                          case 'inventory':
+                                          case 'inventory_items':
+                                            window.location.href = `/home/inventory?itemId=${entityId}`;
+                                            break;
+                                          case 'delivery_items':
+                                            window.location.href = `/home/delivery?deliveryId=${entityId}`;
+                                            break;
+                                          case 'warehouses':
+                                          case 'warehouse_inventory':
+                                          case 'warehouse_inventory_items':
+                                            window.location.href = `/home/warehouses?warehouseId=${entityId}`;
+                                            break;
+                                          case 'profiles':
+                                            window.location.href = `/home/users?userId=${entityId}`;
+                                            break;
+                                          case 'companies':
+                                            window.location.href = `/home/companies?companyId=${entityId}`;
+                                            break;
+                                        }
+                                      }}
+                                    >
+                                      View details
+                                    </Button>
                                   </div>
                                 </div>
                               </div>
@@ -673,6 +638,7 @@ export default function NotificationsPage() {
                           <div className="flex justify-center mt-6">
                             <Pagination
                               total={totalPages}
+                              initialPage={1}
                               page={page}
                               onChange={setPage}
                               classNames={{
@@ -685,9 +651,11 @@ export default function NotificationsPage() {
                     </motion.div>
                   )}
                 </AnimatePresence>
+
               </div>
             </div>
           </div>
+
         </CardList>
       </div>
     </motion.div>
