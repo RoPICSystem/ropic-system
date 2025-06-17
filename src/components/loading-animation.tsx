@@ -74,7 +74,7 @@ const LoadingAnimation: React.FC<LoadingAnimationProps> = ({
     <motion.div
       className="relative"
       animate={{ height }}
-      style={{ 
+      style={{
         willChange: 'transform, height',
         transform: 'translateZ(0)',
         backfaceVisibility: 'hidden',

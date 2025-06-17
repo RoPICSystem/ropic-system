@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Document, Page, Text, View, StyleSheet, pdf, Image } from '@react-pdf/renderer';
+import QRCode from 'qrcode';
 
 // Helper function to convert image URL to base64, with WebP to PNG conversion
 const convertImageToBase64 = async (url: string, cropToSquare: boolean = false): Promise<string | null> => {
@@ -99,10 +100,23 @@ const convertImageToBase64 = async (url: string, cropToSquare: boolean = false):
   }
 };
 
-// QR Code generation function
-const generateQRCodeURL = (text: string): string => {
-  const encodedText = encodeURIComponent(text);
-  return `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodedText}`;
+const generateQRCodeDataURL = async (text: string): Promise<string> => {
+  try {
+    const qrCodeDataURL = await QRCode.toDataURL(text, {
+      width: 300,
+      margin: 2,
+      color: {
+        dark: '#000000',
+        light: '#FFFFFF'
+      },
+      errorCorrectionLevel: 'M'
+    });
+    return qrCodeDataURL;
+  } catch (error) {
+    console.error('Error generating QR code:', error);
+    // Return a fallback QR code or placeholder
+    return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
+  }
 };
 
 // Define styles for the PDF
@@ -309,7 +323,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
     maxWidth: '100%',
-    lineHeight: 1.3,
+    lineHeight: 1.3
   },
   footer: {
     position: 'absolute',
@@ -400,7 +414,6 @@ const styles = StyleSheet.create({
   },
 });
 
-// Helper function to get status style - updated to match your theme colors
 const getStatusStyle = (status: string) => {
   const normalizedStatus = status?.toLowerCase() || '';
 
@@ -428,7 +441,6 @@ const getStatusStyle = (status: string) => {
   }
 };
 
-// Helper function to get priority style - updated to match your theme colors
 const getPriorityStyle = (priority: string) => {
   const normalizedPriority = priority?.toLowerCase() || '';
 
@@ -454,6 +466,7 @@ interface DeliveryQRPDFProps {
   companyLogoBase64?: string;
   ropicLogoBase64?: string;
   pageSize?: "A4" | "A3" | "LETTER" | "LEGAL";
+  qrCodeDataUrls?: { [key: string]: string };
 }
 
 // PDF Document Component
@@ -464,7 +477,8 @@ export const DeliveryQRPDF = ({
   dateGenerated,
   companyLogoBase64,
   ropicLogoBase64,
-  pageSize = "A4"
+  pageSize = "A4",
+  qrCodeDataUrls = {}
 }: DeliveryQRPDFProps) => (
   <Document>
     <Page size={pageSize} style={styles.page}>
@@ -538,8 +552,11 @@ export const DeliveryQRPDF = ({
 
         <View style={styles.deliveryGrid}>
           {deliveries.map((delivery, index) => {
+            const deliveryId = delivery.uuid || `DEL-${index + 1}`;
+            const qrCodeDataUrl = qrCodeDataUrls[deliveryId] || '';
+
             return (
-              <View key={delivery.uuid || index} style={styles.deliveryCard} wrap={false}>
+              <View key={deliveryId} style={styles.deliveryCard} wrap={false}>
                 <View style={styles.deliveryHeader}>
                   {/* Delivery name and status on same row */}
                   <View style={styles.deliveryTitleRow}>
@@ -553,7 +570,7 @@ export const DeliveryQRPDF = ({
 
                   {/* ID on separate row */}
                   <Text style={styles.deliveryId}>
-                    ID: {delivery.uuid || `DEL-${index + 1}`}
+                    ID: {deliveryId}
                   </Text>
                 </View>
 
@@ -614,11 +631,17 @@ export const DeliveryQRPDF = ({
                 {/* QR Code Section */}
                 <View style={styles.qrCodeContainer}>
                   <Text style={styles.qrCodeLabel}>Scan to Accept Delivery</Text>
-                  <Image
-                    style={styles.qrCodeImage}
-                    src={generateQRCodeURL(delivery.qrUrl || '')}
-                    cache={false}
-                  />
+                  {qrCodeDataUrl ? (
+                    <Image
+                      style={styles.qrCodeImage}
+                      src={qrCodeDataUrl}
+                      cache={false}
+                    />
+                  ) : (
+                    <View style={[styles.qrCodeImage, { backgroundColor: '#f0f0f0', alignItems: 'center', justifyContent: 'center' }]}>
+                      <Text style={{ fontSize: 8, color: '#666' }}>QR Code{'\n'}Not Available</Text>
+                    </View>
+                  )}
                   <Text style={styles.urlText}>
                     {(delivery.qrUrl || 'No URL available').replace('search?', 'search?\n')}
                   </Text>
@@ -671,6 +694,26 @@ export const generatePdfBlob = async (props: DeliveryQRPDFProps) => {
         console.log('Failed to convert company logo to base64, will use placeholder');
       }
     }
+
+    // Generate QR codes for all deliveries
+    const qrCodeDataUrls: { [key: string]: string } = {};
+    
+    for (const delivery of props.deliveries) {
+      const deliveryId = delivery.uuid || `DEL-${props.deliveries.indexOf(delivery) + 1}`;
+      const qrUrl = delivery.qrUrl || '';
+      
+      if (qrUrl) {
+        try {
+          const qrCodeDataUrl = await generateQRCodeDataURL(qrUrl);
+          qrCodeDataUrls[deliveryId] = qrCodeDataUrl;
+          console.log(`Generated QR code for delivery ${deliveryId}`);
+        } catch (error) {
+          console.error(`Failed to generate QR code for delivery ${deliveryId}:`, error);
+        }
+      }
+    }
+
+    updatedProps.qrCodeDataUrls = qrCodeDataUrls;
 
     return await pdf(<DeliveryQRPDF {...updatedProps} />).toBlob();
   } catch (error) {

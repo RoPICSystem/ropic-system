@@ -37,7 +37,7 @@ import { updateDeliveryItem, updateInventoryItemBulksStatus, createWarehouseInve
 import CardList from "@/components/card-list";
 import ListLoadingAnimation from "@/components/list-loading-animation";
 import { format, parseISO } from "date-fns";
-import { markWarehouseBulkAsUsed } from "../warehouse-items/actions";
+import { markWarehouseItemAsUsed } from "../warehouse-items/actions";
 import {
   getBulkUnitsDetails,
   getItemDetailsByUuid,
@@ -547,7 +547,7 @@ export default function SearchPage() {
 
     try {
       // Update the bulk status to USED
-      const result = await markWarehouseBulkAsUsed(bulkUuid);
+      const result = await markWarehouseItemAsUsed(bulkUuid);
 
       if (result.success) {
         setAutoMarkSuccess(true);
