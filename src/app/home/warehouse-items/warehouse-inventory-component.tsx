@@ -439,184 +439,180 @@ export function InventoryComponent({
   };
 
   // 3D Location functionality
-    // ...existing code...
-  
-    // 3D Location functionality
-    const handleViewBulkLocation = async (itemUuid: string | null, groupId?: string) => {
-      if (!formData?.warehouse_uuid) {
-        setError("No warehouse information available");
+  const handleViewBulkLocation = async (itemUuid: string | null, groupId?: string) => {
+    if (!formData?.warehouse_uuid) {
+      setError("No warehouse information available");
+      return;
+    }
+
+    try {
+      // Get warehouse information using the getOccupiedShelfLocations function which has warehouse data access
+      // First, let's create a helper function to get warehouse layout
+      const getWarehouseLayout = async (warehouseUuid: string) => {
+        try {
+          const supabase = createClient();
+          const { data: warehouseData, error: warehouseError } = await supabase
+            .from('warehouses')
+            .select('layout')
+            .eq('uuid', warehouseUuid)
+            .single();
+
+          if (warehouseError) {
+            throw warehouseError;
+          }
+
+          return warehouseData?.layout || [];
+        } catch (error) {
+          console.error("Error fetching warehouse layout:", error);
+          return [];
+        }
+      };
+
+      // Get warehouse layout directly from database instead of relying on props
+      const warehouseLayout = await getWarehouseLayout(formData.warehouse_uuid);
+
+      if (!warehouseLayout || warehouseLayout.length === 0) {
+        setError("Warehouse layout not configured");
         return;
       }
-  
-      try {
-        // Get warehouse information using the getOccupiedShelfLocations function which has warehouse data access
-        // First, let's create a helper function to get warehouse layout
-        const getWarehouseLayout = async (warehouseUuid: string) => {
-          try {
-            const supabase = createClient();
-            const { data: warehouseData, error: warehouseError } = await supabase
-              .from('warehouses')
-              .select('layout')
-              .eq('uuid', warehouseUuid)
-              .single();
-  
-            if (warehouseError) {
-              throw warehouseError;
-            }
-  
-            return warehouseData?.layout || [];
-          } catch (error) {
-            console.error("Error fetching warehouse layout:", error);
-            return [];
-          }
-        };
-  
-        // Get warehouse layout directly from database instead of relying on props
-        const warehouseLayout = await getWarehouseLayout(formData.warehouse_uuid);
-        
-        if (!warehouseLayout || warehouseLayout.length === 0) {
-          setError("Warehouse layout not configured");
-          return;
-        }
-  
-        setFloorConfigs(warehouseLayout);
-  
-        // Set up color assignments for current item(s)
-        const assignments: Array<ShelfSelectorColorAssignment> = [];
-        let navigationTarget: any = null;
-  
-        if (groupId) {
-          // Handle group selection - show group items as tertiary, rest as secondary
-          const groupItems = formData.items?.filter((item: any) => item.group_id === groupId) || [];
-          const otherItems = formData.items?.filter((item: any) => item.group_id !== groupId) || [];
-  
-          // Add group items as tertiary (highlighted)
-          groupItems.forEach((item: any) => {
-            if (item.location) {
-              assignments.push({
-                floor: item.location.floor,
-                group: item.location.group,
-                row: item.location.row,
-                column: item.location.column,
-                depth: item.location.depth,
-                colorType: 'tertiary'
-              });
-            }
-          });
-  
-          // Set navigation target to the first group item's location
-          if (groupItems.length > 0 && groupItems[0].location) {
-            navigationTarget = groupItems[0].location;
-            setHighlightedFloor(groupItems[0].location.floor);
-          }
-  
-          // Set selected item location to the first group item for the overlay
-          setSelectedItemLocation(groupItems[0] || null);
-  
-          // Add other items as secondary
-          otherItems.forEach((item: any) => {
-            if (item.location) {
-              assignments.push({
-                floor: item.location.floor,
-                group: item.location.group,
-                row: item.location.row,
-                column: item.location.column,
-                depth: item.location.depth,
-                colorType: 'secondary'
-              });
-            }
-          });
-        } else if (itemUuid) {
-          // Handle individual item selection - show selected item as tertiary, rest as secondary
-          const selectedItem = formData.items?.find((item: any) => item.uuid === itemUuid);
-          const otherItems = formData.items?.filter((item: any) => item.uuid !== itemUuid) || [];
-  
-          // Add selected item as tertiary
-          if (selectedItem?.location) {
+
+      setFloorConfigs(warehouseLayout);
+
+      // Set up color assignments for current item(s)
+      const assignments: Array<ShelfSelectorColorAssignment> = [];
+      let navigationTarget: any = null;
+
+      if (groupId) {
+        // Handle group selection - show group items as tertiary, rest as secondary
+        const groupItems = formData.items?.filter((item: any) => item.group_id === groupId) || [];
+        const otherItems = formData.items?.filter((item: any) => item.group_id !== groupId) || [];
+
+        // Add group items as tertiary (highlighted)
+        groupItems.forEach((item: any) => {
+          if (item.location) {
             assignments.push({
-              floor: selectedItem.location.floor,
-              group: selectedItem.location.group,
-              row: selectedItem.location.row,
-              column: selectedItem.location.column,
-              depth: selectedItem.location.depth,
+              floor: item.location.floor,
+              group: item.location.group,
+              row: item.location.row,
+              column: item.location.column,
+              depth: item.location.depth,
               colorType: 'tertiary'
             });
-  
-            navigationTarget = selectedItem.location;
-            setHighlightedFloor(selectedItem.location.floor);
           }
-  
-          // Add other items as secondary
-          otherItems.forEach((item: any) => {
-            if (item.location) {
-              assignments.push({
-                floor: item.location.floor,
-                group: item.location.group,
-                row: item.location.row,
-                column: item.location.column,
-                depth: item.location.depth,
-                colorType: 'secondary'
-              });
-            }
-          });
-  
-          setSelectedItemLocation(selectedItem || null);
-        } else {
-          // Show all items as secondary (overview mode)
-          formData.items?.forEach((item: any) => {
-            if (item.location) {
-              assignments.push({
-                floor: item.location.floor,
-                group: item.location.group,
-                row: item.location.row,
-                column: item.location.column,
-                depth: item.location.depth,
-                colorType: 'secondary'
-              });
-            }
-          });
-          setSelectedItemLocation(null);
+        });
+
+        // Set navigation target to the first group item's location
+        if (groupItems.length > 0 && groupItems[0].location) {
+          navigationTarget = groupItems[0].location;
+          setHighlightedFloor(groupItems[0].location.floor);
         }
-  
-        setShelfColorAssignments(assignments);
-  
-        // Set external selection for 3D navigation
-        if (navigationTarget) {
-          setExternalSelection({
-            floor: navigationTarget.floor,
-            group: navigationTarget.group,
-            row: navigationTarget.row,
-            column: navigationTarget.column,
-            depth: navigationTarget.depth,
-            code: navigationTarget.code
+
+        // Set selected item location to the first group item for the overlay
+        setSelectedItemLocation(groupItems[0] || null);
+
+        // Add other items as secondary
+        otherItems.forEach((item: any) => {
+          if (item.location) {
+            assignments.push({
+              floor: item.location.floor,
+              group: item.location.group,
+              row: item.location.row,
+              column: item.location.column,
+              depth: item.location.depth,
+              colorType: 'secondary'
+            });
+          }
+        });
+      } else if (itemUuid) {
+        // Handle individual item selection - show selected item as tertiary, rest as secondary
+        const selectedItem = formData.items?.find((item: any) => item.uuid === itemUuid);
+        const otherItems = formData.items?.filter((item: any) => item.uuid !== itemUuid) || [];
+
+        // Add selected item as tertiary
+        if (selectedItem?.location) {
+          assignments.push({
+            floor: selectedItem.location.floor,
+            group: selectedItem.location.group,
+            row: selectedItem.location.row,
+            column: selectedItem.location.column,
+            depth: selectedItem.location.depth,
+            colorType: 'tertiary'
           });
-        } else {
-          setExternalSelection(null);
+
+          navigationTarget = selectedItem.location;
+          setHighlightedFloor(selectedItem.location.floor);
         }
-  
-        // Load occupied locations, excluding those in assignments
-        const occupiedResult = await getOccupiedShelfLocations(formData.warehouse_uuid);
-        if (occupiedResult.success) {
-          const filteredOccupied = (occupiedResult.data || []).filter((occupied: any) => {
-            return !assignments.some(assignment =>
-              assignment.floor === occupied.floor &&
-              assignment.group === occupied.group &&
-              assignment.row === occupied.row &&
-              assignment.column === occupied.column &&
-              assignment.depth === occupied.depth
-            );
-          });
-          setOccupiedLocations(filteredOccupied);
-        }
-  
-        setShowLocationModal(true);
-      } catch (error) {
-        console.error("Error loading warehouse location:", error);
-        setError("Failed to load warehouse location");
+
+        // Add other items as secondary
+        otherItems.forEach((item: any) => {
+          if (item.location) {
+            assignments.push({
+              floor: item.location.floor,
+              group: item.location.group,
+              row: item.location.row,
+              column: item.location.column,
+              depth: item.location.depth,
+              colorType: 'secondary'
+            });
+          }
+        });
+
+        setSelectedItemLocation(selectedItem || null);
+      } else {
+        // Show all items as secondary (overview mode)
+        formData.items?.forEach((item: any) => {
+          if (item.location) {
+            assignments.push({
+              floor: item.location.floor,
+              group: item.location.group,
+              row: item.location.row,
+              column: item.location.column,
+              depth: item.location.depth,
+              colorType: 'secondary'
+            });
+          }
+        });
+        setSelectedItemLocation(null);
       }
-    };
-  
-  // ...existing code...
+
+      setShelfColorAssignments(assignments);
+
+      // Set external selection for 3D navigation
+      if (navigationTarget) {
+        setExternalSelection({
+          floor: navigationTarget.floor,
+          group: navigationTarget.group,
+          row: navigationTarget.row,
+          column: navigationTarget.column,
+          depth: navigationTarget.depth,
+          code: navigationTarget.code
+        });
+      } else {
+        setExternalSelection(null);
+      }
+
+      // Load occupied locations, excluding those in assignments
+      const occupiedResult = await getOccupiedShelfLocations(formData.warehouse_uuid);
+      if (occupiedResult.success) {
+        const filteredOccupied = (occupiedResult.data || []).filter((occupied: any) => {
+          return !assignments.some(assignment =>
+            assignment.floor === occupied.floor &&
+            assignment.group === occupied.group &&
+            assignment.row === occupied.row &&
+            assignment.column === occupied.column &&
+            assignment.depth === occupied.depth
+          );
+        });
+        setOccupiedLocations(filteredOccupied);
+      }
+
+      setShowLocationModal(true);
+    } catch (error) {
+      console.error("Error loading warehouse location:", error);
+      setError("Failed to load warehouse location");
+    }
+  };
+
 
   // ===== CORE FUNCTIONS =====
   // Load warehouse inventory item details

@@ -1231,13 +1231,133 @@ export default function SearchPage() {
       </div>
     ) : null;
 
+   
     switch (entity_type) {
+      case 'delivery':
+        return (
+          <motion.div key="delivery-component" {...motionTransition}>
+            <div className={`${isDisabled ? 'opacity-50 pointer-events-none blur-sm scale-95 origin-top' : ''} transition-all duration-200`}>
+              <DeliveryComponent
+                deliveryId={entity_uuid}
+                user={user}
+                warehouses={warehouses}
+                operators={operators}
+                inventories={inventories}
+                readOnlyMode={true}
+              />
+            </div>
+          </motion.div>
+        );
+
+      // Updated case for new_warehouse_inventory with auto-accept functionality
+      case 'new_warehouse_inventory':
+        return (
+          <motion.div key="new-warehouse-inventory-component" {...motionTransition}>
+            {newWarehouseInventoryAcceptButton}
+            <div className={`${isDisabled ? 'opacity-50 pointer-events-none blur-sm scale-95 origin-top' : ''} transition-all duration-200`}>
+              <div className="space-y-4">
+                <Card className="bg-warning-50 border border-warning-200">
+                  <CardBody className="p-4">
+                    <div className="flex items-center gap-3 mb-3">
+                      <Icon icon="mdi:warehouse-plus" className="text-warning w-6 h-6" />
+                      <div className="flex-1">
+                        <h4 className="font-semibold text-warning-900">
+                          New Warehouse Inventory Items ({selectedResult.entity_data?.total_matched_items || 1})
+                        </h4>
+                        <p className="text-sm text-warning-700">
+                          {selectedResult.entity_data?.total_matched_items > 1
+                            ? `These ${selectedResult.entity_data.total_matched_items} warehouse inventory items will be created when the delivery is accepted.`
+                            : 'This warehouse inventory item will be created when the delivery is accepted.'
+                          }
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Show matched warehouse inventory UUIDs */}
+                    {selectedResult.entity_data?.matched_warehouse_inventory_uuids && (
+                      <div className="space-y-2">
+                        <p className="text-xs font-medium text-warning-800">Warehouse Inventory UUIDs:</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                          {selectedResult.entity_data.matched_warehouse_inventory_uuids.map((uuid: string, index: number) => (
+                            <div key={uuid} className="flex items-center gap-2 p-2 bg-warning-100/50 rounded">
+                              <span className="text-xs text-warning-600">#{index + 1}</span>
+                              <code className="text-xs bg-warning-200 px-1 rounded font-mono flex-1 truncate">
+                                {uuid}
+                              </code>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Show matched inventory items details if available */}
+                    {selectedResult.entity_data?.matched_inventory_items && selectedResult.entity_data.matched_inventory_items.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        <p className="text-xs font-medium text-warning-800">Related Inventory Items:</p>
+                        <div className="space-y-1">
+                          {selectedResult.entity_data.matched_inventory_items.map((item: any, index: number) => (
+                            <div key={item.warehouse_inventory_uuid} className="flex items-center gap-2 p-2 bg-warning-100/30 rounded text-xs">
+                              <Icon icon="mdi:package-variant" className="text-warning-600 w-4 h-4" />
+                              <span className="font-medium text-warning-800">{item.name}</span>
+                              <span className="text-warning-600">({item.unit})</span>
+                              {item.description && (
+                                <span className="text-warning-500 truncate">{item.description}</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </CardBody>
+                </Card>
+
+                {/* Show the delivery component */}
+                {selectedResult.entity_uuid && (
+                  <DeliveryComponent
+                    deliveryId={selectedResult.entity_uuid} // entity_uuid is now the delivery UUID for grouped results
+                    user={user}
+                    warehouses={warehouses}
+                    operators={operators}
+                    inventories={inventories}
+                    readOnlyMode={true}
+                  />
+                )}
+              </div>
+            </div>
+          </motion.div>
+        );
+
+      case 'inventory':
+        if (user && !user.is_admin) {
+          return (
+            <motion.div key="inventory-access-denied" {...motionTransition}>
+              <Alert
+                color="warning"
+                variant="flat"
+                icon={<Icon icon="mdi:shield-alert" />}
+              >
+                Access denied: Only administrators can view inventory item details
+              </Alert>
+            </motion.div>
+          );
+        }
+        return (
+          <motion.div key="inventory-component" {...motionTransition}>
+            <div className={isDisabled ? 'opacity-50 pointer-events-none' : ''}>
+              <InventoryItemComponent
+                inventoryId={entity_uuid}
+                user={user}
+                readOnlyMode={true}
+              />
+            </div>
+          </motion.div>
+        );
+
       case 'warehouse_inventory':
       case 'warehouse_inventory_item':
         return (
           <motion.div key="warehouse-inventory-component" {...motionTransition}>
-            {markItemAsUsedButton}
-            <div className={`${isDisabled ? 'opacity-50 pointer-events-none blur-sm scale-95 origin-top' : ''} transition-all duration-200`}>
+            <div className={isDisabled ? 'opacity-50 pointer-events-none' : ''}>
               <WarehouseInventoryComponent
                 inventoryId={entity_uuid}
                 user={user}
