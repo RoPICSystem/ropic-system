@@ -89,7 +89,6 @@ function getStatusColor(status: string): "default" | "primary" | "secondary" | "
     default: return "default";
   }
 }
-
 export default function SearchPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1231,8 +1230,10 @@ export default function SearchPage() {
       </div>
     ) : null;
 
-   
-    switch (entity_type) {
+    console.log("Rendering component for entity type:", entity_type, "UUID:", entity_uuid);
+    // Render the appropriate component based on entity type
+
+   switch (entity_type) {
       case 'delivery':
         return (
           <motion.div key="delivery-component" {...motionTransition}>
@@ -1357,7 +1358,8 @@ export default function SearchPage() {
       case 'warehouse_inventory_item':
         return (
           <motion.div key="warehouse-inventory-component" {...motionTransition}>
-            <div className={isDisabled ? 'opacity-50 pointer-events-none' : ''}>
+            {markItemAsUsedButton}
+            <div className={`${isDisabled ? 'opacity-50 pointer-events-none blur-sm scale-95 origin-top' : ''} transition-all duration-200`}>
               <WarehouseInventoryComponent
                 inventoryId={entity_uuid}
                 user={user}
