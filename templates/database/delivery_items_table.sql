@@ -907,6 +907,7 @@ BEGIN
     'company_uuid', v_delivery_record.company_uuid,
     'warehouse_uuid', v_delivery_record.warehouse_uuid,
     'inventory_items', v_delivery_record.inventory_items,
+    'warehouse_inventory_items', v_delivery_record.warehouse_inventory_items,
     'name', v_delivery_record.name,
     'delivery_address', v_delivery_record.delivery_address,
     'delivery_date', v_delivery_record.delivery_date,
@@ -935,7 +936,6 @@ EXCEPTION
     );
 END;
 $function$;
-
 
 -- Update the inventory filtering function for delivery context
 CREATE OR REPLACE FUNCTION public.get_inventory_details_for_delivery(

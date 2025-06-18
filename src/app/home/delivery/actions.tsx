@@ -267,6 +267,30 @@ export async function getDeliveryDetailsWithWarehouseItems(
   }
 }
 
+export const getWarehouseInventoryUuid = async (warehouseUuid: string, inventoryUuid: string): Promise<string | null> => {
+  try {
+    const supabase = await createClient();
+
+    // Query warehouse_inventory table to get the actual UUID
+    const { data, error } = await supabase
+      .from('warehouse_inventory')
+      .select('uuid')
+      .eq('warehouse_uuid', warehouseUuid)
+      .eq('inventory_uuid', inventoryUuid)
+      .single();
+
+    if (error) {
+      console.error('Error fetching warehouse inventory UUID:', error);
+      return null;
+    }
+
+    return data?.uuid || null;
+  } catch (error) {
+    console.error('Error in getWarehouseInventoryUuid:', error);
+    return null;
+  }
+};
+
 /**
  * Generate warehouse inventory items structure for testing/preview
  */

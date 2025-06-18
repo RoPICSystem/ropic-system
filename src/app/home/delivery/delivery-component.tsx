@@ -118,6 +118,7 @@ export function DeliveryComponent({
     company_uuid: user?.company_uuid || null,
     admin_uuid: user?.uuid || null,
     inventory_items: {},
+    warehouse_inventory_items: {},
     warehouse_uuid: null,
     delivery_address: "",
     delivery_date: format(new Date(), "yyyy-MM-dd"),
@@ -173,7 +174,6 @@ export function DeliveryComponent({
 
   // Add new states for QR modal inventory loading
   const [isLoadingQRInventoryItems, setIsLoadingQRInventoryItems] = useState(false);
-  const [qrInventoryItems, setQrInventoryItems] = useState<any[]>([]);
 
 
   // Operator states
@@ -186,7 +186,7 @@ export function DeliveryComponent({
     description: string;
     deliveryId: string;
     deliveryName: string;
-    autoAccept: boolean;
+    auto: boolean;
     showOptions: boolean;
   }>({
     url: "",
@@ -194,7 +194,7 @@ export function DeliveryComponent({
     description: "",
     deliveryId: "",
     deliveryName: "",
-    autoAccept: false,
+    auto: true,
     showOptions: true
   });
 
@@ -1217,8 +1217,6 @@ export function DeliveryComponent({
       return;
     }
 
-    console.log("Accordion keys changed:", keys);
-
     const newExpandedKeys = keys as Set<string>;
     setExpandedInventories(newExpandedKeys);
 
@@ -1537,29 +1535,47 @@ export function DeliveryComponent({
   };
 
   // QR Code functions
-  const generateWarehouseUrl = (warehouseUuid: string, autoAccept: boolean, showOptions: boolean, inventoryItemUuid?: string, isGroup?: boolean) => {
-    const baseUrl = "https://ropic.vercel.app/home/search";
+  const generateDeliveryUrl = (deliveryId: string, auto: boolean, showOptions?: boolean, inventoryItemUuid?: string, isGroup?: boolean) => {
+    const baseUrl = `${window.location.origin}/home/search`;
+
+    // Get warehouse inventory UUID from the selected item or group
+    let warehouseInventoryUuid: string | undefined;
+
+    if (inventoryItemUuid) {
+      if (isGroup) {
+        // Find warehouse inventory UUID from any item in the group
+        const groupItem = Object.entries(formData.warehouse_inventory_items || {}).find(([itemUuid, itemData]) => {
+          return itemData.group_id === inventoryItemUuid;
+        });
+        if (groupItem) {
+          warehouseInventoryUuid = groupItem[1].warehouse_inventory_uuid;
+        }
+      } else {
+        // Get warehouse inventory UUID directly from the item
+        const itemData = formData.warehouse_inventory_items?.[inventoryItemUuid];
+        warehouseInventoryUuid = itemData?.warehouse_inventory_uuid;
+      }
+    }
+
     const params = new URLSearchParams({
-      q: warehouseUuid, // Use warehouse UUID as query
-      ...(autoAccept && { deliveryAutoAccept: "true" }),
-      ...(showOptions && { showOptions: "true" }),
+      q: warehouseInventoryUuid || deliveryId, // Use warehouse inventory UUID if available, fallback to delivery ID
+      ...(auto && { auto: 'true' }),
+      ...(showOptions && { showOptions: 'true' }),
       ...(inventoryItemUuid && isGroup && { group: inventoryItemUuid }),
       ...(inventoryItemUuid && !isGroup && { item: inventoryItemUuid })
     });
-  
+
     return `${baseUrl}?${params.toString()}`;
   };
 
-  const updateQrCodeUrl = (autoAccept: boolean, showOptions?: boolean, inventoryItemUuid?: string, isGroup?: boolean) => {
+  const updateQrCodeUrl = (auto: boolean, showOptions?: boolean, inventoryItemUuid?: string, isGroup?: boolean) => {
     const currentShowOptions = showOptions !== undefined ? showOptions : qrCodeData.showOptions;
-    const warehouseUuid = formData.warehouse_uuid || qrCodeData.deliveryId;
-    
     setQrCodeData(prev => ({
       ...prev,
-      autoAccept,
+      auto,
       ...(showOptions !== undefined && { showOptions }),
-      url: generateWarehouseUrl(warehouseUuid, autoAccept, currentShowOptions, inventoryItemUuid, isGroup),
-      description: `Scan this code to mark items as used from ${prev.deliveryName}${autoAccept ? '. This will automatically mark the item as used when scanned.' : '.'}`
+      url: generateDeliveryUrl(prev.deliveryId, auto, currentShowOptions, inventoryItemUuid, isGroup),
+      description: `Scan this code to view delivery details for ${prev.deliveryName}${auto ? '. This will automatically accept the delivery when scanned.' : '.'}`
     }));
   };
 
@@ -1585,13 +1601,6 @@ export function DeliveryComponent({
       });
 
       await Promise.all(loadPromises);
-
-      // Get all items for QR modal (only selected items)
-      const allQrItems = selectedInventoryItems.map(itemUuid => {
-        return inventoryItems.find(inv => inv.uuid === itemUuid);
-      }).filter(Boolean);
-
-      setQrInventoryItems(allQrItems);
     } catch (error) {
       console.error("Error loading inventory items for QR modal:", error);
     } finally {
@@ -1601,7 +1610,7 @@ export function DeliveryComponent({
 
   // Get unique options for QR code targeting (no duplicate group IDs)
   const getQRTargetOptions = () => {
-    if (!qrInventoryItems.length) return [];
+    if (!formData.warehouse_inventory_items || Object.keys(formData.warehouse_inventory_items).length === 0) return [];
 
     const seenGroups = new Set<string>();
     const options: Array<{
@@ -1611,13 +1620,14 @@ export function DeliveryComponent({
       groupId?: string;
     }> = [];
 
-    qrInventoryItems.forEach(item => {
+    // Iterate through key-value pairs of warehouse inventory items
+    Object.entries(formData.warehouse_inventory_items).forEach(([itemUuid, item]) => {
       if (item.group_id && item.group_id !== '' && item.group_id !== null) {
         // Handle grouped items - only add unique group IDs
         if (!seenGroups.has(item.group_id)) {
           seenGroups.add(item.group_id);
           options.push({
-            uuid: item.uuid, // Use any item UUID from the group as reference
+            uuid: itemUuid, // Use any item UUID from the group as reference
             label: `Group: ${item.group_id}`,
             isGroup: true,
             groupId: item.group_id
@@ -1626,8 +1636,8 @@ export function DeliveryComponent({
       } else {
         // Handle individual items (no group or empty group)
         options.push({
-          uuid: item.uuid,
-          label: `Item: ${item.uuid}`,
+          uuid: itemUuid,
+          label: `Item: ${itemUuid}`,
           isGroup: false
         });
       }
@@ -1640,31 +1650,28 @@ export function DeliveryComponent({
     setQrCodeData(prev => ({
       ...prev,
       showOptions,
-      url: generateWarehouseUrl(prev.deliveryId, prev.autoAccept, showOptions)
+      url: generateDeliveryUrl(prev.deliveryId, prev.auto, showOptions)
     }));
   };
 
   const handleShowDeliveryQR = async () => {
     if (!deliveryId || !formData) return;
 
-    // Use warehouse UUID instead of delivery for QR code
-    const warehouseUuid = formData.warehouse_uuid;
-    if (!warehouseUuid) {
-      onErrors?.({ warehouse: 'Please select a warehouse first' });
-      return;
-    }
-
-    const selectedWarehouse = warehouses.find(w => w.uuid === warehouseUuid);
-    const warehouseName = selectedWarehouse?.name || 'Warehouse';
+    const inventoryNames = selectedInventoryUuids
+      .map(uuid => inventories.find(item => item.uuid === uuid)?.name)
+      .filter(Boolean);
+    const deliveryName = inventoryNames.length > 0
+      ? `Delivery of ${inventoryNames.join(', ')}`
+      : 'Delivery';
 
     setQrCodeData({
-      url: generateWarehouseUrl(warehouseUuid, true, true), // autoAccept and showOptions on by default
-      title: "Warehouse Inventory QR Code",
-      description: `Scan this code to mark items as used from ${warehouseName}.`,
-      deliveryId: warehouseUuid, // Store warehouse UUID here
-      deliveryName: warehouseName,
-      autoAccept: true, // Default to true
-      showOptions: true // Default to true
+      url: generateDeliveryUrl(deliveryId, true, true),
+      title: "Delivery QR Code",
+      description: `Scan this code to view delivery details for ${deliveryName}.`,
+      deliveryId: deliveryId,
+      deliveryName: deliveryName,
+      auto: true,
+      showOptions: true
     });
 
     setShowQrCode(true);
@@ -1680,7 +1687,6 @@ export function DeliveryComponent({
       onClose={() => {
         setShowQrCode(false);
         setSelectedInventoryItemForQR(null);
-        setQrInventoryItems([]); // Clear loaded items when modal closes
       }}
       placement="auto"
       backdrop="blur"
@@ -1691,13 +1697,19 @@ export function DeliveryComponent({
         <ModalHeader>{qrCodeData.title}</ModalHeader>
         <ModalBody className="flex flex-col items-center">
           <div className="bg-white rounded-xl overflow-hidden">
-            <QRCodeCanvas
-              id="delivery-qrcode"
-              value={qrCodeData.url}
-              size={320}
-              marginSize={4}
-              level="L"
-            />
+            {selectedInventoryItemForQR?.uuid ?
+              <QRCodeCanvas
+                id="delivery-qrcode"
+                value={qrCodeData.url}
+                size={320}
+                marginSize={4}
+                level="L"
+              />
+              :
+              <div className="h-80 w-80 flex items-center justify-center text-primary-500 text-center">
+                Select an inventory item to <br />generate QR code
+              </div>
+              }
           </div>
 
           <p className="text-center mt-4 text-default-600">
@@ -1718,10 +1730,9 @@ export function DeliveryComponent({
                   onValueChange={(checked) => {
                     updateShowOptions(checked);
                     if (checked && selectedInventoryItemForQR) {
-                      updateQrCodeUrl(qrCodeData.autoAccept, checked, selectedInventoryItemForQR.uuid, selectedInventoryItemForQR.isGroup);
+                      updateQrCodeUrl(qrCodeData.auto, checked, selectedInventoryItemForQR.uuid, selectedInventoryItemForQR.isGroup);
                     }
                   }}
-                  color="secondary"
                   size="sm"
                 />
               </div>
@@ -1736,32 +1747,13 @@ export function DeliveryComponent({
                   </span>
                 </div>
                 <Switch
-                  isSelected={qrCodeData.autoAccept}
+                  isSelected={qrCodeData.auto}
                   onValueChange={(checked) => {
                     updateQrCodeUrl(checked, qrCodeData.showOptions, selectedInventoryItemForQR?.uuid, selectedInventoryItemForQR?.isGroup);
                   }}
-                  color="warning"
                   size="sm"
                 />
               </div>
-
-              <AnimatePresence>
-                {qrCodeData.autoAccept && (
-                  <motion.div {...motionTransition}>
-                    <div className="mt-3 p-2 bg-warning-50 border border-warning-200 rounded-lg">
-                      <div className="flex items-start gap-2">
-                        <Icon icon="mdi:alert" className="text-warning-600 mt-0.5 flex-shrink-0" width={16} />
-                        <div>
-                          <p className="text-xs font-medium text-warning-700">Warning</p>
-                          <p className="text-xs text-warning-600">
-                            This action cannot be undone. The delivery will be automatically accepted when scanned by an authorized operator.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
             </div>
 
             {/* Inventory Item Selection for QR Code */}
@@ -1797,7 +1789,7 @@ export function DeliveryComponent({
                                 isGroup: selectedOption.isGroup
                               });
                               updateQrCodeUrl(
-                                qrCodeData.autoAccept,
+                                qrCodeData.auto,
                                 qrCodeData.showOptions,
                                 selectedOption.isGroup ? selectedOption.groupId! : selectedKey as string,
                                 selectedOption.isGroup
@@ -1805,7 +1797,7 @@ export function DeliveryComponent({
                             }
                           } else {
                             setSelectedInventoryItemForQR(null);
-                            updateQrCodeUrl(qrCodeData.autoAccept, qrCodeData.showOptions);
+                            updateQrCodeUrl(qrCodeData.auto, qrCodeData.showOptions);
                           }
                         }}
                         isDisabled={isLoadingQRInventoryItems}
@@ -1834,7 +1826,7 @@ export function DeliveryComponent({
                               isIconOnly
                               onPress={() => {
                                 setSelectedInventoryItemForQR(null);
-                                updateQrCodeUrl(qrCodeData.autoAccept, qrCodeData.showOptions);
+                                updateQrCodeUrl(qrCodeData.auto, qrCodeData.showOptions);
                               }}
                             >
                               <Icon icon="mdi:close" />
@@ -1843,15 +1835,15 @@ export function DeliveryComponent({
                         </div>
                       )}
 
-                      {!isLoadingQRInventoryItems && qrInventoryItems.length === 0 && (
+                      {!isLoadingQRInventoryItems && formData.warehouse_inventory_items && Object.keys(formData.warehouse_inventory_items).length === 0 && (
                         <div className="text-xs text-warning-600 bg-warning-100 p-2 rounded">
                           No inventory items loaded. Please ensure the delivery has selected items.
                         </div>
                       )}
 
-                      {!isLoadingQRInventoryItems && qrInventoryItems.length > 0 && (
+                      {!isLoadingQRInventoryItems && formData.warehouse_inventory_items && Object.keys(formData.warehouse_inventory_items).length > 0 && (
                         <div className="text-xs text-default-600 bg-default-50 p-2 rounded">
-                          Loaded {qrInventoryItems.length} inventory items • {getQRTargetOptions().length} unique options available
+                          Loaded {Object.keys(formData.warehouse_inventory_items).length} inventory items • {getQRTargetOptions().length} unique options available
                         </div>
                       )}
                     </div>
@@ -1861,29 +1853,36 @@ export function DeliveryComponent({
             )}
           </div>
 
-          <div className="w-full bg-default-50 overflow-auto max-h-64 rounded-xl p-4">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm font-medium text-default-700">QR Code URL:</p>
-              <Button
-                size="sm"
-                variant="flat"
-                color="default"
-                isIconOnly
-                onPress={() => copyToClipboard(qrCodeData.url)}
-              >
-                <Icon icon="mdi:content-copy" className="text-default-500 text-sm" />
-              </Button>
-            </div>
-            <code className="text-xs text-default-600 break-all">
-              {qrCodeData.url}
-            </code>
-          </div>
+          <AnimatePresence>
+            {selectedInventoryItemForQR?.uuid && (
+              <motion.div
+                {...motionTransition}>
+                <div className="w-full bg-default-50 overflow-auto max-h-64 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-medium text-default-700">QR Code URL:</p>
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      color="default"
+                      isIconOnly
+                      onPress={() => copyToClipboard(qrCodeData.url)}
+                    >
+                      <Icon icon="mdi:content-copy" className="text-default-500 text-sm" />
+                    </Button>
+                  </div>
+
+                  <code className="text-xs text-default-600 break-all">
+                    {qrCodeData.url}
+                  </code>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </ModalBody>
         <ModalFooter className="flex justify-end p-4 gap-4">
           <Button color="default" onPress={() => {
             setShowQrCode(false);
             setSelectedInventoryItemForQR(null);
-            setQrInventoryItems([]);
           }}>
             Close
           </Button>
@@ -1901,7 +1900,6 @@ export function DeliveryComponent({
               document.body.removeChild(downloadLink);
               setShowQrCode(false);
               setSelectedInventoryItemForQR(null);
-              setQrInventoryItems([]);
             }}
           >
             <Icon icon="mdi:download" className="mr-1" />
@@ -3286,7 +3284,7 @@ export function DeliveryComponent({
                   }
                 >
                   <div className="flex flex-col md:flex-row justify-center items-center gap-4">
-                    {deliveryId && showQRGeneration && (
+                    {deliveryId && showQRGeneration && (formData.status === "DELIVERED" || formData.status === 'IN_TRANSIT') && (
                       <>
                         <Button
                           color="secondary"
