@@ -1537,30 +1537,29 @@ export function DeliveryComponent({
   };
 
   // QR Code functions
-  const generateDeliveryUrl = (deliveryId?: string, autoAccept: boolean = false, showOptions: boolean = true, inventoryItemUuid?: string, isGroup?: boolean) => {
-    const targetDeliveryId = deliveryId || deliveryId;
-    if (!targetDeliveryId || !formData) return "https://ropic.vercel.app/home/search";
-
+  const generateWarehouseUrl = (warehouseUuid: string, autoAccept: boolean, showOptions: boolean, inventoryItemUuid?: string, isGroup?: boolean) => {
     const baseUrl = "https://ropic.vercel.app/home/search";
     const params = new URLSearchParams({
-      q: targetDeliveryId,
+      q: warehouseUuid, // Use warehouse UUID as query
       ...(autoAccept && { deliveryAutoAccept: "true" }),
       ...(showOptions && { showOptions: "true" }),
       ...(inventoryItemUuid && isGroup && { group: inventoryItemUuid }),
       ...(inventoryItemUuid && !isGroup && { item: inventoryItemUuid })
     });
-
+  
     return `${baseUrl}?${params.toString()}`;
   };
 
   const updateQrCodeUrl = (autoAccept: boolean, showOptions?: boolean, inventoryItemUuid?: string, isGroup?: boolean) => {
     const currentShowOptions = showOptions !== undefined ? showOptions : qrCodeData.showOptions;
+    const warehouseUuid = formData.warehouse_uuid || qrCodeData.deliveryId;
+    
     setQrCodeData(prev => ({
       ...prev,
       autoAccept,
       ...(showOptions !== undefined && { showOptions }),
-      url: generateDeliveryUrl(prev.deliveryId, autoAccept, currentShowOptions, inventoryItemUuid, isGroup),
-      description: `Scan this code to view delivery details for ${prev.deliveryName}${autoAccept ? '. This will automatically accept the delivery when scanned.' : '.'}`
+      url: generateWarehouseUrl(warehouseUuid, autoAccept, currentShowOptions, inventoryItemUuid, isGroup),
+      description: `Scan this code to mark items as used from ${prev.deliveryName}${autoAccept ? '. This will automatically mark the item as used when scanned.' : '.'}`
     }));
   };
 
@@ -1641,28 +1640,31 @@ export function DeliveryComponent({
     setQrCodeData(prev => ({
       ...prev,
       showOptions,
-      url: generateDeliveryUrl(prev.deliveryId, prev.autoAccept, showOptions)
+      url: generateWarehouseUrl(prev.deliveryId, prev.autoAccept, showOptions)
     }));
   };
 
   const handleShowDeliveryQR = async () => {
     if (!deliveryId || !formData) return;
 
-    const inventoryNames = selectedInventoryUuids
-      .map(uuid => inventories.find(item => item.uuid === uuid)?.name)
-      .filter(Boolean);
-    const deliveryName = inventoryNames.length > 0
-      ? `Delivery of ${inventoryNames.join(', ')}`
-      : 'Delivery';
+    // Use warehouse UUID instead of delivery for QR code
+    const warehouseUuid = formData.warehouse_uuid;
+    if (!warehouseUuid) {
+      onErrors?.({ warehouse: 'Please select a warehouse first' });
+      return;
+    }
+
+    const selectedWarehouse = warehouses.find(w => w.uuid === warehouseUuid);
+    const warehouseName = selectedWarehouse?.name || 'Warehouse';
 
     setQrCodeData({
-      url: generateDeliveryUrl(deliveryId, false, true),
-      title: "Delivery QR Code",
-      description: `Scan this code to view delivery details for ${deliveryName}.`,
-      deliveryId: deliveryId,
-      deliveryName: deliveryName,
-      autoAccept: false,
-      showOptions: true
+      url: generateWarehouseUrl(warehouseUuid, true, true), // autoAccept and showOptions on by default
+      title: "Warehouse Inventory QR Code",
+      description: `Scan this code to mark items as used from ${warehouseName}.`,
+      deliveryId: warehouseUuid, // Store warehouse UUID here
+      deliveryName: warehouseName,
+      autoAccept: true, // Default to true
+      showOptions: true // Default to true
     });
 
     setShowQrCode(true);

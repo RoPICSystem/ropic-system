@@ -522,7 +522,7 @@ EXCEPTION
 END;
 $function$;
 
--- Function to generate warehouse inventory items structure with unique UUIDs per inventory
+-- Updated generate_warehouse_inventory_items_structure function with delivery inheritance
 CREATE OR REPLACE FUNCTION public.generate_warehouse_inventory_items_structure(
   p_delivery_uuid uuid
 )
@@ -541,6 +541,7 @@ DECLARE
   v_location jsonb;
   v_group_id text;
   v_inventory_warehouse_map jsonb := '{}'::jsonb;
+  v_existing_delivery_warehouse_uuid uuid;
 BEGIN
   -- Get delivery record
   SELECT * INTO v_delivery_record
@@ -560,15 +561,40 @@ BEGIN
     
     -- Check if we already processed this inventory_uuid
     IF NOT (v_inventory_warehouse_map ? v_inventory_uuid::text) THEN
-      -- Check if warehouse_inventory exists for this warehouse + inventory combination
+      -- First, check if warehouse_inventory exists in database
       SELECT uuid INTO v_warehouse_inventory_uuid
       FROM warehouse_inventory
       WHERE warehouse_uuid = v_delivery_record.warehouse_uuid
         AND inventory_uuid = v_inventory_uuid;
       
-      -- If warehouse_inventory doesn't exist, generate new UUID
+      -- If warehouse_inventory doesn't exist in database, check other pending deliveries
       IF v_warehouse_inventory_uuid IS NULL THEN
-        v_warehouse_inventory_uuid := uuid_generate_v4();
+        -- Look for existing warehouse_inventory_uuid in other non-cancelled deliveries
+        -- that target the same warehouse and inventory combination
+        SELECT DISTINCT (warehouse_inventory_items->delivery_item_key->>'warehouse_inventory_uuid')::uuid
+        INTO v_existing_delivery_warehouse_uuid
+        FROM delivery_items di,
+             jsonb_object_keys(di.warehouse_inventory_items) AS delivery_item_key
+        WHERE di.warehouse_uuid = v_delivery_record.warehouse_uuid
+          AND di.status NOT IN ('CANCELLED')
+          AND di.uuid != p_delivery_uuid  -- Exclude current delivery
+          AND di.warehouse_inventory_items->delivery_item_key->>'inventory_uuid' = v_inventory_uuid::text
+          AND di.warehouse_inventory_items->delivery_item_key->>'warehouse_inventory_uuid' IS NOT NULL
+        LIMIT 1;
+        
+        -- Use inherited UUID if found, otherwise generate new one
+        IF v_existing_delivery_warehouse_uuid IS NOT NULL THEN
+          v_warehouse_inventory_uuid := v_existing_delivery_warehouse_uuid;
+          RAISE NOTICE 'Inheriting warehouse_inventory_uuid % from existing delivery for inventory %', 
+            v_existing_delivery_warehouse_uuid, v_inventory_uuid;
+        ELSE
+          v_warehouse_inventory_uuid := gen_random_uuid();
+          RAISE NOTICE 'Generated new warehouse_inventory_uuid % for inventory %', 
+            v_warehouse_inventory_uuid, v_inventory_uuid;
+        END IF;
+      ELSE
+        RAISE NOTICE 'Using existing database warehouse_inventory_uuid % for inventory %', 
+          v_warehouse_inventory_uuid, v_inventory_uuid;
       END IF;
       
       -- Store the mapping
@@ -605,7 +631,7 @@ BEGIN
 END;
 $function$;
 
--- Updated create_warehouse_inventory_from_delivery function
+-- Updated create_warehouse_inventory_from_delivery function with delivery inheritance
 CREATE OR REPLACE FUNCTION public.create_warehouse_inventory_from_delivery(
   p_warehouse_uuid uuid,
   p_delivery_uuid uuid,
@@ -627,6 +653,7 @@ DECLARE
   v_warehouse_inventory_uuid uuid;
   v_company_uuid uuid;
   v_warehouse_result jsonb;
+  v_existing_delivery_warehouse_uuid uuid;
 BEGIN
   -- Generate timestamp
   v_timestamp := to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
@@ -662,25 +689,76 @@ BEGIN
       END IF;
     END LOOP;
     
-    -- Create warehouse_inventory if it doesn't exist using the pre-generated UUID
-    SELECT public.create_warehouse_inventory_with_uuid(
-      v_warehouse_inventory_uuid,
-      p_warehouse_uuid,
-      v_inventory_uuid,
-      v_company_uuid
-    ) INTO v_warehouse_result;
+    -- Check if warehouse_inventory already exists in database
+    SELECT uuid INTO v_existing_delivery_warehouse_uuid
+    FROM warehouse_inventory
+    WHERE warehouse_uuid = p_warehouse_uuid
+      AND inventory_uuid = v_inventory_uuid;
     
-    IF NOT (v_warehouse_result->>'success')::boolean THEN
-      RETURN jsonb_build_object(
-        'success', false,
-        'error', 'Failed to create warehouse inventory: ' || (v_warehouse_result->>'error')
-      );
+    -- If warehouse_inventory doesn't exist in database, check other pending deliveries
+    IF v_existing_delivery_warehouse_uuid IS NULL THEN
+      -- Look for existing warehouse_inventory_uuid in other non-cancelled deliveries
+      -- that target the same warehouse and inventory combination
+      SELECT DISTINCT (warehouse_inventory_items->item_key->>'warehouse_inventory_uuid')::uuid
+      INTO v_existing_delivery_warehouse_uuid
+      FROM delivery_items di,
+           jsonb_object_keys(di.warehouse_inventory_items) AS item_key
+      WHERE di.warehouse_uuid = p_warehouse_uuid
+        AND di.status NOT IN ('CANCELLED')
+        AND di.uuid != p_delivery_uuid  -- Exclude current delivery
+        AND di.warehouse_inventory_items->item_key->>'inventory_uuid' = v_inventory_uuid::text
+        AND di.warehouse_inventory_items->item_key->>'warehouse_inventory_uuid' IS NOT NULL
+      LIMIT 1;
+      
+      -- If found in another delivery, use that warehouse_inventory_uuid
+      IF v_existing_delivery_warehouse_uuid IS NOT NULL THEN
+        RAISE NOTICE 'Inheriting warehouse_inventory_uuid % from existing delivery for warehouse % and inventory %', 
+          v_existing_delivery_warehouse_uuid, p_warehouse_uuid, v_inventory_uuid;
+        
+        -- Update current delivery's warehouse_inventory_items to use the inherited UUID
+        -- This ensures consistency across deliveries
+        v_warehouse_inventory_uuid := v_existing_delivery_warehouse_uuid;
+        
+        -- Update the delivery's warehouse_inventory_items structure with inherited UUID
+        UPDATE delivery_items 
+        SET warehouse_inventory_items = jsonb_set(
+          warehouse_inventory_items,
+          ('{' || v_item_key || ',warehouse_inventory_uuid}')::text[],
+          to_jsonb(v_existing_delivery_warehouse_uuid::text)
+        )
+        WHERE uuid = p_delivery_uuid;
+      END IF;
+    ELSE
+      -- Use existing warehouse_inventory from database
+      v_warehouse_inventory_uuid := v_existing_delivery_warehouse_uuid;
+      RAISE NOTICE 'Using existing warehouse_inventory_uuid % for warehouse % and inventory %', 
+        v_existing_delivery_warehouse_uuid, p_warehouse_uuid, v_inventory_uuid;
     END IF;
     
-    -- Use the warehouse_inventory_uuid from the result (existing or newly created)
-    v_warehouse_inventory_uuid := (v_warehouse_result->>'warehouse_inventory_uuid')::uuid;
+    -- Create warehouse_inventory if it still doesn't exist (new case)
+    IF v_existing_delivery_warehouse_uuid IS NULL THEN
+      SELECT public.create_warehouse_inventory_with_uuid(
+        v_warehouse_inventory_uuid,
+        p_warehouse_uuid,
+        v_inventory_uuid,
+        v_company_uuid
+      ) INTO v_warehouse_result;
+      
+      IF NOT (v_warehouse_result->>'success')::boolean THEN
+        RETURN jsonb_build_object(
+          'success', false,
+          'error', 'Failed to create warehouse inventory: ' || (v_warehouse_result->>'error')
+        );
+      END IF;
+      
+      -- Use the warehouse_inventory_uuid from the result
+      v_warehouse_inventory_uuid := (v_warehouse_result->>'warehouse_inventory_uuid')::uuid;
+      
+      RAISE NOTICE 'Created new warehouse_inventory_uuid % for warehouse % and inventory %', 
+        v_warehouse_inventory_uuid, p_warehouse_uuid, v_inventory_uuid;
+    END IF;
     
-    -- Create warehouse inventory item with the found location
+    -- Create warehouse inventory item with the found/inherited location
     INSERT INTO warehouse_inventory_items (
       company_uuid,
       warehouse_uuid,
@@ -721,7 +799,7 @@ BEGIN
 
   RETURN jsonb_build_object(
     'success', true,
-    'message', 'Warehouse inventory items created successfully'
+    'message', 'Warehouse inventory items created successfully with delivery inheritance'
   );
 
 EXCEPTION
@@ -974,6 +1052,81 @@ BEGIN
     i.properties,
     i.created_at,
     i.updated_at;
+END;
+$function$;
+
+-- Utility function to check warehouse inventory consistency across deliveries
+CREATE OR REPLACE FUNCTION public.check_warehouse_inventory_consistency(
+  p_warehouse_uuid uuid,
+  p_inventory_uuid uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_database_uuid uuid;
+  v_delivery_uuids uuid[];
+  v_delivery_uuid uuid;
+  v_inconsistent_deliveries text[] := ARRAY[]::text[];
+  v_consistent_uuid uuid;
+BEGIN
+  -- Get warehouse_inventory UUID from database if exists
+  SELECT uuid INTO v_database_uuid
+  FROM warehouse_inventory
+  WHERE warehouse_uuid = p_warehouse_uuid
+    AND inventory_uuid = p_inventory_uuid;
+  
+  -- Get all non-cancelled deliveries that reference this warehouse-inventory combination
+  SELECT array_agg(DISTINCT di.uuid)
+  INTO v_delivery_uuids
+  FROM delivery_items di,
+       jsonb_object_keys(di.warehouse_inventory_items) AS item_key
+  WHERE di.warehouse_uuid = p_warehouse_uuid
+    AND di.status NOT IN ('CANCELLED')
+    AND di.warehouse_inventory_items->item_key->>'inventory_uuid' = p_inventory_uuid::text;
+  
+  IF v_delivery_uuids IS NULL OR array_length(v_delivery_uuids, 1) = 0 THEN
+    RETURN jsonb_build_object(
+      'consistent', true,
+      'message', 'No deliveries found for this warehouse-inventory combination'
+    );
+  END IF;
+  
+  -- Check consistency across deliveries
+  FOREACH v_delivery_uuid IN ARRAY v_delivery_uuids
+  LOOP
+    -- Get warehouse_inventory_uuid from this delivery
+    SELECT DISTINCT (warehouse_inventory_items->item_key->>'warehouse_inventory_uuid')::uuid
+    INTO v_consistent_uuid
+    FROM delivery_items di,
+         jsonb_object_keys(di.warehouse_inventory_items) AS item_key
+    WHERE di.uuid = v_delivery_uuid
+      AND di.warehouse_inventory_items->item_key->>'inventory_uuid' = p_inventory_uuid::text
+    LIMIT 1;
+    
+    -- Check for inconsistencies
+    IF v_database_uuid IS NOT NULL AND v_consistent_uuid != v_database_uuid THEN
+      v_inconsistent_deliveries := array_append(v_inconsistent_deliveries, 
+        'Delivery ' || v_delivery_uuid::text || ' has UUID ' || v_consistent_uuid::text || 
+        ' but database has ' || v_database_uuid::text);
+    END IF;
+  END LOOP;
+  
+  IF array_length(v_inconsistent_deliveries, 1) > 0 THEN
+    RETURN jsonb_build_object(
+      'consistent', false,
+      'database_uuid', v_database_uuid,
+      'inconsistencies', v_inconsistent_deliveries
+    );
+  ELSE
+    RETURN jsonb_build_object(
+      'consistent', true,
+      'database_uuid', v_database_uuid,
+      'delivery_count', array_length(v_delivery_uuids, 1)
+    );
+  END IF;
 END;
 $function$;
 
