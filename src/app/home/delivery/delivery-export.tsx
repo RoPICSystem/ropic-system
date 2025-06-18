@@ -98,9 +98,9 @@ export function DeliveryExportPopover({
       ]
     },
     {
-      key: "includeAutoAccept",
-      label: "Auto Accept Delivery",
-      description: "Automatically accept delivery when QR code is scanned",
+      key: "includeAuto",
+      label: "Auto Accept Delivery / Auto Mark as Used",
+      description: "Automatically accept delivery or mark items as used when QR code is scanned",
       type: "switch",
       defaultValue: false
     },
@@ -145,8 +145,8 @@ export function DeliveryExportPopover({
 
   return (
     <ExportPopover
-      title="Export Delivery QR Report"
-      description="Select deliveries to include in the PDF report (Only IN_TRANSIT and DELIVERED deliveries can generate QR codes)"
+      title="Export QR Report"
+      description="Select deliveries to include in the PDF report"
       tableName="delivery_items"
       searchPlaceholder="Search deliveries..."
       filters={deliveryFilters}

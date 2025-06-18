@@ -858,7 +858,7 @@ export function ExportPopover({
                           <div key={option.key} className="space-y-2">
 
                             {option.type === "switch" && (
-                              <div className="flex items-center justify-between">
+                              <div className="flex items-center justify-between gap-4">
                                 <div className="flex flex-col">
                                   <span className="text-xs font-medium text-default-700">{option.label}</span>
                                   {option.description && (

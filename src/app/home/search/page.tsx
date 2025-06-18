@@ -111,11 +111,11 @@ export default function SearchPage() {
   const [showAcceptDeliveryLoadingModal, setShowAcceptDeliveryLoadingModal] = useState(false);
 
   // Auto-accept timer states (now for new_warehouse_inventory)
-  const [autoAcceptProgress, setAutoAcceptProgress] = useState(0);
-  const [autoAcceptTimeRemaining, setAutoAcceptTimeRemaining] = useState(5);
+  const [autoProgress, setAutoProgress] = useState(0);
+  const [autoTimeRemaining, setAutoTimeRemaining] = useState(5);
   const [pendingNewWarehouseInventoryAccept, setPendingNewWarehouseInventoryAccept] = useState<any>(null);
-  const autoAcceptTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const autoAcceptIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const autoTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const autoIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Add ref to track processed auto-actions
   const processedAutoActions = useRef<Set<string>>(new Set());
@@ -172,13 +172,13 @@ export default function SearchPage() {
         // Check for initial query parameter
         const query = searchParams.get("q");
         const viewMode = searchParams.get("view") === "true";
-        const isDeliveryAutoAccept = searchParams.get("deliveryAutoAccept") === "true";
+        const isAuto = searchParams.get("auto") === "true";
         const showOptions = searchParams.get("showOptions") === "true";
 
         if (query) {
           setSearchQuery(query);
           setLastSearchQuery(query);
-          await performSearch(query, userData, viewMode, isDeliveryAutoAccept, showOptions);
+          await performSearch(query, userData, viewMode, isAuto, showOptions);
         }
 
       } catch (error) {
@@ -198,14 +198,14 @@ export default function SearchPage() {
 
     const query = searchParams.get("q");
     const viewMode = searchParams.get("view") === "true";
-    const isDeliveryAutoAccept = searchParams.get("deliveryAutoAccept") === "true";
+    const isAuto = searchParams.get("auto") === "true";
     const showOptions = searchParams.get("showOptions") === "true";
 
     // Only perform search if query is different from what we last searched
     if (query && query !== lastSearchQuery) {
       setSearchQuery(query);
       setLastSearchQuery(query);
-      performSearch(query, user, viewMode, isDeliveryAutoAccept, showOptions);
+      performSearch(query, user, viewMode, isAuto, showOptions);
     } else if (!query && hasSearched) {
       // Clear search if no query parameter
       setSearchQuery("");
@@ -229,16 +229,16 @@ export default function SearchPage() {
   // Cleanup timers on unmount
   useEffect(() => {
     return () => {
-      if (autoAcceptTimerRef.current) {
-        clearTimeout(autoAcceptTimerRef.current);
+      if (autoTimerRef.current) {
+        clearTimeout(autoTimerRef.current);
       }
-      if (autoAcceptIntervalRef.current) {
-        clearInterval(autoAcceptIntervalRef.current);
+      if (autoIntervalRef.current) {
+        clearInterval(autoIntervalRef.current);
       }
     };
   }, []);
 
-  const performSearch = async (query: string, userData?: any, autoView: boolean = false, autoAccept: boolean = false, showOptions: boolean = false) => {
+  const performSearch = async (query: string, userData?: any, autoView: boolean = false, auto: boolean = false, showOptions: boolean = false) => {
     if (!query.trim()) {
       setSearchResults([]);
       setSelectedResult(null);
@@ -262,13 +262,13 @@ export default function SearchPage() {
           setSelectedResult(result.data[0]);
 
           // Handle auto-accept for new_warehouse_inventory ONLY - exclude admins
-          if ((autoAccept || showOptions) &&
+          if ((auto || showOptions) &&
             result.data[0]?.entity_type === 'new_warehouse_inventory' &&
             userToUse && !userToUse.is_admin) {
-            const autoAcceptKey = `${result.data[0]?.entity_type}-${query}-autoAccept`;
-            if (!processedAutoActions.current.has(autoAcceptKey)) {
-              processedAutoActions.current.add(autoAcceptKey);
-              setPendingAutoAcceptIntent({
+            const autoKey = `${result.data[0]?.entity_type}-${query}-auto`;
+            if (!processedAutoActions.current.has(autoKey)) {
+              processedAutoActions.current.add(autoKey);
+              setPendingAutoIntent({
                 resultItem: result.data[0],
                 userToUse,
                 shouldStartTimer: true
@@ -353,34 +353,34 @@ export default function SearchPage() {
       inventoryItemUuid,
       isGroup
     });
-    setAutoAcceptProgress(0);
-    setAutoAcceptTimeRemaining(timerDuration / 1000);
+    setAutoProgress(0);
+    setAutoTimeRemaining(timerDuration / 1000);
 
     // Clear any existing timers
-    if (autoAcceptTimerRef.current) {
-      clearTimeout(autoAcceptTimerRef.current);
+    if (autoTimerRef.current) {
+      clearTimeout(autoTimerRef.current);
     }
-    if (autoAcceptIntervalRef.current) {
-      clearInterval(autoAcceptIntervalRef.current);
+    if (autoIntervalRef.current) {
+      clearInterval(autoIntervalRef.current);
     }
 
     // Progress interval (update every 100ms for smooth animation)
-    autoAcceptIntervalRef.current = setInterval(() => {
-      setAutoAcceptProgress(prev => {
+    autoIntervalRef.current = setInterval(() => {
+      setAutoProgress(prev => {
         const newProgress = prev + (100 / timerDuration) * 100; // 100ms steps
         if (newProgress >= 100) {
-          setAutoAcceptTimeRemaining(0);
+          setAutoTimeRemaining(0);
           return 100;
         }
-        setAutoAcceptTimeRemaining(Math.ceil((timerDuration - (newProgress / 100 * timerDuration)) / 1000));
+        setAutoTimeRemaining(Math.ceil((timerDuration - (newProgress / 100 * timerDuration)) / 1000));
         return newProgress;
       });
     }, 100);
 
     // Auto-mark timer
-    autoAcceptTimerRef.current = setTimeout(() => {
-      if (autoAcceptIntervalRef.current) {
-        clearInterval(autoAcceptIntervalRef.current);
+    autoTimerRef.current = setTimeout(() => {
+      if (autoIntervalRef.current) {
+        clearInterval(autoIntervalRef.current);
       }
       handleMarkItemAsUsedAction(resultItem, userToUse, inventoryItemUuid, isGroup);
     }, timerDuration);
@@ -388,15 +388,15 @@ export default function SearchPage() {
 
   // Cancel mark item as used timer
   const cancelMarkItemAsUsed = () => {
-    if (autoAcceptTimerRef.current) {
-      clearTimeout(autoAcceptTimerRef.current);
+    if (autoTimerRef.current) {
+      clearTimeout(autoTimerRef.current);
     }
-    if (autoAcceptIntervalRef.current) {
-      clearInterval(autoAcceptIntervalRef.current);
+    if (autoIntervalRef.current) {
+      clearInterval(autoIntervalRef.current);
     }
     setPendingMarkItemAsUsed(null);
-    setAutoAcceptProgress(0);
-    setAutoAcceptTimeRemaining(5);
+    setAutoProgress(0);
+    setAutoTimeRemaining(5);
   };
 
 
@@ -411,8 +411,8 @@ export default function SearchPage() {
 
     // Clear timer states when starting marking
     setPendingMarkItemAsUsed(null);
-    setAutoAcceptProgress(0);
-    setAutoAcceptTimeRemaining(5);
+    setAutoProgress(0);
+    setAutoTimeRemaining(5);
 
     setIsMarkingItemAsUsed(true);
     setMarkItemAsUsedError(null);
@@ -483,7 +483,7 @@ export default function SearchPage() {
   };
 
   // Add state to track pending auto-accept intent
-  const [pendingAutoAcceptIntent, setPendingAutoAcceptIntent] = useState<{
+  const [pendingAutoIntent, setPendingAutoIntent] = useState<{
     resultItem: any;
     userToUse: any;
     shouldStartTimer: boolean;
@@ -491,19 +491,19 @@ export default function SearchPage() {
 
   // Add effect to handle auto-accept when component loading is complete
   useEffect(() => {
-    if (pendingAutoAcceptIntent &&
-      pendingAutoAcceptIntent.shouldStartTimer &&
+    if (pendingAutoIntent &&
+      pendingAutoIntent.shouldStartTimer &&
       !isDeliveryComponentLoading &&
       !isSearching &&
-      selectedResult?.entity_uuid === pendingAutoAcceptIntent.resultItem.entity_uuid) {
+      selectedResult?.entity_uuid === pendingAutoIntent.resultItem.entity_uuid) {
 
       console.log("Starting auto-accept timer now that component is loaded");
-      startAutoAcceptTimer(pendingAutoAcceptIntent.resultItem, pendingAutoAcceptIntent.userToUse);
+      startAutoTimer(pendingAutoIntent.resultItem, pendingAutoIntent.userToUse);
 
       // Clear the intent
-      setPendingAutoAcceptIntent(null);
+      setPendingAutoIntent(null);
     }
-  }, [pendingAutoAcceptIntent, isDeliveryComponentLoading, isSearching, selectedResult]);
+  }, [pendingAutoIntent, isDeliveryComponentLoading, isSearching, selectedResult]);
 
   // Add callback for delivery component loading state
   const handleDeliveryComponentLoadingChange = (isLoading: boolean) => {
@@ -511,55 +511,55 @@ export default function SearchPage() {
   };
 
   // Start auto-accept timer (now for new_warehouse_inventory)
-  const startAutoAcceptTimer = (resultItem: any, userToUse: any, timerDuration: number = 10000) => {
+  const startAutoTimer = (resultItem: any, userToUse: any, timerDuration: number = 10000) => {
     // Only start timer for new_warehouse_inventory entity type
     if (resultItem.entity_type !== 'new_warehouse_inventory') return;
 
     setPendingNewWarehouseInventoryAccept({ resultItem, userToUse });
-    setAutoAcceptProgress(0);
-    setAutoAcceptTimeRemaining(timerDuration / 1000);
+    setAutoProgress(0);
+    setAutoTimeRemaining(timerDuration / 1000);
 
     // Clear any existing timers
-    if (autoAcceptTimerRef.current) {
-      clearTimeout(autoAcceptTimerRef.current);
+    if (autoTimerRef.current) {
+      clearTimeout(autoTimerRef.current);
     }
-    if (autoAcceptIntervalRef.current) {
-      clearInterval(autoAcceptIntervalRef.current);
+    if (autoIntervalRef.current) {
+      clearInterval(autoIntervalRef.current);
     }
 
     // Progress interval (update every 100ms for smooth animation)
-    autoAcceptIntervalRef.current = setInterval(() => {
-      setAutoAcceptProgress(prev => {
+    autoIntervalRef.current = setInterval(() => {
+      setAutoProgress(prev => {
         const newProgress = prev + (100 / timerDuration) * 100; // 100ms steps
         if (newProgress >= 100) {
-          setAutoAcceptTimeRemaining(0);
+          setAutoTimeRemaining(0);
           return 100;
         }
-        setAutoAcceptTimeRemaining(Math.ceil((timerDuration - (newProgress / 100 * timerDuration)) / 1000));
+        setAutoTimeRemaining(Math.ceil((timerDuration - (newProgress / 100 * timerDuration)) / 1000));
         return newProgress;
       });
     }, 100);
 
     // Auto-accept timer
-    autoAcceptTimerRef.current = setTimeout(() => {
-      if (autoAcceptIntervalRef.current) {
-        clearInterval(autoAcceptIntervalRef.current);
+    autoTimerRef.current = setTimeout(() => {
+      if (autoIntervalRef.current) {
+        clearInterval(autoIntervalRef.current);
       }
       handleAcceptNewWarehouseInventoryAction(resultItem, userToUse);
     }, timerDuration);
   };
 
   // Cancel auto-accept
-  const cancelAutoAccept = () => {
-    if (autoAcceptTimerRef.current) {
-      clearTimeout(autoAcceptTimerRef.current);
+  const cancelAuto = () => {
+    if (autoTimerRef.current) {
+      clearTimeout(autoTimerRef.current);
     }
-    if (autoAcceptIntervalRef.current) {
-      clearInterval(autoAcceptIntervalRef.current);
+    if (autoIntervalRef.current) {
+      clearInterval(autoIntervalRef.current);
     }
     setPendingNewWarehouseInventoryAccept(null);
-    setAutoAcceptProgress(0);
-    setAutoAcceptTimeRemaining(5);
+    setAutoProgress(0);
+    setAutoTimeRemaining(5);
   };
 
   // Handle new warehouse inventory acceptance
@@ -574,8 +574,8 @@ export default function SearchPage() {
 
     // Clear timer states when starting acceptance
     setPendingNewWarehouseInventoryAccept(null);
-    setAutoAcceptProgress(0);
-    setAutoAcceptTimeRemaining(5);
+    setAutoProgress(0);
+    setAutoTimeRemaining(5);
 
     setIsAcceptingNewWarehouseInventory(true);
     setAcceptNewWarehouseInventoryError(null);
@@ -597,7 +597,7 @@ export default function SearchPage() {
         // Remove showOptions from URL after successful acceptance
         const currentParams = new URLSearchParams(searchParams.toString());
         currentParams.delete('showOptions');
-        currentParams.delete('deliveryAutoAccept'); // Also remove this if present
+        currentParams.delete('auto'); // Also remove this if present
 
         // Build new URL with cleaned parameters
         const currentQuery = searchParams.get("q");
@@ -888,7 +888,7 @@ export default function SearchPage() {
                     {acceptNewWarehouseInventorySuccess ? 'The new warehouse inventory items have been accepted and warehouse inventory has been updated.' :
                       acceptNewWarehouseInventoryError ? acceptNewWarehouseInventoryError :
                         isCurrentNewWarehouseInventoryProcessing ? 'Please wait while we process the new warehouse inventory acceptance and update warehouse inventory...' :
-                          isCurrentNewWarehouseInventoryAccepting ? `Auto-accepting in ${autoAcceptTimeRemaining} seconds` :
+                          isCurrentNewWarehouseInventoryAccepting ? `Auto-accepting in ${autoTimeRemaining} seconds` :
                             `Accept these ${selectedResult.entity_data?.total_matched_items || 1} new warehouse inventory item${(selectedResult.entity_data?.total_matched_items || 1) > 1 ? 's' : ''}`
                     }
                   </p>
@@ -949,7 +949,7 @@ export default function SearchPage() {
                       color="danger"
                       variant="shadow"
                       startContent={<Icon icon="mdi:close" />}
-                      onPress={cancelAutoAccept}
+                      onPress={cancelAuto}
                       size="sm"
                     >
                       Cancel
@@ -961,7 +961,7 @@ export default function SearchPage() {
                       variant="shadow"
                       startContent={<Icon icon="mdi:check" />}
                       onPress={() => {
-                        cancelAutoAccept();
+                        cancelAuto();
                         if (pendingNewWarehouseInventoryAccept) {
                           handleAcceptNewWarehouseInventoryAction(pendingNewWarehouseInventoryAccept.resultItem, pendingNewWarehouseInventoryAccept.userToUse);
                         }
@@ -1003,13 +1003,13 @@ export default function SearchPage() {
                 <div className="relative w-full bg-warning-200 rounded-full h-3 overflow-hidden shadow-inner">
                   <div
                     className="bg-gradient-to-r from-warning-400 to-warning-600 h-3 rounded-full transition-all duration-100 ease-linear shadow-sm"
-                    style={{ width: `${autoAcceptProgress}%` }}
+                    style={{ width: `${autoProgress}%` }}
                   />
                   <div
                     className="absolute top-0 h-3 w-8 bg-gradient-to-r from-transparent via-white/30 to-transparent rounded-full transition-all duration-100 ease-linear"
                     style={{
-                      left: `${Math.max(0, autoAcceptProgress - 8)}%`,
-                      opacity: autoAcceptProgress > 0 && autoAcceptProgress < 100 ? 1 : 0
+                      left: `${Math.max(0, autoProgress - 8)}%`,
+                      opacity: autoProgress > 0 && autoProgress < 100 ? 1 : 0
                     }}
                   />
                 </div>
@@ -1070,7 +1070,7 @@ export default function SearchPage() {
                     {markItemAsUsedSuccess ? 'The inventory item has been marked as used and the warehouse inventory has been updated.' :
                       markItemAsUsedError ? markItemAsUsedError :
                         isCurrentMarkItemAsUsedProcessing ? 'Please wait while we mark the item as used...' :
-                          isCurrentMarkItemAsUsedPending ? `Auto-marking in ${autoAcceptTimeRemaining} seconds` :
+                          isCurrentMarkItemAsUsedPending ? `Auto-marking in ${autoTimeRemaining} seconds` :
                             `Mark ${itemParam ? 'specific item' : groupParam ? 'item from group' : 'an item'} as used from warehouse inventory`
                     }
                   </p>
@@ -1196,13 +1196,13 @@ export default function SearchPage() {
                 <div className="relative w-full bg-warning-200 rounded-full h-3 overflow-hidden shadow-inner">
                   <div
                     className="bg-gradient-to-r from-warning-400 to-warning-600 h-3 rounded-full transition-all duration-100 ease-linear shadow-sm"
-                    style={{ width: `${autoAcceptProgress}%` }}
+                    style={{ width: `${autoProgress}%` }}
                   />
                   <div
                     className="absolute top-0 h-3 w-8 bg-gradient-to-r from-transparent via-white/30 to-transparent rounded-full transition-all duration-100 ease-linear"
                     style={{
-                      left: `${Math.max(0, autoAcceptProgress - 8)}%`,
-                      opacity: autoAcceptProgress > 0 && autoAcceptProgress < 100 ? 1 : 0
+                      left: `${Math.max(0, autoProgress - 8)}%`,
+                      opacity: autoProgress > 0 && autoProgress < 100 ? 1 : 0
                     }}
                   />
                 </div>

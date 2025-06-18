@@ -83,7 +83,7 @@ export default function DeliveryPage() {
     description: string;
     deliveryId: string;
     deliveryName: string;
-    autoAccept: boolean;
+    auto: boolean;
     showOptions: boolean;
   }>({
     url: "",
@@ -91,7 +91,7 @@ export default function DeliveryPage() {
     description: "",
     deliveryId: "",
     deliveryName: "",
-    autoAccept: false,
+    auto: false,
     showOptions: true
   });
 
@@ -213,8 +213,8 @@ export default function DeliveryPage() {
 
         params.set('q', delivery.uuid);
 
-        if (data.exportOptions.includeAutoAccept) {
-          params.set('deliveryAutoAccept', 'true');
+        if (data.exportOptions.includeAuto) {
+          params.set('auto', 'true');
         }
 
         if (data.exportOptions.includeShowOptions) {
@@ -328,8 +328,8 @@ export default function DeliveryPage() {
                     itemParams.set('q', delivery.uuid);
                     itemParams.set('item', item.uuid);
 
-                    if (data.exportOptions.includeAutoAccept) {
-                      itemParams.set('deliveryAutoAccept', 'true');
+                    if (data.exportOptions.includeAuto) {
+                      itemParams.set('auto', 'true');
                     }
 
                     if (data.exportOptions.includeShowOptions) {
@@ -363,8 +363,8 @@ export default function DeliveryPage() {
                     groupParams.set('q', delivery.uuid);
                     groupParams.set('group', groupId);
 
-                    if (data.exportOptions.includeAutoAccept) {
-                      groupParams.set('deliveryAutoAccept', 'true');
+                    if (data.exportOptions.includeAuto) {
+                      groupParams.set('auto', 'true');
                     }
 
                     if (data.exportOptions.includeShowOptions) {
@@ -397,8 +397,8 @@ export default function DeliveryPage() {
                     groupParams.set('q', delivery.uuid);
                     groupParams.set('group', groupId);
 
-                    if (data.exportOptions.includeAutoAccept) {
-                      groupParams.set('deliveryAutoAccept', 'true');
+                    if (data.exportOptions.includeAuto) {
+                      groupParams.set('auto', 'true');
                     }
 
                     if (data.exportOptions.includeShowOptions) {
@@ -434,8 +434,8 @@ export default function DeliveryPage() {
                     itemParams.set('q', delivery.uuid);
                     itemParams.set('item', item.uuid);
 
-                    if (data.exportOptions.includeAutoAccept) {
-                      itemParams.set('deliveryAutoAccept', 'true');
+                    if (data.exportOptions.includeAuto) {
+                      itemParams.set('auto', 'true');
                     }
 
                     if (data.exportOptions.includeShowOptions) {
@@ -470,8 +470,8 @@ export default function DeliveryPage() {
                     groupParams.set('q', delivery.uuid);
                     groupParams.set('group', groupId);
 
-                    if (data.exportOptions.includeAutoAccept) {
-                      groupParams.set('deliveryAutoAccept', 'true');
+                    if (data.exportOptions.includeAuto) {
+                      groupParams.set('auto', 'true');
                     }
 
                     if (data.exportOptions.includeShowOptions) {
@@ -507,8 +507,8 @@ export default function DeliveryPage() {
                     itemParams.set('q', delivery.uuid);
                     itemParams.set('item', item.uuid);
 
-                    if (data.exportOptions.includeAutoAccept) {
-                      itemParams.set('deliveryAutoAccept', 'true');
+                    if (data.exportOptions.includeAuto) {
+                      itemParams.set('auto', 'true');
                     }
 
                     if (data.exportOptions.includeShowOptions) {
@@ -601,28 +601,28 @@ export default function DeliveryPage() {
   };
 
   // QR Code functions
-  const generateDeliveryUrl = (deliveryId?: string, autoAccept: boolean = false, showOptions: boolean = true) => {
+  const generateDeliveryUrl = (deliveryId?: string, auto: boolean = false, showOptions: boolean = true) => {
     const targetDeliveryId = deliveryId || selectedDeliveryId;
     if (!targetDeliveryId) return "https://ropic.vercel.app/home/search";
 
     const baseUrl = "https://ropic.vercel.app/home/search";
     const params = new URLSearchParams({
       q: targetDeliveryId,
-      ...(autoAccept && { deliveryAutoAccept: "true" }),
+      ...(auto && { auto: "true" }),
       ...(showOptions && { showOptions: "true" })
     });
 
     return `${baseUrl}?${params.toString()}`;
   };
 
-  const updateQrCodeUrl = (autoAccept: boolean, showOptions?: boolean) => {
+  const updateQrCodeUrl = (auto: boolean, showOptions?: boolean) => {
     const currentShowOptions = showOptions !== undefined ? showOptions : qrCodeData.showOptions;
     setQrCodeData(prev => ({
       ...prev,
-      autoAccept,
+      auto,
       ...(showOptions !== undefined && { showOptions }),
-      url: generateDeliveryUrl(prev.deliveryId, autoAccept, currentShowOptions),
-      description: `Scan this code to view delivery details for ${prev.deliveryName}${autoAccept ? '. This will automatically accept the delivery when scanned.' : '.'}`
+      url: generateDeliveryUrl(prev.deliveryId, auto, currentShowOptions),
+      description: `Scan this code to view delivery details for ${prev.deliveryName}${auto ? '. This will automatically accept the delivery when scanned.' : '.'}`
     }));
   };
 
@@ -630,7 +630,7 @@ export default function DeliveryPage() {
     setQrCodeData(prev => ({
       ...prev,
       showOptions,
-      url: generateDeliveryUrl(prev.deliveryId, prev.autoAccept, showOptions)
+      url: generateDeliveryUrl(prev.deliveryId, prev.auto, showOptions)
     }));
   };
 
