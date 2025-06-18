@@ -1,40 +1,24 @@
 "use client";
 
-import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Input,
+  Alert,
   Button,
   Card,
   CardBody,
   CardHeader,
-  Divider,
   Chip,
-  Spinner,
-  Alert,
-  Modal,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-  useDisclosure,
-  Accordion,
-  AccordionItem,
-  Avatar,
-  CardFooter,
+  Divider,
+  Input,
   Snippet,
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-  Checkbox,
-  Tooltip
+  Spinner
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
+import { AnimatePresence, motion } from 'framer-motion';
+import { useRouter, useSearchParams } from 'next/navigation';
+import React, { useEffect, useRef, useState } from 'react';
 
 import {
-  handleAcceptNewWarehouseInventory,
-  markWarehouseInventoryItemAsUsed
+  handleAcceptNewWarehouseInventory
 } from './actions';
 
 // Components
@@ -44,7 +28,6 @@ import { createClient } from "@/utils/supabase/client";
 import { DeliveryComponent } from "@/app/home/delivery/delivery-component";
 import { InventoryComponent as InventoryItemComponent } from "@/app/home/inventory/inventory-component";
 import { InventoryComponent as WarehouseInventoryComponent } from "@/app/home/warehouse-items/warehouse-inventory-component";
-import CardList from '@/components/card-list';
 import { motionTransition, motionTransitionScale } from '@/utils/anim';
 import { getUserFromCookies } from '@/utils/supabase/server/user';
 import { markWarehouseGroupAsUsed, markWarehouseItemAsUsed, markWarehouseItemsBulkUsed } from '../warehouse-items/actions';
@@ -1257,15 +1240,27 @@ export default function SearchPage() {
             {newWarehouseInventoryAcceptButton}
             <div className={`${isDisabled ? 'opacity-50 pointer-events-none blur-sm scale-95 origin-top' : ''} transition-all duration-200`}>
               <div className="space-y-4">
-                <Card className="bg-warning-50 border border-warning-200">
-                  <CardBody className="p-4">
-                    <div className="flex items-center gap-3 mb-3">
-                      <Icon icon="mdi:warehouse-plus" className="text-warning w-6 h-6" />
+                <Card className="bg-gradient-to-br from-warning-50 to-warning-50 border border-warning-200 shadow-lg shadow-warning-200/30">
+                  <CardBody className="p-6">
+                    <div className="flex items-start gap-4 mb-4">
+                      <div className="flex items-center justify-center w-12 h-12 bg-gradient-to-br from-warning-400 to-warning-500 rounded-xl shadow-lg">
+                        <Icon icon="mdi:warehouse" className="text-warning-100 w-6 h-6" />
+                      </div>
                       <div className="flex-1">
-                        <h4 className="font-semibold text-warning-900">
-                          New Warehouse Inventory Items ({selectedResult.entity_data?.total_matched_items || 1})
-                        </h4>
-                        <p className="text-sm text-warning-700">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h4 className="font-bold text-warning-900 text-lg">
+                            New Warehouse Inventory Items
+                          </h4>
+                          <Chip
+                            color="warning"
+                            variant="shadow"
+                            size="sm"
+                            className="font-semibold"
+                          >
+                            {selectedResult.entity_data?.total_matched_items || 1} {(selectedResult.entity_data?.total_matched_items || 1) === 1 ? 'Item' : 'Items'}
+                          </Chip>
+                        </div>
+                        <p className="text-sm text-warning-700 leading-relaxed">
                           {selectedResult.entity_data?.total_matched_items > 1
                             ? `These ${selectedResult.entity_data.total_matched_items} warehouse inventory items will be created when the delivery is accepted.`
                             : 'This warehouse inventory item will be created when the delivery is accepted.'
@@ -1274,37 +1269,79 @@ export default function SearchPage() {
                       </div>
                     </div>
 
-                    {/* Show matched warehouse inventory UUIDs */}
+                    {/* Enhanced UUID Display */}
                     {selectedResult.entity_data?.matched_warehouse_inventory_uuids && (
-                      <div className="space-y-2">
-                        <p className="text-xs font-medium text-warning-800">Warehouse Inventory UUIDs:</p>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      <div>
+                        <div className="flex items-center gap-2 mb-3">
+                          <Icon icon="mdi:identifier" className="text-warning-600 w-4 h-4" />
+                          <p className="text-sm font-semibold text-warning-800">Warehouse Inventory UUIDs</p>
+                        </div>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                           {selectedResult.entity_data.matched_warehouse_inventory_uuids.map((uuid: string, index: number) => (
-                            <div key={uuid} className="flex items-center gap-2 p-2 bg-warning-100/50 rounded">
-                              <span className="text-xs text-warning-600">#{index + 1}</span>
-                              <code className="text-xs bg-warning-200 px-1 rounded font-mono flex-1 truncate">
-                                {uuid}
-                              </code>
+                            <div key={uuid} className="group">
+                              <div className="flex items-center gap-3 p-3 bg-warning/70 border border-warning-200/50 rounded-xl hover:bg-warning/90 hover:shadow-md transition-all duration-200">
+                                <div className="flex items-center justify-center w-8 h-8 bg-warning-100 rounded-lg group-hover:bg-warning-200 transition-colors">
+                                  <span className="text-xs font-bold text-warning-700">#{index + 1}</span>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <Snippet
+                                    symbol=""
+                                    variant="bordered"
+                                    color="warning"
+                                    size="sm"
+                                    className="w-full"
+                                    classNames={{
+                                      base: "bg-warning-50/50 border-warning-200",
+                                      pre: "font-mono text-xs text-warning-800 truncate"
+                                    }}
+                                  >
+                                    {uuid}
+                                  </Snippet>
+                                </div>
+                              </div>
                             </div>
                           ))}
                         </div>
                       </div>
                     )}
 
-                    {/* Show matched inventory items details if available */}
+                    {/* Enhanced Inventory Items Display */}
                     {selectedResult.entity_data?.matched_inventory_items && selectedResult.entity_data.matched_inventory_items.length > 0 && (
-                      <div className="mt-3 space-y-2">
-                        <p className="text-xs font-medium text-warning-800">Related Inventory Items:</p>
-                        <div className="space-y-1">
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2">
+                          <Icon icon="mdi:package-variant-closed" className="text-warning-600 w-4 h-4" />
+                          <p className="text-sm font-semibold text-warning-800">Related Inventory Items</p>
+                        </div>
+                        
+                        <div className="space-y-3">
                           {selectedResult.entity_data.matched_inventory_items.map((item: any, index: number) => (
-                            <div key={item.warehouse_inventory_uuid} className="flex items-center gap-2 p-2 bg-warning-100/30 rounded text-xs">
-                              <Icon icon="mdi:package-variant" className="text-warning-600 w-4 h-4" />
-                              <span className="font-medium text-warning-800">{item.name}</span>
-                              <span className="text-warning-600">({item.unit})</span>
-                              {item.description && (
-                                <span className="text-warning-500 truncate">{item.description}</span>
-                              )}
-                            </div>
+                            <Card key={item.warehouse_inventory_uuid} className="bg-white/60 border border-warning-200/40 hover:bg-white/80 hover:shadow-sm transition-all duration-200">
+                              <CardBody className="p-4">
+                                <div className="flex items-start gap-3">
+                                  <div className="flex items-center justify-center w-10 h-10 bg-gradient-to-br from-warning-100 to-amber-100 rounded-lg">
+                                    <Icon icon="mdi:package-variant" className="text-warning-600 w-5 h-5" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <h5 className="font-semibold text-warning-900 truncate">{item.name}</h5>
+                                      <Chip
+                                        color="warning"
+                                        variant="flat"
+                                        size="sm"
+                                        className="text-xs font-medium"
+                                      >
+                                        {item.unit}
+                                      </Chip>
+                                    </div>
+                                    {item.description && (
+                                      <p className="text-xs text-warning-600 leading-relaxed line-clamp-2">
+                                        {item.description}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              </CardBody>
+                            </Card>
                           ))}
                         </div>
                       </div>

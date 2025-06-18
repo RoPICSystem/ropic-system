@@ -1320,7 +1320,7 @@ export function InventoryComponent({
                                             if (totalAvailableValue > 0 && item.unit) {
                                               const originalDisplay = `${formatNumber(totalAvailableValue)} ${item.unit}`;
 
-                                              if (inventoryForm.standard_unit && item.unit !== inventoryForm.standard_unit) {
+                                              if ((inventoryForm.standard_unit) && item.unit !== inventoryForm.standard_unit) {
                                                 const totalInStandardUnit = availableItems.reduce((total, groupItem) => {
                                                   if (groupItem.unit && groupItem.unit_value && inventoryForm.standard_unit) {
                                                     return total + convertUnit(groupItem.unit_value, groupItem.unit, inventoryForm.standard_unit);
@@ -1345,7 +1345,7 @@ export function InventoryComponent({
                                         return null;
                                       })()}
 
-                                      {!groupInfo.isGroup && item.unit && item.unit !== "" && item.unit_value && item.unit_value > 0 && (
+                                      {(!groupInfo.isGroup && item.unit !== undefined && item.unit !== "" && item.unit_value !== undefined && item.unit_value > 0) && (
                                         <Chip color="primary" variant="flat" size="sm" className="whitespace-nowrap">
                                           {(() => {
                                             const unitValue = parseFloat(String(item.unit_value || 0));
@@ -1361,7 +1361,7 @@ export function InventoryComponent({
                                         </Chip>
                                       )}
 
-                                      {!groupInfo.isGroup && item.status && item.status !== "AVAILABLE" && (
+                                      {(!groupInfo.isGroup && item.status && item.status !== "AVAILABLE") && (
                                         <Chip
                                           color={getStatusColor(item.status)}
                                           variant="flat"
@@ -1474,7 +1474,7 @@ export function InventoryComponent({
                                       errorMessage={errors.unitValue}
                                       endContent={
                                         <div className="absolute right-10 bottom-2">
-                                          {item.unit && (
+                                          {(item.unit) && (
                                             <Chip
                                               color="primary"
                                               variant="flat"
@@ -1618,7 +1618,7 @@ export function InventoryComponent({
                                                       <span className="font-semibold text-default-800">
                                                         Item {index + 1}
                                                       </span>
-                                                      {groupItem.status && groupItem.status !== "AVAILABLE" && (
+                                                      {(groupItem.status) && groupItem.status !== "AVAILABLE" && (
                                                         <Chip
                                                           color={getStatusColor(groupItem.status)}
                                                           variant="flat"

@@ -1725,8 +1725,45 @@ export function DeliveryComponent({
               </div>
             </div>
 
+            <div className="p-4 bg-default-50 rounded-xl border-2 border-default-200">
+              <div className="flex items-center justify-between">
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium text-default-700">Auto Accept Delivery</span>
+                  <span className="text-xs text-default-500">
+                    When enabled, scanning this QR code will automatically accept the delivery or mark the item as used
+                  </span>
+                </div>
+                <Switch
+                  isSelected={qrCodeData.autoAccept}
+                  onValueChange={(checked) => {
+                    updateQrCodeUrl(checked, qrCodeData.showOptions, selectedInventoryItemForQR?.uuid, selectedInventoryItemForQR?.isGroup);
+                  }}
+                  color="warning"
+                  size="sm"
+                />
+              </div>
+
+              <AnimatePresence>
+                {qrCodeData.autoAccept && (
+                  <motion.div {...motionTransition}>
+                    <div className="mt-3 p-2 bg-warning-50 border border-warning-200 rounded-lg">
+                      <div className="flex items-start gap-2">
+                        <Icon icon="mdi:alert" className="text-warning-600 mt-0.5 flex-shrink-0" width={16} />
+                        <div>
+                          <p className="text-xs font-medium text-warning-700">Warning</p>
+                          <p className="text-xs text-warning-600">
+                            This action cannot be undone. The delivery will be automatically accepted when scanned by an authorized operator.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
             {/* Inventory Item Selection for QR Code */}
-            {qrCodeData.showOptions && formData.status === 'DELIVERED' && (
+            {qrCodeData.showOptions && (
               <div className="p-4 bg-warning-50 rounded-xl border-2 border-warning-200">
                 <div className="flex flex-col gap-3">
                   <div className="flex flex-col">
@@ -1820,43 +1857,6 @@ export function DeliveryComponent({
                 </div>
               </div>
             )}
-
-            <div className="p-4 bg-default-50 rounded-xl border-2 border-default-200">
-              <div className="flex items-center justify-between">
-                <div className="flex flex-col">
-                  <span className="text-sm font-medium text-default-700">Auto Accept Delivery</span>
-                  <span className="text-xs text-default-500">
-                    When enabled, scanning this QR code will automatically accept the delivery
-                  </span>
-                </div>
-                <Switch
-                  isSelected={qrCodeData.autoAccept}
-                  onValueChange={(checked) => {
-                    updateQrCodeUrl(checked, qrCodeData.showOptions, selectedInventoryItemForQR?.uuid, selectedInventoryItemForQR?.isGroup);
-                  }}
-                  color="warning"
-                  size="sm"
-                />
-              </div>
-
-              <AnimatePresence>
-                {qrCodeData.autoAccept && (
-                  <motion.div {...motionTransition}>
-                    <div className="mt-3 p-2 bg-warning-50 border border-warning-200 rounded-lg">
-                      <div className="flex items-start gap-2">
-                        <Icon icon="mdi:alert" className="text-warning-600 mt-0.5 flex-shrink-0" width={16} />
-                        <div>
-                          <p className="text-xs font-medium text-warning-700">Warning</p>
-                          <p className="text-xs text-warning-600">
-                            This action cannot be undone. The delivery will be automatically accepted when scanned by an authorized operator.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
           </div>
 
           <div className="w-full bg-default-50 overflow-auto max-h-64 rounded-xl p-4">
