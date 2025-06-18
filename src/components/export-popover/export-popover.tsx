@@ -26,7 +26,7 @@ import {
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ReactNode, useCallback, useEffect, useState } from "react";
+import { ReactNode, useCallback, useEffect, useState, useMemo } from "react";
 import { createClient } from '@/utils/supabase/client';
 
 export type DateFilterType = "dateRange" | "weekFilter" | "specificDate";
@@ -76,6 +76,7 @@ export interface ExportPopoverProps {
   maxHeight?: string;
   enableSelectAll?: boolean;
   defaultSelectedItems?: string[];
+  filterItems?: (items: any[]) => any[]; // New prop to filter items
 }
 
 export function ExportPopover({
@@ -98,7 +99,8 @@ export function ExportPopover({
   isExporting = false,
   maxHeight = "max-h-64",
   enableSelectAll = true,
-  defaultSelectedItems = []
+  defaultSelectedItems = [],
+  filterItems
 }: ExportPopoverProps) {
   // States for popover and search
   const [isOpen, setIsOpen] = useState(false);
@@ -137,10 +139,19 @@ export function ExportPopover({
   };
   const autoCompleteStyle = { classNames: inputStyle };
 
-  // Function to handle search with filters
+  // Memoize selectable items to prevent unnecessary recalculations
+  const selectableItems = useMemo(() => {
+    return filterItems ? filterItems(items) : items;
+  }, [items, filterItems]);
+
+  const selectableItemIds = useMemo(() => {
+    return selectableItems.map(item => getItemId(item));
+  }, [selectableItems, getItemId]);
+
+  // Function to handle search with filters - removed from useCallback dependencies to prevent infinite loops
   const handleSearch = useCallback(async (
-    query: string = searchQuery,
-    currentFilters = activeFilters
+    query?: string,
+    currentFilters?: Record<string, any>
   ) => {
     if (!supabaseFunction || !companyUuid) {
       setItems([]);
@@ -150,6 +161,10 @@ export function ExportPopover({
     setIsLoading(true);
 
     try {
+      // Use current state if parameters not provided
+      const searchText = query !== undefined ? query : searchQuery;
+      const filters = currentFilters !== undefined ? currentFilters : activeFilters;
+
       // Convert date objects to strings if they exist
       const dateFromString = dateFrom
         ? new Date(dateFrom.year, dateFrom.month - 1, dateFrom.day)
@@ -165,12 +180,12 @@ export function ExportPopover({
       // Prepare parameters for the supabase function
       const params: Record<string, any> = {
         p_company_uuid: companyUuid,
-        p_search: query,
+        p_search: searchText,
         p_limit: 1000, // Get more items for export
         p_offset: 0,
-        ...Object.keys(currentFilters).reduce((acc, key) => ({
+        ...Object.keys(filters).reduce((acc, key) => ({
           ...acc,
-          [`p_${key}`]: currentFilters[key],
+          [`p_${key}`]: filters[key],
         }), {}),
         ...(dateFilters?.includes("dateRange") && {
           p_date_from: dateFromString,
@@ -203,10 +218,10 @@ export function ExportPopover({
     } finally {
       setIsLoading(false);
     }
-  }, [searchQuery, activeFilters, dateFrom, dateTo, yearFilter, monthFilter, weekFilter, dayFilter, supabaseFunction, companyUuid, dateFilters]);
+  }, [supabaseFunction, companyUuid, dateFilters]); // Removed state dependencies to prevent infinite loops
 
   // Handle filter changes
-  const handleFilterChange = (filterKey: string, value: any) => {
+  const handleFilterChange = useCallback((filterKey: string, value: any) => {
     setActiveFilters(prev => {
       const newFilters = { ...prev };
       if (value === null || value === "") {
@@ -214,24 +229,23 @@ export function ExportPopover({
       } else {
         newFilters[filterKey] = value;
       }
+      
+      // Call search with the new filters
+      handleSearch(searchQuery, newFilters);
       return newFilters;
     });
-    handleSearch(searchQuery, {
-      ...activeFilters,
-      [filterKey]: value
-    });
-  };
+  }, [searchQuery, handleSearch]);
 
   // Handle export option changes
-  const handleExportOptionChange = (optionKey: string, value: any) => {
+  const handleExportOptionChange = useCallback((optionKey: string, value: any) => {
     setExportOptionValues(prev => ({
       ...prev,
       [optionKey]: value
     }));
-  };
+  }, []);
 
   // Clear all filters
-  const clearAllFilters = () => {
+  const clearAllFilters = useCallback(() => {
     setActiveFilters({});
     setDateFrom(null);
     setDateTo(null);
@@ -240,19 +254,23 @@ export function ExportPopover({
     setWeekFilter(null);
     setDayFilter(null);
     handleSearch(searchQuery, {});
-  };
+  }, [searchQuery, handleSearch]);
 
   // Determine if date filters are present
-  const hasDateFilters =
-    dateFrom ||
-    dateTo ||
-    yearFilter ||
-    monthFilter ||
-    weekFilter ||
-    dayFilter;
+  const hasDateFilters = useMemo(() => {
+    return dateFrom ||
+      dateTo ||
+      yearFilter ||
+      monthFilter ||
+      weekFilter ||
+      dayFilter;
+  }, [dateFrom, dateTo, yearFilter, monthFilter, weekFilter, dayFilter]);
 
   // Handle item selection toggle
-  const handleItemSelectionToggle = (itemId: string) => {
+  const handleItemSelectionToggle = useCallback((itemId: string) => {
+    // Only allow selection if item is in selectable items
+    if (!selectableItemIds.includes(itemId)) return;
+
     setSelectedItems(prev => {
       if (prev.includes(itemId)) {
         return prev.filter(id => id !== itemId);
@@ -260,19 +278,19 @@ export function ExportPopover({
         return [...prev, itemId];
       }
     });
-  };
+  }, [selectableItemIds]);
 
   // Handle select all toggle
-  const handleSelectAllToggle = (selected: boolean) => {
+  const handleSelectAllToggle = useCallback((selected: boolean) => {
     if (selected) {
-      setSelectedItems(items.map(item => getItemId(item)));
+      setSelectedItems(selectableItemIds);
     } else {
       setSelectedItems([]);
     }
-  };
+  }, [selectableItemIds]);
 
   // Handle export
-  const handleExportClick = async () => {
+  const handleExportClick = useCallback(async () => {
     try {
       await onExport({
         selectedItems,
@@ -294,7 +312,7 @@ export function ExportPopover({
     } catch (error) {
       console.error("Export failed:", error);
     }
-  };
+  }, [onExport, selectedItems, searchQuery, activeFilters, dateFrom, dateTo, yearFilter, monthFilter, weekFilter, dayFilter, dateTabKey, exportOptionValues, items]);
 
   // Handle real-time updates
   useEffect(() => {
@@ -321,24 +339,46 @@ export function ExportPopover({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [tableName, companyUuid, handleSearch]);
+  }, [tableName, companyUuid]); // Removed handleSearch from dependencies
 
-  // Initial load and filter changes
+  // Initial load when popover opens
   useEffect(() => {
-    if (isOpen && companyUuid) {
+    if (isOpen && companyUuid && supabaseFunction) {
       handleSearch();
     }
-  }, [isOpen, companyUuid, handleSearch]);
+  }, [isOpen, companyUuid, supabaseFunction]); // Removed handleSearch from dependencies
 
-  // Reset selected items when opening with defaults
+  // Update selected items when selectableItems change - with protection against infinite loops
+  useEffect(() => {
+    setSelectedItems(prev => {
+      const filtered = prev.filter(id => selectableItemIds.includes(id));
+      // Only update if there's actually a change
+      if (filtered.length !== prev.length || !filtered.every(id => prev.includes(id))) {
+        return filtered;
+      }
+      return prev;
+    });
+  }, [selectableItemIds]);
+
+  // Reset selected items when opening with defaults - only run when popover opens
   useEffect(() => {
     if (isOpen) {
-      setSelectedItems(defaultSelectedItems);
+      const filteredDefaults = defaultSelectedItems.filter(id => 
+        selectableItemIds.includes(id)
+      );
+      setSelectedItems(filteredDefaults);
     }
-  }, [isOpen, defaultSelectedItems]);
+  }, [isOpen]); // Removed selectableItemIds and defaultSelectedItems to prevent infinite loops
+
+  // Handle date filter changes - separate effect to avoid circular dependencies
+  useEffect(() => {
+    if (isOpen) {
+      handleSearch();
+    }
+  }, [dateFrom, dateTo, yearFilter, monthFilter, weekFilter, dayFilter]); // Only depend on date values
 
   // Default skeleton renderer
-  const defaultSkeletonRenderer = (index: number) => (
+  const defaultSkeletonRenderer = useCallback((index: number) => (
     <div key={index} className="flex items-center gap-4 p-2 rounded-md">
       <Skeleton className="w-5 h-5 bg-default-200 rounded-md animate-pulse" />
       <div className="flex items-center justify-between gap-2 w-full">
@@ -349,7 +389,7 @@ export function ExportPopover({
         <Skeleton className="h-5 w-16 bg-default-200 rounded-xl animate-pulse" />
       </div>
     </div>
-  );
+  ), []);
 
   return (
     <Popover
@@ -394,8 +434,9 @@ export function ExportPopover({
               placeholder={searchPlaceholder}
               value={searchQuery}
               onChange={(e) => {
-                setSearchQuery(e.target.value);
-                handleSearch(e.target.value);
+                const newQuery = e.target.value;
+                setSearchQuery(newQuery);
+                handleSearch(newQuery);
               }}
               isClearable
               onClear={() => {
@@ -477,7 +518,6 @@ export function ExportPopover({
                                     setMonthFilter(null);
                                     setWeekFilter(null);
                                     setDayFilter(null);
-                                    handleSearch(searchQuery, activeFilters);
                                   }}
                                   variant="solid"
                                   color="primary"
@@ -507,7 +547,6 @@ export function ExportPopover({
                                             setDateFrom(null);
                                             setDateTo(null);
                                           }
-                                          handleSearch();
                                         }}
                                         classNames={inputStyle}
                                       />
@@ -525,7 +564,6 @@ export function ExportPopover({
                                             value={yearFilter?.toString() || ""}
                                             onChange={e => {
                                               setYearFilter(parseInt(e.target.value) || null);
-                                              handleSearch();
                                             }}
                                             className="flex-1"
                                             classNames={inputStyle}
@@ -539,7 +577,6 @@ export function ExportPopover({
                                             value={weekFilter?.toString() || ""}
                                             onChange={e => {
                                               setWeekFilter(parseInt(e.target.value) || null);
-                                              handleSearch();
                                             }}
                                             className="flex-1"
                                             classNames={inputStyle}
@@ -555,7 +592,6 @@ export function ExportPopover({
                                             onPress={() => {
                                               setYearFilter(null);
                                               setWeekFilter(null);
-                                              handleSearch();
                                             }}
                                             className="w-full"
                                             startContent={<Icon icon="mdi:close" />}
@@ -578,7 +614,6 @@ export function ExportPopover({
                                             value={yearFilter?.toString() || ""}
                                             onChange={e => {
                                               setYearFilter(parseInt(e.target.value) || null);
-                                              handleSearch();
                                             }}
                                             classNames={inputStyle}
                                             min="2000"
@@ -591,7 +626,6 @@ export function ExportPopover({
                                             value={monthFilter?.toString() || ""}
                                             onChange={e => {
                                               setMonthFilter(parseInt(e.target.value) || null);
-                                              handleSearch();
                                             }}
                                             classNames={inputStyle}
                                             min="1"
@@ -604,7 +638,6 @@ export function ExportPopover({
                                             value={dayFilter?.toString() || ""}
                                             onChange={e => {
                                               setDayFilter(parseInt(e.target.value) || null);
-                                              handleSearch();
                                             }}
                                             classNames={inputStyle}
                                             min="1"
@@ -620,7 +653,6 @@ export function ExportPopover({
                                               setYearFilter(null);
                                               setMonthFilter(null);
                                               setDayFilter(null);
-                                              handleSearch();
                                             }}
                                             className="w-full"
                                             startContent={<Icon icon="mdi:close" />}
@@ -695,7 +727,6 @@ export function ExportPopover({
                           setMonthFilter(null);
                           setWeekFilter(null);
                           setDayFilter(null);
-                          handleSearch();
                         }}
                         size="sm"
                         className="h-8 p-2"
@@ -747,7 +778,7 @@ export function ExportPopover({
                 ].filter(Boolean)}
               >
                 {items.length === 0 ? (
-                  [<div className="p-4 text-center text-default-500 h-64 flex items-center justify-center flex-col">
+                  [<div key="no-items" className="p-4 text-center text-default-500 h-64 flex items-center justify-center flex-col">
                     <Icon icon="mdi:alert-circle-outline" className="text-4xl mb-2" />
                     No items match the selected filters
                   </div>]
@@ -756,32 +787,43 @@ export function ExportPopover({
                     enableSelectAll && (
                       <div key="select-all" className="flex items-center justify-between p-2 pb-0">
                         <Checkbox
-                          isSelected={selectedItems.length === items.length && items.length > 0}
-                          isIndeterminate={selectedItems.length > 0 && selectedItems.length < items.length}
+                          isSelected={selectedItems.length === selectableItems.length && selectableItems.length > 0}
+                          isIndeterminate={selectedItems.length > 0 && selectedItems.length < selectableItems.length}
                           onValueChange={handleSelectAllToggle}
                         >
                           <span className="text-small font-medium pl-2">Select All</span>
                         </Checkbox>
                         <span className="text-small text-default-400">
-                          {selectedItems.length} selected
+                          {selectedItems.length} of {selectableItems.length} selected
                         </span>
                       </div>
                     ),
-                    ...items.map((item) => (
-                      <div
-                        key={getItemId(item)}
-                        className="flex items-center gap-2 p-2 hover:bg-default-100 rounded-md cursor-pointer transition-all duration-200"
-                        onClick={() => handleItemSelectionToggle(getItemId(item))}
-                      >
-                        <Checkbox
-                          isSelected={selectedItems.includes(getItemId(item))}
-                          onValueChange={() => handleItemSelectionToggle(getItemId(item))}
-                        />
-                        <div className="flex-1 min-w-0">
-                          {renderItem(item)}
+                    ...items.map((item) => {
+                      const itemId = getItemId(item);
+                      const isSelectable = selectableItemIds.includes(itemId);
+                      const isSelected = selectedItems.includes(itemId);
+
+                      return (
+                        <div
+                          key={itemId}
+                          className={`flex items-center gap-2 p-2 rounded-md cursor-pointer transition-all duration-200 ${
+                            isSelectable 
+                              ? "hover:bg-default-100" 
+                              : "opacity-50 cursor-not-allowed bg-default-50"
+                          }`}
+                          onClick={() => handleItemSelectionToggle(itemId)}
+                        >
+                          <Checkbox
+                            isSelected={isSelected}
+                            isDisabled={!isSelectable}
+                            onValueChange={() => handleItemSelectionToggle(itemId)}
+                          />
+                          <div className="flex-1 min-w-0">
+                            {renderItem(item)}
+                          </div>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   ].filter(Boolean)
                 )}
               </ListLoadingAnimation>

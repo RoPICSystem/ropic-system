@@ -136,10 +136,17 @@ export function DeliveryExportPopover({
     }
   };
 
+  // Filter function to only allow IN_TRANSIT and DELIVERED deliveries
+  const filterDeliveries = (deliveries: any[]) => {
+    return deliveries.filter(delivery => 
+      delivery.status === "IN_TRANSIT" || delivery.status === "DELIVERED"
+    );
+  };
+
   return (
     <ExportPopover
       title="Export Delivery QR Report"
-      description="Select deliveries to include in the PDF report"
+      description="Select deliveries to include in the PDF report (Only IN_TRANSIT and DELIVERED deliveries can generate QR codes)"
       tableName="delivery_items"
       searchPlaceholder="Search deliveries..."
       filters={deliveryFilters}
@@ -152,6 +159,7 @@ export function DeliveryExportPopover({
       getItemDisplayName={(delivery) =>
         delivery.itemName || delivery.name || delivery.item_name || 'Unknown Item'
       }
+      filterItems={filterDeliveries}
       renderItem={(delivery) => (
         <div className="flex items-center justify-between gap-2">
           <div className="flex-1 min-w-0">

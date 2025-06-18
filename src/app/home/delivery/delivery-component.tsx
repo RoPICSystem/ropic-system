@@ -1618,27 +1618,34 @@ export function DeliveryComponent({
       label: string;
       isGroup: boolean;
       groupId?: string;
+      inventoryName?: string;
     }> = [];
 
     // Iterate through key-value pairs of warehouse inventory items
     Object.entries(formData.warehouse_inventory_items).forEach(([itemUuid, item]) => {
+      // Find the inventory name for this item
+      const inventoryItem = inventoryItems.find(invItem => invItem.uuid === itemUuid);
+      const inventoryName = inventoryItem?.inventory_name || 'Unknown Inventory';
+
       if (item.group_id && item.group_id !== '' && item.group_id !== null) {
         // Handle grouped items - only add unique group IDs
         if (!seenGroups.has(item.group_id)) {
           seenGroups.add(item.group_id);
           options.push({
             uuid: itemUuid, // Use any item UUID from the group as reference
-            label: `Group: ${item.group_id}`,
+            label: `${inventoryName} (Group): ${item.group_id}`,
             isGroup: true,
-            groupId: item.group_id
+            groupId: item.group_id,
+            inventoryName: inventoryName
           });
         }
       } else {
         // Handle individual items (no group or empty group)
         options.push({
           uuid: itemUuid,
-          label: `Item: ${itemUuid}`,
-          isGroup: false
+          label: `${inventoryName} (Item): ${itemUuid}`,
+          isGroup: false,
+          inventoryName: inventoryName
         });
       }
     });
@@ -1709,7 +1716,7 @@ export function DeliveryComponent({
               <div className="h-80 w-80 flex items-center justify-center text-primary-500 text-center">
                 Select an inventory item to <br />generate QR code
               </div>
-              }
+            }
           </div>
 
           <p className="text-center mt-4 text-default-600">
@@ -3271,7 +3278,7 @@ export function DeliveryComponent({
             </LoadingAnimation>
           </div>
 
-          {(user === null || user.is_admin || formData.status === "DELIVERED") && !readOnlyMode && (
+          {(user === null || user.is_admin || formData.status === "DELIVERED") && formData.status !== "CANCELLED" && !readOnlyMode && (
             <motion.div {...motionTransition}>
               <div className="flex flex-col flex-1 gap-4">
                 <LoadingAnimation
