@@ -8,6 +8,7 @@ import { getUserFromCookies } from '@/utils/supabase/server/user';
 import { Icon } from '@iconify-icon/react/dist/iconify.mjs';
 import { formatDistanceToNow } from "date-fns";
 import { markNotificationAsRead } from "../app/home/notifications/actions";
+import { formatStatus } from '@/utils/tools';
 
 // Updated notification interface to match current schema
 interface Notification {
@@ -52,6 +53,10 @@ interface GroupedNotification {
   lastNotification: Notification;
   entityNames: string[];
   changedProperties: Record<string, any[]>;
+  inventoryInfo?: {
+    count?: any;
+    unit_values?: any;
+  };
 }
 
 interface NotificationBuffer {
@@ -154,8 +159,15 @@ const extractChangedProperties = (notifications: Notification[]): Record<string,
         if (!changedProperties[key]) {
           changedProperties[key] = [];
         }
-        if (!changedProperties[key].includes(value)) {
-          changedProperties[key].push(value);
+        
+        // For unit_values and count, only keep the last update
+        if (key === 'unit_values' || key === 'count') {
+          changedProperties[key] = [value]; // Replace with latest value
+        } else {
+          // For other properties, collect unique values
+          if (!changedProperties[key].includes(value)) {
+            changedProperties[key].push(value);
+          }
         }
       });
     }
@@ -164,15 +176,97 @@ const extractChangedProperties = (notifications: Notification[]): Record<string,
   return changedProperties;
 };
 
-const formatChangedProperties = (changedProperties: Record<string, any[]>): string => {
+// Helper function to format JSONB values for display
+const formatJSONBValue = (value: any): string => {
+  if (typeof value === 'object' && value !== null) {
+    // Handle JSONB objects like count and unit_values
+    if (typeof value === 'object' && !Array.isArray(value)) {
+      const entries = Object.entries(value);
+      if (entries.length === 0) return '{}';
+      return `{${entries.map(([k, v]) => `${k}: ${v}`).join(', ')}}`;
+    }
+    // Handle arrays
+    if (Array.isArray(value)) {
+      return `[${value.join(', ')}]`;
+    }
+    // Try to stringify other objects
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+};
+
+// Helper function to format inventory count/unit_values as readable text
+const formatInventoryInfo = (countData: any, unitValuesData: any, entityName: string): string => {
+  const parts: string[] = [];
+  
+  if (countData && typeof countData === 'object') {
+    if (countData.available !== undefined) {
+      parts.push(`${countData.available} available`);
+    }
+    if (countData.inventory !== undefined && countData.inventory !== countData.available) {
+      parts.push(`${countData.inventory} in inventory`);
+    }
+    if (countData.warehouse !== undefined && countData.warehouse > 0) {
+      parts.push(`${countData.warehouse} in warehouse`);
+    }
+    if (countData.total !== undefined) {
+      parts.push(`${countData.total} total`);
+    }
+  }
+  
+  // Get unit information from unit_values if available
+  let unitInfo = '';
+  if (unitValuesData && typeof unitValuesData === 'object') {
+    // Try to extract unit information - this might need adjustment based on your data structure
+    const unitEntries = Object.entries(unitValuesData);
+    if (unitEntries.length > 0) {
+      // Look for the standard unit or first available unit
+      const firstEntry = unitEntries[0];
+      if (firstEntry[1] && typeof firstEntry[1] === 'number' && firstEntry[1] > 0) {
+        // You might need to get the actual unit from the inventory record
+        // For now, we'll try to infer it or use a default
+        unitInfo = ' units'; // You might want to pass the actual unit here
+      }
+    }
+  }
+  
+  if (parts.length > 0) {
+    const countText = parts.join(', ');
+    return `Current stock: ${countText}${unitInfo}`;
+  }
+  
+  return '';
+};
+
+const formatChangedProperties = (changedProperties: Record<string, any[]>, type: string): string => {
   const propertyStrings = Object.entries(changedProperties)
-    .filter(([key, values]) => key !== 'timestamp' && values.length > 0)
+    .filter(([key, values]) => {
+      // Skip timestamp, count, and unit_values for inventory types as they're handled separately
+      if (key === 'timestamp') return false;
+      if ((type === 'inventory' || type === 'warehouse_inventory') && (key === 'count' || key === 'unit_values')) {
+        return false;
+      }
+      return values.length > 0;
+    })
     .map(([key, values]) => {
       const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-      if (values.length === 1) {
-        return `${formattedKey}: ${values[0]}`;
+      
+      // Handle other object types
+      const formattedValues = values.map(value => {
+        if (typeof value === 'object' && value !== null) {
+          return formatJSONBValue(value);
+        }
+        return String(value);
+      });
+      
+      if (formattedValues.length === 1) {
+        return `${formattedKey}: ${formattedValues[0]}`;
       } else {
-        return `${formattedKey}: ${values.join(', ')}`;
+        return `${formattedKey}: ${formattedValues.join(', ')}`;
       }
     });
 
@@ -180,7 +274,7 @@ const formatChangedProperties = (changedProperties: Record<string, any[]>): stri
 };
 
 const getGroupedNotificationMessage = (grouped: GroupedNotification): string => {
-  const { type, action, user_name, is_admin_only, count, entityNames, changedProperties } = grouped;
+  const { type, action, user_name, is_admin_only, count, entityNames } = grouped;
   const actionVerb = getActionVerb(action, count);
   const typeDisplay = getTypeDisplayName(type, count);
 
@@ -196,10 +290,6 @@ const getGroupedNotificationMessage = (grouped: GroupedNotification): string => 
   } else {
     message += ` including: ${entityNames.slice(0, 2).join(', ')} and ${count - 2} more`;
   }
-
-  // Add changed properties information
-  const propertiesInfo = formatChangedProperties(changedProperties);
-  message += propertiesInfo;
 
   return message;
 };
@@ -252,6 +342,17 @@ export default function NotificationListener() {
   const processGroupedNotifications = (notifications: Notification[]) => {
     if (notifications.length === 0) return;
 
+    const changedProperties = extractChangedProperties(notifications);
+    
+    // Extract inventory info for inventory-related notifications
+    let inventoryInfo: { count?: any; unit_values?: any } | undefined;
+    if (notifications[0].type === 'inventory' || notifications[0].type === 'warehouse_inventory') {
+      inventoryInfo = {
+        count: changedProperties.count?.[0],
+        unit_values: changedProperties.unit_values?.[0]
+      };
+    }
+
     // Group notifications by type, action, user, and admin status
     const grouped: GroupedNotification = {
       key: createGroupKey(notifications[0]),
@@ -264,7 +365,8 @@ export default function NotificationListener() {
       firstNotification: notifications[0],
       lastNotification: notifications[notifications.length - 1],
       entityNames: notifications.map(n => n.entity_name),
-      changedProperties: extractChangedProperties(notifications)
+      changedProperties,
+      inventoryInfo
     };
 
     // Display grouped toast notification
@@ -280,8 +382,7 @@ export default function NotificationListener() {
           </div>
           <div className="font-medium text-lg flex items-center gap-2">
             {grouped.count > 1 ? `${grouped.count} ` : ''}
-            {grouped.type.charAt(0).toUpperCase() + grouped.type.slice(1)} {grouped.action}
-            {grouped.count > 1 && <Chip color="default" variant="flat" size="sm">{grouped.count}</Chip>}
+            {formatStatus(grouped.type)} {grouped.action}
             {grouped.is_admin_only && (
               <Chip color="warning" variant="flat" size="sm">Admin Only</Chip>
             )}
@@ -304,17 +405,28 @@ export default function NotificationListener() {
         <div className="flex flex-col gap-2 w-full mt-2">
           <p className="text-sm w-full">{getGroupedNotificationMessage(grouped)}</p>
           
-          {/* Show changed properties breakdown */}
-          {Object.keys(grouped.changedProperties).length > 0 && (
-            <div className="text-xs text-default-500 bg-default-100 p-2 rounded">
-              <div className="font-medium mb-1">Properties changed:</div>
-              {Object.entries(grouped.changedProperties).map(([property, values]) => (
-                <div key={property} className="flex gap-1">
-                  <span className="font-medium">{property.replace(/_/g, ' ')}:</span>
-                  <span>{values.join(', ')}</span>
-                </div>
-              ))}
+          {/* Show inventory info as readable text for inventory updates */}
+          {grouped.inventoryInfo && (grouped.inventoryInfo.count || grouped.inventoryInfo.unit_values) && (
+            <div className="text-sm text-primary-600 bg-primary-50 p-2 rounded-md">
+              {formatInventoryInfo(
+                grouped.inventoryInfo.count, 
+                grouped.inventoryInfo.unit_values, 
+                grouped.entityNames[0]
+              )}
             </div>
+          )}
+          
+          {/* Show other changed properties */}
+          {Object.keys(grouped.changedProperties).length > 0 && (
+            (() => {
+              const filteredProperties = formatChangedProperties(grouped.changedProperties, grouped.type);
+              return filteredProperties ? (
+                <div className="text-xs text-default-500 bg-default-100 p-2 rounded">
+                  <div className="font-medium mb-1">Other changes:</div>
+                  <div className="break-all">{filteredProperties.substring(2, filteredProperties.length - 1)}</div>
+                </div>
+              ) : null;
+            })()
           )}
 
           <div className="flex gap-2 mt-1">
