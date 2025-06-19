@@ -1535,7 +1535,7 @@ export function DeliveryComponent({
   };
 
   // QR Code functions
-  const generateDeliveryUrl = (warehouseInventoryId: string, auto: boolean, showOptions?: boolean, inventoryItemUuid?: string, isGroup?: boolean) => {
+    const generateDeliveryUrl = (warehouseInventoryId: string, auto: boolean, showOptions?: boolean, inventoryItemUuid?: string, isGroup?: boolean) => {
     const baseUrl = `${window.location.origin}/home/search`;
   
     // Get warehouse inventory UUID from the selected item or group
@@ -1545,36 +1545,56 @@ export function DeliveryComponent({
       // Find the warehouse inventory UUID for this specific item or group
       const warehouseInventoryItemsData = formData.warehouse_inventory_items;
       if (warehouseInventoryItemsData) {
-        // Look through warehouse inventory items to find the matching item
-        Object.entries(warehouseInventoryItemsData).forEach(([itemKey, itemData]: [string, any]) => {
-          if (itemKey === inventoryItemUuid) {
-            warehouseInventoryUuid = itemData.warehouse_inventory_uuid;
-          }
-        });
+        if (isGroup) {
+          // For groups, find any item in the group and get its warehouse inventory UUID
+          Object.entries(warehouseInventoryItemsData).forEach(([itemKey, itemData]: [string, any]) => {
+            if (itemData.group_id === inventoryItemUuid) {
+              warehouseInventoryUuid = itemData.warehouse_inventory_uuid;
+            }
+          });
+        } else {
+          // For individual items, find the exact match
+          Object.entries(warehouseInventoryItemsData).forEach(([itemKey, itemData]: [string, any]) => {
+            if (itemKey === inventoryItemUuid) {
+              warehouseInventoryUuid = itemData.warehouse_inventory_uuid;
+            }
+          });
+        }
       }
     }
   
     const params = new URLSearchParams({
       q: warehouseInventoryUuid || warehouseInventoryId,
-      ...(deliveryId && { delivery: deliveryId }), // ADD this line - keep delivery parameter
+      ...(deliveryId && { delivery: deliveryId }),
       ...(auto && { auto: 'true' }),
       ...(showOptions && { showOptions: 'true' }),
       ...(inventoryItemUuid && isGroup && { group: inventoryItemUuid }),
       ...(inventoryItemUuid && !isGroup && { item: inventoryItemUuid })
     });
-
-    console.log(`${baseUrl}?${params.toString()}`)
+  
+    console.log(`Generated URL: ${baseUrl}?${params.toString()}`);
+    console.log(`Warehouse Inventory UUID used for q param: ${warehouseInventoryUuid || warehouseInventoryId}`);
   
     return `${baseUrl}?${params.toString()}`;
   };
 
   const updateQrCodeUrl = (auto: boolean, showOptions?: boolean, inventoryItemUuid?: string, isGroup?: boolean) => {
     const currentShowOptions = showOptions !== undefined ? showOptions : qrCodeData.showOptions;
+    
+    // Use the first available warehouse inventory UUID as fallback
+    let fallbackWarehouseInventoryId = qrCodeData.warehouseInventoryId;
+    if (!fallbackWarehouseInventoryId && formData.warehouse_inventory_items) {
+      const firstItem = Object.values(formData.warehouse_inventory_items)[0] as any;
+      if (firstItem?.warehouse_inventory_uuid) {
+        fallbackWarehouseInventoryId = firstItem.warehouse_inventory_uuid;
+      }
+    }
+    
     setQrCodeData(prev => ({
       ...prev,
       auto,
       ...(showOptions !== undefined && { showOptions }),
-      url: generateDeliveryUrl(prev.warehouseInventoryId, auto, currentShowOptions, inventoryItemUuid, isGroup),
+      url: generateDeliveryUrl(fallbackWarehouseInventoryId || prev.warehouseInventoryId, auto, currentShowOptions, inventoryItemUuid, isGroup),
       description: `Scan this code to view delivery details for ${prev.deliveryName}${auto ? '. This will automatically accept the delivery when scanned.' : '.'}`
     }));
   };
@@ -1609,9 +1629,9 @@ export function DeliveryComponent({
   };
 
   // Get unique options for QR code targeting (no duplicate group IDs)
-  const getQRTargetOptions = () => {
+    const getQRTargetOptions = () => {
     if (!formData.warehouse_inventory_items || Object.keys(formData.warehouse_inventory_items).length === 0) return [];
-
+  
     const seenGroups = new Set<string>();
     const options: Array<{
       uuid: string;
@@ -1619,14 +1639,15 @@ export function DeliveryComponent({
       isGroup: boolean;
       groupId?: string;
       inventoryName?: string;
+      warehouseInventoryUuid?: string;
     }> = [];
-
+  
     // Iterate through key-value pairs of warehouse inventory items
     Object.entries(formData.warehouse_inventory_items).forEach(([itemUuid, item]) => {
       // Find the inventory name for this item
       const inventoryItem = inventoryItems.find(invItem => invItem.uuid === itemUuid);
       const inventoryName = inventoryItem?.inventory_name || 'Unknown Inventory';
-
+  
       if (item.group_id && item.group_id !== '' && item.group_id !== null) {
         // Handle grouped items - only add unique group IDs
         if (!seenGroups.has(item.group_id)) {
@@ -1636,7 +1657,8 @@ export function DeliveryComponent({
             label: `${inventoryName} (Group): ${item.group_id}`,
             isGroup: true,
             groupId: item.group_id,
-            inventoryName: inventoryName
+            inventoryName: inventoryName,
+            warehouseInventoryUuid: item.warehouse_inventory_uuid
           });
         }
       } else {
@@ -1645,11 +1667,12 @@ export function DeliveryComponent({
           uuid: itemUuid,
           label: `${inventoryName} (Item): ${itemUuid}`,
           isGroup: false,
-          inventoryName: inventoryName
+          inventoryName: inventoryName,
+          warehouseInventoryUuid: item.warehouse_inventory_uuid
         });
       }
     });
-
+  
     return options;
   };
 
@@ -1663,16 +1686,32 @@ export function DeliveryComponent({
 
   const handleShowDeliveryQR = async () => {
     if (!deliveryId || !formData) return;
-
+  
     const inventoryNames = selectedInventoryUuids
       .map(uuid => inventories.find(item => item.uuid === uuid)?.name)
       .filter(Boolean);
     const deliveryName = inventoryNames.length > 0
       ? `Delivery of ${inventoryNames.join(', ')}`
       : 'Delivery';
-
+  
+    // Get the first warehouse inventory UUID for the initial QR code
+    let initialWarehouseInventoryId = '';
+    if (formData.warehouse_inventory_items && Object.keys(formData.warehouse_inventory_items).length > 0) {
+      const firstItem = Object.values(formData.warehouse_inventory_items)[0] as any;
+      initialWarehouseInventoryId = firstItem?.warehouse_inventory_uuid || '';
+    }
+  
+    setQrCodeData(prev => ({
+      ...prev,
+      title: `QR Code for ${deliveryName}`,
+      deliveryName: deliveryName,
+      warehouseInventoryId: initialWarehouseInventoryId,
+      url: generateDeliveryUrl(initialWarehouseInventoryId, prev.auto, prev.showOptions),
+      description: `Scan this code to view delivery details for ${deliveryName}${prev.auto ? '. This will automatically accept the delivery when scanned.' : '.'}`
+    }));
+  
     setShowQrCode(true);
-
+  
     // Load all delivery inventory items when QR modal is shown
     await loadAllDeliveryInventoryItems();
   };

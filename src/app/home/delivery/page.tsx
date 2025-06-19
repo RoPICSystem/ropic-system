@@ -544,12 +544,12 @@ export default function DeliveryPage() {
 
   // QR Code functions - Updated to use warehouse inventory UUIDs
   const generateDeliveryUrl = (warehouseInventoryId?: string, auto: boolean = true, showOptions: boolean = true) => {
-    const targetDeliveryId = warehouseInventoryId || selectedDeliveryId;
-    if (!targetDeliveryId) return "https://ropic.vercel.app/home/search";
+    const targetWarehouseInventoryId = warehouseInventoryId || selectedDeliveryId;
+    if (!targetWarehouseInventoryId) return "https://ropic.vercel.app/home/search";
 
     const baseUrl = "https://ropic.vercel.app/home/search";
     const params = new URLSearchParams({
-      q: targetDeliveryId, // This should now be a warehouse inventory UUID
+      q: targetWarehouseInventoryId, // This should be the warehouse inventory UUID
       ...(auto && { auto: "true" }),
       ...(showOptions && { showOptions: "true" })
     });

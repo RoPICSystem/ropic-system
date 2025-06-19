@@ -409,7 +409,7 @@ export default function SearchPage() {
               }
             } else {
               // Handle existing warehouse inventory marking as used
-              if (showOptions && userToUse && !userToUse.is_admin) {
+              if (showOptions && userToUse) {
                 const itemParam = searchParams.get("item");
                 const groupParam = searchParams.get("group");
 
