@@ -345,7 +345,7 @@ const styles = StyleSheet.create({
     lineHeight: 1.2, // Better line spacing
   },
   urlText: {
-    fontSize: 7,
+    fontSize: 5,
     color: '#3182CE',
     textAlign: 'center',
     marginTop: 4,

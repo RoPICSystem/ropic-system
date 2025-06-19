@@ -81,7 +81,7 @@ export default function DeliveryPage() {
     url: string;
     title: string;
     description: string;
-    deliveryId: string;
+    warehouseInventoryId: string;
     deliveryName: string;
     auto: boolean;
     showOptions: boolean;
@@ -89,7 +89,7 @@ export default function DeliveryPage() {
     url: "",
     title: "",
     description: "",
-    deliveryId: "",
+    warehouseInventoryId: "",
     deliveryName: "",
     auto: false,
     showOptions: true
@@ -288,6 +288,7 @@ export default function DeliveryPage() {
                       const baseUrl = "https://ropic.vercel.app/home/search";
                       const itemParams = new URLSearchParams();
                       itemParams.set('q', item.warehouse_inventory_uuid);
+                      itemParams.set('delivery', delivery.uuid); // Add delivery parameter
                       itemParams.set('item', item.uuid);
                       itemParams.set('auto', 'true'); // Auto on by default
 
@@ -315,6 +316,7 @@ export default function DeliveryPage() {
                       const baseUrl = "https://ropic.vercel.app/home/search";
                       const groupParams = new URLSearchParams();
                       groupParams.set('q', groupData.warehouse_inventory_uuid);
+                      groupParams.set('delivery', delivery.uuid); // Add delivery parameter
                       groupParams.set('group', groupId);
                       groupParams.set('auto', 'true'); // Auto on by default
 
@@ -345,6 +347,7 @@ export default function DeliveryPage() {
                       const baseUrl = "https://ropic.vercel.app/home/search";
                       const groupParams = new URLSearchParams();
                       groupParams.set('q', groupData.warehouse_inventory_uuid);
+                      groupParams.set('delivery', delivery.uuid); // Add delivery parameter
                       groupParams.set('group', groupId);
                       groupParams.set('auto', 'true'); // Auto on by default
 
@@ -373,6 +376,7 @@ export default function DeliveryPage() {
                       const baseUrl = "https://ropic.vercel.app/home/search";
                       const itemParams = new URLSearchParams();
                       itemParams.set('q', item.warehouse_inventory_uuid);
+                      itemParams.set('delivery', delivery.uuid); // Add delivery parameter
                       itemParams.set('item', item.uuid);
                       itemParams.set('auto', 'true'); // Auto on by default
 
@@ -401,6 +405,7 @@ export default function DeliveryPage() {
                       const baseUrl = "https://ropic.vercel.app/home/search";
                       const groupParams = new URLSearchParams();
                       groupParams.set('q', groupData.warehouse_inventory_uuid);
+                      groupParams.set('delivery', delivery.uuid); // Add delivery parameter
                       groupParams.set('group', groupId);
                       groupParams.set('auto', 'true'); // Auto on by default
 
@@ -429,6 +434,7 @@ export default function DeliveryPage() {
                       const baseUrl = "https://ropic.vercel.app/home/search";
                       const itemParams = new URLSearchParams();
                       itemParams.set('q', item.warehouse_inventory_uuid);
+                      itemParams.set('delivery', delivery.uuid); // Add delivery parameter
                       itemParams.set('item', item.uuid);
                       itemParams.set('auto', 'true'); // Auto on by default
 
@@ -459,6 +465,7 @@ export default function DeliveryPage() {
               const baseUrl = "https://ropic.vercel.app/home/search";
               const params = new URLSearchParams();
               params.set('q', warehouseInventoryUuid);
+              params.set('delivery', delivery.uuid); // Add delivery parameter
               params.set('auto', 'true'); // Auto on by default
 
               if (data.exportOptions.includeShowOptions) {
@@ -536,27 +543,27 @@ export default function DeliveryPage() {
   };
 
   // QR Code functions - Updated to use warehouse inventory UUIDs
-  const generateDeliveryUrl = (deliveryId?: string, auto: boolean = true, showOptions: boolean = true) => {
-    const targetDeliveryId = deliveryId || selectedDeliveryId;
+  const generateDeliveryUrl = (warehouseInventoryId?: string, auto: boolean = true, showOptions: boolean = true) => {
+    const targetDeliveryId = warehouseInventoryId || selectedDeliveryId;
     if (!targetDeliveryId) return "https://ropic.vercel.app/home/search";
-  
+
     const baseUrl = "https://ropic.vercel.app/home/search";
     const params = new URLSearchParams({
       q: targetDeliveryId, // This should now be a warehouse inventory UUID
       ...(auto && { auto: "true" }),
       ...(showOptions && { showOptions: "true" })
     });
-  
+
     return `${baseUrl}?${params.toString()}`;
   };
-  
+
   const updateQrCodeUrl = (auto: boolean, showOptions?: boolean) => {
     const currentShowOptions = showOptions !== undefined ? showOptions : qrCodeData.showOptions;
     setQrCodeData(prev => ({
       ...prev,
       auto,
       ...(showOptions !== undefined && { showOptions }),
-      url: generateDeliveryUrl(prev.deliveryId, auto, currentShowOptions),
+      url: generateDeliveryUrl(prev.warehouseInventoryId, auto, currentShowOptions),
       description: `Scan this code to mark warehouse inventory items as used for ${prev.deliveryName}${auto ? '. This will automatically mark the items as used when scanned.' : '.'}`
     }));
   };
@@ -565,7 +572,7 @@ export default function DeliveryPage() {
     setQrCodeData(prev => ({
       ...prev,
       showOptions,
-      url: generateDeliveryUrl(prev.deliveryId, prev.auto, showOptions)
+      url: generateDeliveryUrl(prev.warehouseInventoryId, prev.auto, showOptions)
     }));
   };
 
