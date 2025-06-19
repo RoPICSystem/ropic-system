@@ -1555,7 +1555,7 @@ export function DeliveryComponent({
     }
   
     const params = new URLSearchParams({
-      q: warehouseInventoryUuid || warehouseInventoryId,
+      warehouseInventory: warehouseInventoryUuid || warehouseInventoryId,
       ...(deliveryId && { delivery: deliveryId }), // ADD this line - keep delivery parameter
       ...(auto && { auto: 'true' }),
       ...(showOptions && { showOptions: 'true' }),

@@ -4,6 +4,7 @@ import { createClient } from "@/utils/supabase/server";
 import { getProfileImagePath } from "@/utils/supabase/server/user";
 import { DeliveryItem } from "../delivery/actions";
 import { markWarehouseGroupAsUsed, markWarehouseItemAsUsed, markWarehouseItemsBulkUsed } from "../warehouse-items/actions";
+import { getDeliveryDetails } from "../delivery/actions";
 
 export interface GoPageDeliveryDetails {
   uuid: string;
@@ -198,7 +199,7 @@ export async function markWarehouseInventoryItemAsUsed(
 }
 
 /**
- * Handle auto-accept for new warehouse inventory items
+ * Handle auto-accept for new warehouse inventory items with delivery parameter support
  */
 export async function handleAcceptNewWarehouseInventory(
   deliveryUuid: string,
@@ -212,7 +213,7 @@ export async function handleAcceptNewWarehouseInventory(
     if (!userDetails || !userDetails.uuid || userDetails.is_admin) {
       return {
         success: false,
-        error: "You are not authorized to accept new warehouse inventory items"
+        error: "You are not authorized to accept deliveries"
       };
     }
 
@@ -265,7 +266,7 @@ export async function handleAcceptNewWarehouseInventory(
       };
     }
 
-    // Use the new RPC function to update delivery status to DELIVERED
+    // Use the delivery status update function to mark as DELIVERED
     const { updateDeliveryStatusWithItems } = await import("../delivery/actions");
 
     const result = await updateDeliveryStatusWithItems(
@@ -284,10 +285,10 @@ export async function handleAcceptNewWarehouseInventory(
     }
 
   } catch (error: any) {
-    console.error("Error accepting new warehouse inventory:", error);
+    console.error("Error accepting delivery:", error);
     return {
       success: false,
-      error: `Failed to accept new warehouse inventory: ${error.message || "Unknown error"}`
+      error: `Failed to accept delivery: ${error.message || "Unknown error"}`
     };
   }
 }

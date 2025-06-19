@@ -31,8 +31,9 @@ import { InventoryComponent as WarehouseInventoryComponent } from "@/app/home/wa
 import { motionTransition, motionTransitionScale } from '@/utils/anim';
 import { getUserFromCookies } from '@/utils/supabase/server/user';
 import { markWarehouseGroupAsUsed, markWarehouseItemAsUsed, markWarehouseItemsBulkUsed } from '../warehouse-items/actions';
+import { getDeliveryDetails } from "../delivery/actions";
 
-// Search function
+// Enhanced search function with warehouse inventory fallback
 async function generalSearch(
   searchQuery: string,
   entityType?: string,
@@ -42,6 +43,7 @@ async function generalSearch(
 ) {
   const supabase = createClient();
 
+  // Try the general search first
   const { data, error } = await supabase.rpc('general_search', {
     p_search_query: searchQuery,
     p_entity_type: entityType || null,
@@ -55,7 +57,95 @@ async function generalSearch(
     return { success: false, error: error.message };
   }
 
+  // If no results found and searchQuery looks like a UUID, try warehouse inventory fallback
+  if ((!data || data.length === 0) && isValidUUID(searchQuery)) {
+    console.log('No results from general search, trying warehouse inventory fallback...');
+    
+    try {
+      // Try to get warehouse inventory details directly
+      const { data: warehouseData, error: warehouseError } = await supabase
+        .from('warehouse_inventory')
+        .select(`
+          uuid,
+          name,
+          description,
+          warehouse_uuid,
+          inventory_uuid,
+          status,
+          warehouses(name, address),
+          inventory(name, description)
+        `)
+        .eq('uuid', searchQuery)
+        .eq('company_uuid', companyUuid)
+        .single();
+
+      if (!warehouseError && warehouseData) {
+        // Create a search result in the expected format
+        const warehouse = Array.isArray(warehouseData.warehouses) ? warehouseData.warehouses[0] : warehouseData.warehouses;
+        const inventory = Array.isArray(warehouseData.inventory) ? warehouseData.inventory[0] : warehouseData.inventory;
+        
+        const fallbackResult = {
+          entity_type: 'warehouse_inventory',
+          entity_uuid: warehouseData.uuid,
+          entity_title: warehouseData.name || inventory?.name || 'Warehouse Inventory',
+          entity_description: warehouseData.description || inventory?.description,
+          entity_status: warehouseData.status,
+          entity_data: {
+            warehouse_name: warehouse?.name,
+            warehouse_address: warehouse?.address,
+            inventory_name: inventory?.name,
+            inventory_description: inventory?.description
+          }
+        };
+        
+        console.log('Found warehouse inventory fallback result:', fallbackResult);
+        return { success: true, data: [fallbackResult] };
+      }
+
+      // If still no warehouse inventory found, try inventory fallback
+      const { data: inventoryData, error: inventoryError } = await supabase
+        .from('inventory')
+        .select(`
+          uuid,
+          name,
+          description,
+          status,
+          measurement_unit,
+          standard_unit
+        `)
+        .eq('uuid', searchQuery)
+        .eq('company_uuid', companyUuid)
+        .single();
+
+      if (!inventoryError && inventoryData) {
+        const inventoryFallbackResult = {
+          entity_type: 'inventory',
+          entity_uuid: inventoryData.uuid,
+          entity_title: inventoryData.name,
+          entity_description: inventoryData.description,
+          entity_status: inventoryData.status,
+          entity_data: {
+            measurement_unit: inventoryData.measurement_unit,
+            standard_unit: inventoryData.standard_unit
+          }
+        };
+        
+        console.log('Found inventory fallback result:', inventoryFallbackResult);
+        return { success: true, data: [inventoryFallbackResult] };
+      }
+
+    } catch (fallbackError) {
+      console.error('Fallback search error:', fallbackError);
+    }
+  }
+
   return { success: true, data: data || [] };
+}
+
+// Helper function to validate UUID format
+function isValidUUID(str: string): boolean {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
 }
 
 // Helper function to get status color
@@ -175,10 +265,19 @@ export default function SearchPage() {
         const isAuto = searchParams.get("auto") === "true";
         const showOptions = searchParams.get("showOptions") === "true";
 
-        if (query) {
-          setSearchQuery(query);
-          setLastSearchQuery(query);
-          await performSearch(query, userData, viewMode, isAuto, showOptions);
+        // NEW: Handle warehouse inventory URL parameters
+        const warehouseInventoryParam = searchParams.get("warehouseInventory");
+        const deliveryParam = searchParams.get("delivery");
+        const itemParam = searchParams.get("item");
+        const groupParam = searchParams.get("group");
+
+        // If warehouse inventory parameter is provided, use it as the search query
+        const finalQuery = warehouseInventoryParam || query;
+
+        if (finalQuery) {
+          setSearchQuery(finalQuery);
+          setLastSearchQuery(finalQuery);
+          await performSearch(finalQuery, userData, viewMode, isAuto, showOptions, deliveryParam);
         }
 
       } catch (error) {
@@ -201,11 +300,16 @@ export default function SearchPage() {
     const isAuto = searchParams.get("auto") === "true";
     const showOptions = searchParams.get("showOptions") === "true";
 
+    // NEW: Handle warehouse inventory URL parameters
+    const warehouseInventoryParam = searchParams.get("warehouseInventory");
+    const deliveryParam = searchParams.get("delivery");
+    const finalQuery = warehouseInventoryParam || query;
+
     // Only perform search if query is different from what we last searched
-    if (query && query !== lastSearchQuery) {
-      setSearchQuery(query);
-      setLastSearchQuery(query);
-      performSearch(query, user, viewMode, isAuto, showOptions);
+    if (finalQuery && finalQuery !== lastSearchQuery) {
+      setSearchQuery(finalQuery);
+      setLastSearchQuery(finalQuery);
+      performSearch(finalQuery, user, viewMode, isAuto, showOptions, deliveryParam);
     } else if (!query && hasSearched) {
       // Clear search if no query parameter
       setSearchQuery("");
@@ -238,7 +342,14 @@ export default function SearchPage() {
     };
   }, []);
 
-  const performSearch = async (query: string, userData?: any, autoView: boolean = false, auto: boolean = false, showOptions: boolean = false) => {
+  const performSearch = async (
+    query: string,
+    userData?: any,
+    autoView: boolean = false,
+    auto: boolean = false,
+    showOptions: boolean = false,
+    deliveryUuid?: string | null
+  ) => {
     if (!query.trim()) {
       setSearchResults([]);
       setSelectedResult(null);
@@ -259,38 +370,94 @@ export default function SearchPage() {
 
         // Auto-select based on conditions
         if (autoView || result.data.length === 1) {
-          setSelectedResult(result.data[0]);
+          const selectedItem = result.data[0];
+          setSelectedResult(selectedItem);
 
-          // Handle auto-accept for new_warehouse_inventory ONLY - exclude admins
-          if ((auto || showOptions) &&
-            result.data[0]?.entity_type === 'new_warehouse_inventory' &&
-            userToUse && !userToUse.is_admin) {
-            const autoKey = `${result.data[0]?.entity_type}-${query}-auto`;
-            if (!processedAutoActions.current.has(autoKey)) {
-              processedAutoActions.current.add(autoKey);
-              setPendingAutoIntent({
-                resultItem: result.data[0],
-                userToUse,
-                shouldStartTimer: true
+          // NEW: Enhanced delivery handling logic
+          if (deliveryUuid && selectedItem?.entity_type === 'warehouse_inventory') {
+            // Check if this is a new warehouse inventory (delivery not yet accepted)
+            const deliveryResult = await getDeliveryDetails(deliveryUuid, userToUse?.company_uuid);
+
+            if (deliveryResult.success && deliveryResult.data?.status === 'IN_TRANSIT') {
+              // This is a new warehouse inventory scenario - override entity type
+              setSelectedResult({
+                ...selectedItem,
+                entity_type: 'new_warehouse_inventory',
+                entity_uuid: deliveryUuid, // Use delivery UUID for acceptance
+                entity_data: {
+                  ...selectedItem.entity_data,
+                  delivery_uuid: deliveryUuid,
+                  matched_warehouse_inventory_uuids: [selectedItem.entity_uuid]
+                }
               });
+
+              // Handle auto-accept for new_warehouse_inventory with delivery override
+              if ((auto || showOptions) && userToUse && !userToUse.is_admin) {
+                const autoKey = `new_warehouse_inventory-${deliveryUuid}-auto`;
+                if (!processedAutoActions.current.has(autoKey)) {
+                  processedAutoActions.current.add(autoKey);
+                  setPendingAutoIntent({
+                    resultItem: {
+                      ...selectedItem,
+                      entity_type: 'new_warehouse_inventory',
+                      entity_uuid: deliveryUuid
+                    },
+                    userToUse,
+                    shouldStartTimer: true
+                  });
+                }
+              }
+            } else {
+              // Handle existing warehouse inventory marking as used
+              if (showOptions && userToUse && !userToUse.is_admin) {
+                const itemParam = searchParams.get("item");
+                const groupParam = searchParams.get("group");
+
+                const markUsedKey = `${selectedItem?.entity_type}-${query}-markUsed`;
+                if (!processedAutoActions.current.has(markUsedKey)) {
+                  processedAutoActions.current.add(markUsedKey);
+                  setPendingMarkItemAsUsedIntent({
+                    resultItem: selectedItem,
+                    userToUse,
+                    shouldStartTimer: true,
+                    inventoryItemUuid: itemParam || groupParam || null,
+                    isGroup: !!groupParam
+                  });
+                }
+              }
             }
-          }
+          } else {
+            // Original logic for non-delivery scenarios
+            if ((auto || showOptions) &&
+              selectedItem?.entity_type === 'new_warehouse_inventory' &&
+              userToUse && !userToUse.is_admin) {
+              const autoKey = `${selectedItem?.entity_type}-${query}-auto`;
+              if (!processedAutoActions.current.has(autoKey)) {
+                processedAutoActions.current.add(autoKey);
+                setPendingAutoIntent({
+                  resultItem: selectedItem,
+                  userToUse,
+                  shouldStartTimer: true
+                });
+              }
+            }
 
-          // NEW: Handle mark item as used for existing warehouse inventory
-          if (showOptions && result.data[0]?.entity_type === 'warehouse_inventory' && userToUse && !userToUse.is_admin) {
-            const itemParam = searchParams.get("item");
-            const groupParam = searchParams.get("group");
+            // Handle mark item as used for existing warehouse inventory
+            if (showOptions && selectedItem?.entity_type === 'warehouse_inventory' && userToUse && !userToUse.is_admin) {
+              const itemParam = searchParams.get("item");
+              const groupParam = searchParams.get("group");
 
-            const markUsedKey = `${result.data[0]?.entity_type}-${query}-markUsed`;
-            if (!processedAutoActions.current.has(markUsedKey)) {
-              processedAutoActions.current.add(markUsedKey);
-              setPendingMarkItemAsUsedIntent({
-                resultItem: result.data[0],
-                userToUse,
-                shouldStartTimer: true,
-                inventoryItemUuid: itemParam || groupParam || null,
-                isGroup: !!groupParam
-              });
+              const markUsedKey = `${selectedItem?.entity_type}-${query}-markUsed`;
+              if (!processedAutoActions.current.has(markUsedKey)) {
+                processedAutoActions.current.add(markUsedKey);
+                setPendingMarkItemAsUsedIntent({
+                  resultItem: selectedItem,
+                  userToUse,
+                  shouldStartTimer: true,
+                  inventoryItemUuid: itemParam || groupParam || null,
+                  isGroup: !!groupParam
+                });
+              }
             }
           }
         } else {
@@ -563,14 +730,30 @@ export default function SearchPage() {
   };
 
   // Handle new warehouse inventory acceptance
+  // Handle new warehouse inventory acceptance
   const handleAcceptNewWarehouseInventoryAction = async (resultItem: any, customUser?: any) => {
-    // Only handle new_warehouse_inventory entity type
-    if (!resultItem || resultItem.entity_type !== 'new_warehouse_inventory') return;
+    // Handle both new_warehouse_inventory and warehouse_inventory with delivery
+    let deliveryUuid: string;
+    let warehouseInventoryUuids: string[] = [];
 
-    const deliveryUuid = resultItem.entity_uuid;
-    const warehouseInventoryUuids = resultItem.entity_data?.matched_warehouse_inventory_uuids || [];
+    if (resultItem.entity_type === 'new_warehouse_inventory') {
+      deliveryUuid = resultItem.entity_uuid;
+      warehouseInventoryUuids = resultItem.entity_data?.matched_warehouse_inventory_uuids || [];
+    } else if (resultItem.entity_type === 'warehouse_inventory') {
+      // NEW: Handle warehouse_inventory with delivery parameter
+      const deliveryParam = searchParams.get("delivery");
+      if (!deliveryParam) {
+        setAcceptNewWarehouseInventoryError("No delivery specified for warehouse inventory acceptance");
+        return;
+      }
+      deliveryUuid = deliveryParam;
+      warehouseInventoryUuids = [resultItem.entity_uuid];
+    } else {
+      setAcceptNewWarehouseInventoryError("Invalid entity type for delivery acceptance");
+      return;
+    }
 
-    console.log("Accepting new warehouse inventory:", deliveryUuid, "UUIDs:", warehouseInventoryUuids);
+    console.log("Accepting delivery:", deliveryUuid, "Warehouse inventory UUIDs:", warehouseInventoryUuids);
 
     // Clear timer states when starting acceptance
     setPendingNewWarehouseInventoryAccept(null);
@@ -594,10 +777,12 @@ export default function SearchPage() {
         setAcceptNewWarehouseInventorySuccess(true);
         setAcceptNewWarehouseInventoryError(null);
 
-        // Remove showOptions from URL after successful acceptance
+        // Remove URL parameters after successful acceptance
         const currentParams = new URLSearchParams(searchParams.toString());
         currentParams.delete('showOptions');
-        currentParams.delete('auto'); // Also remove this if present
+        currentParams.delete('auto');
+        currentParams.delete('delivery');
+        currentParams.delete('warehouseInventory');
 
         // Build new URL with cleaned parameters
         const currentQuery = searchParams.get("q");
@@ -611,7 +796,7 @@ export default function SearchPage() {
           }
         }
 
-        // Update URL without showOptions
+        // Update URL without parameters
         router.push(newUrl);
 
         // Refresh the search to show updated status after a short delay
@@ -621,12 +806,12 @@ export default function SearchPage() {
           }
         }, 2000);
       } else {
-        setAcceptNewWarehouseInventoryError(result.error || "Failed to accept new warehouse inventory");
+        setAcceptNewWarehouseInventoryError(result.error || "Failed to accept delivery");
       }
 
     } catch (error) {
-      console.error("Error accepting new warehouse inventory:", error);
-      setAcceptNewWarehouseInventoryError(`Failed to accept new warehouse inventory: ${(error as Error).message}`);
+      console.error("Error accepting delivery:", error);
+      setAcceptNewWarehouseInventoryError(`Failed to accept delivery: ${(error as Error).message}`);
     } finally {
       setIsAcceptingNewWarehouseInventory(false);
     }
@@ -1216,7 +1401,7 @@ export default function SearchPage() {
     console.log("Rendering component for entity type:", entity_type, "UUID:", entity_uuid);
     // Render the appropriate component based on entity type
 
-   switch (entity_type) {
+    switch (entity_type) {
       case 'delivery':
         return (
           <motion.div key="delivery-component" {...motionTransition}>
@@ -1233,7 +1418,7 @@ export default function SearchPage() {
           </motion.div>
         );
 
-      // Updated case for new_warehouse_inventory with auto-accept functionality
+      // Enhanced new_warehouse_inventory case with delivery parameter support
       case 'new_warehouse_inventory':
         return (
           <motion.div key="new-warehouse-inventory-component" {...motionTransition}>
@@ -1241,123 +1426,29 @@ export default function SearchPage() {
             <div className={`${isDisabled ? 'opacity-50 pointer-events-none blur-sm scale-95 origin-top' : ''} transition-all duration-200`}>
               <div className="space-y-4">
                 <Card className="bg-gradient-to-br from-warning-50 to-warning-50 border border-warning-200 shadow-lg shadow-warning-200/30">
-                  <CardBody className="p-6">
-                    <div className="flex items-start gap-4 mb-4">
-                      <div className="flex items-center justify-center w-12 h-12 bg-gradient-to-br from-warning-400 to-warning-500 rounded-xl shadow-lg">
-                        <Icon icon="mdi:warehouse" className="text-warning-100 w-6 h-6" />
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h4 className="font-bold text-warning-900 text-lg">
-                            New Warehouse Inventory Items
-                          </h4>
-                          <Chip
-                            color="warning"
-                            variant="shadow"
-                            size="sm"
-                            className="font-semibold"
-                          >
-                            {selectedResult.entity_data?.total_matched_items || 1} {(selectedResult.entity_data?.total_matched_items || 1) === 1 ? 'Item' : 'Items'}
-                          </Chip>
-                        </div>
-                        <p className="text-sm text-warning-700 leading-relaxed">
-                          {selectedResult.entity_data?.total_matched_items > 1
-                            ? `These ${selectedResult.entity_data.total_matched_items} warehouse inventory items will be created when the delivery is accepted.`
-                            : 'This warehouse inventory item will be created when the delivery is accepted.'
-                          }
+                  <CardBody className="p-4">
+                    <div className="flex items-center gap-3">
+                      <Icon icon="mdi:truck-delivery" className="text-warning-600 w-6 h-6" />
+                      <div>
+                        <h4 className="font-semibold text-warning-900">New Warehouse Inventory</h4>
+                        <p className="text-sm text-warning-700">
+                          This delivery contains new inventory items ready to be accepted into the warehouse.
                         </p>
                       </div>
                     </div>
-
-                    {/* Enhanced UUID Display */}
-                    {selectedResult.entity_data?.matched_warehouse_inventory_uuids && (
-                      <div>
-                        <div className="flex items-center gap-2 mb-3">
-                          <Icon icon="mdi:identifier" className="text-warning-600 w-4 h-4" />
-                          <p className="text-sm font-semibold text-warning-800">Warehouse Inventory UUIDs</p>
-                        </div>
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                          {selectedResult.entity_data.matched_warehouse_inventory_uuids.map((uuid: string, index: number) => (
-                            <div key={uuid} className="group">
-                              <div className="flex items-center gap-3 p-3 bg-warning/70 border border-warning-200/50 rounded-xl hover:bg-warning/90 hover:shadow-md transition-all duration-200">
-                                <div className="flex items-center justify-center w-8 h-8 bg-warning-100 rounded-lg group-hover:bg-warning-200 transition-colors">
-                                  <span className="text-xs font-bold text-warning-700">#{index + 1}</span>
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <Snippet
-                                    symbol=""
-                                    variant="bordered"
-                                    color="warning"
-                                    size="sm"
-                                    className="w-full"
-                                    classNames={{
-                                      base: "bg-warning-50/50 border-warning-200",
-                                      pre: "font-mono text-xs text-warning-800 truncate"
-                                    }}
-                                  >
-                                    {uuid}
-                                  </Snippet>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Enhanced Inventory Items Display */}
-                    {selectedResult.entity_data?.matched_inventory_items && selectedResult.entity_data.matched_inventory_items.length > 0 && (
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2">
-                          <Icon icon="mdi:package-variant-closed" className="text-warning-600 w-4 h-4" />
-                          <p className="text-sm font-semibold text-warning-800">Related Inventory Items</p>
-                        </div>
-                        
-                        <div className="space-y-3">
-                          {selectedResult.entity_data.matched_inventory_items.map((item: any, index: number) => (
-                            <Card key={item.warehouse_inventory_uuid} className="bg-white/60 border border-warning-200/40 hover:bg-white/80 hover:shadow-sm transition-all duration-200">
-                              <CardBody className="p-4">
-                                <div className="flex items-start gap-3">
-                                  <div className="flex items-center justify-center w-10 h-10 bg-gradient-to-br from-warning-100 to-amber-100 rounded-lg">
-                                    <Icon icon="mdi:package-variant" className="text-warning-600 w-5 h-5" />
-                                  </div>
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 mb-1">
-                                      <h5 className="font-semibold text-warning-900 truncate">{item.name}</h5>
-                                      <Chip
-                                        color="warning"
-                                        variant="flat"
-                                        size="sm"
-                                        className="text-xs font-medium"
-                                      >
-                                        {item.unit}
-                                      </Chip>
-                                    </div>
-                                    {item.description && (
-                                      <p className="text-xs text-warning-600 leading-relaxed line-clamp-2">
-                                        {item.description}
-                                      </p>
-                                    )}
-                                  </div>
-                                </div>
-                              </CardBody>
-                            </Card>
-                          ))}
-                        </div>
-                      </div>
-                    )}
                   </CardBody>
                 </Card>
 
-                {/* Show the delivery component */}
-                {selectedResult.entity_uuid && (
+                {/* Use delivery UUID from entity_data or URL parameter */}
+                {(selectedResult.entity_data?.delivery_uuid || selectedResult.entity_uuid) && (
                   <DeliveryComponent
-                    deliveryId={selectedResult.entity_uuid} // entity_uuid is now the delivery UUID for grouped results
+                    deliveryId={selectedResult.entity_data?.delivery_uuid || selectedResult.entity_uuid}
                     user={user}
                     warehouses={warehouses}
                     operators={operators}
                     inventories={inventories}
                     readOnlyMode={true}
+                    onLoadingChange={handleDeliveryComponentLoadingChange}
                   />
                 )}
               </div>
