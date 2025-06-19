@@ -68,7 +68,7 @@ interface InventoryComponentProps {
   initialFormData?: Partial<WarehouseInventory>;
 }
 
-export function InventoryComponent({
+export function WarehouseInventoryComponent({
   inventoryId,
   user,
   warehouses,

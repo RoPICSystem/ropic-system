@@ -20,7 +20,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { getWarehouseItemByInventory } from "./actions";
-import { InventoryComponent } from "./warehouse-inventory-component";
+import { WarehouseInventoryComponent } from "./warehouse-inventory-component";
 import { getWarehouses } from "../warehouses/actions";
 
 export default function WarehouseItemsPage() {
@@ -285,7 +285,7 @@ export default function WarehouseItemsPage() {
                 </div>
               }
             >
-              <InventoryComponent
+              <WarehouseInventoryComponent
                 inventoryId={selectedItemId}
                 user={user}
                 warehouses={warehouses}

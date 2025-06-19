@@ -27,7 +27,7 @@ import { createClient } from "@/utils/supabase/client";
 // Import the existing components
 import { DeliveryComponent } from "@/app/home/delivery/delivery-component";
 import { InventoryComponent as InventoryItemComponent } from "@/app/home/inventory/inventory-component";
-import { WarehouseInventoryComponent as WarehouseInventoryComponent } from "@/app/home/warehouse-items/warehouse-inventory-component";
+import { InventoryComponent as WarehouseInventoryComponent } from "@/app/home/warehouse-items/warehouse-inventory-component";
 import { motionTransition, motionTransitionScale } from '@/utils/anim';
 import { getUserFromCookies } from '@/utils/supabase/server/user';
 import { markWarehouseGroupAsUsed, markWarehouseItemAsUsed, markWarehouseItemsBulkUsed } from '../warehouse-items/actions';
