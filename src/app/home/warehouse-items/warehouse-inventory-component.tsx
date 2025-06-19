@@ -1564,8 +1564,33 @@ export function InventoryComponent({
                               }
                             >
                               <div className="space-y-4">
+                                {/* Group Identifier - for group representatives */}
+                                {((isGroupRepresentative && groupId) || (!isGroupRepresentative && item.group_id && viewMode === 'flat')) && (
+                                  <div className="mx-4 mt-4">
+                                    <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
+                                      <div className="flex items-center gap-3">
+                                        <Icon icon="mdi:group" className="text-default-500 w-4 h-4 flex-shrink-0" />
+                                        <div className="flex flex-col">
+                                          <span className="text-xs text-default-600 font-medium">Group Identifier</span>
+                                          <span className="text-md font-semibold text-default-700">
+                                            {groupId || item.group_id || "N/A"}
+                                          </span>
+                                        </div>
+                                      </div>
+                                      <Button
+                                        variant="flat"
+                                        color="default"
+                                        isIconOnly
+                                        onPress={() => copyToClipboard(groupId)}
+                                      >
+                                        <Icon icon="mdi:content-copy" className="text-default-500" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                )}
+
                                 {/* Item Identifier */}
-                                {item.uuid && (
+                                {item.uuid && !isGroupRepresentative && (
                                   <div className="mx-4 mt-4">
                                     <div className="flex items-center justify-between p-3 min-h-16 bg-default-100 border-2 border-default-200 rounded-xl hover:border-default-400 hover:bg-default-200 transition-all duration-200">
                                       <div className="flex items-center gap-3">

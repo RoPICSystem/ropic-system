@@ -205,357 +205,292 @@ export default function DeliveryPage() {
 
       console.log('Deliveries to export:', deliveriesToExport);
 
-      // Prepare deliveries with QR URLs and warehouse names
-      const preparedDeliveries = await Promise.all(deliveriesToExport.map(async (delivery: { uuid: string; warehouse_uuid: string; delivery_date: any; inventory_uuid: any; name?: string; }) => {
-        // Generate QR URL for each delivery with options
-        const baseUrl = "https://ropic.vercel.app/home/search";
-        const params = new URLSearchParams();
+      // Prepare warehouse inventories for export instead of deliveries
+      const warehouseInventoriesForExport: any[] = [];
 
-        params.set('q', delivery.uuid);
+      for (const delivery of deliveriesToExport) {
+        try {
+          console.log(`Processing delivery ${delivery.uuid} for warehouse inventory export`);
 
-        if (data.exportOptions.includeAuto) {
-          params.set('auto', 'true');
-        }
+          // Get detailed delivery data to access warehouse inventory items
+          const deliveryDetails = await getDeliveryDetails(delivery.uuid, user.company_uuid);
 
-        if (data.exportOptions.includeShowOptions) {
-          params.set('showOptions', 'true');
-        }
+          if (deliveryDetails.success && deliveryDetails.data?.warehouse_inventory_items) {
+            const warehouseInventoryItemsData = deliveryDetails.data.warehouse_inventory_items;
+            console.log('Raw warehouse inventory items data:', warehouseInventoryItemsData);
 
-        const qrUrl = `${baseUrl}?${params.toString()}`;
+            // Group items by warehouse_inventory_uuid
+            const warehouseInventoryGroups = new Map();
 
-        // Find warehouse name
-        const warehouse = warehouses.find(w => w.uuid === delivery.warehouse_uuid);
-        const warehouseName = warehouse?.name || 'Unknown Warehouse';
+            Object.entries(warehouseInventoryItemsData).forEach(([itemUuid, itemData]: [string, any]) => {
+              const warehouseInventoryUuid = itemData.warehouse_inventory_uuid;
 
-        let inventoryItemsForExport = [];
-
-        // Process inventory items based on the inclusion type
-        if (data.exportOptions.inventoryInclusionType !== 'delivery_only') {
-          try {
-            console.log(`Loading inventory items for delivery ${delivery.uuid}`);
-
-            // Get detailed delivery data to access inventory items
-            const deliveryDetails = await getDeliveryDetails(delivery.uuid, user.company_uuid);
-
-            if (deliveryDetails.success && deliveryDetails.data?.inventory_items) {
-              const inventoryItemsData = deliveryDetails.data.inventory_items;
-              console.log('Raw inventory items data:', inventoryItemsData);
-
-              // Convert inventory_items object to array if needed
-              const inventoryItems = Array.isArray(inventoryItemsData)
-                ? inventoryItemsData
-                : Object.entries(inventoryItemsData).map(([itemUuid, itemData]: [string, any]) => ({
-                  uuid: itemUuid,
-                  ...itemData,
-                  // Ensure we have all necessary fields
-                  inventory_uuid: itemData.inventory_uuid || '',
-                  group_id: itemData.group_id || null,
-                  unit_value: itemData.unit_value || 0,
-                  unit: itemData.unit || '',
-                  item_code: itemData.item_code || '',
-                  status: itemData.status || 'UNKNOWN'
-                }));
-
-              console.log('Processed inventory items:', inventoryItems);
-
-              // Group items by group_id and add sequential numbering
-              const groupedItems = new Map();
-              const individualItems: any[] = [];
-              let groupCounter = 1;
-
-              inventoryItems.forEach((item: any) => {
-                // Ensure item has required properties
-                if (!item.uuid) {
-                  console.warn('Item missing UUID:', item);
-                  return;
-                }
-
-                if (item.group_id && item.group_id !== '' && item.group_id !== null) {
-                  if (!groupedItems.has(item.group_id)) {
-                    groupedItems.set(item.group_id, {
-                      type: 'group',
-                      group_id: item.group_id,
-                      group_number: groupCounter++, // Add sequential numbering
-                      inventory_uuid: item.inventory_uuid,
-                      items: []
-                    });
-                  }
-                  groupedItems.get(item.group_id).items.push(item);
-                } else {
-                  individualItems.push({
-                    type: 'item',
-                    ...item
-                  });
-                }
-              });
-
-              console.log('Grouped items:', Array.from(groupedItems.keys()));
-              console.log('Individual items count:', individualItems.length);
-
-              // Helper function to determine group status
-              const getGroupStatus = (groupItems: any[]) => {
-                // Get all unique statuses in the group
-                const statuses = [...new Set(groupItems.map(item => item.status))];
-
-                // If all items have the same status, return that status
-                if (statuses.length === 1) {
-                  return statuses[0];
-                }
-
-                // Priority order for mixed statuses
-                const statusPriority = ['AVAILABLE', 'ON_DELIVERY', 'IN_WAREHOUSE', 'USED'];
-                for (const status of statusPriority) {
-                  if (statuses.includes(status)) {
-                    return `MIXED_${status}`;
-                  }
-                }
-
-                return 'MIXED';
-              };
-
-              // Process based on inventoryInclusionType
-              switch (data.exportOptions.inventoryInclusionType) {
-                case 'all_items':
-                  // Include all individual items (both grouped and ungrouped)
-                  let itemCounter = 1;
-                  inventoryItems.forEach((item: any, index: number) => {
-                    if (!item.uuid) {
-                      console.warn('Skipping item without UUID at index', index);
-                      return;
-                    }
-
-                    const itemParams = new URLSearchParams();
-                    itemParams.set('q', delivery.uuid);
-                    itemParams.set('item', item.uuid);
-
-                    if (data.exportOptions.includeAuto) {
-                      itemParams.set('auto', 'true');
-                    }
-
-                    if (data.exportOptions.includeShowOptions) {
-                      itemParams.set('showOptions', 'true');
-                    }
-
-                    const itemQrUrl = `${baseUrl}?${itemParams.toString()}`;
-
-                    // UPDATED: Use sequential numbering for items
-                    inventoryItemsForExport.push({
-                      type: 'item',
-                      id: item.uuid,
-                      name: `Item ${itemCounter++}`,
-                      qrUrl: itemQrUrl,
-                      deliveryId: delivery.uuid,
-                      deliveryName: delivery.name || 'Unknown Item',
-                      groupId: item.group_id,
-                      inventoryUuid: item.inventory_uuid,
-                      unitValue: item.unit_value,
-                      unit: item.unit,
-                      itemCode: item.item_code,
-                      status: item.status // UPDATED: Use actual item status
-                    });
-                  });
-                  break;
-
-                case 'all_groups':
-                  // Include only groups (no individual items)
-                  for (const [groupId, groupData] of groupedItems) {
-                    const groupParams = new URLSearchParams();
-                    groupParams.set('q', delivery.uuid);
-                    groupParams.set('group', groupId);
-
-                    if (data.exportOptions.includeAuto) {
-                      groupParams.set('auto', 'true');
-                    }
-
-                    if (data.exportOptions.includeShowOptions) {
-                      groupParams.set('showOptions', 'true');
-                    }
-
-                    const groupQrUrl = `${baseUrl}?${groupParams.toString()}`;
-
-                    // UPDATED: Use sequential numbering and actual group status
-                    inventoryItemsForExport.push({
-                      type: 'group',
-                      id: groupId,
-                      name: `Group ${groupData.group_number}`,
-                      qrUrl: groupQrUrl,
-                      itemCount: groupData.items.length,
-                      deliveryId: delivery.uuid,
-                      deliveryName: delivery.name || 'Unknown Item',
-                      inventoryUuid: groupData.inventory_uuid,
-                      items: groupData.items,
-                      status: getGroupStatus(groupData.items) // UPDATED: Use actual group status
-                    });
-                  }
-                  break;
-
-                case 'items_and_groups': {
-                  // Include both all groups and all individual items
-                  // First add groups
-                  for (const [groupId, groupData] of groupedItems) {
-                    const groupParams = new URLSearchParams();
-                    groupParams.set('q', delivery.uuid);
-                    groupParams.set('group', groupId);
-
-                    if (data.exportOptions.includeAuto) {
-                      groupParams.set('auto', 'true');
-                    }
-
-                    if (data.exportOptions.includeShowOptions) {
-                      groupParams.set('showOptions', 'true');
-                    }
-
-                    const groupQrUrl = `${baseUrl}?${groupParams.toString()}`;
-
-                    // UPDATED: Use sequential numbering and actual group status
-                    inventoryItemsForExport.push({
-                      type: 'group',
-                      id: groupId,
-                      name: `Group ${groupData.group_number}`,
-                      qrUrl: groupQrUrl,
-                      itemCount: groupData.items.length,
-                      deliveryId: delivery.uuid,
-                      deliveryName: delivery.name || 'Unknown Item',
-                      inventoryUuid: groupData.inventory_uuid,
-                      items: groupData.items,
-                      status: getGroupStatus(groupData.items) // UPDATED: Use actual group status
-                    });
-                  }
-
-                  // Then add all individual items
-                  let itemCounter = 1;
-                  inventoryItems.forEach((item: any, index: number) => {
-                    if (!item.uuid) {
-                      console.warn('Skipping item without UUID at index', index);
-                      return;
-                    }
-
-                    const itemParams = new URLSearchParams();
-                    itemParams.set('q', delivery.uuid);
-                    itemParams.set('item', item.uuid);
-
-                    if (data.exportOptions.includeAuto) {
-                      itemParams.set('auto', 'true');
-                    }
-
-                    if (data.exportOptions.includeShowOptions) {
-                      itemParams.set('showOptions', 'true');
-                    }
-
-                    const itemQrUrl = `${baseUrl}?${itemParams.toString()}`;
-
-                    // UPDATED: Use sequential numbering and actual item status
-                    inventoryItemsForExport.push({
-                      type: 'item',
-                      id: item.uuid,
-                      name: `Item ${itemCounter++}`,
-                      qrUrl: itemQrUrl,
-                      deliveryId: delivery.uuid,
-                      deliveryName: delivery.name || 'Unknown Item',
-                      groupId: item.group_id,
-                      inventoryUuid: item.inventory_uuid,
-                      unitValue: item.unit_value,
-                      unit: item.unit,
-                      itemCode: item.item_code,
-                      status: item.status // UPDATED: Use actual item status
-                    });
-                  });
-                  break;
-                }
-                case 'grouped_items': {
-                  // Include groups + ungrouped individual items (default behavior)
-                  // Add groups
-                  for (const [groupId, groupData] of groupedItems) {
-                    const groupParams = new URLSearchParams();
-                    groupParams.set('q', delivery.uuid);
-                    groupParams.set('group', groupId);
-
-                    if (data.exportOptions.includeAuto) {
-                      groupParams.set('auto', 'true');
-                    }
-
-                    if (data.exportOptions.includeShowOptions) {
-                      groupParams.set('showOptions', 'true');
-                    }
-
-                    const groupQrUrl = `${baseUrl}?${groupParams.toString()}`;
-
-                    // UPDATED: Use sequential numbering and actual group status
-                    inventoryItemsForExport.push({
-                      type: 'group',
-                      id: groupId,
-                      name: `Group ${groupData.group_number}`,
-                      qrUrl: groupQrUrl,
-                      itemCount: groupData.items.length,
-                      deliveryId: delivery.uuid,
-                      deliveryName: delivery.name || 'Unknown Item',
-                      inventoryUuid: groupData.inventory_uuid,
-                      items: groupData.items,
-                      status: getGroupStatus(groupData.items) // UPDATED: Use actual group status
-                    });
-                  }
-
-                  // Add only ungrouped individual items
-                  let itemCounter = 1;
-                  individualItems.forEach((item: any, index: number) => {
-                    if (!item.uuid) {
-                      console.warn('Skipping ungrouped item without UUID at index', index);
-                      return;
-                    }
-
-                    const itemParams = new URLSearchParams();
-                    itemParams.set('q', delivery.uuid);
-                    itemParams.set('item', item.uuid);
-
-                    if (data.exportOptions.includeAuto) {
-                      itemParams.set('auto', 'true');
-                    }
-
-                    if (data.exportOptions.includeShowOptions) {
-                      itemParams.set('showOptions', 'true');
-                    }
-
-                    const itemQrUrl = `${baseUrl}?${itemParams.toString()}`;
-
-                    // UPDATED: Use sequential numbering and actual item status
-                    inventoryItemsForExport.push({
-                      type: 'item',
-                      id: item.uuid,
-                      name: `Item ${itemCounter++}`,
-                      qrUrl: itemQrUrl,
-                      deliveryId: delivery.uuid,
-                      deliveryName: delivery.name || 'Unknown Item',
-                      inventoryUuid: item.inventory_uuid,
-                      unitValue: item.unit_value,
-                      unit: item.unit,
-                      itemCode: item.item_code,
-                      status: item.status // UPDATED: Use actual item status
-                    });
-                  });
-                  break;
-                }
+              if (!warehouseInventoryUuid) {
+                console.warn('Item missing warehouse_inventory_uuid:', itemData);
+                return;
               }
 
-              console.log(`Generated ${inventoryItemsForExport.length} inventory items for export`);
-            } else {
-              console.warn('No inventory items found for delivery:', delivery.uuid);
+              if (!warehouseInventoryGroups.has(warehouseInventoryUuid)) {
+                warehouseInventoryGroups.set(warehouseInventoryUuid, {
+                  warehouse_inventory_uuid: warehouseInventoryUuid,
+                  inventory_uuid: itemData.inventory_uuid,
+                  items: [],
+                  delivery: delivery
+                });
+              }
+
+              warehouseInventoryGroups.get(warehouseInventoryUuid).items.push({
+                uuid: itemUuid,
+                ...itemData
+              });
+            });
+
+            // Process each warehouse inventory group
+            for (const [warehouseInventoryUuid, groupData] of warehouseInventoryGroups) {
+              let inventoryItemsForExport = [];
+
+              // Process warehouse inventory items based on the inclusion type
+              if (data.exportOptions.inventoryInclusionType !== 'warehouse_inventories_only') {
+                const warehouseInventoryItems = groupData.items;
+
+                // Group items by group_id
+                const itemGroups = new Map();
+                const individualItems: any[] = [];
+                let groupCounter = 1;
+
+                warehouseInventoryItems.forEach((item: any) => {
+                  if (item.group_id && item.group_id !== '' && item.group_id !== null) {
+                    if (!itemGroups.has(item.group_id)) {
+                      itemGroups.set(item.group_id, {
+                        type: 'group',
+                        group_id: item.group_id,
+                        group_number: groupCounter++,
+                        warehouse_inventory_uuid: item.warehouse_inventory_uuid,
+                        inventory_uuid: item.inventory_uuid,
+                        items: []
+                      });
+                    }
+                    itemGroups.get(item.group_id).items.push(item);
+                  } else {
+                    individualItems.push({
+                      type: 'item',
+                      ...item
+                    });
+                  }
+                });
+
+                // Process based on inventoryInclusionType
+                switch (data.exportOptions.inventoryInclusionType) {
+                  case 'all_items': {
+                    // Include all individual items (both grouped and ungrouped)
+                    let itemCounter = 1;
+                    warehouseInventoryItems.forEach((item: any, index: number) => {
+                      const baseUrl = "https://ropic.vercel.app/home/search";
+                      const itemParams = new URLSearchParams();
+                      itemParams.set('q', item.warehouse_inventory_uuid);
+                      itemParams.set('item', item.uuid);
+                      itemParams.set('auto', 'true'); // Auto on by default
+
+                      if (data.exportOptions.includeShowOptions) {
+                        itemParams.set('showOptions', 'true');
+                      }
+
+                      const itemQrUrl = `${baseUrl}?${itemParams.toString()}`;
+
+                      inventoryItemsForExport.push({
+                        type: 'item',
+                        id: item.uuid,
+                        name: `Item ${itemCounter++}`,
+                        qrUrl: itemQrUrl,
+                        warehouseInventoryUuid: item.warehouse_inventory_uuid,
+                        inventoryUuid: item.inventory_uuid,
+                        status: 'AVAILABLE'
+                      });
+                    });
+                    break;
+                  }
+                  case 'all_groups': {
+                    // Include only groups (no individual items)
+                    for (const [groupId, groupData] of itemGroups) {
+                      const baseUrl = "https://ropic.vercel.app/home/search";
+                      const groupParams = new URLSearchParams();
+                      groupParams.set('q', groupData.warehouse_inventory_uuid);
+                      groupParams.set('group', groupId);
+                      groupParams.set('auto', 'true'); // Auto on by default
+
+                      if (data.exportOptions.includeShowOptions) {
+                        groupParams.set('showOptions', 'true');
+                      }
+
+                      const groupQrUrl = `${baseUrl}?${groupParams.toString()}`;
+
+                      inventoryItemsForExport.push({
+                        type: 'group',
+                        id: groupId,
+                        name: `Group ${groupData.group_number}`,
+                        qrUrl: groupQrUrl,
+                        itemCount: groupData.items.length,
+                        warehouseInventoryUuid: groupData.warehouse_inventory_uuid,
+                        inventoryUuid: groupData.inventory_uuid,
+                        items: groupData.items,
+                        status: 'AVAILABLE'
+                      });
+                    }
+                    break;
+                  }
+                  case 'items_and_groups': {
+                    // Include both all groups and all individual items
+                    // First add groups
+                    for (const [groupId, groupData] of itemGroups) {
+                      const baseUrl = "https://ropic.vercel.app/home/search";
+                      const groupParams = new URLSearchParams();
+                      groupParams.set('q', groupData.warehouse_inventory_uuid);
+                      groupParams.set('group', groupId);
+                      groupParams.set('auto', 'true'); // Auto on by default
+
+                      if (data.exportOptions.includeShowOptions) {
+                        groupParams.set('showOptions', 'true');
+                      }
+
+                      const groupQrUrl = `${baseUrl}?${groupParams.toString()}`;
+
+                      inventoryItemsForExport.push({
+                        type: 'group',
+                        id: groupId,
+                        name: `Group ${groupData.group_number}`,
+                        qrUrl: groupQrUrl,
+                        itemCount: groupData.items.length,
+                        warehouseInventoryUuid: groupData.warehouse_inventory_uuid,
+                        inventoryUuid: groupData.inventory_uuid,
+                        items: groupData.items,
+                        status: 'AVAILABLE'
+                      });
+                    }
+
+                    // Then add all individual items
+                    let itemCounter = 1;
+                    warehouseInventoryItems.forEach((item: any, index: number) => {
+                      const baseUrl = "https://ropic.vercel.app/home/search";
+                      const itemParams = new URLSearchParams();
+                      itemParams.set('q', item.warehouse_inventory_uuid);
+                      itemParams.set('item', item.uuid);
+                      itemParams.set('auto', 'true'); // Auto on by default
+
+                      if (data.exportOptions.includeShowOptions) {
+                        itemParams.set('showOptions', 'true');
+                      }
+
+                      const itemQrUrl = `${baseUrl}?${itemParams.toString()}`;
+
+                      inventoryItemsForExport.push({
+                        type: 'item',
+                        id: item.uuid,
+                        name: `Item ${itemCounter++}`,
+                        qrUrl: itemQrUrl,
+                        warehouseInventoryUuid: item.warehouse_inventory_uuid,
+                        inventoryUuid: item.inventory_uuid,
+                        status: 'AVAILABLE'
+                      });
+                    });
+                    break;
+                  }
+                  case 'grouped_items': {
+                    // Include groups + ungrouped individual items (default behavior)
+                    // Add groups
+                    for (const [groupId, groupData] of itemGroups) {
+                      const baseUrl = "https://ropic.vercel.app/home/search";
+                      const groupParams = new URLSearchParams();
+                      groupParams.set('q', groupData.warehouse_inventory_uuid);
+                      groupParams.set('group', groupId);
+                      groupParams.set('auto', 'true'); // Auto on by default
+
+                      if (data.exportOptions.includeShowOptions) {
+                        groupParams.set('showOptions', 'true');
+                      }
+
+                      const groupQrUrl = `${baseUrl}?${groupParams.toString()}`;
+
+                      inventoryItemsForExport.push({
+                        type: 'group',
+                        id: groupId,
+                        name: `Group ${groupData.group_number}`,
+                        qrUrl: groupQrUrl,
+                        itemCount: groupData.items.length,
+                        warehouseInventoryUuid: groupData.warehouse_inventory_uuid,
+                        inventoryUuid: groupData.inventory_uuid,
+                        items: groupData.items,
+                        status: 'AVAILABLE'
+                      });
+                    }
+
+                    // Add only ungrouped individual items
+                    let itemCounter = 1;
+                    individualItems.forEach((item: any, index: number) => {
+                      const baseUrl = "https://ropic.vercel.app/home/search";
+                      const itemParams = new URLSearchParams();
+                      itemParams.set('q', item.warehouse_inventory_uuid);
+                      itemParams.set('item', item.uuid);
+                      itemParams.set('auto', 'true'); // Auto on by default
+
+                      if (data.exportOptions.includeShowOptions) {
+                        itemParams.set('showOptions', 'true');
+                      }
+
+                      const itemQrUrl = `${baseUrl}?${itemParams.toString()}`;
+
+                      inventoryItemsForExport.push({
+                        type: 'item',
+                        id: item.uuid,
+                        name: `Item ${itemCounter++}`,
+                        qrUrl: itemQrUrl,
+                        warehouseInventoryUuid: item.warehouse_inventory_uuid,
+                        inventoryUuid: item.inventory_uuid,
+                        status: 'AVAILABLE'
+                      });
+                    });
+                    break;
+                  }
+                }
+
+                console.log(`Generated ${inventoryItemsForExport.length} warehouse inventory items for export`);
+              }
+
+              // Generate QR URL for warehouse inventory
+              const baseUrl = "https://ropic.vercel.app/home/search";
+              const params = new URLSearchParams();
+              params.set('q', warehouseInventoryUuid);
+              params.set('auto', 'true'); // Auto on by default
+
+              if (data.exportOptions.includeShowOptions) {
+                params.set('showOptions', 'true');
+              }
+
+              const qrUrl = `${baseUrl}?${params.toString()}`;
+
+              // Find warehouse and inventory names
+              const warehouse = warehouses.find(w => w.uuid === delivery.warehouse_uuid);
+              const inventory = inventories.find(i => i.uuid === groupData.inventory_uuid);
+
+              warehouseInventoriesForExport.push({
+                uuid: warehouseInventoryUuid,
+                qrUrl,
+                deliveryDate: delivery.delivery_date,
+                itemName: inventory?.name || 'Unknown Inventory',
+                warehouse_name: warehouse?.name || 'Unknown Warehouse',
+                inventoryItemsForExport,
+                delivery: delivery,
+                status: 'AVAILABLE'
+              });
             }
-          } catch (error) {
-            console.error(`Error loading inventory items for delivery ${delivery.uuid}:`, error);
+          } else {
+            console.warn('No warehouse inventory items found for delivery:', delivery.uuid);
           }
+        } catch (error) {
+          console.error(`Error loading warehouse inventory items for delivery ${delivery.uuid}:`, error);
         }
+      }
 
-        return {
-          ...delivery,
-          qrUrl,
-          deliveryDate: delivery.delivery_date,
-          itemName: inventories.find(i => i.uuid === delivery.inventory_uuid)?.name || delivery.name || 'Unnamed Delivery',
-          warehouse_name: warehouseName,
-          inventoryItemsForExport
-        };
-      }));
-
-      console.log('Final prepared deliveries:', preparedDeliveries);
+      console.log('Final prepared warehouse inventories:', warehouseInventoriesForExport);
 
       // Get company data including logo
       const companyData = await getUserCompanyDetails(user.uuid);
@@ -567,7 +502,7 @@ export default function DeliveryPage() {
 
       // Generate PDF with selected options
       const pdfBlob = await generatePdfBlob({
-        deliveries: preparedDeliveries,
+        deliveries: warehouseInventoriesForExport,
         companyName: companyData?.data?.name || "Your Company",
         companyLogoUrl: companyLogoUrl,
         dateGenerated: new Date().toLocaleString(),
@@ -581,7 +516,7 @@ export default function DeliveryPage() {
       link.href = url;
 
       const inclusionTypeSuffixes: Record<string, string> = {
-        'delivery_only': '',
+        'warehouse_inventories_only': '',
         'all_items': '_all_items',
         'all_groups': '_all_groups',
         'items_and_groups': '_items_and_groups',
@@ -589,32 +524,32 @@ export default function DeliveryPage() {
       };
       const inclusionTypeSuffix = inclusionTypeSuffixes[data.exportOptions.inventoryInclusionType] || '';
 
-      link.download = `Delivery_QR_Codes_${data.exportOptions.pageSize}${inclusionTypeSuffix}_${new Date().toISOString().split('T')[0]}_${new Date().toTimeString().split(' ')[0].replace(/:/g, '-')}.pdf`;
+      link.download = `Warehouse_Inventory_QR_Codes_${data.exportOptions.pageSize}${inclusionTypeSuffix}_${new Date().toISOString().split('T')[0]}_${new Date().toTimeString().split(' ')[0].replace(/:/g, '-')}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
     } catch (error) {
-      console.error("Error generating delivery QR PDF:", error);
+      console.error("Error generating warehouse inventory QR PDF:", error);
     } finally {
       setIsPdfGenerating(false);
     }
   };
 
-  // QR Code functions
-  const generateDeliveryUrl = (deliveryId?: string, auto: boolean = false, showOptions: boolean = true) => {
+  // QR Code functions - Updated to use warehouse inventory UUIDs
+  const generateDeliveryUrl = (deliveryId?: string, auto: boolean = true, showOptions: boolean = true) => {
     const targetDeliveryId = deliveryId || selectedDeliveryId;
     if (!targetDeliveryId) return "https://ropic.vercel.app/home/search";
-
+  
     const baseUrl = "https://ropic.vercel.app/home/search";
     const params = new URLSearchParams({
-      q: targetDeliveryId,
+      q: targetDeliveryId, // This should now be a warehouse inventory UUID
       ...(auto && { auto: "true" }),
       ...(showOptions && { showOptions: "true" })
     });
-
+  
     return `${baseUrl}?${params.toString()}`;
   };
-
+  
   const updateQrCodeUrl = (auto: boolean, showOptions?: boolean) => {
     const currentShowOptions = showOptions !== undefined ? showOptions : qrCodeData.showOptions;
     setQrCodeData(prev => ({
@@ -622,7 +557,7 @@ export default function DeliveryPage() {
       auto,
       ...(showOptions !== undefined && { showOptions }),
       url: generateDeliveryUrl(prev.deliveryId, auto, currentShowOptions),
-      description: `Scan this code to view delivery details for ${prev.deliveryName}${auto ? '. This will automatically accept the delivery when scanned.' : '.'}`
+      description: `Scan this code to mark warehouse inventory items as used for ${prev.deliveryName}${auto ? '. This will automatically mark the items as used when scanned.' : '.'}`
     }));
   };
 

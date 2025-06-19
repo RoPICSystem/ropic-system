@@ -539,18 +539,18 @@ const getPriorityStyle = (priority: string) => {
 
 const formatStatusText = (status: string, isInventoryItem: boolean = false) => {
   if (!status) return 'UNKNOWN';
-  
+
   if (isInventoryItem) {
     // Handle mixed statuses for groups
     if (status.startsWith('MIXED_')) {
       const baseStatus = status.replace('MIXED_', '');
       return `MIXED (${baseStatus.replace('_', ' ')})`;
     }
-    
+
     // Format individual item statuses
     return status.replace('_', ' ').toUpperCase();
   }
-  
+
   // Format delivery statuses
   return status.replace('_', ' ').toUpperCase();
 };
@@ -578,11 +578,11 @@ export const DeliveryQRPDF = ({
   ropicLogoBase64,
   pageSize = "A4",
   qrCodeDataUrls = {},
-  inventoryInclusionType = "delivery_only" // Updated prop with default value
+  inventoryInclusionType = "warehouse_inventories_only" // Updated prop with default value
 }: DeliveryQRPDFProps) => {
   // Calculate total items for metadata
   const totalDeliveries = deliveries.length;
-  const totalInventoryItems = inventoryInclusionType !== 'delivery_only'
+  const totalInventoryItems = inventoryInclusionType !== 'warehouse_inventories_only'
     ? deliveries.reduce((sum, delivery) => sum + (delivery.inventoryItemsForExport?.length || 0), 0)
     : 0;
   const grandTotal = totalDeliveries + totalInventoryItems;
@@ -590,7 +590,7 @@ export const DeliveryQRPDF = ({
   // Get inclusion type description
   const getInclusionTypeDescription = (type: string) => {
     switch (type) {
-      case 'delivery_only': return 'Delivery QR Codes Only';
+      case 'warehouse_inventories_only': return 'Warehouse Inventory QR Codes Only';
       case 'all_items': return 'with All Individual Items';
       case 'all_groups': return 'with All Groups Only';
       case 'items_and_groups': return 'with All Items + All Groups';
@@ -622,7 +622,7 @@ export const DeliveryQRPDF = ({
 
             <View style={styles.headerContent}>
               <Text style={styles.title}>
-                Delivery QR Code Report
+                Warehouse Inventory QR Code Report
               </Text>
               <Text style={styles.subtitle}>
                 {getInclusionTypeDescription(inventoryInclusionType)} • Reorder Point Inventory Control Management System
@@ -643,7 +643,7 @@ export const DeliveryQRPDF = ({
                 <Text style={styles.metadataLabel}>Deliveries:</Text>
                 <Text style={styles.metadataValue}>{totalDeliveries}</Text>
               </View>
-              {inventoryInclusionType !== 'delivery_only' && (
+              {inventoryInclusionType !== 'warehouse_inventories_only' && (
                 <View style={styles.metadataRow}>
                   <Text style={styles.metadataLabel}>Inventory Items:</Text>
                   <Text style={styles.metadataValue}>{totalInventoryItems}</Text>
@@ -687,7 +687,7 @@ export const DeliveryQRPDF = ({
         {/* Deliveries Section - Fixed */}
         <View style={styles.deliveriesContainer}>
           <Text style={styles.sectionHeader}>
-            QR Codes ({grandTotal} total{inventoryInclusionType !== 'delivery_only' ? ` - ${totalDeliveries} deliveries + ${totalInventoryItems} items` : ` deliveries`})
+            QR Codes ({grandTotal} total{inventoryInclusionType !== 'warehouse_inventories_only' ? ` - ${totalDeliveries} deliveries + ${totalInventoryItems} items` : ` deliveries`})
           </Text>
 
           <View style={styles.deliveryGrid}>
@@ -712,7 +712,7 @@ export const DeliveryQRPDF = ({
               });
 
               // Add inventory item/group QR codes based on inclusion type
-              if (inventoryInclusionType !== 'delivery_only' && delivery.inventoryItemsForExport && Array.isArray(delivery.inventoryItemsForExport)) {
+              if (inventoryInclusionType !== 'warehouse_inventories_only' && delivery.inventoryItemsForExport && Array.isArray(delivery.inventoryItemsForExport)) {
                 delivery.inventoryItemsForExport.forEach((item: any, itemIndex: number) => {
                   // Safety checks for undefined items
                   if (!item || !item.id || !item.qrUrl) {
@@ -765,7 +765,7 @@ export const DeliveryQRPDF = ({
                         {qrCode.title}
                       </Text>
                       <Text style={getStatusStyle(
-                        qrCode.type === 'delivery' 
+                        qrCode.type === 'delivery'
                           ? (delivery.status || delivery.delivery_status || 'Unknown')
                           : qrCode.status,
                         qrCode.type !== 'delivery' // isInventoryItem flag
@@ -851,11 +851,11 @@ export const DeliveryQRPDF = ({
                     </Text>
                   </View>
 
-                   {/* QR Code Section with improved URL wrapping */}
+                  {/* QR Code Section with improved URL wrapping */}
                   <View style={styles.qrCodeContainer}>
                     <Text style={styles.qrCodeLabel}>
                       {qrCode.type === 'delivery'
-                        ? 'Scan to Accept Delivery'
+                        ? 'Scan to Mark Warehouse Inventory as Used'
                         : qrCode.type === 'group'
                           ? 'Scan to Mark Group as Used'
                           : 'Scan to Mark Item as Used'
@@ -892,7 +892,7 @@ export const DeliveryQRPDF = ({
         {/* Footer */}
         <Text style={styles.footer}>
           Generated on {dateGenerated} • RoPIC Delivery Management System • Page Size: {pageSize}
-          {inventoryInclusionType !== 'delivery_only' ? ` • ${getInclusionTypeDescription(inventoryInclusionType)}` : ''}
+          {inventoryInclusionType !== 'warehouse_inventories_only' ? ` • ${getInclusionTypeDescription(inventoryInclusionType)}` : ''}
         </Text>
 
         {/* Page Number */}
@@ -952,8 +952,8 @@ export const generatePdfBlob = async (props: DeliveryQRPDFProps) => {
         }
       }
 
-      // Generate QR codes for inventory items if inclusion type is not delivery_only
-      if (props.inventoryInclusionType !== 'delivery_only' && delivery.inventoryItemsForExport && Array.isArray(delivery.inventoryItemsForExport)) {
+      // Generate QR codes for inventory items if inclusion type is not warehouse_inventories_only
+      if (props.inventoryInclusionType !== 'warehouse_inventories_only' && delivery.inventoryItemsForExport && Array.isArray(delivery.inventoryItemsForExport)) {
         for (const item of delivery.inventoryItemsForExport) {
           // Safety check for item validity
           if (!item || !item.id || !item.qrUrl) {

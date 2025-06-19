@@ -99,10 +99,10 @@ export function DeliveryExportPopover({
     },
     {
       key: "includeAuto",
-      label: "Auto Accept Delivery / Auto Mark as Used",
-      description: "Automatically accept delivery or mark items as used when QR code is scanned",
+      label: "Auto Mark Warehouse Inventory as Used",
+      description: "Automatically mark warehouse inventory items as used when QR code is scanned",
       type: "switch",
-      defaultValue: false
+      defaultValue: true
     },
     {
       key: "includeShowOptions",
@@ -113,12 +113,12 @@ export function DeliveryExportPopover({
     },
     {
       key: "inventoryInclusionType",
-      label: "Inventory QR Codes",
-      description: "What inventory items to include in addition to delivery QR codes",
+      label: "Warehouse Inventory QR Codes",
+      description: "What warehouse inventory items to include in addition to warehouse inventory QR codes",
       type: "select",
-      defaultValue: "delivery_only",
+      defaultValue: "warehouse_inventories_only",
       options: [
-        { key: "delivery_only", label: "Delivery QR Only" },
+        { key: "warehouse_inventories_only", label: "Warehouse Inventory QR Only" },
         { key: "all_items", label: "All Individual Items" },
         { key: "all_groups", label: "All Groups Only (no individual items)" },
         { key: "items_and_groups", label: "All Items + All Groups" },
@@ -138,7 +138,7 @@ export function DeliveryExportPopover({
 
   // Filter function to only allow IN_TRANSIT and DELIVERED deliveries
   const filterDeliveries = (deliveries: any[]) => {
-    return deliveries.filter(delivery => 
+    return deliveries.filter(delivery =>
       delivery.status === "IN_TRANSIT" || delivery.status === "DELIVERED"
     );
   };
