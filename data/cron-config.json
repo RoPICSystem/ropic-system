@@ -1,0 +1,5 @@
+{
+  "intervalDays": 7,
+  "schedule": "0 12 * * 0",
+  "updatedAt": "2025-08-14T16:14:00.504Z"
+}

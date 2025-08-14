@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { motionTransition } from "@/utils/anim";
-import { Card, CardBody, Chip, Button, Skeleton, Progress, Tabs, Tab, CardFooter, Spinner } from "@heroui/react";
+import { Card, CardBody, Chip, Button, Skeleton, Progress, Tabs, Tab, CardFooter, Spinner, Input, Select, SelectItem, Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, useDisclosure, Divider } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { useState, useEffect } from "react";
 import LoadingAnimation from "@/components/loading-animation";
@@ -65,6 +65,11 @@ export default function MonitoringPage() {
   const [isKeepaliveLoading, setIsKeepaliveLoading] = useState(false)
   const [isTestingAlt, setIsTestingAlt] = useState(false)
   const [lastKeepaliveRefresh, setLastKeepaliveRefresh] = useState<Date | null>(null)
+  
+  // Cron schedule customization
+  const [cronInterval, setCronInterval] = useState(1) // Default: 1 day
+  const [isUpdatingCron, setIsUpdatingCron] = useState(false)
+  const [showCronSettings, setShowCronSettings] = useState(false)
   
   const [services, setServices] = useState<ServiceStatus[]>([
     {
@@ -242,11 +247,27 @@ export default function MonitoringPage() {
 
       if (response.ok) {
         const data = await response.json()
+        // Fetch current cron config to get authoritative next run & interval
+        let nextRunFromApi: string | undefined
+        let intervalFromApi: number | undefined
+        try {
+          const cronRes = await fetch('/api/cron-config')
+          if (cronRes.ok) {
+            const cronData = await cronRes.json()
+            nextRunFromApi = cronData?.config?.nextRunUTC
+            intervalFromApi = Number(cronData?.config?.intervalDays)
+          }
+        } catch {}
+
+        if (intervalFromApi && Number.isFinite(intervalFromApi)) {
+          setCronInterval(intervalFromApi)
+        }
+
         setKeepaliveStatus({
           status: 'active',
           lastPing: data.timestamp,
           message: data.message,
-          nextPing: calculateNextPing(),
+          nextPing: nextRunFromApi || calculateNextPing(intervalFromApi || cronInterval),
           hasData: data.hasData,
           responseTime
         })
@@ -269,23 +290,22 @@ export default function MonitoringPage() {
     }
   }
 
-  const calculateNextPing = () => {
+  const calculateNextPing = (customInterval?: number) => {
     const now = new Date()
-    const minutes = now.getMinutes()
-    const nextInterval = Math.ceil(minutes / 10) * 10
     const nextPing = new Date(now)
     
-    if (nextInterval >= 60) {
-      nextPing.setHours(nextPing.getHours() + 1)
-      nextPing.setMinutes(0)
-    } else {
-      nextPing.setMinutes(nextInterval)
+    // Use custom interval (in days) or default to 1 day
+    const intervalDays = customInterval || cronInterval
+    
+    // Set to next scheduled time (12:00 UTC)
+    nextPing.setUTCHours(12, 0, 0, 0)
+    
+    // If current time is past 12:00 UTC today, schedule for tomorrow
+    if (now.getUTCHours() >= 12) {
+      nextPing.setUTCDate(nextPing.getUTCDate() + intervalDays)
     }
     
-    nextPing.setSeconds(0)
-    nextPing.setMilliseconds(0)
-    
-    return nextPing.toLocaleTimeString()
+    return nextPing.toLocaleString()
   }
 
   const getKeepaliveStatusColor = (status: KeepaliveStatus['status']) => {
@@ -322,15 +342,77 @@ export default function MonitoringPage() {
     return 'danger'
   }
 
+  const updateCronSchedule = async (intervalDays: number) => {
+    setIsUpdatingCron(true)
+    try {
+      const response = await fetch('/api/cron-config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ intervalDays })
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        setCronInterval(intervalDays)
+        setKeepaliveStatus(prev => ({
+          ...prev,
+          // Prefer server-computed next run when available
+          nextPing: data?.config?.nextRunUTC || calculateNextPing(intervalDays),
+          message: data.message
+        }))
+        setShowCronSettings(false)
+      } else {
+        setKeepaliveStatus(prev => ({
+          ...prev,
+          status: 'error',
+          message: data.message || 'Failed to update cron schedule'
+        }))
+      }
+    } catch (error) {
+      console.error('Error updating cron schedule:', error)
+      setKeepaliveStatus(prev => ({
+        ...prev,
+        status: 'error',
+        message: 'Failed to update cron schedule'
+      }))
+    } finally {
+      setIsUpdatingCron(false)
+    }
+  }
+
+  const loadCronConfiguration = async () => {
+    try {
+      const response = await fetch('/api/cron-config')
+      if (response.ok) {
+        const data = await response.json()
+        const interval = Number(data?.config?.intervalDays) || 1
+        setCronInterval(interval)
+        // If API provides next run, reflect it in UI
+        if (data?.config?.nextRunUTC) {
+          setKeepaliveStatus(prev => ({
+            ...prev,
+            nextPing: data.config.nextRunUTC
+          }))
+        }
+      }
+    } catch (error) {
+      console.error('Error loading cron configuration:', error)
+    }
+  }
+
   useEffect(() => {
     fetchHealthData()
     checkKeepaliveStatus()
+    loadCronConfiguration()
 
-    // Auto-refresh every 30 seconds for health data
-    const healthInterval = setInterval(fetchHealthData, 30 * 1000)
+    // Auto-refresh every 5 minutes for health data (less frequent for daily crons)
+    const healthInterval = setInterval(fetchHealthData, 5 * 60 * 1000)
     
-    // Auto-refresh every 2 minutes for keepalive
-    const keepaliveInterval = setInterval(() => checkKeepaliveStatus(), 2 * 60 * 1000)
+    // Auto-refresh every 30 minutes for keepalive (much less frequent for daily crons)
+    const keepaliveInterval = setInterval(() => checkKeepaliveStatus(), 30 * 60 * 1000)
 
     return () => {
       clearInterval(healthInterval)
@@ -548,7 +630,7 @@ export default function MonitoringPage() {
                             <div className="space-y-3 text-sm">
                               <div className="flex justify-between">
                                 <span className="font-medium">Keepalive:</span>
-                                <span className="text-default-600">10-minute intervals</span>
+                                <span className="text-default-600">Every {cronInterval} day{cronInterval !== 1 ? 's' : ''} at 12:00 UTC</span>
                               </div>
                               <div className="flex justify-between">
                                 <span className="font-medium">Health checks:</span>
@@ -628,7 +710,16 @@ export default function MonitoringPage() {
                             <Icon icon="mdi:clock-outline" className="text-3xl text-danger-600 mx-auto mb-2" />
                             <p className="text-sm font-medium text-danger-700">Next Ping</p>
                             <p className="text-lg font-bold text-danger-900">
-                              {keepaliveStatus.nextPing}
+                              {keepaliveStatus.nextPing && (() => {
+                                const d = new Date(keepaliveStatus.nextPing)
+                                const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sept','Oct','Nov','Dec']
+                                const month = months[d.getMonth()] || months[0]
+                                const day = d.getDate()
+                                let hours = d.getHours()
+                                const ampm = hours >= 12 ? 'PM' : 'AM'
+                                hours = hours % 12 || 12
+                                return `${month} ${day} at ${hours} ${ampm}`
+                              })()}
                             </p>
                           </CardBody>
                         </Card>
@@ -643,17 +734,12 @@ export default function MonitoringPage() {
                           <CardBody className="p-4">
                             <div className="space-y-3">
                               <div className="flex justify-between text-sm">
-                                <span>Time until next ping</span>
-                                <span className="font-medium">{Math.floor((600 - (Date.now() % 600000)) / 1000)}s</span>
+                                <span>Scheduled at 12:00 UTC</span>
+                                <span className="font-medium">Every {cronInterval} day{cronInterval !== 1 ? 's' : ''}</span>
                               </div>
-                              <Progress 
-                                value={(Date.now() % 600000) / 6000} 
-                                color="primary" 
-                                size="lg"
-                                className="max-w-full"
-                                formatOptions={{ style: "percent" }}
-                                showValueLabel
-                              />
+                              <div className="text-xs text-default-500 mt-2">
+                                Cron runs on schedule at 12:00 UTC to maintain database connection and prevent auto-pause
+                              </div>
                             </div>
                           </CardBody>
                         </Card>
@@ -723,7 +809,11 @@ export default function MonitoringPage() {
                             <div className="space-y-3 text-sm">
                               <div className="flex justify-between">
                                 <span className="font-medium">Frequency:</span>
-                                <span className="text-default-600">Every 10 minutes</span>
+                                <span className="text-default-600">Every {cronInterval} day{cronInterval !== 1 ? 's' : ''}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="font-medium">Schedule:</span>
+                                <span className="text-default-600">At 12:00 UTC</span>
                               </div>
                               <div className="flex justify-between">
                                 <span className="font-medium">Method:</span>
@@ -767,11 +857,37 @@ export default function MonitoringPage() {
                       </div>
                     </div>
 
-                    {lastKeepaliveRefresh && (
-                      <div className="text-sm text-default-400 text-center border-t pt-4">
-                        Last refreshed: {lastKeepaliveRefresh.toLocaleTimeString()}
+                    {/* Cron Schedule Customization */}
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-semibold">Schedule Configuration</h4>
+                        <Button
+                          size="sm"
+                          variant="flat"
+                          color="primary"
+                          onPress={() => setShowCronSettings(true)}
+                          startContent={<Icon icon="mdi:cog" />}
+                        >
+                          Customize
+                        </Button>
                       </div>
-                    )}
+                      <Card className="bg-gradient-to-br from-primary-50 to-primary-100">
+                        <CardBody className="p-4">
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-3">
+                              <Icon icon="mdi:calendar-clock" className="text-2xl text-primary-600" />
+                              <div>
+                                <p className="font-medium text-primary-700">Current Schedule</p>
+                                <p className="text-sm text-primary-600">Runs every {cronInterval} day{cronInterval !== 1 ? 's' : ''} at 12:00 UTC</p>
+                              </div>
+                            </div>
+                            <div className="text-xs text-primary-500">
+                              Optimized for Vercel Hobby plan limits. Minimum: 1 day, Maximum: 30 days.
+                            </div>
+                          </div>
+                        </CardBody>
+                      </Card>
+                    </div>
                   </div>
                 </Tab>
 
@@ -792,42 +908,46 @@ export default function MonitoringPage() {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       <Button
                         variant="shadow"
+                        color="primary"
                         startContent={<Icon icon="mdi:database-check" />}
                         onPress={() => window.open('/api/health', '_blank')}
                         className="justify-start h-auto p-6"
                       >
                         <div className="text-left">
                           <div className="font-medium">View Health API</div>
-                          <div className="text-sm text-default-700">Check raw health endpoint response</div>
+                          <div className="text-sm opacity-60">Check raw health endpoint response</div>
                         </div>
                       </Button>
 
                       <Button
                         variant="shadow"
+                        color="primary"
                         startContent={<Icon icon="mdi:heart-pulse" />}
                         onPress={() => window.open('/api/keepalive', '_blank')}
                         className="justify-start h-auto p-6"
                       >
                         <div className="text-left">
                           <div className="font-medium">Test Keepalive</div>
-                          <div className="text-sm text-default-700">Manually trigger keepalive endpoint</div>
+                          <div className="text-sm opacity-60">Manually trigger keepalive endpoint</div>
                         </div>
                       </Button>
 
                       <Button
                         variant="shadow"
+                        color="primary"
                         startContent={<Icon icon="mdi:backup-restore" />}
                         onPress={() => window.open('/api/keepalive-alt', '_blank')}
                         className="justify-start h-auto p-6"
                       >
                         <div className="text-left">
                           <div className="font-medium">Test Alternative</div>
-                          <div className="text-sm text-default-500">Test fallback keepalive method</div>
+                          <div className="text-sm opacity-60">Test fallback keepalive method</div>
                         </div>
                       </Button>
 
                       <Button
                         variant="shadow"
+                        color="primary"
                         startContent={<Icon icon="mdi:refresh" />}
                         onPress={() => {
                           fetchHealthData()
@@ -837,12 +957,13 @@ export default function MonitoringPage() {
                       >
                         <div className="text-left">
                           <div className="font-medium">Refresh All</div>
-                          <div className="text-sm text-default-700">Update all service status</div>
+                          <div className="text-sm opacity-60">Update all service status</div>
                         </div>
                       </Button>
 
                       <Button
                         variant="shadow"
+                        color="primary"
                         startContent={<Icon icon="mdi:download" />}
                         onPress={() => {
                           const data = JSON.stringify({ 
@@ -862,19 +983,20 @@ export default function MonitoringPage() {
                       >
                         <div className="text-left">
                           <div className="font-medium">Export Report</div>
-                          <div className="text-sm text-default-700">Download system status as JSON</div>
+                          <div className="text-sm opacity-60">Download system status as JSON</div>
                         </div>
                       </Button>
 
                       <Button
                         variant="shadow"
+                        color="primary"
                         startContent={<Icon icon="mdi:information" />}
                         onPress={() => alert('System monitoring helps prevent Supabase database auto-pause and monitors overall system health.')}
                         className="justify-start h-auto p-6"
                       >
                         <div className="text-left">
                           <div className="font-medium">About Monitoring</div>
-                          <div className="text-sm text-default-700">Learn about system monitoring</div>
+                          <div className="text-sm opacity-60">Learn about system monitoring</div>
                         </div>
                       </Button>
                     </div>
@@ -885,6 +1007,121 @@ export default function MonitoringPage() {
           </Card>
         </div>
       </div>
+      
+      {/* Cron Schedule Customization Modal */}
+      <Modal 
+        isOpen={showCronSettings} 
+        onClose={() => setShowCronSettings(false)}
+        placement='auto'
+        classNames={{ backdrop: "bg-background/50", wrapper: 'overflow-hidden' }}
+        backdrop="blur"
+        size="lg"
+      >
+        <ModalContent>
+          <ModalHeader>
+            <div className="flex items-center gap-2">
+              <Icon icon="mdi:calendar-clock" />
+              Customize Cron Schedule
+            </div>
+          </ModalHeader>
+          <ModalBody>
+            <div className="space-y-4">
+              <p className="text-default-600">
+                Configure how often the database keepalive runs. For Vercel Hobby accounts, 
+                daily execution is recommended to stay within limits while preventing database auto-pause.
+              </p>
+              
+              <div className="space-y-3">
+                <label className="block text-sm font-medium">Interval (Days)</label>
+                <div className="flex items-center gap-4">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={cronInterval.toString()}
+                    onChange={(e) => {
+                      const value = parseInt(e.target.value)
+                      if (value >= 1 && value <= 30) {
+                        setCronInterval(value)
+                      }
+                    }}
+                    endContent={
+                      <div className="text-default-400 text-sm">
+                        day{cronInterval !== 1 ? 's' : ''}
+                      </div>
+                    }
+                    className="flex-1"
+                  />
+                </div>
+                <div className="text-xs text-default-500">
+                  Minimum: 1 day, Maximum: 30 days
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <h4 className="font-medium">Quick Presets</h4>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    size="sm"
+                    variant={cronInterval === 1 ? "solid" : "bordered"}
+                    onPress={() => setCronInterval(1)}
+                  >
+                    Daily
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={cronInterval === 3 ? "solid" : "bordered"}
+                    onPress={() => setCronInterval(3)}
+                  >
+                    Every 3 Days
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={cronInterval === 7 ? "solid" : "bordered"}
+                    onPress={() => setCronInterval(7)}
+                  >
+                    Weekly
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={cronInterval === 14 ? "solid" : "bordered"}
+                    onPress={() => setCronInterval(14)}
+                  >
+                    Bi-weekly
+                  </Button>
+                </div>
+              </div>
+
+              <Card className="bg-warning-50">
+                <CardBody className="p-3">
+                  <div className="flex items-start gap-2">
+                    <Icon icon="mdi:information" className="text-warning-600 mt-0.5" />
+                    <div className="text-sm text-warning-700">
+                      <p className="font-medium">Note:</p>
+                      <p>Changes require redeployment to take effect. The schedule will be updated in vercel.json.</p>
+                    </div>
+                  </div>
+                </CardBody>
+              </Card>
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              variant="light"
+              onPress={() => setShowCronSettings(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              color="primary"
+              onPress={() => updateCronSchedule(cronInterval)}
+              isLoading={isUpdatingCron}
+            >
+              Update Schedule
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </motion.div>
   );
 }
