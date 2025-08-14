@@ -50,6 +50,8 @@ export default function NavigationBread() {
             { name: 'Reorder Point', href: '/home/reorder-point', icon: "heroicons:chart-bar-20-solid" },
             { name: 'Notifications', href: '/home/notifications', icon: "heroicons:bell-alert-20-solid" },
             { name: 'Settings', href: '/home/settings', icon: "heroicons:cog-8-tooth-20-solid" },
+            { name: 'Update Logs', href: '/home/settings/update-logs', icon: "heroicons:document-text-20-solid" },
+            { name: 'System Monitoring', href: '/home/settings/monitoring', icon: "heroicons:cpu-chip-20-solid" },
             { name: 'Profile', href: '/home/profile', icon: "heroicons:user-20-solid" },
             { name: 'Company Profile', href: '/home/company', icon: "heroicons:user-20-solid" },
           ])
@@ -62,6 +64,8 @@ export default function NavigationBread() {
             { name: 'Reorder Point', href: '/home/reorder-point', icon: "heroicons:chart-bar-20-solid" },
             { name: 'Notifications', href: '/home/notifications', icon: "heroicons:bell-alert-20-solid" },
             { name: 'Settings', href: '/home/settings', icon: "heroicons:cog-8-tooth-20-solid" },
+            { name: 'Update Logs', href: '/home/settings/update-logs', icon: "heroicons:document-text-20-solid" },
+            { name: 'System Monitoring', href: '/home/settings/monitoring', icon: "heroicons:cpu-chip-20-solid" },
             { name: 'Profile', href: '/home/profile', icon: "heroicons:user-20-solid" },
             { name: 'Company Profile', href: '/home/company', icon: "heroicons:user-20-solid" },
           ])

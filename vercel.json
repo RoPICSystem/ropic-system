@@ -1,0 +1,16 @@
+{
+  "crons": [
+    {
+      "path": "/api/keepalive",
+      "schedule": "*/10 * * * *"
+    }
+  ],
+  "functions": {
+    "src/app/api/keepalive/route.ts": {
+      "maxDuration": 10
+    },
+    "src/app/api/keepalive-alt/route.ts": {
+      "maxDuration": 10
+    }
+  }
+}

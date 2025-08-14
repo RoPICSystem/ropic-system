@@ -910,10 +910,49 @@ For new features, please provide:
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
+## 🔧 System Monitoring Solution
+
+To prevent your Supabase free tier database from pausing due to inactivity, this project includes a comprehensive system monitoring solution with automated keepalive functionality.
+
+### Features
+- **Automated Database Keepalive**: Triggers every 10 minutes to prevent Supabase auto-pause
+- **Real-time System Health**: Monitor both backend (Supabase) and frontend (Vercel) services
+- **Comprehensive Dashboard**: Beautiful monitoring interface accessible via Settings → System Monitoring
+- **Multiple Service Monitoring**: Track database, API, authentication, and real-time services
+- **Performance Metrics**: Response times, uptime tracking, and health indicators
+- **Free Tier Compatible**: Works within Vercel and Supabase free plan limits
+- **Export Capabilities**: Download system status reports
+- **Manual Testing**: Test individual services and endpoints
+
+### Quick Access
+Navigate to **Settings → System Monitoring** in your application to access the monitoring dashboard with:
+- System status overview with operational percentage
+- Individual service health cards
+- Real-time keepalive monitoring
+- Environment information
+- Manual testing tools
+- Export functionality
+
+### Setup Instructions
+See [`docs/KEEPALIVE_SETUP.md`](docs/KEEPALIVE_SETUP.md) for complete configuration instructions.
+
+### Quick Setup
+1. Deploy your app to Vercel (cron jobs auto-configured via `vercel.json`)
+2. Run the keepalive SQL function in your Supabase SQL editor:
+   ```sql
+   -- See supabase/keepalive_function.sql for the complete function
+   CREATE OR REPLACE FUNCTION keepalive_ping() RETURNS jsonb...
+   ```
+3. Optionally set `CRON_SECRET` environment variable for security
+4. Access the monitoring dashboard via Settings → System Monitoring
+
+The system will automatically keep your database active and provide comprehensive monitoring of your entire stack.
+
 ## 🆘 Support
 
 ### Documentation
 - **README**: This comprehensive guide
+- **Database Keepalive**: [`docs/KEEPALIVE_SETUP.md`](docs/KEEPALIVE_SETUP.md) - Database keepalive configuration
 - **Code Comments**: Inline documentation throughout the codebase
 - **Type Definitions**: TypeScript interfaces and types for all data structures
 - **API Documentation**: Function signatures and usage examples

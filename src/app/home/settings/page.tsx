@@ -313,6 +313,34 @@ export default function SettingsPage() {
                 </Button>
               </div>
             </LoadingAnimation>
+
+            <LoadingAnimation
+              condition={isLoading}
+              skeleton={
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Skeleton className="h-6 w-48 rounded-xl mb-2" />
+                    <Skeleton className="h-4 w-64 rounded-xl" />
+                  </div>
+                  <Skeleton className="h-10 w-10 rounded-xl" />
+                </div>
+              }>
+              <div className="flex items-center justify-between h-full w-full">
+                <div className="flex flex-col">
+                  <span>System Monitoring</span>
+                  <p className="text-tiny text-default-600">
+                    Monitor backend and frontend system health
+                  </p>
+                </div>
+                <Button
+                  variant="shadow"
+                  color="primary"
+                  onPress={() => router.push('/home/settings/monitoring')}
+                  className="my-1">
+                  <Icon icon="mdi:chevron-right" className="text-xl" />
+                </Button>
+              </div>
+            </LoadingAnimation>
           </CardList>
 
           <CardList>
