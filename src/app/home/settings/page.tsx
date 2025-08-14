@@ -368,7 +368,7 @@ export default function SettingsPage() {
                 </div>
                 <Button variant="shadow" color="primary" className="my-1"
                   onPress={() => router.push('/home/settings/update-logs')}>
-                  <Icon icon="mdi:chevron-right" className="text-xl" />
+                  Update Logs <Icon icon="mdi:chevron-right" className="text-xl" />
                 </Button>
               </div>
             </LoadingAnimation>
