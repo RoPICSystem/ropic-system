@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { motionTransition } from "@/utils/anim";
-import { Card, CardBody, Chip, Button, Skeleton, Progress, Tabs, Tab, CardFooter } from "@heroui/react";
+import { Card, CardBody, Chip, Button, Skeleton, Progress, Tabs, Tab, CardFooter, Spinner } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { useState, useEffect } from "react";
 import LoadingAnimation from "@/components/loading-animation";
@@ -477,7 +477,10 @@ export default function MonitoringPage() {
                     {/* Environment Information */}
                     {healthData && (
                       <div className="space-y-4">
-                        <h3 className="text-lg font-semibold">Environment Information</h3>
+                        <div>
+                          <h3 className="text-lg font-semibold">Environment Information</h3>
+                          <p className="text-default-500">System environment and uptime details</p>
+                        </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                           <Card className="bg-gradient-to-br from-default-50 to-default-100">
                             <CardBody className="p-4 text-center">
@@ -576,24 +579,11 @@ export default function MonitoringPage() {
                     </div>
                   }
                 >
-                  <div className="p-6 space-y-6">
+                  <div className="p-6 space-y-4">
                     {/* Keepalive Status Header */}
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-3">
-                        <Icon 
-                          icon={getKeepaliveStatusIcon(keepaliveStatus.status)} 
-                          className={`text-3xl ${
-                            keepaliveStatus.status === 'active' ? 'text-success' : 
-                            keepaliveStatus.status === 'error' ? 'text-danger' : 
-                            keepaliveStatus.status === 'inactive' ? 'text-warning' : 
-                            'text-default-400'
-                          }`}
-                        />
-                        <div>
-                          <h3 className="text-lg font-semibold">Database Keepalive Status</h3>
-                          <p className="text-default-500">Supabase connection monitoring and auto-ping system</p>
-                        </div>
-                      </div>
+                    <div>
+                      <h3 className="text-lg font-semibold">Database Keepalive Status</h3>
+                      <p className="text-default-500">Supabase connection monitoring and auto-ping system</p>
                     </div>
 
                     {/* Status Information Cards */}
@@ -688,30 +678,36 @@ export default function MonitoringPage() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <Button
                           size="lg"
-                          variant="bordered"
+                          variant="shadow"
+                          color="primary"
                           onPress={() => checkKeepaliveStatus(false)}
-                          isLoading={isKeepaliveLoading}
+                          startContent={isKeepaliveLoading ?
+                            <Spinner size="sm" />
+                            : <Icon icon="mdi:refresh" className="text-xl" />
+                          }
+
                           className="h-auto p-6 justify-start"
-                          startContent={<Icon icon="mdi:refresh" className="text-xl" />}
                         >
                           <div className="text-left">
                             <div className="font-medium">Test Primary Endpoint</div>
-                            <div className="text-sm text-default-500">/api/keepalive - Main database ping</div>
+                            <div className="text-sm opacity-70">/api/keepalive - Main database ping</div>
                           </div>
                         </Button>
 
                         <Button
                           size="lg"
-                          variant="bordered"
+                          variant="shadow"
                           color="secondary"
                           onPress={() => checkKeepaliveStatus(true)}
-                          isLoading={isTestingAlt}
+                          startContent={isTestingAlt ?
+                            <Spinner size="sm" color="secondary" />
+                            : <Icon icon="mdi:backup-restore" className="text-xl" />
+                          }
                           className="h-auto p-6 justify-start"
-                          startContent={<Icon icon="mdi:backup-restore" className="text-xl" />}
                         >
                           <div className="text-left">
                             <div className="font-medium">Test Alternative Endpoint</div>
-                            <div className="text-sm text-default-500">/api/keepalive-alt - Fallback method</div>
+                            <div className="text-sm opacity-70">/api/keepalive-alt - Fallback method</div>
                           </div>
                         </Button>
                       </div>
@@ -789,34 +785,37 @@ export default function MonitoringPage() {
                   }
                 >
                   <div className="p-6 space-y-4">
-                    <h3 className="text-lg font-semibold">Monitoring Actions</h3>
+                    <div>
+                      <h3 className="text-lg font-semibold">Monitoring Actions</h3> 
+                      <p className="text-default-500">Perform actions related to system monitoring</p>
+                    </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       <Button
-                        variant="bordered"
+                        variant="shadow"
                         startContent={<Icon icon="mdi:database-check" />}
                         onPress={() => window.open('/api/health', '_blank')}
                         className="justify-start h-auto p-6"
                       >
                         <div className="text-left">
                           <div className="font-medium">View Health API</div>
-                          <div className="text-sm text-default-500">Check raw health endpoint response</div>
+                          <div className="text-sm text-default-700">Check raw health endpoint response</div>
                         </div>
                       </Button>
 
                       <Button
-                        variant="bordered"
+                        variant="shadow"
                         startContent={<Icon icon="mdi:heart-pulse" />}
                         onPress={() => window.open('/api/keepalive', '_blank')}
                         className="justify-start h-auto p-6"
                       >
                         <div className="text-left">
                           <div className="font-medium">Test Keepalive</div>
-                          <div className="text-sm text-default-500">Manually trigger keepalive endpoint</div>
+                          <div className="text-sm text-default-700">Manually trigger keepalive endpoint</div>
                         </div>
                       </Button>
 
                       <Button
-                        variant="bordered"
+                        variant="shadow"
                         startContent={<Icon icon="mdi:backup-restore" />}
                         onPress={() => window.open('/api/keepalive-alt', '_blank')}
                         className="justify-start h-auto p-6"
@@ -828,7 +827,7 @@ export default function MonitoringPage() {
                       </Button>
 
                       <Button
-                        variant="bordered"
+                        variant="shadow"
                         startContent={<Icon icon="mdi:refresh" />}
                         onPress={() => {
                           fetchHealthData()
@@ -838,12 +837,12 @@ export default function MonitoringPage() {
                       >
                         <div className="text-left">
                           <div className="font-medium">Refresh All</div>
-                          <div className="text-sm text-default-500">Update all service status</div>
+                          <div className="text-sm text-default-700">Update all service status</div>
                         </div>
                       </Button>
 
                       <Button
-                        variant="bordered"
+                        variant="shadow"
                         startContent={<Icon icon="mdi:download" />}
                         onPress={() => {
                           const data = JSON.stringify({ 
@@ -863,19 +862,19 @@ export default function MonitoringPage() {
                       >
                         <div className="text-left">
                           <div className="font-medium">Export Report</div>
-                          <div className="text-sm text-default-500">Download system status as JSON</div>
+                          <div className="text-sm text-default-700">Download system status as JSON</div>
                         </div>
                       </Button>
 
                       <Button
-                        variant="bordered"
+                        variant="shadow"
                         startContent={<Icon icon="mdi:information" />}
                         onPress={() => alert('System monitoring helps prevent Supabase database auto-pause and monitors overall system health.')}
                         className="justify-start h-auto p-6"
                       >
                         <div className="text-left">
                           <div className="font-medium">About Monitoring</div>
-                          <div className="text-sm text-default-500">Learn about system monitoring</div>
+                          <div className="text-sm text-default-700">Learn about system monitoring</div>
                         </div>
                       </Button>
                     </div>
