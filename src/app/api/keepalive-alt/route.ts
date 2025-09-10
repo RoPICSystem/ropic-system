@@ -3,11 +3,15 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export async function GET(request: NextRequest) {
   try {
-    // Verify the request is from a cron job or authorized source
-    const authHeader = request.headers.get('authorization')
+    // For Vercel cron jobs, check the cron-secret header instead of authorization
+    const cronSecret = request.headers.get('x-vercel-cron-secret') || request.headers.get('authorization')?.replace('Bearer ', '')
     const expectedToken = process.env.CRON_SECRET
     
-    if (expectedToken && authHeader !== `Bearer ${expectedToken}`) {
+    // Allow requests from Vercel cron (which sends x-vercel-cron-secret) or with proper auth
+    const isValidCron = request.headers.get('user-agent')?.includes('vercel-cron') || 
+                       (expectedToken && cronSecret === expectedToken)
+    
+    if (expectedToken && !isValidCron) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 

@@ -162,6 +162,56 @@ async function updateVercelJsonSchedule(newSchedule: string): Promise<{ updated:
   }
 }
 
+async function triggerVercelDeployment(): Promise<{ deployed: boolean; deploymentUrl?: string; error?: string }> {
+  const vercelToken = process.env.VERCEL_TOKEN
+  const vercelTeamId = process.env.VERCEL_TEAM_ID
+  const vercelProjectId = process.env.VERCEL_PROJECT_ID || 'ropic-system'
+  
+  if (!vercelToken) {
+    return { deployed: false, error: 'VERCEL_TOKEN environment variable not set' }
+  }
+  
+  try {
+    const deploymentPayload: any = {
+      name: vercelProjectId,
+      gitSource: {
+        type: 'github',
+        ref: process.env.VERCEL_GIT_COMMIT_REF || 'main',
+        repoId: process.env.VERCEL_GIT_REPO_ID
+      }
+    }
+    
+    if (vercelTeamId) {
+      deploymentPayload.teamId = vercelTeamId
+    }
+    
+    const response = await fetch('https://api.vercel.com/v13/deployments', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${vercelToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(deploymentPayload)
+    })
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+      return { 
+        deployed: false, 
+        error: `Deployment failed: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}` 
+      }
+    }
+    
+    const deployment = await response.json()
+    return { 
+      deployed: true, 
+      deploymentUrl: deployment.url 
+    }
+  } catch (e: any) {
+    return { deployed: false, error: e?.message || 'Failed to trigger deployment' }
+  }
+}
+
 export async function GET() {
   try {
     const cfg = await loadCurrentConfig()
@@ -211,17 +261,27 @@ export async function POST(request: NextRequest) {
     const updatedAt = new Date().toISOString()
     await writeJson(CONFIG_FILE, { intervalDays, schedule, updatedAt })
 
+    // Trigger a new deployment to apply the cron changes
+    const deploymentResult = await triggerVercelDeployment()
+
     const nextRunUTC = computeNextRunISO(schedule, intervalDays)
 
+    const message = `Cron schedule updated to run ${label}. ${approximated ? 'Note: exact interval approximated by cron expression.' : ''}${vercelResult.updated ? '' : ' (vercel.json not updated: ' + (vercelResult.error || 'unknown error') + ')'}${deploymentResult.deployed ? ` Deployment triggered: ${deploymentResult.deploymentUrl}` : ` Deployment failed: ${deploymentResult.error}`}`
+
     return NextResponse.json({
-      status: 'success',
+      status: deploymentResult.deployed ? 'success' : 'partial',
       config: {
         schedule,
         intervalDays,
         nextRunUTC,
         updatedAt,
       },
-      message: `Cron schedule updated to run ${label}. ${approximated ? 'Note: exact interval approximated by cron expression.' : ''}${vercelResult.updated ? '' : ' (vercel.json not updated: ' + (vercelResult.error || 'unknown error') + ')'}`,
+      deployment: {
+        triggered: deploymentResult.deployed,
+        url: deploymentResult.deploymentUrl,
+        error: deploymentResult.error
+      },
+      message,
     })
   } catch (error) {
     console.error('Error updating cron config:', error)

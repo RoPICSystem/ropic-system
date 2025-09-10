@@ -9,12 +9,17 @@ Use this checklist to ensure your database keepalive solution is properly deploy
   - [ ] `NEXT_PUBLIC_SUPABASE_ANON_KEY`
   - [ ] `SUPABASE_SERVICE_ROLE_KEY`
   - [ ] `CRON_SECRET` (optional, for security)
+  - [ ] `VERCEL_TOKEN` (required for automatic deployments)
+  - [ ] `VERCEL_PROJECT_ID` (optional, defaults to 'ropic-system')
+  - [ ] `VERCEL_TEAM_ID` (optional, only if using team account)
 
 - [ ] **Test locally**
   ```bash
   npm run dev
   curl http://localhost:3000/api/keepalive
   curl http://localhost:3000/api/health
+  curl http://localhost:3000/api/test-cron
+  curl http://localhost:3000/api/cron-config
   ```
 
 - [ ] **Verify files are in place**
@@ -22,7 +27,10 @@ Use this checklist to ensure your database keepalive solution is properly deploy
   - [ ] `src/app/api/keepalive/route.ts`
   - [ ] `src/app/api/keepalive-alt/route.ts`
   - [ ] `src/app/api/health/route.ts`
+  - [ ] `src/app/api/test-cron/route.ts` (for testing)
+  - [ ] `src/app/api/cron-config/route.ts` (for configuration)
   - [ ] `supabase/keepalive_function.sql`
+  - [ ] `docs/ENVIRONMENT_VARIABLES.md`
 
 ## Supabase Setup
 
