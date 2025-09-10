@@ -41,7 +41,7 @@ export async function GET() {
         },
         keepalive: {
           status: 'active',
-          schedule: '*/10 * * * *',
+          schedule: process.env.CRON_SCHEDULE || 'not configured',
           endpoint: '/api/keepalive'
         }
       },
